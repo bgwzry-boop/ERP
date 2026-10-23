@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +10,7 @@ import {
   createLocalPrinterDeviceFieldTestRepository,
   createPostgresPrinterDeviceFieldTestRepository,
   normalizePrinterDeviceFieldTestRecord,
+  filterPrinterDeviceFieldTests,
 } from "../server/printerDeviceFieldTestRepository.mjs";
 
 const record = {
@@ -98,7 +99,31 @@ function checkLocalPrinterDeviceFieldTestRepository() {
 
     const reloadedState = createLocalPrinterDeviceFieldTestRepository({ storageRoot }).loadState();
     assert.equal(reloadedState.printerDeviceFieldTests[0].paperLabel, "80x60 热敏标签");
+    const beforeDuplicate=structuredClone(workspace);
+    const fileBeforeDuplicate=readFileSync(storePath,'utf8');
+    for (const targetWorkspace of [workspace,{...workspace,printerDeviceFieldTests:[]}]) {
+      assert.throws(()=>repository.recordPrinterDeviceFieldTest({workspace:targetWorkspace,
+        record:{...record,note:'Attempted overwrite'},operationLog:{...operationLog,id:'LOG-OVERWRITE'}}),
+        {code:'PRINTER_DEVICE_FIELD_TEST_RECORD_EXISTS',statusCode:409});
+    }
+    assert.deepEqual(workspace,beforeDuplicate);
+    assert.equal(readFileSync(storePath,'utf8'),fileBeforeDuplicate);
+
     assert.equal(reloadedState.printerDeviceFieldTests[0].summary.evidenceSummary.missingCount, 1);
+    const staleWorkspace={...workspace,printerDeviceFieldTests:[]};
+    repository.recordPrinterDeviceFieldTest({workspace:staleWorkspace,record:{...record,recordId:'SECOND-RECORD'},operationLog:{...operationLog,id:'LOG-SECOND'}});
+    assert.deepEqual(new Set(repository.loadState().printerDeviceFieldTests.map(item=>item.recordId)),new Set([record.recordId,'SECOND-RECORD']));
+    const preserved=readFileSync(storePath,'utf8');
+    for (const damaged of ['{broken',JSON.stringify({printerDeviceFieldTests:null}),JSON.stringify({printerDeviceFieldTests:[{}]})]) {
+      writeFileSync(storePath,damaged);
+      const before=structuredClone(staleWorkspace);
+      assert.throws(()=>repository.loadState(),{code:'PRINTER_DEVICE_FIELD_TEST_STORE_UNREADABLE'});
+      assert.throws(()=>repository.recordPrinterDeviceFieldTest({workspace:staleWorkspace,record:{...record,recordId:'THIRD-RECORD'},operationLog}),{code:'PRINTER_DEVICE_FIELD_TEST_STORE_UNREADABLE'});
+      assert.deepEqual(staleWorkspace,before);
+      assert.equal(readFileSync(storePath,'utf8'),damaged);
+    }
+    writeFileSync(storePath,preserved);
+
   } finally {
     rmSync(storageRoot, { recursive: true, force: true });
   }
@@ -154,6 +179,11 @@ async function checkPostgresPrinterDeviceFieldTestSqlBoundary() {
   assert.match(createQuery.text, /INSERT INTO operation_logs/);
   assert.match(createQuery.text, /INSERT INTO printer_device_field_tests/);
   assert.match(createQuery.text, /ON CONFLICT \(id\) DO UPDATE SET/);
+  const recordSql=createQuery.text.slice(createQuery.text.indexOf('INSERT INTO printer_device_field_tests'));
+  assert.match(recordSql,/ON CONFLICT \(id\) DO NOTHING/);
+  assert.doesNotMatch(recordSql,/DO UPDATE SET/);
+  assert.match(recordSql,/ERP_PRINTER_FIELD_TEST_RECORD_CONFLICT/);
+
   assert.match(createQuery.text, /checks_json/);
   assert.match(createQuery.text, /summary_json/);
   assert.match(createQuery.text, /\$23::jsonb/);
@@ -167,6 +197,18 @@ async function checkPostgresPrinterDeviceFieldTestSqlBoundary() {
   assert.match(listQuery.text, /printer_device_id = \$1::text/);
   assert.match(listQuery.text, /print_job_id = \$2::text/);
   assert.deepEqual(listQuery.values, ["PRN-LABEL-A", "PJ-CHECK-1", "express_ltl_label", 200]);
+
+  const newerRecord={...workspace.printerDeviceFieldTests[0],recordId:'QA-NEWER',checkedAt:'2026-07-03T00:00:00Z',summary:{label:'New evidence'}};
+  workspace.printerDeviceFieldTests.push(newerRecord);
+  workspace.printDevices[0]={...workspace.printDevices[0],latestFieldTestRecord:newerRecord,latestFieldTestSummary:newerRecord.summary,latestFieldTestCheckedAt:newerRecord.checkedAt};
+  const deviceBeforeReplay=structuredClone(workspace.printDevices[0]);
+  const logsBeforeReplay=structuredClone(workspace.operationLogs);
+  const replay=await repository.recordPrinterDeviceFieldTest({workspace,record,
+    operationLog:{...operationLog,id:'LOG-UNSAVED-RETRY'},idempotencyKey:'printer-qa-check-001',
+    idempotencyPayload:{recordId:record.recordId,checks:record.checks}});
+  assert.equal(replay.operationLogId,operationLog.id);
+  assert.deepEqual(workspace.operationLogs,logsBeforeReplay);
+  assert.deepEqual(workspace.printDevices[0],deviceBeforeReplay,"Historical replay must preserve newest device evidence");
 
   const normalized = normalizePrinterDeviceFieldTestRecord({
     id: "PDQA-NORMALIZED",
@@ -216,3 +258,9 @@ async function checkPostgresPrinterDeviceFieldTestSqlBoundary() {
     /Printer device field-test record and operation log are required/,
   );
 }
+
+const sortedTimes=filterPrinterDeviceFieldTests([
+ {...record,recordId:'EARLIER',checkedAt:'2026-09-06T09:00:00+08:00'},
+ {...record,recordId:'LATER',checkedAt:'2026-09-06T02:00:00Z'},
+]);
+assert.deepEqual(sortedTimes.map(row=>row.recordId),['LATER','EARLIER']);

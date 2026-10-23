@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { chromium } from 'playwright';
+const fixture = `import React from 'react';import{createRoot}from'react-dom/client';import{FocusedProductionWorkspace}from'./docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx';
+window.requests=[];window.pending=[];const loadDetail=input=>{window.requests.push(input.productionTaskId);return new Promise(resolve=>window.pending.push(resolve));};
+const formal={authState:{session:{accessToken:'test'}},data:Object.fromEntries(['orderLines','productionTasks','packingTasks','printJobs','printDevices','fulfillments','statements','machines','customers','employeeAccountReviews'].map(k=>[k,[]])),actions:{}};
+const root=createRoot(document.getElementById('app'));window.show=id=>root.render(<FocusedProductionWorkspace key={id} formal={formal} taskId={id} loadDetail={loadDetail} onNavigate={()=>{}}/>);window.show('PT-A');`;
+const bundle=await build({alias:{react:process.cwd()+"/node_modules/react","react-dom":process.cwd()+"/node_modules/react-dom"},stdin:{contents:fixture,resolveDir:process.cwd(),loader:'jsx'},bundle:true,format:'iife',write:false,jsx:'automatic',loader:{'.css':'empty','.svg':'dataurl','.png':'dataurl'},logLevel:'silent'});
+const browser=await chromium.launch({headless:true});
+try {
+ const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.setContent('<div id="app"></div>');await page.addScriptTag({content:bundle.outputFiles[0].text});
+ await page.waitForFunction(()=>window.requests.length===1);
+ await page.evaluate(()=>window.show('PT-B'));
+ await page.waitForFunction(()=>window.requests.length===2);
+ const result=id=>({source:'api',detail:{productionTaskId:id,orderLineId:'OL-SHARED',productionTask:{plannedQty:12,taskStatus:'制袋中'},orderLine:{id:'OL-SHARED',product:'目标袋子',size:'30×40',bagColor:'白色'}}});
+ await page.evaluate(value=>window.pending[0](value),result('PT-A'));
+ assert.match(await page.locator('#app').innerText(),/正在读取生产任务 PT-B/);
+ await page.evaluate(value=>window.pending[1](value),result('PT-B'));
+ await page.getByText('目标袋子',{exact:true}).first().waitFor();
+ assert.match(await page.locator('.business-detail-panel').innerText(),/PT-B/);
+ assert.doesNotMatch(await page.locator('.business-detail-panel').innerText(),/PT-A/);
+ await page.evaluate(()=>window.show('PT-C'));await page.waitForFunction(()=>window.requests.length===3);
+ await page.evaluate(value=>window.pending[2]({...value,source:'local_fallback'}),result('PT-C'));
+ await page.getByRole('button',{name:'重新读取任务'}).waitFor();
+ assert.equal(await page.locator('.business-detail-panel').count(),0);
+ await page.getByRole('button',{name:'重新读取任务'}).click();await page.waitForFunction(()=>window.requests.length===4);
+ await page.evaluate(value=>window.pending[3](value),result('PT-WRONG'));
+ await page.getByRole('alert').waitFor();assert.equal(await page.locator('.business-detail-panel').count(),0);
+ assert.deepEqual(errors,[]);
+ console.log('PASS production focus: empty list exact detail, stale response isolation, local fallback rejection, wrong target rejection and retry. Mocked API.');
+} finally {await browser.close();}

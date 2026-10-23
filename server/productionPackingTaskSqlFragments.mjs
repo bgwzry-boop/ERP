@@ -73,14 +73,6 @@ export function buildInsertWorkshopReportSql(report, parameters, dependency = ""
   evidence_json,
   created_at
 ) ${buildInsertValuesSource(values, ["id", "production_task_id", "order_line_id", "process_type", "machine_id", "operator_id", "qualified_qty", "exception_qty", "machine_count", "started_at", "completed_at", "remark", "evidence_json", "created_at"], dependency)}
-ON CONFLICT (id) DO UPDATE SET
-  qualified_qty = EXCLUDED.qualified_qty,
-  exception_qty = EXCLUDED.exception_qty,
-  machine_count = EXCLUDED.machine_count,
-  completed_at = EXCLUDED.completed_at,
-  remark = EXCLUDED.remark,
-  evidence_json = EXCLUDED.evidence_json
-WHERE erp_require(workshop_reports.order_line_id = EXCLUDED.order_line_id AND workshop_reports.production_task_id IS NOT DISTINCT FROM EXCLUDED.production_task_id AND workshop_reports.process_type = EXCLUDED.process_type, 'ERP_PRODUCTION_REPORT_BINDING_CONFLICT')
 RETURNING ${workshopReportJsonExpression("workshop_reports")} AS result`;
 }
 

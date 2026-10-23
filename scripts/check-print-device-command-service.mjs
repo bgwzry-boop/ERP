@@ -126,7 +126,8 @@ const fixedNow = "2026-07-11T12:00:00.000Z";
     body: {
       printJobId: "PJ-001",
       operatorId: "UNTRUSTED-BODY-OPERATOR",
-      operatorName: "办公室A",
+      operatorName: "Forged operator",
+      checkedAt: "2099-01-01T00:00:00Z",
       checks: [
         { key: "sample_print", status: "passed" },
         { key: "paper_alignment", status: "passed" },
@@ -150,20 +151,28 @@ const fixedNow = "2026-07-11T12:00:00.000Z";
   assert.equal(recorded.record.printJobId, "PJ-001");
   assert.equal(recorded.record.documentType, "express_ltl_label");
   assert.equal(recorded.record.operatorId, "U-TECH-A");
+  assert.equal(recorded.record.operatorName, "U-TECH-A", "Missing server profile uses authenticated ID, not client name");
   assert.equal(recorded.record.deviceLabel, "标签机 A");
   assert.equal(recorded.record.driverLabel, "Generic Label Driver");
   assert.equal(recorded.record.paperLabel, "76x50mm");
   assert.equal(recorded.record.checkedAt, fixedNow);
-  assert.match(recorded.record.recordId, /^PDQA-20260711120000-PRN-001$/);
+  assert.match(recorded.record.recordId, /^PDQA-20260711120000-PRN-001-[0-9a-f-]{36}$/);
   assert.equal(recorded.acceptance.ready, true);
   assert.equal(recorded.acceptance.printedJobLinked, true);
   assert.equal(recorded.resultStatus.recordSaved, true);
   assert.equal(recorded.resultStatus.onsiteAcceptancePassed, true);
   assert.equal(recorded.resultStatus.physicalPrinterCalledByRequest, false);
   assert.equal(recorded.safeguards.nonPrinting, true);
+
   assert.equal(recorded.safeguards.physicalPrinterCalled, false);
   assert.equal(harness.fieldTestCalls.at(-1).idempotencyKey, "printer-field-test-001");
   assert.equal(harness.fieldTestCalls.at(-1).operationLog.operatorId, "U-TECH-A");
+  harness.workspace.users=[{userId:'U-TECH-A',displayName:'Server operator'}];
+  const named=await harness.service.recordPrinterDeviceFieldTest({workspace:harness.workspace,printDeviceId:'PRN-001',operatorId:'U-TECH-A',
+    body:{recordId:'QA-SERVER-NAME',operatorName:'Another forged name',checkedAt:'2000-01-01T00:00:00Z'}});
+  assert.equal(named.record.operatorName,'Server operator');
+  assert.equal(named.record.checkedAt,fixedNow);
+
 }
 
 console.log("Print device command service checks passed: maintenance, driver mode, QA ownership, identity, and idempotency are isolated.");

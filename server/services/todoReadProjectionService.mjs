@@ -95,6 +95,8 @@ function projectTodo({ workspace, todo, now = new Date() }) {
   return {
     ...summary,
     ...reference,
+    ...projectRetakeTask(workspace, summary),
+    ...(summary.type === "生产异常" ? projectProductionException(workspace, summary, reference) : {}),
     allowedRefTypes: getAllowedTodoReferenceTypes(referenceTodo),
     resolvedRefTypeLabel: getTodoReferenceTypeLabel(reference.resolvedRefType),
     referenceCandidates:
@@ -156,6 +158,7 @@ function normalizePriority(value, fallback = "normal") {
     management_watch: "management_watch",
     normal: "normal",
     急: "urgent",
+    紧急: "urgent",
     今天: "urgent",
     异常: "exception",
     关注: "management_watch",
@@ -220,4 +223,28 @@ function asArray(value) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function projectProductionException(workspace, todo, reference) {
+  const matches = asArray(workspace?.productionExceptions).filter(record =>
+    `T-${cleanText(record.productionExceptionId ?? record.id)}` === todo.todoId &&
+    cleanText(record.productionTaskId ?? record.production_task_id) === reference.resolvedRefId);
+  return { productionExceptionId: reference.referenceStatus === "valid" && reference.resolvedRefType === "production_task" && matches.length === 1
+    ? cleanText(matches[0].productionExceptionId ?? matches[0].id) : "" };
+}
+
+function projectRetakeTask(workspace, todo) {
+  if (todo.type !== "成品图需重拍") return {};
+  const owners = new Set(asArray(workspace?.todoEvents)
+    .filter(event => cleanText(event.todoId ?? event.todo_id) === todo.todoId)
+    .map(event => cleanText((event.eventPayload ?? event.event_payload)?.productionTaskId))
+    .filter(Boolean));
+  if (owners.size !== 1) return { productionTaskId: "", productionTaskReferenceStatus: owners.size ? "ambiguous" : "missing" };
+  const productionTaskId = [...owners][0];
+  const task = asArray(workspace?.productionTasks ?? workspace?.productionPacking?.productionTasks)
+    .find(item => cleanText(item.productionTaskId ?? item.id) === productionTaskId);
+  if (!task || cleanText(task.orderLineId ?? task.order_line_id) !== todo.refId) {
+    return { productionTaskId: "", productionTaskReferenceStatus: "missing" };
+  }
+  return { productionTaskId, productionTaskReferenceStatus: "valid" };
 }

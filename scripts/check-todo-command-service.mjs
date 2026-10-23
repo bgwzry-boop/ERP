@@ -282,6 +282,7 @@ assert.equal(fulfillmentRepair.fulfillment.actualQty, 80);
 assert.equal(fulfillmentRepair.labelTodo.type, "待打印标签");
 assert.equal(fulfillmentRepair.labelTodo.refId, fulfillmentRepair.fulfillment.fulfillmentId);
 assert.equal(fulfillmentRepair.packages.length, 2);
+assert.ok(fulfillmentRepair.packages.every((record) => record.revision === 2));
 assert.ok(fulfillmentRepair.packages.every((record) => record.fulfillmentId === fulfillmentRepair.fulfillment.fulfillmentId));
 assert.equal(workspace.fulfillments.some((record) => record.id === fulfillmentRepair.fulfillment.fulfillmentId), true);
 assert.equal(workspace.todos.some((todo) => todo.id === fulfillmentRepair.labelTodo.id && !todo.handled), true);
@@ -297,6 +298,7 @@ const fulfillmentRepairReplay = await service.repairMissingFulfillment({
   },
 });
 assert.equal(fulfillmentRepairReplay.fulfillment.fulfillmentId, fulfillmentRepair.fulfillment.fulfillmentId);
+assert.ok(fulfillmentRepairReplay.packages.every((record) => record.revision === 2));
 assert.equal(workspace.fulfillments.filter((record) => record.lineId === "ORD-FULFILLMENT-REPAIR-01").length, 1);
 
 const referenceWorkspace = {
@@ -354,3 +356,64 @@ assert.deepEqual(listTodoReferenceCandidates(referenceWorkspace, { type: "待生
 }]);
 
 console.log("Todo command service checks passed: actions, references, fulfillment repair, replay, audit, and invalid targets are isolated.");
+
+// Calendar semantics belong to the factory day, even before 08:00 China time.
+for (const [clock, expected] of [
+  ['2026-09-05T16:00:00.000Z', '2026-09-07T01:00:00.000Z'],
+  ['2026-09-05T23:59:59.999Z', '2026-09-07T01:00:00.000Z'],
+  ['2026-09-06T00:00:00.000Z', '2026-09-07T01:00:00.000Z'],
+  ['2026-09-06T15:59:59.999Z', '2026-09-07T01:00:00.000Z'],
+  ['2026-12-31T16:00:00.000Z', '2027-01-02T01:00:00.000Z'],
+  ['2028-02-28T16:00:00.000Z', '2028-03-01T01:00:00.000Z'],
+]) {
+ const local = {todos:[{id:'T-CALENDAR',handled:false,updatedAt:clock}],todoEvents:[],operationLogs:[],todoActionRepository:createLocalTodoActionRepository()};
+ const calendarService=createTodoCommandService({now:()=>new Date(clock),buildOperationLog:(_workspace,input)=>input});
+ const result=await calendarService.handleTodo({workspace:local,todoId:'T-CALENDAR',operatorId:'U-AUTH',body:{action:'snooze',reason:'稍后明早',idempotencyKey:'calendar-reminder-test'}});
+ assert.equal(result.todo.remindAt,expected,`Tomorrow 09:00 must follow the China calendar at ${clock}`);
+ assert.equal(local.todoEvents[0].eventPayload.todo.remindAt,expected);
+ const retry=await calendarService.handleTodo({workspace:local,todoId:'T-CALENDAR',operatorId:'U-AUTH',body:{action:'snooze',reason:'稍后明早',idempotencyKey:'calendar-reminder-test'}});
+ assert.equal(retry.todo.remindAt,expected);assert.equal(local.todoEvents.length,1);
+}
+console.log('PASS factory-calendar reminder: midnight, pre-08:00, day end, year rollover, leap day and committed retry.');
+const reminderWorkspace={todos:[{id:'T-REMINDER',handled:false,updatedAt:fixedNow.toISOString()}],todoEvents:[],operationLogs:[],todoActionRepository:createLocalTodoActionRepository()};
+for (const [snoozeUntil, code] of [[undefined,'TODO_REMINDER_TIME_REQUIRED'],['bad','TODO_REMINDER_TIME_INVALID'],['2027-02-30T09:00:00+08:00','TODO_REMINDER_TIME_INVALID'],['2026-07-11T08:29:00Z','TODO_REMINDER_TIME_INVALID'],['2026-07-12T09:00','TODO_REMINDER_TIME_INVALID']]) {
+ const count=reminderWorkspace.todoEvents.length;
+ const result=await service.handleTodo({workspace:reminderWorkspace,todoId:'T-REMINDER',body:{action:'snooze',reason:'稍后指定时间',snoozeUntil}});
+ assert.equal(result.code,code);assert.equal(reminderWorkspace.todoEvents.length,count);
+}
+const customTime=await service.handleTodo({workspace:reminderWorkspace,todoId:'T-REMINDER',body:{action:'snooze',reason:'稍后指定时间',snoozeUntil:'2026-07-12T09:00:00+08:00',idempotencyKey:'custom-reminder-time'}});
+assert.equal(customTime.todo.remindAt,'2026-07-12T01:00:00.000Z');assert.match(customTime.todo.reminder,/2026.*07.*12.*09:00/);
+
+const transitionWorkspace={todos:[{id:'T-TRANSITION',handled:false,status:'未处理',updatedAt:'2026-09-06T00:00:00Z'}],todoEvents:[],operationLogs:[],todoActionRepository:createLocalTodoActionRepository()};
+const transitionService=createTodoCommandService({buildOperationLog:(_workspace,input)=>input,now:()=>new Date('2026-09-06T01:00:00Z')});
+const closeRequest={workspace:transitionWorkspace,todoId:'T-TRANSITION',operatorId:'U-FIRST',body:{action:'mark_handled',handlingResult:'已核对',idempotencyKey:'transition-first-close'}};
+const firstClose=await transitionService.handleTodo(closeRequest);
+const snapshot=JSON.stringify(transitionWorkspace.todos);
+for(const action of ['mark_handled','batch_print_confirm','batch_print_result_pending','customer_notification_sent','customer_pending','snooze']){
+ const blocked=await transitionService.handleTodo({...closeRequest,operatorId:'U-SECOND',body:{action,idempotencyKey:`transition-other-${action}`}});
+ assert.equal(blocked.code,'TODO_ALREADY_HANDLED',`A fresh ${action} cannot rewrite a handled todo`);
+ assert.equal(JSON.stringify(transitionWorkspace.todos),snapshot);assert.equal(transitionWorkspace.todoEvents.length,1);assert.equal(transitionWorkspace.operationLogs.length,1);
+}
+const replayClose=await transitionService.handleTodo(closeRequest);assert.equal(replayClose.operationLogId,firstClose.operationLogId);assert.equal(replayClose.todo.handledBy,'U-FIRST');
+const openRequest={...closeRequest,operatorId:'U-SECOND',body:{action:'reopen',idempotencyKey:'transition-explicit-reopen'}};
+await transitionService.handleTodo(openRequest);
+const opened=JSON.stringify(transitionWorkspace.todos);
+assert.equal((await transitionService.handleTodo({...openRequest,body:{action:'reopen',idempotencyKey:'transition-redundant-reopen'}})).code,'TODO_ALREADY_OPEN');
+assert.equal(JSON.stringify(transitionWorkspace.todos),opened);assert.equal(transitionWorkspace.todoEvents.length,2);
+assert.equal((await transitionService.handleTodo({...closeRequest,operatorId:'U-SECOND',body:{...closeRequest.body,idempotencyKey:'transition-second-close'}})).todo.handledBy,'U-SECOND');
+assert.equal(transitionWorkspace.todoEvents.length,3);
+console.log('PASS todo transitions: first handler preserved; redundant close/snooze/reopen blocked without audits; exact replay retained; explicit reopen permits new handling.');
+
+const simultaneousClock='2026-09-06T00:00:00.000Z';
+const simultaneous={todos:[{id:'T-SAME-MS',handled:false,updatedAt:simultaneousClock}],todoEvents:[],operationLogs:[],todoActionRepository:createLocalTodoActionRepository()};
+const simultaneousService=createTodoCommandService({now:()=>new Date(simultaneousClock),buildOperationLog:(_workspace,input)=>input});
+const simultaneousResults=await Promise.allSettled(['mark_handled','snooze'].map(action=>simultaneousService.handleTodo({workspace:simultaneous,todoId:'T-SAME-MS',operatorId:'U-AUTH',body:{action,idempotencyKey:`same-millisecond-${action}`}})));
+assert.equal(simultaneousResults.filter(result=>result.status==='rejected'&&result.reason.code==='BUSINESS_WRITE_CONFLICT').length,1,'Same-millisecond commands must not both overwrite the same prior version');
+assert.equal(simultaneous.todoEvents.length,1);assert.equal(simultaneous.operationLogs.length,1);assert.equal(simultaneous.todos[0].handled,true);
+assert.equal(simultaneous.todos[0].handledAt,simultaneousClock,'Actual handling time remains the server clock');
+assert(Date.parse(simultaneous.todos[0].updatedAt)>Date.parse(simultaneousClock),'The concurrency token must advance even within one millisecond');
+
+delete transitionWorkspace.todos[0].handled;
+assert.equal((await transitionService.handleTodo({...closeRequest,body:{action:'mark_handled',idempotencyKey:'status-only-close'}})).code,'TODO_ALREADY_HANDLED');
+assert.equal((await transitionService.repairTodoReference({...closeRequest,body:{refType:'order_line',refId:'O-TEST',reason:'check historical status',idempotencyKey:'status-only-repair'}})).code,'TODO_ALREADY_HANDLED');
+assert.equal(transitionWorkspace.todoEvents.length,3);

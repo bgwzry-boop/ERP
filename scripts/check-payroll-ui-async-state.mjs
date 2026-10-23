@@ -1,0 +1,108 @@
+import assert from "node:assert/strict";
+import { build } from "esbuild";
+import { createRequire } from "node:module";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Exercise real React state/effect lifetimes with deliberately reordered API
+// promises. This checks data ownership; visual and device QA remains separate.
+const queue = [];
+const names = ["generateOfficePayrollDraft", "getOfficeEmployeeAttendance", "createOfficePayrollExport", "getOfficePayrollHistory", "getOfficePayrollRun", "getOfficePayrollWorkbench", "precheckOfficeAttendanceSync", "reviewOfficeAttendanceDay", "saveOfficePayrollPolicy", "syncOfficeAttendance", "transitionOfficePayrollRun", "updateOfficePayrollLineAdjustment", "uploadOfficeAttachmentFile"];
+globalThis.__payrollTestApi = Object.fromEntries(names.map((name) => [name, (input) => new Promise((resolve) => queue.push({ name, input, resolve }))]));
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+globalThis.window = { location: { search: "" }, confirm: () => true };
+const directory = await mkdtemp(join(tmpdir(), "erp-payroll-state-"));
+let tree;
+try {
+  const built = await build({ stdin: { contents: `
+    import React from 'react';
+    import { create, act } from 'react-test-renderer';
+    import { PayrollAttendancePage } from './src/features/payroll/PayrollAttendancePage.jsx';
+    export { create, act };
+    export const element = props => <PayrollAttendancePage {...props} />;
+  `, resolveDir: process.cwd(), loader: "jsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", write: false, logLevel: "silent", plugins: [{ name: "isolated-payroll-api", setup(builder) {
+    builder.onResolve({ filter: /^(react(?:\/.*)?|react-test-renderer)$/ }, args => ({ path: createRequire(import.meta.url).resolve(args.path), external: true }));
+    builder.onResolve({ filter: /^@ant-design\/icons$/ }, () => ({ path: "icons", namespace: "state-test" }));
+    builder.onLoad({ filter: /.*/, namespace: "state-test" }, () => ({ contents: ["CheckCircleOutlined", "ClockCircleOutlined", "DownloadOutlined", "ReloadOutlined", "SearchOutlined", "SettingOutlined", "WarningOutlined"].map(name => `export const ${name} = () => null;`).join("\n") }));
+    builder.onLoad({ filter: /officeAttendancePayrollApiClient\.js$/ }, () => ({ contents: names.filter(n => n !== 'uploadOfficeAttachmentFile').map(name => `export const ${name} = input => globalThis.__payrollTestApi.${name}(input);`).join('\n') }));
+    builder.onLoad({ filter: /officeAttachmentApiClient\.js$/ }, () => ({ contents: `export const createPayrollAdjustmentEvidenceAttachmentInput = input => input; export const uploadOfficeAttachmentFile = input => globalThis.__payrollTestApi.uploadOfficeAttachmentFile(input);` }));
+  } }] });
+  const file = join(directory, "test.cjs");
+  await writeFile(file, built.outputFiles[0].text);
+  const { create, act, element } = createRequire(import.meta.url)(file);
+  const props = { authState: { session: { accessToken: "test-session" } }, currentUser: { userId: "U-FINANCE" }, permissionContext: { actionPermissions: ["attendance.sync", "attendance.review", "payroll.review"] } };
+  const take = (name, predicate = () => true) => {
+    const index = queue.findIndex(item => item.name === name && predicate(item.input));
+    assert.ok(index >= 0, `missing ${name}: ${JSON.stringify(queue.map(item => ({name:item.name,input:item.input})))}`);
+    return queue.splice(index, 1)[0];
+  };
+  const settle = async (request, data) => act(async () => request.resolve({ blocked: false, data }));
+  const host = (predicate) => tree.root.findAll(node => typeof node.type === "string" && predicate(node));
+  const byLabel = label => host(node => node.props["aria-label"] === label)[0];
+  const text = () => JSON.stringify(tree.toJSON());
+  const nodeText = node => typeof node === "string" ? node : (node.children || []).map(nodeText).join("");
+  const clickEmployee = async id => act(async () => {
+    const row = host(node => node.type === "button" && node.props.role === "row" && nodeText(node).includes(id))[0];
+    assert.ok(row, `employee row ${id}`); row.props.onClick();
+  });
+  const employees = [{ employeeId: "E1", name: "Alice", roleName: "库管", readyForDraft: true, totalWorkMinutes: 60 }, { employeeId: "E2", name: "Bob", roleName: "库管", readyForDraft: true, totalWorkMinutes: 120 }];
+  const wb = month => ({ employees, payrollRuns: [{ id: `RUN-${month}`, payrollMonth: month, revision: 1, status: "draft" }], summary: { draftReady: false }, sourceStatus: { configured: true, label: "来源已配置" } });
+  const detail = month => ({ payrollRun: { id: `RUN-${month}` }, payrollLines: employees.map(e => ({ ...e, performanceAward: 0, leaveDeduction: 0, otherDeduction: 0 })) });
+  await act(async () => { tree = create(element(props)); });
+  const oldMonth = take("getOfficePayrollWorkbench");
+  await act(async () => byLabel("工资月份").props.onChange({ target: { value: "2026-08" } }));
+  assert.match(text(), /正在读取正式考勤/);
+  await settle(take("getOfficePayrollWorkbench"), wb("2026-08"));
+  await settle(oldMonth, { ...wb("2026-07"), employees: [{ employeeId: "OLD", name: "OLD MONTH" }] });
+  assert.doesNotMatch(text(), /OLD MONTH/);
+  const aliceAttendance = take("getOfficeEmployeeAttendance", x => x.employeeId === "E1");
+  const aliceRun = take("getOfficePayrollRun");
+  const aliceHistory = take("getOfficePayrollHistory", x => x.employeeId === "E1");
+  await clickEmployee("Bob");
+  await settle(take("getOfficeEmployeeAttendance", x => x.employeeId === "E2"), { days: [{ workDate: "2026-08-20", punchTimes: ["BOB-PUNCH"], workMinutes: 120, status: "approved" }] });
+  await settle(take("getOfficePayrollRun"), detail("2026-08"));
+  await settle(take("getOfficePayrollHistory", x => x.employeeId === "E2"), { items: [], total: 0 });
+  await settle(aliceAttendance, { days: [{ workDate: "2026-08-01", punchTimes: ["STALE-ALICE"], workMinutes: 60 }] });
+  await settle(aliceRun, detail("2026-08"));
+  await settle(aliceHistory, { items: [], total: 0 });
+  assert.match(text(), /BOB-PUNCH/);
+  assert.doesNotMatch(text(), /STALE-ALICE/);
+  const uploadInput = () => host(node => node.type === "input" && node.props.type === "file")[0];
+  await act(async () => { void uploadInput().props.onChange({ target: { files: [{ name: "bob.pdf" }], value: "" } }); });
+  const bobUpload = take("uploadOfficeAttachmentFile");
+  assert.equal(bobUpload.input.employeeId, "E2");
+  await clickEmployee("Alice");
+  await settle(take("getOfficeEmployeeAttendance", x => x.employeeId === "E1"), { days: Array.from({length: 12}, (_, index) => ({ workDate: `2026-08-${String(index+1).padStart(2, "0")}`, punchTimes: ["ALICE-CURRENT"], workMinutes: 60, status: "approved" })) });
+  await settle(take("getOfficePayrollRun"), detail("2026-08"));
+  await settle(take("getOfficePayrollHistory", x => x.employeeId === "E1"), { items: [], total: 0 });
+  await act(async () => bobUpload.resolve({ blocked: false, attachment: { attachmentId: "BOB-EVIDENCE", fileName: "bob.pdf" } }));
+  assert.doesNotMatch(text(), /BOB-EVIDENCE|bob.pdf/);
+  assert.equal(host(node => node.type === "div" && node.props.className === "payroll-attendance-days")[0].children.length, 12, "all attendance days remain reachable, including after day eight");
+  await act(async () => { void uploadInput().props.onChange({ target: { files: [{ name: "alice.pdf" }], value: "" } }); });
+  const aliceUpload = take("uploadOfficeAttachmentFile");
+  await act(async () => aliceUpload.resolve({ blocked: false, attachment: { attachmentId: "ALICE-EVIDENCE", fileName: "alice.pdf" } }));
+  await act(async () => byLabel("工资调整依据").props.onChange({ target: { value: "approved evidence" } }));
+  await act(async () => { void host(node => node.type === "form" && node.props.className === "payroll-adjustment-form")[0].props.onSubmit({ preventDefault() {} }); });
+  const adjustment = take("updateOfficePayrollLineAdjustment");
+  assert.equal(adjustment.input.employeeId, "E1");
+  assert.deepEqual(adjustment.input.evidenceAttachmentIds, ["ALICE-EVIDENCE"]);
+  await act(async () => byLabel("工资月份").props.onChange({ target: { value: "2026-07" } }));
+  await settle(adjustment, {});
+  assert.doesNotMatch(text(), /alice.pdf|调整已保存/);
+  assert.equal(queue.filter(item => item.name === "getOfficePayrollWorkbench").length, 1, "old adjustment must not refresh or overwrite the new month");
+  await settle(take("getOfficePayrollWorkbench"), wb("2026-07"));
+  await act(async () => { void host(node => node.type === "button" && node.props.title === "先只读预检，再同步真实打卡机数据")[0].props.onClick(); });
+  const precheck = take("precheckOfficeAttendanceSync");
+  await act(async () => byLabel("工资月份").props.onChange({ target: { value: "2026-06" } }));
+  await settle(precheck, { ready: true, importRecommended: true });
+  assert.equal(queue.filter(item => item.name === "syncOfficeAttendance").length, 0, "leaving the month cancels continuation from precheck to write");
+  await act(async () => tree.unmount());
+  tree = null;
+  console.log("Payroll UI async state passed: stale month/person responses, late upload ownership, exact adjustment evidence, all days, and precheck cancellation.");
+} finally {
+  await rm(directory, { recursive: true, force: true });
+  delete globalThis.__payrollTestApi;
+  delete globalThis.window;
+  delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+}

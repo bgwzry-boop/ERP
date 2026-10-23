@@ -21,6 +21,20 @@ console.log(
 function checkLocalProductionPackingReadRepository() {
   const repository = createLocalProductionPackingReadRepository();
   const workspace = buildWorkspace();
+  // A later report on the same order belongs exclusively to its own stage.
+  const isolated = buildWorkspace();
+  isolated.workshopReports.push({
+    ...isolated.workshopReports[0], reportId: "WDP-OTHER-STAGE", productionTaskId: "PT-OTHER-STAGE",
+    completedAt: "2026-08-01T18:00:00.000Z", createdAt: "2026-08-01T18:00:00.000Z",
+    qualifiedQty: 999, evidence: { reportKind: "daily_progress", cumulativeQualifiedQty: 999, carryOver: true },
+  });
+  isolated.inventoryLedgers.push({ ...isolated.inventoryLedgers[0], id: "LEDGER-OTHER-STAGE", sourceId: "WDP-OTHER-STAGE" });
+  const stageDetail = repository.getProductionTaskDetail({ workspace: isolated, productionTaskId: "PT-LOCAL-PROD-001" });
+  assert.equal(stageDetail.reports.some(report => report.reportId === "WDP-OTHER-STAGE"), false);
+  assert.equal(stageDetail.latestReport.reportId, "WR-LOCAL-PROD-001");
+  assert.equal(stageDetail.dailyProgress.cumulativeQualifiedQty, 45);
+  assert.equal(stageDetail.inventoryLedgerEntries.length, 2);
+
 
   const productionDetail = repository.getProductionTaskDetail({
     workspace,

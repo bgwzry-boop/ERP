@@ -24,6 +24,14 @@ export function createMaintenanceTaskRepository(options = {}) {
 export function createLocalMaintenanceTaskRepository() {
   return Object.freeze({
     kind: "local_memory",
+    findCreateReplay({ workspace, idempotencyKey, payload }) {
+      const stored = (workspace.operationIdempotencyRecords ?? []).find(item => item.scope === "maintenance.task.create" && item.idempotencyKey === idempotencyKey);
+      return validateCreateReplay(stored, payload);
+    },
+    findUpdateReplay({ workspace, idempotencyKey, payload }) {
+      const stored = (workspace.operationIdempotencyRecords ?? []).find(item => item.scope === "maintenance.task.update" && item.idempotencyKey === idempotencyKey);
+      return validateUpdateReplay(stored, payload);
+    },
     loadState({ seedTasks = [] } = {}) {
       return { maintenanceTasks: normalizeMaintenanceTasks(seedTasks) };
     },
@@ -45,6 +53,14 @@ export function createPostgresMaintenanceTaskRepository(options = {}) {
   const { queryJson, idempotentTransactionJson } = createPostgresTransactionExecutor({ ...options, databaseUrl, postgresClient });
   return Object.freeze({
     kind: "postgres",
+    async findCreateReplay({ idempotencyKey, payload }) {
+      const stored = await queryJson("SELECT json_build_object('requestHash',request_hash,'response',response_json) AS result FROM operation_idempotency_keys WHERE scope = 'maintenance.task.create' AND idempotency_key = $1", [idempotencyKey]);
+      return validateCreateReplay(stored, payload);
+    },
+    async findUpdateReplay({ idempotencyKey, payload }) {
+      const stored = await queryJson("SELECT json_build_object('requestHash',request_hash,'response',response_json) AS result FROM operation_idempotency_keys WHERE scope = 'maintenance.task.update' AND idempotency_key = $1", [idempotencyKey]);
+      return validateUpdateReplay(stored, payload);
+    },
     async loadState() {
       const query = buildListMaintenanceTasksQuery();
       return { maintenanceTasks: normalizeMaintenanceTasks(await queryJson(query.text, query.values)) };
@@ -60,6 +76,33 @@ export function createPostgresMaintenanceTaskRepository(options = {}) {
       return writePostgresMaintenanceTask("maintenance.task.update", input, buildUpdateMaintenanceTaskQuery, idempotentTransactionJson);
     },
   });
+}
+
+function validateCreateReplay(stored, payload) {
+  if (!stored) return null;
+  const response = normalizeMaintenanceTransactionResult(stored.response);
+  if (!response.task || !response.todo || !response.operationLogId
+    || response.task.createdBy !== payload.operatorId || response.task.machineId !== payload.machineId
+    || response.todo.id !== `T-${response.task.id}`) throw buildIdempotencyConflictError();
+  const { requestVersion, operatorId, ...legacy } = payload;
+  if (stored.requestHash !== buildIdempotencyRequestHash(payload)
+    && stored.requestHash !== buildIdempotencyRequestHash(legacy)) throw buildIdempotencyConflictError();
+  return { ...cloneJson(response), replayed: true };
+}
+
+function validateUpdateReplay(stored, payload) {
+  if (!stored) return null;
+  const response = normalizeMaintenanceTransactionResult(stored.response);
+  if (!response.task || !response.todo || !response.operationLogId || response.task.id !== payload.taskId || response.task.updatedBy !== payload.operatorId) throw buildIdempotencyConflictError();
+  if (stored.requestHash !== buildIdempotencyRequestHash(payload)) {
+    // Historical receipts hashed the merged photo set, without the operator.
+    // Verify the persisted operator separately and never read today's task to reconstruct it.
+    const legacy = { taskId: payload.taskId, expectedRevision: payload.expectedRevision, status: payload.status,
+      finding: payload.finding, actionTaken: payload.actionTaken, photoAttachmentIds: response.task.photoAttachmentIds,
+      completionConfirmed: payload.completionConfirmed };
+    if (payload.photoAttachmentIds.some(id => !response.task.photoAttachmentIds.includes(id)) || stored.requestHash !== buildIdempotencyRequestHash(legacy)) throw buildIdempotencyConflictError();
+  }
+  return { ...cloneJson(response), replayed: true };
 }
 
 function writeLocalMaintenanceTask(scope, input, { create }) {
@@ -95,7 +138,7 @@ function writeLocalMaintenanceTask(scope, input, { create }) {
 
 async function writePostgresMaintenanceTask(scope, input, queryBuilder, idempotentTransactionJson) {
   const query = queryBuilder(input);
-  const result = normalizeMaintenanceTransactionResult(await idempotentTransactionJson(buildPostgresIdempotencyRequest({
+  const receipt = await idempotentTransactionJson({ ...buildPostgresIdempotencyRequest({
     scope,
     idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
     payload: input.idempotencyPayload ?? { task: input.task, todo: input.todo },
@@ -104,9 +147,11 @@ async function writePostgresMaintenanceTask(scope, input, queryBuilder, idempote
     targetId: input.task?.id,
     resourceLocks: [`maintenance-task:${input.task?.id ?? ""}`, `todo:${input.todo?.id ?? ""}`],
     query,
-  })));
+  }), includeReplayMetadata: true });
+  if (typeof receipt?.replayed !== "boolean" || !receipt?.value) throw new Error("Maintenance transaction must identify whether its receipt was replayed.");
+  const result = { ...normalizeMaintenanceTransactionResult(receipt.value), replayed: receipt.replayed };
   if (!result.task || !result.todo) throw new Error("PostgreSQL maintenance task transaction returned invalid data.");
-  applyWorkspaceMutation(input.workspace, result, input.operationLog);
+  if (!result.replayed) applyWorkspaceMutation(input.workspace, result, input.operationLog);
   return result;
 }
 
@@ -123,7 +168,7 @@ export function buildListMaintenanceTasksQuery(filters = {}) {
     text: `SELECT COALESCE(json_agg(result ORDER BY
   CASE result->>'priority' WHEN '异常' THEN 0 WHEN '今天' THEN 1 WHEN '本周' THEN 2 ELSE 3 END,
   NULLIF(result->>'dueAt', '')::timestamptz NULLS LAST,
-  result->>'updatedAt' DESC), '[]'::json) AS result
+  result->>'updatedAt' DESC, result->>'id' ASC), '[]'::json) AS result
 FROM (
   SELECT ${maintenanceTaskJsonExpression("maintenance_tasks")} AS result
   FROM maintenance_tasks${clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""}
@@ -359,14 +404,30 @@ function filterMaintenanceTasks(records, filters) {
     .filter((task) => !cleanText(filters.status) || cleanText(filters.status) === "all" || task.status === cleanText(filters.status))
     .filter((task) => !cleanText(filters.taskType) || task.type === cleanText(filters.taskType))
     .filter((task) => !cleanText(filters.machineId) || task.machineId === cleanText(filters.machineId))
-    .filter((task) => !cleanText(filters.assignedEmployeeId) || !task.assignedTechnicianEmployeeId || task.assignedTechnicianEmployeeId === cleanText(filters.assignedEmployeeId));
+    .filter((task) => !cleanText(filters.assignedEmployeeId) || !task.assignedTechnicianEmployeeId || task.assignedTechnicianEmployeeId === cleanText(filters.assignedEmployeeId))
+    .sort((left, right) => {
+      const rank = value => ({ 异常: 0, 今天: 1, 本周: 2 }[value] ?? 3);
+      const time = (value, fallback) => Number.isFinite(Date.parse(value)) ? Date.parse(value) : fallback;
+      return rank(left.priority) - rank(right.priority)
+        || time(left.dueAt, Infinity) - time(right.dueAt, Infinity)
+        || time(right.updatedAt, -Infinity) - time(left.updatedAt, -Infinity)
+        || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+    });
 }
 
 function applyWorkspaceMutation(workspace, result, operationLog) {
   if (!workspace) return;
-  workspace.maintenanceTasks = upsertById(workspace.maintenanceTasks, result.task);
-  workspace.todos = upsertById(workspace.todos, result.todo);
-  if (operationLog && result.operationLogId === cleanText(operationLog.id)) workspace.operationLogs = upsertById(workspace.operationLogs, operationLog);
+  const current = (workspace.maintenanceTasks ?? []).find(task => cleanText(task.id ?? task.taskId) === result.task.id);
+  // The response is a historical receipt. Another command may have published
+  // a newer task/todo pair while this transaction response was in flight.
+  if (!current || positiveInteger(current.revision) < result.task.revision) {
+    workspace.maintenanceTasks = upsertById(workspace.maintenanceTasks, result.task);
+    workspace.todos = upsertById(workspace.todos, result.todo);
+  }
+  if (operationLog && result.operationLogId === cleanText(operationLog.id)
+    && !(workspace.operationLogs ?? []).some(log => cleanText(log.id) === cleanText(operationLog.id))) {
+    workspace.operationLogs = upsertById(workspace.operationLogs, operationLog);
+  }
 }
 
 function maintenanceTaskJsonExpression(alias) {
@@ -411,8 +472,7 @@ function stringList(value) {
 }
 
 function positiveInteger(value, fallback = 0) {
-  const number = Math.trunc(Number(value));
-  return number > 0 ? number : fallback;
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
 function cloneJson(value) {

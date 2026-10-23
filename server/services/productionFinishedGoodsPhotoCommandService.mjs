@@ -20,9 +20,10 @@ export function createProductionFinishedGoodsPhotoCommandService({
       });
       if (!beforeTask) return notFound("PRODUCTION_TASK_NOT_FOUND");
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) return pathMismatch();
-      const orderLineId = text(
-        body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.order_line_id ?? beforeTask.lineId,
-      );
+      const orderLineId = text(beforeTask.orderLineId ?? beforeTask.order_line_id ?? beforeTask.lineId);
+      if (body.orderLineId !== undefined && text(body.orderLineId) !== orderLineId) {
+        return error(409, "PRODUCTION_PHOTO_ORDER_LINE_MISMATCH", "照片操作的订单明细与生产任务不一致，请刷新后重试。");
+      }
       const orderLine = findOrderLine(workspace, orderLineId);
       if (!orderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const attachmentId = text(body.attachmentId);
@@ -84,20 +85,51 @@ export function createProductionFinishedGoodsPhotoCommandService({
     },
 
     async reviewPhoto({ workspace, productionTaskId, body = {}, operatorId }) {
+      if (body.productionTaskId && body.productionTaskId !== productionTaskId) return pathMismatch();
+      const receipt = await workspace.productionFinishedGoodsPhotoTransactionRepository.readReviewReceipt?.({
+        workspace, idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: payload(body, { productionTaskId, operatorId }),
+      });
+      if (receipt) {
+        const reviewStatus = normalizeReviewStatus(body.reviewStatus ?? body.status);
+        const task = receipt.productionTask;
+        const orderLineId = text(task?.orderLineId);
+        const primary = (receipt.todos ?? []).filter(item => item.type === (reviewStatus === "已接受" ? "待通知客户" : "成品图需重拍") && text(item.ref ?? item.refId ?? item.ref_id) === orderLineId);
+        const todo = primary.length === 1 ? primary[0] : null;
+        if (task?.productionTaskId !== productionTaskId || !receipt.operationLogId || !todo || !reviewStatus
+          || (body.expectedAttachmentId && task.finishedGoodsPhoto?.attachmentId !== text(body.expectedAttachmentId))
+          || (body.expectedRevision !== undefined && task.revision !== body.expectedRevision + 1)) {
+          return error(409, "PRODUCTION_PHOTO_REVIEW_RECEIPT_INVALID", "审核回执不完整，请刷新核对处理结果。");
+        }
+        return { ...receipt, todo, reviewStatus };
+      }
       const beforeTask = await workspace.productionFinishedGoodsPhotoTransactionRepository.getProductionTask({
         workspace,
         productionTaskId,
       });
       if (!beforeTask) return notFound("PRODUCTION_TASK_NOT_FOUND");
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) return pathMismatch();
-      const orderLineId = text(
-        body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.order_line_id ?? beforeTask.lineId,
-      );
+      const orderLineId = text(beforeTask.orderLineId ?? beforeTask.order_line_id ?? beforeTask.lineId);
+      if (body.orderLineId !== undefined && text(body.orderLineId) !== orderLineId) {
+        return error(409, "PRODUCTION_PHOTO_ORDER_LINE_MISMATCH", "照片操作的订单明细与生产任务不一致，请刷新后重试。");
+      }
       const orderLine = findOrderLine(workspace, orderLineId);
       if (!orderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const beforePhoto = buildPhotoSummary(workspace, beforeTask, orderLine);
       if (!beforePhoto.attachmentId) {
         return error(409, "FINISHED_GOODS_PHOTO_REQUIRED", "A finished-goods photo must be uploaded before review.");
+      }
+      if (!text(body.expectedAttachmentId)) {
+        return error(422, "PRODUCTION_PHOTO_REVIEW_IDENTITY_REQUIRED", "请刷新并查看待审核照片后再提交。");
+      }
+      if (text(body.expectedAttachmentId) !== beforePhoto.attachmentId) {
+        return error(409, "PRODUCTION_PHOTO_REVIEW_STALE", "成品图已更新，请查看新照片后重新审核。");
+      }
+      if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 1) {
+        return error(422, "PRODUCTION_PHOTO_REVIEW_REVISION_REQUIRED", "请刷新生产任务后再审核照片。");
+      }
+      if (body.expectedRevision !== Number(beforeTask.revision)) {
+        return error(409, "PRODUCTION_PHOTO_REVIEW_REVISION_CONFLICT", "生产任务或照片审核状态已更新，请重新核对后提交。");
       }
       const attachmentValidation = validateFinishedGoodsPhotoAttachment({
         workspace,
@@ -109,14 +141,17 @@ export function createProductionFinishedGoodsPhotoCommandService({
       const reviewStatus = normalizeReviewStatus(body.reviewStatus ?? body.status);
       if (!reviewStatus) return error(422, "VALIDATION_ERROR", "reviewStatus must be accepted or retake_required.");
 
-      const timestamp = validTimestamp(body.reviewedAt) || nowIso(now);
+      const timestamp = nowIso(now);
       const reason = text(body.reason ?? body.remark);
+      if (reviewStatus === "需重拍" && !reason) {
+        return error(422, "PRODUCTION_PHOTO_RETAKE_REASON_REQUIRED", "请填写具体退回原因，便于车间重新拍摄。");
+      }
       const photo = {
         ...beforePhoto,
         status: reviewStatus,
         reviewedAt: timestamp,
         reviewedBy: operatorId,
-        rejectedReason: reviewStatus === "需重拍" ? reason || "办公室退回重拍" : "",
+        rejectedReason: reviewStatus === "需重拍" ? reason : "",
         history: [
           ...normalizeHistory(getTaskPhotoHistory(beforeTask)),
           {
@@ -130,12 +165,14 @@ export function createProductionFinishedGoodsPhotoCommandService({
         ],
       };
       const productionTask = taskWithPhoto(beforeTask, productionTaskId, orderLineId, photo, timestamp);
+      const todoContext = await workspace.productionFinishedGoodsPhotoTransactionRepository.getPhotoTodoContext({ workspace, orderLineId });
+      const todoWorkspace = { ...workspace, ...todoContext };
       const todoId = recordId("T-FG", body.idempotencyKey, `${reviewStatus}:${orderLineId}`);
       const primaryTodo = reviewStatus === "已接受"
-        ? buildCustomerNotificationTodo(workspace, orderLine, productionTask, operatorId, todoId)
-        : buildPhotoRetakeTodo(workspace, orderLine, productionTask, reason, operatorId, todoId);
+        ? buildCustomerNotificationTodo(todoWorkspace, orderLine, productionTask, operatorId, todoId)
+        : buildPhotoRetakeTodo(todoWorkspace, orderLine, productionTask, reason, operatorId, todoId);
       const resolvedTodos = reviewStatus === "已接受"
-        ? resolveOpenRetakeTodos(workspace.todos, orderLineId, operatorId, timestamp)
+        ? resolveOpenRetakeTodos(todoWorkspace, productionTaskId, orderLineId, operatorId, timestamp)
         : [];
       const todos = uniqueTodos([primaryTodo, ...resolvedTodos]);
       const todoEvents = todos.map((todo, index) => ({
@@ -224,11 +261,22 @@ function taskWithPhoto(beforeTask, productionTaskId, orderLineId, photo, timesta
   };
 }
 
-function resolveOpenRetakeTodos(todos = [], orderLineId, operatorId, timestamp) {
-  return todos
+function resolveOpenRetakeTodos(workspace, productionTaskId, orderLineId, operatorId, timestamp) {
+  const taskIds = new Set((workspace.productionTasks ?? [])
+    .filter(task => text(task.orderLineId ?? task.order_line_id ?? task.lineId) === orderLineId)
+    .map(task => text(task.productionTaskId ?? task.id)).filter(Boolean));
+  const belongsToTask = (todo) => {
+    const owners = new Set((workspace.todoEvents ?? [])
+      .filter(event => text(event.todoId ?? event.todo_id) === text(todo.id ?? todo.todoId))
+      .map(event => text((event.eventPayload ?? event.event_payload)?.productionTaskId)).filter(Boolean));
+    if (owners.size) return owners.size === 1 && owners.has(productionTaskId);
+    return taskIds.size === 1 && taskIds.has(productionTaskId);
+  };
+  return (workspace.todos ?? [])
     .filter(
       (todo) =>
         todo.type === "成品图需重拍" &&
+        belongsToTask(todo) &&
         text(todo.ref ?? todo.refId ?? todo.ref_id) === orderLineId &&
         !todo.handled,
     )

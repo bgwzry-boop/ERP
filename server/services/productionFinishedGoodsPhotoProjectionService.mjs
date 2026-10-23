@@ -196,7 +196,15 @@ export function createProductionFinishedGoodsPhotoProjectionService({ buildTodo 
 
   function buildPhotoRetakeTodo(workspace, orderLine, productionTask, reason, operatorId, todoId) {
     const orderLineId = getOrderLineId(orderLine, productionTask);
-    const existingTodo = findOpenTodo(workspace, "成品图需重拍", orderLineId);
+    const productionTaskId = text(productionTask?.productionTaskId ?? productionTask?.id);
+    const existingTodo = array(workspace?.todos).find(todo => {
+      if (text(todo.type) !== "成品图需重拍" || text(todo.ref ?? todo.refId ?? todo.ref_id) !== orderLineId ||
+          todo.handled === true || ["已处理", "completed", "done"].includes(text(todo.status).toLowerCase())) return false;
+      const owners = new Set(array(workspace?.todoEvents)
+        .filter(event => text(event.todoId ?? event.todo_id) === text(todo.id ?? todo.todoId))
+        .map(event => text((event.eventPayload ?? event.event_payload)?.productionTaskId)).filter(Boolean));
+      return Boolean(productionTaskId) && owners.size === 1 && owners.has(productionTaskId);
+    });
     const customerId = text(orderLine?.customerId ?? orderLine?.customer_id);
     const customerName = findCustomerName(workspace, customerId);
     const goods = buildTodoGoods(orderLine);

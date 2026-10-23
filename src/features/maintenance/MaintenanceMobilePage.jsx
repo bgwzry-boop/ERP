@@ -1,3 +1,4 @@
+import {readMaintenanceCommandDraft,saveMaintenanceCommandDraft,clearMaintenanceCommandDraft} from "./maintenance-command-draft.js";
 import {
   AppstoreOutlined,
   CameraOutlined,
@@ -9,7 +10,8 @@ import {
   UnorderedListOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createOfficeIdempotencyKey } from "../../services/officeApiClientCore.js";
 import { readFileAsDataUrl } from "../../app/browserFileActions.js";
 import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 import {
@@ -35,33 +37,50 @@ const DEFAULT_TASKS = Object.freeze([
   { id: "MT-PACK-01", machineId: "PACK-01", machineName: "打包标签机", type: "预防维护", status: "待维护", priority: "本周", faultCategory: "蓝牙连接", summary: "检查配对稳定性、走纸和标签校准。", due: "周五前", revision: 1, photoAttachmentIds: [] },
 ]);
 
-export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEFAULT_TASKS }) {
+export function MaintenanceMobilePage(props) {
+  const key = JSON.stringify([props.currentUser?.userId, props.authState?.session?.accessToken, props.authState?.authenticated, props.authState?.permissions]);
+  return <MaintenanceMobileSession key={key} {...props} />;
+}
+
+function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT_TASKS }) {
+  const [recovery] = useState(() => authState?.source === "api_runtime" && authState?.authenticated ? readMaintenanceCommandDraft(currentUser.userId) : {request:null,task:null,error:""});
+  const recoveredRequest = recovery.request ? {...recovery.request, authState, operatorId:currentUser.userId} : null;
+  const [pendingTask, setPendingTask] = useState(recovery.task);
   const [view, setView] = useState("current");
   const [queueMode, setQueueMode] = useState("pending");
-  const [taskRecords, setTaskRecords] = useState(() => normalizeTasks(tasks));
+  const [taskRecords, setTaskRecords] = useState(() => authState?.source === "api_runtime" ? [] : normalizeTasks(tasks));
   const [selectedId, setSelectedId] = useState(tasks[0]?.id ?? "");
   const [drafts, setDrafts] = useState({});
   const [notice, setNotice] = useState(null);
   const [readState, setReadState] = useState({ loading: false, error: "" });
-  const [confirmation, setConfirmation] = useState(null);
+  const [confirmation, setConfirmation] = useState(recovery.request?.completionConfirmed ? {taskId:recovery.request.taskId,expectedRevision:recovery.request.expectedRevision} : null);
   const [submitting, setSubmitting] = useState(false);
+  const readVersion = useRef(0);
+  const submittingRef = useRef(false);
+  const pendingRequestRef = useRef(recoveredRequest);
+  const [pendingRequest, setPendingRequest] = useState(recoveredRequest);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const isFormalSession = authState?.source === "api_runtime" && authState?.authenticated === true;
+  const canWriteTask = !recovery.error && isFormalSession && [...(authState?.permissions?.actionPermissions || []), ...(authState?.permissions?.buttonPermissions || [])].includes("maintenance.task.update");
   const pendingTasks = useMemo(() => taskRecords.filter((task) => !TERMINAL_STATUSES.has(task.status)), [taskRecords]);
   const completedTasks = useMemo(() => taskRecords.filter((task) => TERMINAL_STATUSES.has(task.status)), [taskRecords]);
-  const selected = taskRecords.find((task) => task.id === selectedId) ?? pendingTasks[0] ?? taskRecords[0] ?? null;
-  const draft = drafts[selected?.id] ?? buildDraft(selected);
-  const frozen = Boolean(confirmation) || submitting;
+  const selected = pendingTask ?? taskRecords.find((task) => task.id === selectedId) ?? pendingTasks[0] ?? taskRecords[0] ?? null;
+  const draft = pendingRequest ? {finding:pendingRequest.finding,action:pendingRequest.actionTaken,status:pendingRequest.status,photoFile:null} : drafts[selected?.id] ?? buildDraft(selected);
+  const frozen = Boolean(confirmation) || submitting || Boolean(pendingRequest);
 
   useEffect(() => {
     if (!isFormalSession) {
-      setTaskRecords(normalizeTasks(tasks));
+      setTaskRecords(authState?.source === "api_runtime" ? [] : normalizeTasks(tasks));
       setReadState({ loading: false, error: "" });
       return undefined;
     }
     let active = true;
+    const version = ++readVersion.current;
+    setTaskRecords([]);
     setReadState({ loading: true, error: "" });
     listMaintenanceTasks({ authState, operatorId: currentUser.userId }).then((result) => {
-      if (!active) return;
+      if (!active || version !== readVersion.current) return;
       if (result.blocked) {
         setReadState({ loading: false, error: result.error?.message || "设备任务读取失败，请稍后重试。" });
         return;
@@ -74,6 +93,7 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
   }, [authState, currentUser.userId, isFormalSession, tasks]);
 
   function openTask(taskId) {
+    if (submittingRef.current || confirmation || pendingRequestRef.current) return;
     setSelectedId(taskId);
     setNotice(null);
     setConfirmation(null);
@@ -91,7 +111,7 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
   }
 
   function beginSubmit() {
-    if (!selected || submitting) return;
+    if (!selected || submittingRef.current || pendingRequestRef.current || readState.loading || readState.error) return;
     const error = validateDraft(selected, draft);
     if (error) {
       setNotice({ tone: "danger", text: error });
@@ -106,13 +126,15 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
   }
 
   async function submitTask({ completionConfirmed }) {
-    if (!selected || !isFormalSession || submitting) return;
+    if (!selected || !canWriteTask || submittingRef.current || readState.loading || readState.error) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setNotice(null);
     let photoAttachmentIds = [...(selected.photoAttachmentIds ?? [])];
     try {
-      if (draft.photoFile) {
+      if (!pendingRequestRef.current && draft.photoFile) {
         const contentDataUrl = await readFileAsDataUrl(draft.photoFile);
+        if (!mounted.current) return;
         if (!contentDataUrl) throw new Error("设备照片读取失败，请重新拍摄或选择。");
         const file = {
           name: draft.photoFile.name,
@@ -129,26 +151,45 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
           }),
           { serverRequired: true },
         );
+        if (!mounted.current) return;
         if (upload.blocked || !upload.attachment?.attachmentId) {
           throw new Error(upload.error?.message || "设备照片上传失败，任务尚未提交。");
         }
         photoAttachmentIds = [...new Set([...photoAttachmentIds, upload.attachment.attachmentId])];
       }
-      const result = await updateMaintenanceTask({
+      const request = pendingRequestRef.current ?? {
+        idempotencyKey: createOfficeIdempotencyKey(),
         authState,
         operatorId: currentUser.userId,
         taskId: selected.id,
-        expectedRevision: selected.revision,
+        expectedRevision: confirmation?.expectedRevision ?? selected.revision,
         finding: draft.finding.trim(),
         actionTaken: draft.action.trim(),
         status: draft.status,
         photoAttachmentIds,
         completionConfirmed,
-      });
+      };
+      pendingRequestRef.current = request;
+      setPendingRequest(request);
+      setPendingTask({...selected,photoAttachmentIds:request.photoAttachmentIds});
+      const storageError = saveMaintenanceCommandDraft(currentUser.userId, request, selected);
+      if (storageError) throw new Error(storageError);
+      const result = await updateMaintenanceTask(request);
+      if (!mounted.current) return;
       if (result.blocked || !result.task) {
+        if (!['MAINTENANCE_TASK_WRITE_UNAVAILABLE','MAINTENANCE_TASK_SAVE_UNCONFIRMED'].includes(result.error?.code)) {
+          clearMaintenanceCommandDraft(currentUser.userId, request);
+          setPendingTask(null);
+          pendingRequestRef.current = null;
+          setPendingRequest(null);
+        }
         const conflict = result.error?.code === "MAINTENANCE_TASK_REVISION_CONFLICT";
         throw new Error(conflict ? "任务已被另一台设备更新，请刷新后重新核对。" : (result.error?.message || "设备任务提交失败。"));
       }
+      clearMaintenanceCommandDraft(currentUser.userId, request);
+      setPendingTask(null);
+      pendingRequestRef.current = null;
+      setPendingRequest(null);
       const saved = normalizeMaintenanceTask(result.task);
       setTaskRecords((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setDrafts((current) => {
@@ -168,17 +209,21 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
         if (nextTask) setSelectedId(nextTask.id);
       }
     } catch (error) {
+      if (!mounted.current) return;
       setNotice({ tone: "danger", text: error?.message || String(error) });
-      setConfirmation(null);
+      if (!pendingRequestRef.current) setConfirmation(null);
     } finally {
-      setSubmitting(false);
+      submittingRef.current = false;
+      if (mounted.current) setSubmitting(false);
     }
   }
 
   function refreshTasks() {
-    if (!isFormalSession) return;
+    if (!isFormalSession || submittingRef.current || confirmation || pendingRequestRef.current) return;
+    const version = ++readVersion.current;
     setReadState({ loading: true, error: "" });
     listMaintenanceTasks({ authState, operatorId: currentUser.userId }).then((result) => {
+      if (version !== readVersion.current) return;
       if (result.blocked) {
         setReadState({ loading: false, error: result.error?.message || "设备任务读取失败。" });
         return;
@@ -210,7 +255,10 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
         <strong>{pendingTasks.length}<small>待处理</small></strong>
       </header>
 
-      {readState.error ? <p className="maintenance-mobile-notice danger" role="alert">{readState.error} 当前暂停提交，避免覆盖其他人的处理结果。</p> : null}
+      {recovery.error ? <p role="alert" className="maintenance-mobile-notice danger">{recovery.error}</p> : null}
+      {pendingRequest ? <div className="maintenance-mobile-notice" role="status">本次提交内容已锁定，结果确认前请勿重新填写。<button type="button" disabled={submitting || !canWriteTask} onClick={() => submitTask({completionConfirmed: pendingRequest.completionConfirmed})}>{submitting ? "正在核实…" : "按原请求重试"}</button></div> : null}
+      {readState.loading ? <p className="maintenance-mobile-notice" role="status">正在读取服务器设备任务…</p> : null}
+      {readState.error ? <div className="maintenance-mobile-notice danger" role="alert">{readState.error} 当前暂停提交，避免覆盖其他人的处理结果。<button disabled={readState.loading || frozen} onClick={refreshTasks} type="button">重新读取任务</button></div> : null}
       {notice ? <p className={`maintenance-mobile-notice ${notice.tone}`} role={notice.tone === "danger" ? "alert" : "status"}>{notice.text}</p> : null}
 
       {view === "current" ? (
@@ -252,13 +300,13 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
                     <strong><WarningOutlined /> 完成任务</strong>
                     <p>确认后记录处理人、完成时间和照片，并关闭办公室待办。</p>
                   </section> : null}
-                  <button className="maintenance-mobile-primary" disabled={!isFormalSession || Boolean(readState.error) || readState.loading || submitting} onClick={beginSubmit} type="button">
-                    <CheckCircleOutlined /> {!isFormalSession ? "正式账号登录后提交" : draft.status === "已恢复" ? "核对并提交完成" : "保存处理进度"}
+                  <button className="maintenance-mobile-primary" disabled={!canWriteTask || Boolean(readState.error) || readState.loading || submitting} onClick={beginSubmit} type="button">
+                    <CheckCircleOutlined /> {!isFormalSession ? "正式账号登录后提交" : !canWriteTask ? "当前账号无任务处理权限" : draft.status === "已恢复" ? "核对并提交完成" : "保存处理进度"}
                   </button>
                 </>
               ) : (
                 <section className="maintenance-completion-confirmation" aria-live="polite">
-                  <strong>最终确认：提交设备已恢复</strong>
+                  <strong>{pendingRequest ? "提交结果待核实：原请求摘要" : "最终确认：提交设备已恢复"}</strong>
                   <dl>
                     <div><dt>任务 / 机台</dt><dd>{selected.id} · {selected.machineName}</dd></div>
                     <div><dt>检查发现</dt><dd>{draft.finding}</dd></div>
@@ -266,15 +314,15 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
                     <div><dt>设备照片</dt><dd>{draft.photoFile ? `新照片：${draft.photoFile.name}` : `服务器已有 ${selected.photoAttachmentIds?.length ?? 0} 张`}</dd></div>
                   </dl>
                   <p>确认后写入实际机修人员和完成时间，并把同一设备任务的办公室待办标为已处理；历史结果不可被旧版本覆盖。</p>
-                  <div>
-                    <button disabled={submitting} onClick={() => setConfirmation(null)} type="button">返回修改</button>
-                    <button className="primary-action" disabled={!isFormalSession || submitting || Boolean(readState.error)} onClick={() => submitTask({ completionConfirmed: true })} type="button">{submitting ? "正在上传并提交…" : isFormalSession ? "确认完成任务" : "正式账号登录后提交"}</button>
-                  </div>
+                  {!pendingRequest ? <div>
+                    <button disabled={submitting || Boolean(pendingRequest)} onClick={() => setConfirmation(null)} type="button">返回修改</button>
+                    <button className="primary-action" disabled={!canWriteTask || submitting || readState.loading || Boolean(readState.error)} onClick={() => submitTask({ completionConfirmed: true })} type="button">{submitting ? "正在上传并提交…" : !isFormalSession ? "正式账号登录后提交" : canWriteTask ? "确认完成任务" : "当前账号无任务处理权限"}</button>
+                  </div> : null}
                 </section>
               )}
             </>
           )}
-        </section> : <section className="maintenance-mobile-empty"><CheckCircleOutlined /><strong>当前没有设备任务</strong><span>新的报修或巡检任务会出现在这里。</span></section>
+        </section> : <section className="maintenance-mobile-empty"><CheckCircleOutlined /><strong>{readState.loading ? "正在读取设备任务" : readState.error ? "设备任务暂不可用" : "当前没有设备任务"}</strong><span>新的报修或巡检任务会出现在这里。</span></section>
       ) : null}
 
       {view === "pending" ? <section className="guided-mobile-queue maintenance-mobile-queue" aria-label="设备任务列表">
@@ -289,7 +337,7 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
           <FunctionButton count={pendingTasks.filter((task) => task.type === "日常巡检").length} icon={CheckCircleOutlined} label="日常巡检" onClick={() => openFirstType("日常巡检")} />
           <FunctionButton count={pendingTasks.filter((task) => task.type === "预防维护").length} icon={ToolOutlined} label="预防维护" onClick={() => openFirstType("预防维护")} />
           <FunctionButton count={completedTasks.length} icon={HistoryOutlined} label="维护记录" onClick={showRecords} />
-          <button disabled={!isFormalSession || readState.loading} onClick={refreshTasks} type="button"><ReloadOutlined /><strong>刷新任务</strong><span>{readState.loading ? "读取中" : isFormalSession ? "服务器" : "正式账号"}</span></button>
+          <button disabled={!isFormalSession || readState.loading || frozen} onClick={refreshTasks} type="button"><ReloadOutlined /><strong>刷新任务</strong><span>{readState.loading ? "读取中" : isFormalSession ? "服务器" : "正式账号"}</span></button>
         </div>
       </section> : null}
 
@@ -298,10 +346,12 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
         badgeCount={(key) => key === "pending" ? pendingTasks.length : 0}
         items={MOBILE_VIEWS}
         onChange={(key) => {
+          if (frozen) return;
           setQueueMode("pending");
           setView(key);
         }}
         value={view}
+        disabled={frozen}
       />
     </section>
   );
@@ -336,13 +386,13 @@ function formatDue(task) {
   if (task?.due) return task.due;
   const timestamp = Date.parse(task?.dueAt ?? "");
   if (!Number.isFinite(timestamp)) return "未设置";
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(timestamp));
+  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(timestamp));
 }
 
 function formatTimestamp(value) {
   const timestamp = Date.parse(value ?? "");
   if (!Number.isFinite(timestamp)) return "完成时间已留痕";
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(timestamp));
+  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(timestamp));
 }
 
 export { DEFAULT_TASKS as defaultMaintenanceTasks };

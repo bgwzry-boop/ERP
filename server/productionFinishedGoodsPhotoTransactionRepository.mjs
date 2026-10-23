@@ -2,7 +2,7 @@ import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey, readPostgresIdempotencyReplay, buildIdempotencyRequestHash, buildIdempotencyConflictError } from "./idempotency.mjs";
 
 export function createProductionFinishedGoodsPhotoTransactionRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -17,18 +17,39 @@ export function createProductionFinishedGoodsPhotoTransactionRepository(options 
 }
 
 export function createLocalProductionFinishedGoodsPhotoTransactionRepository() {
+  const receipts = new WeakMap();
+  const readReviewReceipt = ({ workspace, idempotencyKey, idempotencyPayload }) => {
+    if (!idempotencyKey) return null;
+    const stored = receipts.get(workspace)?.get(idempotencyKey);
+    if (!stored) return null;
+    if (stored.hash !== buildIdempotencyRequestHash(idempotencyPayload)) throw buildIdempotencyConflictError();
+    return structuredClone(stored.result);
+  };
   return {
+    readReviewReceipt,
     kind: "local_memory",
     async getProductionTask({ workspace, productionTaskId }) {
       return findById(workspace.productionTasks, productionTaskId, "productionTaskId");
     },
+    async getPhotoTodoContext({ workspace }) {
+      return { todos: workspace.todos ?? [], todoEvents: workspace.todoEvents ?? [], productionTasks: workspace.productionTasks ?? [] };
+    },
     async uploadPhoto(input) {
+      assertLocalPhotoVersion(input);
       applyMutation(input);
       return resultFromInput(input);
     },
     async reviewPhoto(input) {
+      const prior = readReviewReceipt(input);
+      if (prior) return prior;
+      assertLocalPhotoVersion(input);
       applyMutation(input);
-      return resultFromInput(input);
+      const result = resultFromInput(input);
+      if (input.idempotencyKey) {
+        if (!receipts.has(input.workspace)) receipts.set(input.workspace, new Map());
+        receipts.get(input.workspace).set(input.idempotencyKey, { hash: buildIdempotencyRequestHash(input.idempotencyPayload), result: structuredClone(result) });
+      }
+      return result;
     },
   };
 }
@@ -40,9 +61,29 @@ export function createPostgresProductionFinishedGoodsPhotoTransactionRepository(
   const { idempotentTransactionJson } = createPostgresTransactionExecutor({ ...options, postgresClient });
   return {
     kind: "postgres",
+    async readReviewReceipt({ idempotencyKey, idempotencyPayload }) {
+      const value = await readPostgresIdempotencyReplay({ queryJson, scope: "production.finished_goods_photo.review", idempotencyKey, payload: idempotencyPayload });
+      return value ? normalizeResult(value, {}) : null;
+    },
     async getProductionTask({ productionTaskId }) {
       const query = buildGetProductionPhotoTaskQuery(productionTaskId);
       return normalizeTask(await queryJson(query.text, query.values));
+    },
+    async getPhotoTodoContext({ orderLineId }) {
+      const parameters = createPostgresParameterBinder();
+      const line = parameters.text(orderLineId);
+      const value = await queryJson(`WITH relevant_todos AS (
+        SELECT * FROM todos WHERE ref_id = ${line} AND type IN ('成品图需重拍', '待通知客户')
+      ) SELECT json_build_object(
+        'todos', COALESCE((SELECT json_agg(${todoJson("t")}) FROM relevant_todos t), '[]'::json),
+        'todoEvents', COALESCE((SELECT json_agg(json_build_object('todoId', e.todo_id, 'eventPayload', e.event_payload))
+          FROM todo_events e JOIN relevant_todos t ON t.id = e.todo_id), '[]'::json),
+        'productionTasks', COALESCE((SELECT json_agg(${taskJson("p")}) FROM production_tasks p WHERE p.order_line_id = ${line}), '[]'::json)
+      ) AS result`, parameters.values);
+      if (!value || !Array.isArray(value.todos) || !Array.isArray(value.todoEvents) || !Array.isArray(value.productionTasks)) {
+        throw new Error("Production photo todo context is unavailable");
+      }
+      return { ...value, todos: value.todos.map(todo => ({ ...todo, id: todo.todoId, handled: ['已处理', 'completed', 'done'].includes(todo.status) })) };
     },
     async uploadPhoto(input) {
       return persist(input, "production.finished_goods_photo.upload", buildUploadPhotoTransactionQuery, idempotentTransactionJson);
@@ -116,13 +157,14 @@ function buildWriteQuery(input, includeTodos) {
     text: `
 BEGIN;
 WITH locked_task AS MATERIALIZED (
-  SELECT id, revision FROM production_tasks
+  SELECT id, revision, order_line_id FROM production_tasks
   WHERE id = ${parameters.text(task.productionTaskId)}
   FOR UPDATE
 ),
 write_guard AS MATERIALIZED (
   SELECT erp_require(
-    EXISTS (SELECT 1 FROM locked_task WHERE revision = ${parameters.integer(expectedRevision)}),
+    EXISTS (SELECT 1 FROM locked_task WHERE revision = ${parameters.integer(expectedRevision)}
+      AND order_line_id = ${parameters.text(task.orderLineId)}),
     'ERP_PRODUCTION_PHOTO_CONCURRENCY_CONFLICT'
   ) AS ok
 ),
@@ -226,6 +268,19 @@ function resultFromInput(input) {
     todoEventIds: (input.todoEvents ?? []).map((event) => event.eventId),
     operationLogId: input.operationLog?.id ?? "",
   };
+}
+
+function assertLocalPhotoVersion({ workspace, productionTask }) {
+  const current = findById(workspace.productionTasks, productionTask?.productionTaskId, "productionTaskId");
+  const currentRevision = Number(current?.revision ?? 1);
+  if (!current || !Number.isSafeInteger(currentRevision) || currentRevision < 1 ||
+      productionTask.revision !== currentRevision + 1 ||
+      text(current.orderLineId ?? current.order_line_id) !== text(productionTask.orderLineId)) {
+    const error = new Error("成品图或生产任务已更新，请刷新并重新核对后再提交。");
+    error.code = "BUSINESS_WRITE_CONFLICT";
+    error.statusCode = 409;
+    throw error;
+  }
 }
 
 function applyMutation({ workspace, productionTask, todos = [], todoEvents = [], operationLog }) {

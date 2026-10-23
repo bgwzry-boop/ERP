@@ -16,12 +16,19 @@ const baseTodos = [
     type: "待打印标签",
     customerId: "C001",
     ref: "ORD-PRINT-01",
+    resolvedRefId: "F-PRINT-01",
+    resolvedRefType: "fulfillment",
     summary: "快运 2 包",
     handled: false,
   },
 ];
 
-function createHarness({ allowLocalFallback = false, api = {}, copyResult = true, todoItems = baseTodos } = {}) {
+assert.deepEqual(getTodoActions({ ...baseTodos[1], referenceStatus: "missing" }), []);
+assert.match(getTodoHandlingRule({ ...baseTodos[1], referenceStatus: "missing" }), /先修复出库关联/);
+assert.match(getTodoHandlingRule(baseTodos[1]), /自动完成/);
+assert.doesNotMatch(getTodoHandlingRule({ ...baseTodos[1], type: "其他打印异常" }), /自动完成/);
+
+function createHarness({ allowLocalFallback = false, api = {}, copyResult = true, todoItems = baseTodos, permissions = ["production.read"] } = {}) {
   let todos = todoItems.map((item) => ({ ...item }));
   let selectedTodoId = todos[0].id;
   let todoView = "未处理";
@@ -30,11 +37,11 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
   let fulfillmentRefreshCount = 0;
   const modals = [];
   const toasts = [];
-  const focusCalls = { drafts: [], fulfillments: [], inventories: [], statements: [] };
+  const focusCalls = { drafts: [], fulfillments: [], inventories: [], statements: [], production: [] };
   const controller = createOfficeTodoActions({
     allowLocalFallback,
     api,
-    authState: { authenticated: true },
+    authState: { authenticated: true, permissions: { actionPermissions: permissions } },
     copyTextToClipboard: async () => copyResult,
     currentUser: { displayName: "办公室A" },
     currentUserId: "U-OFFICE-A",
@@ -52,6 +59,7 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
       return { draftId: ref };
     },
     focusOrderLine: () => {},
+    focusProductionTask: target => focusCalls.production.push(target),
     focusStatementByRef: async (ref) => {
       focusCalls.statements.push(ref);
       return { id: "ST-FOCUS-1", ref };
@@ -293,17 +301,18 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
     },
   });
   await harness.controller.handleTodo("稍后2小时");
-  assert.equal(harness.getTodos()[0].reminder, "2 小时后");
-  assert.equal(harness.getRefreshCount(), 1);
+  assert.notEqual(harness.getTodos()[0].reminder, "2 小时后");
+  assert.equal(harness.getRefreshCount(), 0);
 }
 
 {
   const harness = createHarness();
   await harness.controller.handleTodo("打印标签", "T-CONTROLLER-PRINT");
-  const modal = harness.getModals()[0];
-  assert.equal(modal.type, "batchPrintResult");
-  assert.equal(modal.totalTasks, 1);
-  assert.equal(modal.totalLabels, 2);
+  assert.equal(harness.getModals().length, 0);
+  assert.deepEqual(harness.getFocusCalls().fulfillments, ["F-PRINT-01"]);
+  await harness.controller.handleTodo("批量打印标签");
+  assert.equal(harness.getTodoView(), "待打印");
+  assert.equal(harness.getModals().length, 0);
 }
 
 {
@@ -322,3 +331,42 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
 }
 
 console.log("Office todo actions check passed: todo writes are isolated, formal fallback is blocked, customer-pending is persisted, and API commits refresh the read model.");
+
+{
+  const todo = {...baseTodos[0], type:'生产异常', productionExceptionId:'PEX-OLD', referenceStatus:'valid', resolvedRefType:'production_task', resolvedRefId:'PT-EXACT', ref:'LEGACY-ALIAS'};
+  const harness = createHarness({todoItems:[todo]});
+  await harness.controller.handleTodo('打开生产任务',todo.id);
+  assert.equal(harness.getFocusCalls().production[0]?.taskId,'PT-EXACT');
+  assert.equal(harness.getFocusCalls().production[0]?.productionExceptionId,'PEX-OLD');
+  assert.equal(harness.getFocusCalls().production[0]?.orderLineId,undefined,'Task reference must never be passed as an order line');
+  for(const patch of [{referenceStatus:'missing'},{referenceStatus:'unverifiable'},{resolvedRefType:'order_line'},{resolvedRefId:''},{productionExceptionId:''}]){
+    const blocked=createHarness({todoItems:[{...todo,...patch}]});
+    await blocked.controller.handleTodo('打开生产任务',todo.id);
+    assert.equal(blocked.getFocusCalls().production.length,0);
+  }
+  const denied=createHarness({todoItems:[todo],permissions:[]});
+  await denied.controller.handleTodo('打开生产任务',todo.id);
+  assert.equal(denied.getFocusCalls().production.length,0);
+}
+
+{
+  const todo = { ...baseTodos[0], type: '成品图需重拍', productionTaskId: 'PT-BAG', productionTaskReferenceStatus: 'valid' };
+  assert.equal(getTodoActions(todo)[0].label, '打开生产任务');
+  const harness = createHarness({ todoItems: [todo] });
+  await harness.controller.handleTodo('打开生产任务', todo.id);
+  assert.equal(harness.getFocusCalls().production[0].taskId, 'PT-BAG');
+  assert.equal(harness.getFocusCalls().production[0].mode, 'production');
+  for (const status of ['missing', 'ambiguous', undefined]) {
+    const blocked = createHarness({ todoItems: [{ ...todo, productionTaskReferenceStatus: status }] });
+    await blocked.controller.handleTodo('打开生产任务', todo.id);
+    assert.equal(blocked.getFocusCalls().production.length, 0);
+  }
+}
+
+{
+  const todo = { ...baseTodos[0], type: '成品图需重拍', productionTaskId: 'PT-BAG', productionTaskReferenceStatus: 'valid' };
+  const denied = createHarness({ todoItems: [todo], permissions: [] });
+  await denied.controller.handleTodo('打开生产任务', todo.id);
+  assert.equal(denied.getFocusCalls().production.length, 0);
+  assert.match(denied.toasts.at(-1), /没有.*权限/);
+}

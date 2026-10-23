@@ -1,10 +1,15 @@
+import {getOfficeProductionTaskDetail} from "../../../../src/services/officeProductionPackingLazyApi.js";
+import {refreshAfterProductionPhotoReview} from "./production-review-refresh.js";
+import {resolveTodoWorkspaceLink} from "./todo-workspace-link.js";
+import { TodoReminderForm } from "../../../../src/features/todos/TodoReminderForm.jsx";
+import { ProductionPhotoReview } from "./ProductionPhotoReview.jsx";
 import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
 import { DesktopFulfillmentOperations } from "./DesktopFulfillmentOperations.jsx";
 import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
 import { FinishedInventoryCorrectionCreate } from "./FinishedInventoryCorrectionCreate.jsx";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircleOutlined,
   FileTextOutlined,
@@ -890,6 +895,7 @@ function TodoWorkspace({ formal, onNavigate }) {
   const queryMatched = areaMatched.filter((todo) => !query.trim() || [todo.type, todo.customerName || customerName(todo.customerId), todo.ref, todo.summary, todo.impact].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
   const rows = queryMatched.filter((todo) => todoMatchesView(todo, view));
   const selected = rows.find((todo) => todo.id === selectedId) || rows[0] || null;
+  const targetLink = resolveTodoWorkspaceLink(selected, formal.permissionContext);
   const resetDisabled = !query && area === "全部业务" && view === "未处理";
   const reset = () => { setQuery(""); setArea("全部业务"); setView("未处理"); setSelectedId(sortedTodos[0]?.id || ""); setNotice(""); };
 
@@ -906,8 +912,8 @@ function TodoWorkspace({ formal, onNavigate }) {
     <aside className="business-detail-panel todo-source-detail">
       <header><span>{selected ? `${selected.customerName || customerName(selected.customerId)} · ${selected.ref}` : "公共待办"}</span><h2>{selected?.type || "暂无待办"}</h2>{selected ? <StateText>{selected.handled ? "已处理" : selected.urgency}</StateText> : null}</header>
       <div className="todo-detail-tabs" role="tablist" aria-label="公共待办详情">{["处理", "通知/打印", "记录"].map((item) => <button aria-selected={detailTab === item} key={item} onClick={() => setDetailTab(item)} role="tab" type="button">{item}</button>)}</div>
-      <div className="business-detail-scroll"><div className="source-provenance"><CheckCircleOutlined /><span>正式公共待办 API</span></div>{selected ? <><h3>{detailTab === "处理" ? "任务信息" : detailTab}</h3><dl className="business-facts"><div><dt>待办编号</dt><dd>{selected.id}</dd></div><div><dt>客户</dt><dd>{selected.customerName || customerName(selected.customerId)}</dd></div><div><dt>提醒状态</dt><dd>{selected.handled ? "已处理" : selected.reminderLevelLabel || "正常"}</dd></div><div><dt>业务引用</dt><dd>{selected.ref}</dd></div><div><dt>摘要</dt><dd>{selected.summary}</dd></div><div><dt>最晚 / 等待</dt><dd>{selected.latest} / {selected.wait}</dd></div><div><dt>业务影响</dt><dd>{selected.impact}</dd></div></dl></> : <div className="business-empty"><FileTextOutlined /><strong>没有可显示的待办详情</strong></div>}{notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}</div>
-      <footer><button className="primary" disabled={!selected} onClick={() => selected && onNavigate(todoTarget(selected))} type="button">进入对应工作台</button><button className="secondary-button" onClick={() => void formal.actions.refreshAll()} type="button">刷新服务器数据</button></footer>
+      <div className="business-detail-scroll"><div className="source-provenance"><CheckCircleOutlined /><span>正式公共待办 API</span></div>{selected ? <><h3>{detailTab === "处理" ? "任务信息" : detailTab}</h3><dl className="business-facts"><div><dt>待办编号</dt><dd>{selected.id}</dd></div><div><dt>客户</dt><dd>{selected.customerName || customerName(selected.customerId)}</dd></div><div><dt>提醒状态</dt><dd>{selected.handled ? "已处理" : selected.reminderLevelLabel || "正常"}</dd></div><div><dt>业务引用</dt><dd>{selected.ref}</dd></div><div><dt>摘要</dt><dd>{selected.summary}</dd></div><div><dt>最晚 / 等待</dt><dd>{selected.latest} / {selected.wait}</dd></div><div><dt>业务影响</dt><dd>{selected.impact}</dd></div></dl><TodoReminderForm todo={selected} authState={formal.authState} onSaved={formal.actions.refreshAll} /></> : <div className="business-empty"><FileTextOutlined /><strong>没有可显示的待办详情</strong></div>}{notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}</div>
+      <footer><button className="primary" disabled={targetLink.disabled} title={targetLink.reason} onClick={() => !targetLink.disabled && onNavigate(targetLink.navId, targetLink)} type="button">{targetLink.label}</button><button className="secondary-button" onClick={() => void formal.actions.refreshAll()} type="button">刷新服务器数据</button></footer>
     </aside>
   </div>;
 }
@@ -985,7 +991,29 @@ function OrderEntryWorkspace({ formal, onNavigate }) {
   </div>;
 }
 
-export function BusinessWorkspace({ formal, navId, onNavigate }) {
+export function FocusedProductionWorkspace({ formal, onNavigate, taskId, loadDetail = getOfficeProductionTaskDetail }) {
+  const [result, setResult] = useState(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setResult(null);
+    Promise.resolve().then(() => loadDetail({ authState: formal.authState, productionTaskId: taskId }, { serverRequired: true }))
+      .then(value => { if (active) setResult(value); })
+      .catch(() => { if (active) setResult({ error: { message: "生产任务读取失败，请重试。" } }); });
+    return () => { active = false; };
+  }, [taskId, formal.authState?.session?.accessToken, loadDetail, attempt]);
+  if (!result) return <div role="status">正在读取生产任务 {taskId}…</div>;
+  const detail = result.detail;
+  if (result.source !== "api" || result.blocked || detail?.productionTaskId !== taskId || !detail?.orderLineId) {
+    return <div role="alert"><p>{result.error?.message || "没有取得对应生产任务，请核对编号或访问权限。"}</p><button onClick={() => setAttempt(value => value + 1)} type="button">重新读取任务</button></div>;
+  }
+  const focusedFormal = { ...formal, data: { ...formal.data, productionTasks: [detail] } };
+  const config = buildWorkspaceConfigs(focusedFormal)["production-tasks"];
+  return <GenericWorkspace key={taskId} config={{ ...config, onRefresh: () => setAttempt(value => value + 1) }} formal={focusedFormal} focusId={taskId} detailExtra={() => <ProductionPhotoReview key={`${taskId}:${detail.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}:${JSON.stringify(formal.authState?.permissions?.actionPermissions)}`} detail={detail} authState={formal.authState} onSaved={() => refreshAfterProductionPhotoReview({ readTodos: () => formal.actions.readCollection("todos"), refreshDetail: () => setAttempt(value => value + 1) })} />} onNavigate={onNavigate} />;
+}
+
+export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId = "" }) {
+  if (navId === "production-tasks" && productionFocusId) return <FocusedProductionWorkspace key={`${productionFocusId}:${formal.authState?.session?.accessToken || ""}`} formal={formal} onNavigate={onNavigate} taskId={productionFocusId} />;
   if (["customer-statements", "print-devices"].includes(navId)) return <FinanceOperationsWorkspace key={navId} formal={formal} navId={navId} onNavigate={onNavigate} />;
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-entry") return <OrderEntryWorkspace formal={formal} onNavigate={onNavigate} />;
@@ -1001,7 +1029,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate }) {
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;
   return <GenericWorkspace key={navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} onNavigate={onNavigate}
-    detailExtra={navId === "production-tasks" ? selected => <ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} /> : null} />;
+    detailExtra={navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
 }
 
 export { completedBusinessWorkspaceIds };

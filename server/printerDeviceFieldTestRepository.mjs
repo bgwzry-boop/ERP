@@ -1,5 +1,6 @@
 import { resolveStoreMode } from "./storeMode.mjs";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -54,12 +55,24 @@ export function createLocalPrinterDeviceFieldTestRepository(options = {}) {
     recordPrinterDeviceFieldTest(input = {}) {
       const record = normalizePrinterDeviceFieldTestRecord(input.record);
       if (!record) throw new Error("Invalid printer device field-test record");
+      const persisted = loadPersistentPrinterDeviceFieldTestState(storageRoot);
+      if ([...(input.workspace.printerDeviceFieldTests ?? []), ...(persisted.printerDeviceFieldTests ?? [])]
+        .some(item => (item.recordId ?? item.id) === record.recordId)) {
+        throw Object.assign(new Error("验收记录已保存，不能覆盖旧记录；请核对历史记录或新建一次验收。"),
+          { code: "PRINTER_DEVICE_FIELD_TEST_RECORD_EXISTS", statusCode: 409 });
+      }
+      const history = new Map((input.workspace.printerDeviceFieldTests ?? []).map(item => [item.recordId ?? item.id, item]));
+      for (const item of persisted.printerDeviceFieldTests) history.set(item.recordId, item);
+      const staged = { ...input.workspace, printerDeviceFieldTests: [...history.values()] };
       applyPrinterDeviceFieldTestWorkspaceMutation({
-        workspace: input.workspace,
+        workspace: staged,
         record,
         operationLog: input.operationLog,
       });
-      persistPersistentPrinterDeviceFieldTestState(storageRoot, input.workspace);
+      persistPersistentPrinterDeviceFieldTestState(storageRoot, staged);
+      input.workspace.printerDeviceFieldTests = staged.printerDeviceFieldTests;
+      input.workspace.printDevices = staged.printDevices;
+      input.workspace.operationLogs = staged.operationLogs;
       return {
         record,
         operationLogId: input.operationLog?.id ?? "",
@@ -122,7 +135,7 @@ export function createPostgresPrinterDeviceFieldTestRepository(options = {}) {
       applyPrinterDeviceFieldTestWorkspaceMutation({
         workspace: input.workspace,
         record: result.record,
-        operationLog: input.operationLog,
+        operationLog: result.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return result;
     },
@@ -224,25 +237,11 @@ upserted_field_test AS (
     ${parameters.timestamp(record.createdAt)},
     now()
   )
-  ON CONFLICT (id) DO UPDATE SET
-    biz_no = EXCLUDED.biz_no,
-    printer_device_id = EXCLUDED.printer_device_id,
-    print_job_id = EXCLUDED.print_job_id,
-    document_type = EXCLUDED.document_type,
-    operator_id = EXCLUDED.operator_id,
-    operator_name = EXCLUDED.operator_name,
-    checked_at = EXCLUDED.checked_at,
-    device_label = EXCLUDED.device_label,
-    driver_label = EXCLUDED.driver_label,
-    paper_label = EXCLUDED.paper_label,
-    checks_json = EXCLUDED.checks_json,
-    summary_json = EXCLUDED.summary_json,
-    note = EXCLUDED.note,
-    operation_log_id = EXCLUDED.operation_log_id,
-    updated_at = now()
+  ON CONFLICT (id) DO NOTHING
   RETURNING ${printerDeviceFieldTestJsonExpression("printer_device_field_tests")} AS result
 )
 SELECT json_build_object(
+  'writeGuard', erp_require((SELECT COUNT(*) FROM upserted_field_test) = 1, 'ERP_PRINTER_FIELD_TEST_RECORD_CONFLICT'),
   'record', (SELECT result FROM upserted_field_test),
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
@@ -332,16 +331,14 @@ function applyPrinterDeviceFieldTestWorkspaceMutation(input = {}) {
     input.record,
     (item) => item?.recordId ?? item?.id,
   );
-  workspace.printDevices = (workspace.printDevices ?? []).map((device) =>
-    device.printDeviceId === input.record.printDeviceId
-      ? {
-          ...device,
-          latestFieldTestRecord: input.record,
-          latestFieldTestSummary: input.record.summary,
-          latestFieldTestCheckedAt: input.record.checkedAt,
-        }
-      : device,
-  );
+  workspace.printDevices = (workspace.printDevices ?? []).map((device) => {
+    if (device.printDeviceId !== input.record.printDeviceId) return device;
+    const latest = [...workspace.printerDeviceFieldTests, device.latestFieldTestRecord]
+      .filter(record => record?.printDeviceId === input.record.printDeviceId)
+      .sort(compareFieldTestRecency)[0];
+    return { ...device, latestFieldTestRecord: latest,
+      latestFieldTestSummary: latest.summary, latestFieldTestCheckedAt: latest.checkedAt };
+  });
   if (input.operationLog) {
     workspace.operationLogs = upsertById(workspace.operationLogs ?? [], input.operationLog);
   }
@@ -352,19 +349,23 @@ function loadPersistentPrinterDeviceFieldTestState(storageRoot) {
   if (!existsSync(filePath)) return { printerDeviceFieldTests: [] };
   try {
     const json = JSON.parse(readFileSync(filePath, "utf8"));
-    return {
-      printerDeviceFieldTests: normalizePrinterDeviceFieldTestRecords(json?.printerDeviceFieldTests),
-    };
-  } catch {
-    return { printerDeviceFieldTests: [] };
+    const rows = json?.printerDeviceFieldTests;
+    if (!Array.isArray(rows) || rows.some(row => !normalizePrinterDeviceFieldTestRecord(row)) ||
+      new Set(rows.map(row => row.recordId ?? row.id)).size !== rows.length) throw new Error("Invalid field-test history");
+    return { printerDeviceFieldTests: normalizePrinterDeviceFieldTestRecords(rows) };
+  } catch (cause) {
+    throw Object.assign(new Error("打印验收历史文件无法读取，已停止保存以保护原记录。", {cause}),
+      {code:"PRINTER_DEVICE_FIELD_TEST_STORE_UNREADABLE"});
   }
 }
 
 function persistPersistentPrinterDeviceFieldTestState(storageRoot, workspace = {}) {
   const filePath = join(storageRoot, printerDeviceFieldTestStoreKey);
   mkdirSync(dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+  try {
   writeFileSync(
-    filePath,
+    temporaryPath,
     `${JSON.stringify(
       {
         version: 1,
@@ -374,7 +375,20 @@ function persistPersistentPrinterDeviceFieldTestState(storageRoot, workspace = {
       null,
       2,
     )}\n`,
+    {flag:"wx"},
   );
+  renameSync(temporaryPath, filePath);
+  } finally {
+    rmSync(temporaryPath, {force:true});
+  }
+}
+
+function compareFieldTestRecency(left, right) {
+  const leftTime = Date.parse(left.checkedAt);
+  const rightTime = Date.parse(right.checkedAt);
+  const a = Number.isFinite(leftTime) ? leftTime : -Infinity;
+  const b = Number.isFinite(rightTime) ? rightTime : -Infinity;
+  return (a === b ? 0 : b - a) || String(right.recordId ?? right.id).localeCompare(String(left.recordId ?? left.id));
 }
 
 export function filterPrinterDeviceFieldTests(records, filters = {}) {
@@ -384,7 +398,7 @@ export function filterPrinterDeviceFieldTests(records, filters = {}) {
   if (filters.documentType) items = items.filter((item) => item.documentType === filters.documentType);
   if (filters.operatorId) items = items.filter((item) => item.operatorId === filters.operatorId);
   return items
-    .sort((left, right) => right.checkedAt.localeCompare(left.checkedAt) || right.recordId.localeCompare(left.recordId))
+    .sort(compareFieldTestRecency)
     .slice(0, normalizeLimit(filters.limit ?? 200));
 }
 

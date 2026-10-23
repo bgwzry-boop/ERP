@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  applyPrintRecordProjection,
   buildFulfillmentFromPacking,
   buildProductionTaskListQueryForPage,
   createInitialProductionPackingState,
@@ -98,13 +97,13 @@ const fulfillment = buildFulfillmentFromPacking({
 assert.equal(fulfillment.status, "待打印标签");
 assert.equal(fulfillment.packages, "3包");
 
-const printed = applyPrintRecordProjection(
-  [{ id: "F-001", status: "待打印标签", printed: false }],
-  "F-001",
-  { printRecordId: "PR-001", status: "printed", batchNo: "PB-001" },
-);
-assert.equal(printed[0].printed, true);
-assert.equal(printed[0].activePrintRecordId, "PR-001");
 assert.equal(findFulfillmentForPrintTodo({ ref: "OL-001" }, [{ ...fulfillment, lineId: "OL-001" }])?.id, "F-001");
 
 console.log("office production/packing state checks passed");
+
+const silkStage = { id: "SAME-LINE", productionTaskId: "PT-SILK", status: "已完成" };
+const bagStage = { id: "SAME-LINE", productionTaskId: "PT-BAG", status: "待排产" };
+const isolatedStages = upsertProductionTaskLine([silkStage, bagStage], { ...bagStage, status: "制袋已排产" });
+assert.deepEqual(isolatedStages[0], silkStage);
+assert.equal(isolatedStages[1].status, "制袋已排产");
+assert.equal(new Set(isolatedStages.map(item => item.productionTaskId)).size, 2);

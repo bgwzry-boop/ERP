@@ -84,6 +84,7 @@ export function createProductionPackingTransactionRepository(options = {}) {
 export function createLocalProductionPackingTransactionRepository() {
   const productionReportResults = new Map();
   const packingResults = new Map();
+  const dailyResults = new Map();
   const productionExceptionResults = new Map();
   return {
     kind: "local_memory",
@@ -96,6 +97,7 @@ export function createLocalProductionPackingTransactionRepository() {
       const replay = readLocalProductionTransactionReplay(productionReportResults, input, "production.report.complete");
       if (replay) return replay;
       assertProductionStage(input);
+      assertNewWorkshopReport(input);
       const transaction = normalizeProductionReportTransactionResult({
         downstreamProductionTask: input.downstreamProductionTask,
         todo: input.todo,
@@ -127,6 +129,9 @@ export function createLocalProductionPackingTransactionRepository() {
     },
 
     recordProductionDailyProgress(input) {
+      const replay = readLocalProductionTransactionReplay(dailyResults, input, "production.daily_progress.record");
+      if (replay) return replay;
+      assertNewWorkshopReport(input);
       const transaction = normalizeProductionDailyProgressTransactionResult({
         productionTask: input.productionTask,
         workshopReport: input.workshopReport,
@@ -138,6 +143,7 @@ export function createLocalProductionPackingTransactionRepository() {
         workshopReport: transaction.workshopReport,
         operationLog: input.operationLog,
       });
+      saveLocalProductionTransactionReplay(dailyResults, input, transaction, "production.daily_progress.record");
       return transaction;
     },
 
@@ -1006,7 +1012,7 @@ function buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment, creat
     ? `EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(orderLine.revision ?? 1)})`
     : "TRUE";
   const fulfillmentCondition = fulfillment
-    ? `EXISTS (SELECT 1 FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision ?? 1)})`
+    ? `EXISTS (SELECT 1 FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision ?? 1)} AND order_line_id = ${parameters.text(packingTask.orderLineId)} AND status NOT IN ('已交付','已取消','已作废','已出库','已拉走','配送中') AND physical_outbound_at IS NULL AND final_delivery_at IS NULL AND delivered_at IS NULL AND loaded_at IS NULL)`
     : "TRUE";
   return `locked_packing_task AS MATERIALIZED (
   SELECT id, revision, status, order_line_id FROM packing_tasks
@@ -1019,7 +1025,7 @@ locked_order_line AS MATERIALIZED (
   FOR UPDATE
 ),
 locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision, order_line_id, status, physical_outbound_at, final_delivery_at FROM fulfillment_records
+  SELECT id, revision, order_line_id, status, physical_outbound_at, final_delivery_at, delivered_at, loaded_at FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment?.fulfillmentId ?? "")}
   FOR UPDATE
 ),
@@ -1099,8 +1105,12 @@ function assertPackingBindings(input) {
   const task = input.packingTask;
   const lineId = task?.orderLineId;
   const packages = input.packages ?? [];
+  const fulfillmentId = input.fulfillment?.fulfillmentId ?? input.fulfillment?.id;
+  const savedFulfillment = (input.workspace?.fulfillments ?? []).find(f => (f.fulfillmentId ?? f.id) === fulfillmentId);
+  if (savedFulfillment && (["已交付","已取消","已作废","已出库","已拉走","配送中"].includes(savedFulfillment.status) || savedFulfillment.physicalOutboundAt || savedFulfillment.finalDeliveryAt || savedFulfillment.deliveredAt || savedFulfillment.loadedAt)) throw contractError("ERP_FULFILLMENT_CONCURRENCY_CONFLICT");
   if (packages.some(p => (input.workspace?.packages ?? []).some(existing => (existing.packageId ?? existing.id) === p.packageId))) throw contractError("PACKING_PACKAGE_ID_ALREADY_EXISTS");
   const existing = (input.workspace?.packingTasks ?? []).find(t => (t.id ?? t.packingTaskId) === task?.packingTaskId);
+  if (existing?.status === "已完成") throw contractError("ERP_PACKING_TASK_CONCURRENCY_CONFLICT");
   if (existing && (existing.orderLineId ?? existing.lineId) !== lineId || input.orderLine && (input.orderLine.orderLineId ?? input.orderLine.id) !== lineId || input.fulfillment && input.fulfillment.orderLineId !== lineId) throw contractError("PACKING_TASK_BINDING_MISMATCH");
   if (!Number.isSafeInteger(task?.actualPackedQty) || task.actualPackedQty <= 0 || !packages.length || new Set(packages.map(p => p.packageId)).size !== packages.length || new Set(packages.map(p => p.packageSeq)).size !== packages.length || packages.some(p => !Number.isSafeInteger(p.packedQty) || p.packedQty <= 0 || p.orderLineId !== lineId || (p.fulfillmentId ?? "") !== (input.fulfillment?.fulfillmentId ?? input.fulfillment?.id ?? "")) || packages.reduce((sum, p) => sum + p.packedQty, 0) !== task.actualPackedQty) throw contractError("PACKING_PACKAGE_QUANTITY_MISMATCH");
 }
@@ -1112,4 +1122,9 @@ function assertProductionStage(input) {
   if (task?.taskType === "丝印" && ((input.inventoryAdjustments ?? []).length || (input.inventoryReservations ?? []).length || (input.inventoryLedgerEntries ?? []).length || input.packingTask || !input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
   const next = input.downstreamProductionTask;
   if (next && (task.taskType !== "丝印" || next.taskType !== "制袋" || next.orderLineId !== lineId || next.plannedQty !== input.workshopReport.qualifiedQty || (input.workspace?.productionTasks ?? []).some(t => (t.id ?? t.productionTaskId) === next.productionTaskId))) throw contractError("PRODUCTION_DOWNSTREAM_TASK_CONFLICT");
+}
+
+function assertNewWorkshopReport(input) {
+ const reportId = input.workshopReport?.reportId;
+ if ((input.workspace?.workshopReports ?? []).some(report => (report.reportId ?? report.id) === reportId)) throw contractError("PRODUCTION_REPORT_ALREADY_EXISTS");
 }

@@ -1,3 +1,4 @@
+import { validateFormalBusinessDecisionMaker } from "./businessDecisionEmployeePolicy.mjs";
 import {
   businessDecisionChannels,
   businessDecisionScopes,
@@ -244,15 +245,8 @@ function resolveAuthorization(workspace, employee, scope, decidedAt, authorizati
 }
 
 function findFormalEmployee(workspace, employeeId) {
-  const target = cleanText(employeeId);
-  if (!target) return null;
-  return (workspace?.employees ?? []).find((employee) => {
-    const id = cleanText(employee.id ?? employee.employeeId);
-    const name = cleanText(employee.name);
-    const status = cleanText(employee.profileStatus ?? employee.profile_status);
-    const source = cleanText(employee.source);
-    return id === target && name && source !== "seed" && !["retired", "voided", "merged"].includes(status);
-  }) ?? null;
+  const result = validateFormalBusinessDecisionMaker(workspace, employeeId);
+  return result.ok ? result.employee : null;
 }
 
 function findUser(workspace, userId) {

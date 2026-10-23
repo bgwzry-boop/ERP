@@ -92,17 +92,17 @@ function getReminderLevelLabel(level) {
 function resolveServerSortRank(todo, projection) {
   if (todo.handled) return 900;
   if (projection.activeSnooze) return 800;
-  const urgency = cleanText(todo.urgency);
-  if (urgency === "急") return 0;
+  const urgency = cleanText(todo.urgency ?? todo.priority);
+  if (["急", "紧急", "urgent"].includes(urgency)) return 0;
   if (urgency === "今天" || projection.dueToday) return 50;
   if (
-    urgency === "异常" ||
+    ["异常", "exception"].includes(urgency) ||
     todo.referenceStatus === "missing" ||
     todo.printResultStatus === "unknown"
   ) return 100;
   if (projection.reminderLevel === "follow_up") return 300;
   if (projection.reminderLevel === "red_dot") return 400;
-  if (urgency === "关注") return 500;
+  if (["关注", "management_watch"].includes(urgency)) return 500;
   return 600;
 }
 

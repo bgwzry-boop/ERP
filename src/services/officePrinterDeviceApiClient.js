@@ -5,9 +5,7 @@ import {
   normalizePrinterDeviceFieldTestEvidence,
   normalizePrinterDeviceFieldTestChecks,
 } from "./printerDeviceFieldTestClient.js";
-import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import {
-  buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
   readOfficeApiJson as readJson,
   requestOfficeApi as requestPrinterDeviceApi,
   toOfficeApiError as toApiError,
@@ -142,10 +140,22 @@ export async function updateOfficePrintDeviceDriverMode(input = {}, options = {}
       };
     }
 
+    if (cleanText(json?.printDeviceId) !== safePrintDeviceId ||
+      cleanText(json?.printDevice?.printDeviceId) !== safePrintDeviceId ||
+      !["preview_only", "system_printer"].includes(json?.driverMode) ||
+      !["preview_only", "system_printer"].includes(json?.printDevice?.settings?.driverMode) ||
+      normalizeOfficePrintDeviceDriverMode(json?.driverMode) !== safeDriverMode ||
+      normalizeOfficePrintDeviceDriverMode(json?.printDevice?.settings?.driverMode) !== safeDriverMode ||
+      !cleanText(json?.operationLogId)) {
+      return { source: "api_error", blocked: true, error: {
+        code: "PRINT_DEVICE_MODE_SAVE_UNCONFIRMED",
+        message: "设备模式保存结果不完整或与当前设备不一致，请刷新核对后再操作。",
+      } };
+    }
     return {
       source: "api",
-      printDeviceId: cleanText(json?.printDeviceId ?? safePrintDeviceId),
-      printDevice: normalizePrintDevice(json?.printDevice),
+      printDeviceId: cleanText(json.printDeviceId),
+      printDevice: normalizePrintDevice(json.printDevice),
       previousDriverMode: normalizeOfficePrintDeviceDriverMode(json?.previousDriverMode),
       driverMode: normalizeOfficePrintDeviceDriverMode(json?.driverMode) || safeDriverMode,
       operationLogId: cleanText(json?.operationLogId),
@@ -277,7 +287,8 @@ export async function recordOfficePrinterDeviceFieldTest(input = {}, options = {
       authState,
       method: "POST",
       operatorId: cleanText(operatorId) || normalizedRecord.operatorId,
-      body: normalizedRecord,
+      idempotencyKey: input.idempotencyKey,
+      body: { ...normalizedRecord, ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}) },
     });
     const json = await readJson(response);
     if (!response.ok) {
@@ -287,7 +298,15 @@ export async function recordOfficePrinterDeviceFieldTest(input = {}, options = {
         error: toApiError(json, response.status, "打印设备现场验收记录 API 返回错误。"),
       };
     }
-    const savedRecord = normalizePrinterDeviceFieldTestRecordForClient(json?.record ?? normalizedRecord);
+    if (cleanText(json?.printDeviceId) !== safePrintDeviceId ||
+      cleanText(json?.record?.printDeviceId) !== safePrintDeviceId ||
+      cleanText(json?.record?.recordId) !== normalizedRecord.recordId ||
+      cleanText(json?.record?.printJobId) !== cleanText(normalizedRecord.printJobId) ||
+      !cleanText(json?.operationLogId)) {
+      return {source:"api_error",blocked:true,error:{code:"PRINTER_DEVICE_FIELD_TEST_SAVE_UNCONFIRMED",
+        message:"验收保存结果不完整或与当前记录不一致，请刷新核对后再操作。"}};
+    }
+    const savedRecord = normalizePrinterDeviceFieldTestRecordForClient(json.record);
     return {
       source: "api",
       printDeviceId: cleanText(json?.printDeviceId ?? safePrintDeviceId),
@@ -301,38 +320,10 @@ export async function recordOfficePrinterDeviceFieldTest(input = {}, options = {
       operationLogId: cleanText(json?.operationLogId),
     };
   } catch (error) {
-    if (isOfficeApiServerRequired(options)) {
-      return buildServerRequiredWriteError("PRINTER_DEVICE_FIELD_TEST_API_UNAVAILABLE", error);
-    }
-    return {
-      source: "local_fallback",
-      printDeviceId: safePrintDeviceId,
-      printDevice: normalizePrintDevice({
-        ...printDevice,
-        printDeviceId: safePrintDeviceId,
-        latestFieldTestRecord: normalizedRecord,
-        latestFieldTestSummary: normalizedRecord.summary,
-        latestFieldTestCheckedAt: normalizedRecord.checkedAt,
-      }),
-      printJob: normalizePrintJob({
-        ...printJob,
-        printJobId,
-      }),
-      record: normalizedRecord,
-      summary: normalizedRecord.summary,
-      acceptance: normalizedRecord.summary?.acceptance ?? null,
-      resultStatus: {
-        recordSaved: true,
-        onsiteAcceptancePassed: normalizedRecord.summary?.acceptance?.ready === true,
-        physicalPrinterCalledByRequest: false,
-        printJobStatusChangedByRequest: false,
-      },
-      safeguards: { nonPrinting: true, physicalPrinterCalled: false },
-      error: {
-        code: "PRINTER_DEVICE_FIELD_TEST_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-    };
+    return {source:"api_error",blocked:true,error:{
+      code:"PRINTER_DEVICE_FIELD_TEST_API_UNAVAILABLE",
+      message:"无法确认验收记录是否已保存，请检查网络并刷新核对。",
+    }};
   }
 }
 

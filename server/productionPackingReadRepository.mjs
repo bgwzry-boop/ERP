@@ -115,7 +115,6 @@ list_items AS (
         SELECT ${workshopReportJsonExpression("report")}
         FROM workshop_reports AS report
         WHERE report.production_task_id = task.id
-           OR report.order_line_id = task.order_line_id
         ORDER BY report.completed_at DESC NULLS LAST, report.created_at DESC, report.id DESC
         LIMIT 1
       ),
@@ -305,7 +304,6 @@ selected_reports AS (
   SELECT COALESCE(json_agg(${workshopReportJsonExpression("report")} ORDER BY report.completed_at DESC NULLS LAST, report.created_at DESC, report.id DESC), '[]'::json) AS result
   FROM workshop_reports AS report
   WHERE report.production_task_id = (SELECT id FROM selected_production_task)
-     OR report.order_line_id = (SELECT order_line_id FROM selected_production_task)
 ),
 selected_production_exceptions AS (
   SELECT COALESCE(json_agg(${productionExceptionJsonExpression("exception_record")} ORDER BY exception_record.occurred_at DESC, exception_record.created_at DESC, exception_record.id DESC), '[]'::json) AS result
@@ -334,7 +332,6 @@ selected_inventory_ledger_entries AS (
         SELECT report.id
         FROM workshop_reports AS report
         WHERE report.production_task_id = (SELECT id FROM selected_production_task)
-           OR report.order_line_id = (SELECT order_line_id FROM selected_production_task)
       )
     )
 ),
@@ -353,7 +350,6 @@ selected_inventory_item AS (
             SELECT report.id
             FROM workshop_reports AS report
             WHERE report.production_task_id = (SELECT id FROM selected_production_task)
-               OR report.order_line_id = (SELECT order_line_id FROM selected_production_task)
           )
         )
       ORDER BY ledger.occurred_at DESC, ledger.created_at DESC, ledger.id DESC
@@ -395,7 +391,6 @@ SELECT CASE
       SELECT ${workshopReportJsonExpression("report")}
       FROM workshop_reports AS report
       WHERE report.production_task_id = (SELECT id FROM selected_production_task)
-         OR report.order_line_id = (SELECT order_line_id FROM selected_production_task)
       ORDER BY report.completed_at DESC NULLS LAST, report.created_at DESC, report.id DESC
       LIMIT 1
     ),
@@ -661,7 +656,7 @@ function buildProductionTaskDetailFromWorkspace(workspace = {}, productionTaskId
   const orderLineId = cleanText(productionTask.orderLineId ?? productionTask.lineId);
   const orderLine = findOrderLine(workspace, orderLineId);
   const reports = (workspace.workshopReports ?? [])
-    .filter((report) => report.productionTaskId === resolvedProductionTaskId || report.orderLineId === orderLineId)
+    .filter((report) => cleanText(report.productionTaskId ?? report.production_task_id) === resolvedProductionTaskId)
     .map(normalizeWorkshopReportSummary)
     .filter(Boolean)
     .sort(sortByLatestDate);
@@ -876,7 +871,7 @@ function buildWorkshopMobileProductionTaskVisibilitySql() {
       OR EXISTS (
         SELECT 1
         FROM workshop_reports AS report
-        WHERE (report.production_task_id = task.id OR report.order_line_id = task.order_line_id)
+        WHERE report.production_task_id = task.id
           AND report.evidence_json->>'reportKind' = 'daily_progress'
           AND LOWER(COALESCE(report.evidence_json->>'carryOver', 'false')) IN ('true', '1', 'yes')
       )

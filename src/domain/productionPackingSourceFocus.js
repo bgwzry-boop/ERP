@@ -32,6 +32,7 @@ function getPackingFocus(sourceId, entry, context) {
 
 function getProductionFocus(sourceId, entry, context) {
   const reportResult = findProductionReportResult(sourceId, entry, context);
+  if (reportResult === null) return null;
   const orderLine = reportResult
     ? findOrderLineById(cleanText(reportResult.orderLineId), context)
     : findOrderLineFromProductionSource(sourceId, context);
@@ -59,16 +60,18 @@ function getProductionFocus(sourceId, entry, context) {
 function findProductionReportResult(sourceId, entry, context) {
   const results = Object.values(context.productionPacking?.reportResultsByLineId ?? {});
   const ledgerId = cleanText(entry?.ledgerId);
-  return results.find((result) => {
+  const exact = results.filter((result) => {
     const ledgerIds = Array.isArray(result?.inventoryLedgerIds) ? result.inventoryLedgerIds.map(cleanText) : [];
-    return (
-      cleanText(result?.reportId) === sourceId ||
-      cleanText(result?.productionTaskId) === sourceId ||
-      cleanText(result?.reservationId) === sourceId ||
-      cleanText(result?.packingTaskId) === sourceId ||
-      (ledgerId && ledgerIds.includes(ledgerId))
-    );
-  }) ?? null;
+    return cleanText(result?.reportId) === sourceId
+      || cleanText(result?.reservationId) === sourceId
+      || cleanText(result?.packingTaskId) === sourceId
+      || (ledgerId && ledgerIds.includes(ledgerId));
+  });
+  // A precise report/ledger association wins over a task-wide match.
+  // Conflicting associations must not depend on cache insertion order.
+  const matches = exact.length ? exact : results.filter(result => cleanText(result?.productionTaskId) === sourceId);
+  return matches.length > 1 ? null : matches[0];
+
 }
 
 function findPackingTask(sourceId, context) {
@@ -85,18 +88,16 @@ function findOrderLineFromProductionSource(sourceId, context) {
 
   return (context.orderLines ?? []).find((line) => {
     const lineId = cleanText(line?.id ?? line?.orderLineId);
-    return lineId && (sourceId === lineId || sourceId.includes(lineId));
+    return lineId && sourceId === lineId;
   }) ?? null;
 }
 
-function findProductionTaskIdFromSource(sourceId, context) {
+function findProductionTaskIdFromSource(sourceId) {
   if (sourceId.startsWith("PT-")) return sourceId;
-  const lines = context.orderLines ?? [];
-  const match = lines.find((line) => {
-    const taskId = buildProductionTaskIdForLine(line, context);
-    return taskId && sourceId.includes(taskId);
-  });
-  return match ? buildProductionTaskIdForLine(match, context) : "";
+  // Only decode the server-generated report identity; arbitrary substring
+  // matching can confuse OL-1 with OL-10 and navigate to another order.
+  const report = /^(?:WR|WDP)-(PT-.+)-(?:[1-9]\d*|COMPLETE)$/.exec(sourceId);
+  return report?.[1] || "";
 }
 
 function findOrderLineById(orderLineId, context) {

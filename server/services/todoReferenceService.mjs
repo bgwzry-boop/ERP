@@ -6,9 +6,17 @@ export function resolveTodoReference(workspace, todo = {}) {
     return referenceResult("missing", refType, refId, "引用类型与当前待办业务不兼容");
   }
 
-  const target = findReferenceTarget(workspace, refType, refId);
-  if (target) {
-    return referenceResult("valid", refType, target.id, "引用有效");
+  const targets = findReferenceTargets(workspace, refType, refId);
+  if (targets.length > 1) return referenceResult("unverifiable", refType, refId, "引用匹配到多条业务记录，请选择明确的业务编号");
+  if (targets.length === 1) {
+    const targetId = referenceTargetId(targets[0], refType);
+    if (!targetId) return referenceResult("unverifiable", refType, refId, "引用目标缺少明确业务编号");
+    const customerIds = referenceCustomerIds(workspace, targets[0], refType);
+    const todoCustomerId = cleanText(todo.customerId);
+    if (hasCustomerConflict(customerIds, todoCustomerId)) {
+      return referenceResult("unverifiable", refType, targetId, "待办与引用目标的客户归属不一致，请核对业务编号");
+    }
+    return referenceResult("valid", refType, targetId, "引用有效");
   }
   if (!supportedRefTypes.has(refType)) {
     return referenceResult("unverifiable", refType, refId, "该引用类型暂不支持自动校验");
@@ -71,7 +79,7 @@ export function normalizeTodoReferenceForWrite(workspace, todo = {}) {
   }
 
   const error = new Error(resolution.referenceReason || "待办业务引用无效");
-  error.code = getTodoReferenceWriteErrorCode(resolution, refId, refType);
+  error.code = getTodoReferenceErrorCode(resolution, refId, refType);
   error.referenceStatus = resolution.referenceStatus;
   error.refType = refType;
   error.refId = refId;
@@ -84,15 +92,25 @@ export function listTodoReferenceCandidates(workspace, todo = {}, limit = 20) {
   const customerId = cleanText(todo.customerId);
   const allowedRefTypes = getAllowedTodoReferenceTypes(todo);
   const preferredType = allowedRefTypes[0];
-  const candidates = allowedRefTypes.flatMap((refType) => referenceRows(workspace, refType).map((target) => {
-    const refId = referenceTargetId(target, refType);
-    return refId ? {
-      refType,
-      refId,
-      label: `${getTodoReferenceTypeLabel(refType)} · ${refId}${referenceTargetStatus(target) ? ` · ${referenceTargetStatus(target)}` : ""}`,
-      sameCustomer: Boolean(customerId) && referenceCustomerId(workspace, target, refType) === customerId,
-    } : null;
-  }).filter(Boolean));
+  const candidates = allowedRefTypes.flatMap((refType) => {
+    const rows = referenceRows(workspace, refType);
+    const identityCounts = new Map();
+    for (const target of rows) {
+      const id = referenceTargetId(target, refType);
+      identityCounts.set(id, (identityCounts.get(id) ?? 0) + 1);
+    }
+    return rows.map((target) => {
+      const refId = referenceTargetId(target, refType);
+      const customerIds = referenceCustomerIds(workspace, target, refType);
+      if (!refId || identityCounts.get(refId) !== 1 || hasCustomerConflict(customerIds, customerId)) return null;
+      return {
+        refType,
+        refId,
+        label: `${getTodoReferenceTypeLabel(refType)} · ${refId}${referenceTargetStatus(target) ? ` · ${referenceTargetStatus(target)}` : ""}`,
+        sameCustomer: Boolean(customerId) && customerIds.includes(customerId),
+      };
+    }).filter(Boolean);
+  });
 
   return candidates
     .sort((left, right) => Number(right.sameCustomer) - Number(left.sameCustomer)
@@ -102,28 +120,22 @@ export function listTodoReferenceCandidates(workspace, todo = {}, limit = 20) {
     .map(({ sameCustomer: _sameCustomer, ...candidate }) => candidate);
 }
 
-function findReferenceTarget(workspace, refType, refId) {
-  if (refType === "order_draft") return findById(workspace.orderDrafts, refId);
+function findReferenceTargets(workspace, refType, refId) {
+  const rows = referenceRows(workspace, refType);
+  const exact = rows.filter((item) => referenceTargetId(item, refType) === refId);
+  if (exact.length) return exact;
+  // Historical aliases remain usable only when they identify exactly one row.
   if (refType === "order_line") {
-    return findById(workspace.orderLines, refId)
-      ?? (workspace.orderLines ?? []).find((item) => cleanText(item.orderNo) === refId || cleanText(item.id).startsWith(`${refId}-`));
+    return rows.filter((item) => cleanText(item.orderNo) === refId || cleanText(item.id).startsWith(`${refId}-`));
   }
   if (refType === "fulfillment") {
-    return findById(workspace.fulfillments, refId)
-      ?? (workspace.fulfillments ?? []).find((item) => {
-        const lineId = cleanText(item.lineId ?? item.orderLineId);
-        return lineId === refId || lineId.startsWith(`${refId}-`);
-      });
+    return rows.filter((item) => {
+      const lineId = cleanText(item.lineId ?? item.orderLineId);
+      return lineId === refId || lineId.startsWith(`${refId}-`);
+    });
   }
-  if (refType === "statement") {
-    return findById(workspace.statements, refId)
-      ?? (workspace.statements ?? []).find((item) => (item.lineIds ?? []).some((lineId) => cleanText(lineId) === refId));
-  }
-  if (refType === "inventory_item") return findById(workspace.inventories ?? workspace.inventoryRecords, refId, "inventoryKey");
-  if (refType === "inventory_correction") return findById(workspace.inventoryCorrectionDrafts, refId, "correctionDraftId");
-  if (refType === "production_task") return findById(workspace.productionTasks ?? workspace.productionPacking?.productionTasks, refId, "productionTaskId");
-  if (refType === "maintenance_task") return findById(workspace.maintenanceTasks, refId, "taskId");
-  return null;
+  if (refType === "statement") return rows.filter((item) => (item.lineIds ?? []).some((lineId) => cleanText(lineId) === refId));
+  return [];
 }
 
 function referenceRows(workspace, refType) {
@@ -150,14 +162,18 @@ function referenceTargetStatus(target) {
   return cleanText(target.status ?? target.state ?? target.inventoryStatus ?? target.stage);
 }
 
-function referenceCustomerId(workspace, target, refType) {
-  const direct = cleanText(target.customerId);
-  if (direct) return direct;
+function referenceCustomerIds(workspace, target, refType) {
+  const values = [cleanText(target.customerId)];
   if (refType === "fulfillment" || refType === "production_task") {
     const lineId = cleanText(target.lineId ?? target.orderLineId);
-    return cleanText((workspace.orderLines ?? []).find((line) => cleanText(line.id) === lineId)?.customerId);
+    const lines = (workspace.orderLines ?? []).filter((line) => cleanText(line.id) === lineId);
+    values.push(...lines.map((line) => cleanText(line.customerId)));
   }
-  return "";
+  return [...new Set(values.filter(Boolean))];
+}
+
+function hasCustomerConflict(customerIds, todoCustomerId) {
+  return customerIds.length > 1 || Boolean(todoCustomerId && customerIds.some((id) => id !== todoCustomerId));
 }
 
 function inferTodoRefType(todo, refId) {
@@ -174,19 +190,17 @@ function inferTodoRefType(todo, refId) {
   return "order_line";
 }
 
-function getTodoReferenceWriteErrorCode(resolution, refId, refType) {
+export function getTodoReferenceErrorCode(resolution, refId, refType) {
   if (!refId) return "TODO_REFERENCE_REQUIRED";
+  if (resolution.referenceReason === "待办与引用目标的客户归属不一致，请核对业务编号") return "TODO_REFERENCE_CUSTOMER_MISMATCH";
   if (!supportedRefTypes.has(refType)) return "TODO_REFERENCE_TYPE_UNSUPPORTED";
+  if (resolution.referenceReason === "引用匹配到多条业务记录，请选择明确的业务编号") return "TODO_REFERENCE_AMBIGUOUS";
   if (resolution.referenceReason === "引用类型与当前待办业务不兼容") return "TODO_REFERENCE_TYPE_INCOMPATIBLE";
   return "TODO_REFERENCE_TARGET_NOT_FOUND";
 }
 
 function normalizeRefType(value) {
   return cleanText(value).toLowerCase();
-}
-
-function findById(rows, id, alternateKey = "") {
-  return (rows ?? []).find((item) => cleanText(item?.id ?? item?.[alternateKey]) === id) ?? null;
 }
 
 function referenceResult(status, refType, resolvedRefId, reason) {

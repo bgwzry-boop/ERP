@@ -456,6 +456,10 @@ function OfficeWorkbenchRuntime({
     focusInventoryByRef: orderActions.focusInventoryByRef,
     focusOrderDraftByRef: orderActions.focusOrderDraft,
     focusOrderLine: orderActions.focusOrderLine,
+    focusProductionTask: target => {
+      setActivePage("packing"); setProductionPackingFocus(target);
+      return productionPackingActions.loadProductionPackingSourceDetail(target);
+    },
     focusStatementByRef: orderActions.focusStatementByRef,
     getTodoCustomerNotificationDraft,
     guardUiAction,

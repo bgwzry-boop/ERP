@@ -53,6 +53,7 @@ export function createOfficeWorkbenchRuntimes({
     handleInventoryCorrectionDraft: inventoryActions.handleInventoryCorrectionDraft,
     handleProductionPackingAction: productionPackingActions.handleProductionPackingAction,
     handleTodo: todoActions.handleTodo,
+    refreshTodos: todoActions.refreshTodos,
     linkCancellationIntentToSelectedLine: orderActions.linkCancellationIntentToSelectedLine,
     openInventoryCorrectionDetail: inventoryActions.openInventoryCorrectionDetail,
     openMasterDataTemplatePanel: masterDataActions.openMasterDataTemplatePanel,

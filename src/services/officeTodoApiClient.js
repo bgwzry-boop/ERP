@@ -13,13 +13,19 @@ export async function listOfficeTodos(input = {}, options = {}) {
     status = "all",
     type = "",
     keyword = "",
+    view = "",
+    area = "",
+    page = 1,
     pageSize = 200,
     localTodos = [],
   } = input;
   const params = new URLSearchParams();
   params.set("status", status);
   params.set("pageSize", String(pageSize));
+  params.set("page", String(page));
   if (type) params.set("type", type);
+  if (view) params.set("view", view);
+  if (area) params.set("area", area);
   if (keyword) params.set("keyword", keyword);
 
   try {
@@ -49,6 +55,8 @@ export async function listOfficeTodos(input = {}, options = {}) {
       page: Number(json?.page ?? 1),
       pageSize: Number(json?.pageSize ?? pageSize),
       reminderPolicy: mapTodoReminderPolicy(json?.reminderPolicy),
+      viewCounts: json?.viewCounts,
+      allOpenCount: json?.allOpenCount,
     };
   } catch (error) {
     return {
@@ -71,6 +79,8 @@ export async function handleOfficeTodoAction(input, options = {}) {
     operatorId,
     reason,
     handlingResult,
+    idempotencyKey,
+    snoozeUntil,
     relatedActionId,
     printResultStatus,
     printedLabelCount,
@@ -90,8 +100,10 @@ export async function handleOfficeTodoAction(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         ...apiPayload,
+        snoozeUntil,
         operatorId,
         relatedActionId,
         printResultStatus,

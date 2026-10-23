@@ -111,7 +111,7 @@ const postgresWorkspace = { todos: [before], todoEvents: [], operationLogs: [] }
 const postgresRepository = createPostgresTodoActionRepository({
   queryJson(text, values) {
     queryCalls.push({ text, values });
-    return { todo: before, todoEvent: null };
+    return idempotentCalls.length ? { todo: after, todoEvent } : { todo: before, todoEvent: null };
   },
   idempotentTransactionJson(request) {
     idempotentCalls.push(request);
@@ -119,6 +119,8 @@ const postgresRepository = createPostgresTodoActionRepository({
       todo: after,
       todoEventId: todoEvent.eventId,
       operationLogId: operationLog.id,
+      todoEvent,
+      operationLog,
     };
   },
 });

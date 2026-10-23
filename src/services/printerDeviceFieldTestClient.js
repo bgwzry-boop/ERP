@@ -213,7 +213,7 @@ export function buildPrinterDeviceFieldTestRecord(input = {}) {
     printDeviceId,
     documentType: documentType ?? printJob.documentType,
   });
-  const recordId = `PDQA-${compactTimestamp(checkedAt)}-${safeRecordPart(printDeviceId || "PRINT")}`;
+  const recordId = `PDQA-${compactTimestamp(checkedAt)}-${safeRecordPart(printDeviceId || "PRINT")}-${globalThis.crypto.randomUUID()}`;
 
   return {
     recordId,

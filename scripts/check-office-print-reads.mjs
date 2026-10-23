@@ -15,6 +15,7 @@ function createState(initialValue) {
 
 function createDependencies(api, {
   serverRequired = false,
+  selectedDeviceId = "PD-2",
   actionPermissions = ["fulfillment.print", "print.device_qa.record"],
 } = {}) {
   const state = {
@@ -39,7 +40,7 @@ function createDependencies(api, {
       api,
       authState: { authenticated: true, permissions: { actionPermissions } },
       currentUserId: "U-OFFICE-A",
-      printerDeviceQaSelectedIdRef: { current: "PD-2" },
+      printerDeviceQaSelectedIdRef: { current: selectedDeviceId },
       printJobQueueItemsRef: { current: [{ printJobId: "PJ-LOCAL" }] },
       serverRequired: () => serverRequired,
       setPrintDriverConfig: state.config.set,
@@ -184,3 +185,62 @@ assert.equal(productionJobs.blocked, true);
 assert.equal(productionCase.state.jobs.value.items[0].printJobId, "PJ-LOCAL");
 
 console.log("Office print reads check passed: config, readiness, CUPS, device QA, jobs, denial, selection, and production fail-closed behavior are covered.");
+
+{
+  let dependentReads=0;
+  const missing=createDependencies({...successApi,
+    listOfficePrinterDeviceFieldTests:async()=>{dependentReads++;return {};},
+    listOfficePrintJobs:async()=>{dependentReads++;return {};},
+  });
+  const result=await missing.actions.refreshPrinterDeviceQa({selectedDeviceId:'REMOVED-DEVICE',showToast:true});
+  assert.equal(result.blocked,true,'Explicit missing printer must not select first device');
+  assert.equal(dependentReads,0,'Do not load another device evidence or jobs');
+  assert.equal(missing.state.devices.value.selectedDeviceId,'');
+  assert.deepEqual(missing.state.devices.value.eligiblePrintJobs,[]);
+  assert.equal(missing.state.devices.value.latestRecord,null);
+}
+
+{
+ const unselected=createDependencies(successApi,{selectedDeviceId:''});
+ const result=await unselected.actions.refreshPrinterDeviceQa();
+ assert.equal(result.blocked,true);
+ assert.equal(unselected.state.devices.value.selectedDeviceId,'');
+ assert.equal(unselected.state.devices.value.latestRecord,null);
+}
+
+{
+  let releaseOld;
+  const racing=createDependencies({...successApi,
+    listOfficePrinterDeviceFieldTests:async(input)=>input.printDeviceId==='PD-1'
+      ? new Promise(resolve=>{releaseOld=resolve;})
+      : {source:'api',items:[],latestRecord:{printerDeviceFieldTestId:'NEW-RECORD',checks:[]}},
+  });
+  const older=racing.actions.refreshPrinterDeviceQa({selectedDeviceId:'PD-1'});
+  while(!releaseOld) await new Promise(resolve=>setTimeout(resolve,0));
+  await racing.actions.refreshPrinterDeviceQa({selectedDeviceId:'PD-2'});
+  const newest=structuredClone(racing.state.devices.value);
+  releaseOld({source:'api',items:[],latestRecord:{printerDeviceFieldTestId:'OLD-RECORD',checks:[]}});
+  const result=await older;
+  assert.equal(result.stale,true);
+  assert.deepEqual(racing.state.devices.value,newest,'Older device response cannot replace current QA');
+}
+
+{
+  let releaseList;
+  let lists=0;
+  const racing=createDependencies({...successApi,listOfficePrintDevices:async()=>++lists===1
+    ? new Promise(resolve=>{releaseList=resolve;}) : successApi.listOfficePrintDevices()});
+  const older=racing.actions.refreshPrinterDeviceQa({selectedDeviceId:'PD-1'});
+  await racing.actions.refreshPrinterDeviceQa({selectedDeviceId:'PD-2'});
+  const newest=structuredClone(racing.state.devices.value);
+  releaseList({source:'api_error',blocked:true,error:{message:'Old request failed'}});
+  assert.equal((await older).stale,true);
+  assert.deepEqual(racing.state.devices.value,newest,'Old list failure cannot clear newer successful selection');
+}
+
+for (const latestRecord of [null, { printJobId: "MISSING-JOB" }]) {
+ const harness = createDependencies({ ...successApi, listOfficePrinterDeviceFieldTests: async () => ({source:"api",items:[],latestRecord}) });
+ await harness.actions.refreshPrinterDeviceQa();
+ assert.equal(harness.state.devices.value.eligiblePrintJobs.length,1);
+ assert.equal(harness.state.devices.value.selectedPrintJobId,"", "Never silently attach an unrelated first printed job");
+}

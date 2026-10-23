@@ -171,6 +171,8 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
           )}
           {renderRegisteredPage(renderedPage, {
             todos: {
+              authState,
+              onReminderSaved: runtime.refreshTodos,
               todos: todos,
               todoMeta: todoMeta,
               printBatchRecords: printBatchRecords,

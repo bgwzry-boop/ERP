@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   buildPrintWorkspaceItems,
+  findFocusedProductionLine,
   buildProductionFinishedGoodsPhotoActionPayload,
   buildProductionSchedulePublishRequest,
 } from "../src/features/production/productionPackingPresentation.js";
@@ -36,8 +37,6 @@ const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", i
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/workspacePageComponents.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/pageRegistry.js", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
@@ -330,3 +329,8 @@ assert.equal(isProductionReportingBlocked({ status: "异常暂停" }), true);
 assert.equal(isProductionReportingBlocked({ status: "待生产" }), false);
 
 console.log("Office production/packing page check passed: page ownership, independent print workspace, action builders, tab semantics, and machine-count safety labels remain intact.");
+
+const stages = [{ id: "OL-STAGES", productionTaskId: "PT-SILK" }, { id: "OL-STAGES", productionTaskId: "PT-BAG" }];
+const actualTaskId = line => line?.productionTaskId || "";
+assert.equal(findFocusedProductionLine(stages, { orderLineId: "OL-STAGES", taskId: "PT-BAG" }, actualTaskId), stages[1]);
+assert.equal(findFocusedProductionLine(stages, { orderLineId: "OL-STAGES", taskId: "MISSING" }, actualTaskId), null);

@@ -24,6 +24,9 @@ export function buildProductionExceptionResolutionEffects(resolutionCode) {
   if (resolutionCode === "转数量差异处理") {
     return ["任务进入数量差异待处理，继续阻断报工", "保留生产异常待办供办公室继续跟进", "不变更库存、占用、打包或对账"];
   }
+  if (resolutionCode === "转售后/质量问题") {
+    return ["记录为售后/质量问题，任务继续暂停并阻断报工", "保留生产异常待办，由办公室继续核实客户处理方案", "本次不会生成客诉单或补发/换货任务，也不会调整库存、对账或工资"];
+  }
   return ["任务继续保持异常暂停，报工仍被阻断", "保留生产异常待办供办公室继续跟进", "不变更库存、占用、打包或对账"];
 }
 
@@ -104,6 +107,7 @@ export function ProductionExceptionPanel({
               {latestException.resolutionCode || "待处理"}
             </StatusPill>
           </div>
+          <p>异常编号：{latestException.productionExceptionId} · {latestException.exceptionType || "生产异常"}</p>
           {resolutionTerminal ? (
             <InfoGrid
               rows={[
@@ -128,6 +132,7 @@ export function ProductionExceptionPanel({
                 </label>
               </div>
               <p>继续生产才会解除报工阻断；调序、等待材料/维修、数量差异和质量问题仍保持任务阻断。作废只作废生产任务，不自动作废订单。</p>
+              {resolutionCode === "转售后/质量问题" ? <p role="status">本次仅记录处理方向并保留异常待办。办公室仍需跟进客户处理方案；不会生成客诉单、补发或换货任务。</p> : null}
               <div className="action-row">
                 <button
                   className="primary-action"

@@ -101,11 +101,31 @@ assert.equal(uploaded.productionTask.finishedGoodsPhoto.history[0].status, "历�
 assert.equal(uploaded.productionTask.revision, 2);
 assert.equal(workspace.operationLogs[0].operatorId, "U-WORKSHOP");
 
+workspace.orderLines.push({ id: "OL-OTHER", customerId: "C-OTHER", productName: "其他订单" });
+for (const operation of ["uploadPhoto", "reviewPhoto"]) {
+  const beforeWrongOrder = structuredClone({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents });
+  const wrongOrder = await service[operation]({ workspace, productionTaskId: "PT-1", operatorId: operation === "uploadPhoto" ? "U-WORKSHOP" : "U-OFFICE",
+    body: { orderLineId: "OL-OTHER", attachmentId: "ATT-1", reviewStatus: "已接受" } });
+  assert.equal(wrongOrder.code, "PRODUCTION_PHOTO_ORDER_LINE_MISMATCH");
+  assert.deepEqual({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents }, beforeWrongOrder);
+}
+for (const expectedAttachmentId of [undefined, "ATT-OLD"]) {
+  const before = structuredClone({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents });
+  const result = await service.reviewPhoto({ workspace, productionTaskId: "PT-1", operatorId: "U-OFFICE", body: { reviewStatus: "已接受", expectedAttachmentId } });
+  assert.equal(result.code, expectedAttachmentId ? "PRODUCTION_PHOTO_REVIEW_STALE" : "PRODUCTION_PHOTO_REVIEW_IDENTITY_REQUIRED");
+  assert.deepEqual({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents }, before);
+}
+for (const expectedRevision of [undefined, 0, -1, 1.5, '2', 1, 3]) {
+  const before = structuredClone({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents });
+  const result = await service.reviewPhoto({ workspace, productionTaskId: 'PT-1', operatorId: 'U-OFFICE', body: { expectedAttachmentId: 'ATT-1', expectedRevision, reviewStatus: '已接受' } });
+  assert.equal(result.code, [1, 3].includes(expectedRevision) ? 'PRODUCTION_PHOTO_REVIEW_REVISION_CONFLICT' : 'PRODUCTION_PHOTO_REVIEW_REVISION_REQUIRED');
+  assert.deepEqual({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents }, before);
+}
 workspace.attachments[0].purpose = "other";
 const blockedReview = await service.reviewPhoto({
   workspace,
   productionTaskId: "PT-1",
-  body: { reviewStatus: "已接受" },
+  body: { expectedRevision: 2, expectedAttachmentId: "ATT-1", reviewStatus: "已接受" },
   operatorId: "U-OFFICE",
 });
 assert.equal(blockedReview.code, "FINISHED_GOODS_PHOTO_ATTACHMENT_PURPOSE_MISMATCH");
@@ -118,14 +138,30 @@ workspace.todos.push({
   handled: false,
 });
 
+workspace.productionTasks.push({ productionTaskId: "PT-OTHER", orderLineId: "OL-1" });
+workspace.todos.push({ id: "T-OTHER-RETAKE", type: "成品图需重拍", ref: "OL-1", handled: false });
+workspace.todos.push({ id: "T-UNKNOWN-RETAKE", type: "成品图需重拍", ref: "OL-1", handled: false });
+workspace.todoEvents.push(
+  { todoId: "T-LEGACY-RETAKE", eventPayload: { productionTaskId: "PT-1" } },
+  { todoId: "T-OTHER-RETAKE", eventPayload: { productionTaskId: "PT-OTHER" } },
+);
+for (const reason of [undefined, '', '   ']) {
+  const before = JSON.stringify(workspace);
+  const result = await service.reviewPhoto({workspace, productionTaskId:'PT-1', operatorId:'U-OFFICE', body:{expectedRevision:2,expectedAttachmentId:'ATT-1',reviewStatus:'需重拍',reason}});
+  assert.equal(result.code,'PRODUCTION_PHOTO_RETAKE_REASON_REQUIRED');
+  assert.equal(JSON.stringify(workspace),before);
+}
 const reviewed = await service.reviewPhoto({
   workspace,
   productionTaskId: "PT-1",
-  body: { reviewStatus: "已接受", operatorId: "U-SPOOFED", idempotencyKey: "photo-review-test-001" },
+  body: { expectedRevision: 2, expectedAttachmentId: "ATT-1", reviewStatus: "已接受", operatorId: "U-SPOOFED", reviewedAt: "2099-01-01T00:00:00Z", idempotencyKey: "photo-review-test-001" },
   operatorId: "U-OFFICE",
 });
+assert.equal(reviewed.productionTask.finishedGoodsPhoto.reviewedAt, now.toISOString());
 assert.equal(reviewed.productionTask.finishedGoodsPhoto.status, "已接受");
 assert.equal(reviewed.productionTask.finishedGoodsPhoto.reviewedBy, "U-OFFICE");
+assert.equal(workspace.todos.find(todo => todo.id === "T-OTHER-RETAKE").handled, false);
+assert.equal(workspace.todos.find(todo => todo.id === "T-UNKNOWN-RETAKE").handled, false);
 assert.equal(reviewed.todo.type, "待通知客户");
 assert.equal(reviewed.todo.createdBy, "U-OFFICE");
 assert.equal(workspace.todos.find((todo) => todo.id === "T-LEGACY-RETAKE")?.handled, true);
@@ -155,4 +191,27 @@ function buildAttachment(attachmentId, overrides = {}) {
     fileName: "finished.png",
     ...overrides,
   };
+}
+
+{
+  const originalTask = structuredClone(workspace.productionTasks.find(task => task.productionTaskId === 'PT-1'));
+  const task = workspace.productionTasks.find(task => task.productionTaskId === 'PT-1');
+  task.revision += 1;
+  task.finishedGoodsPhoto = { ...task.finishedGoodsPhoto, attachmentId: 'ATT-LATER' };
+  const before = structuredClone({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents });
+  const body = { expectedRevision: 2, expectedAttachmentId: 'ATT-1', reviewStatus: '已接受', operatorId: 'U-SPOOFED', reviewedAt: '2099-01-01T00:00:00Z', idempotencyKey: 'photo-review-test-001' };
+  const retry = await service.reviewPhoto({ workspace, productionTaskId: 'PT-1', body, operatorId: 'U-OFFICE' });
+  assert.equal(retry.operationLogId, reviewed.operationLogId);
+  assert.equal(retry.todo.id, reviewed.todo.id);
+  assert.equal(retry.productionTask.finishedGoodsPhoto.attachmentId, 'ATT-1');
+  assert.deepEqual({ tasks: workspace.productionTasks, todos: workspace.todos, logs: workspace.operationLogs, events: workspace.todoEvents }, before);
+  await assert.rejects(service.reviewPhoto({ workspace, productionTaskId: 'PT-1', body: { ...body, reason: 'changed' }, operatorId: 'U-OFFICE' }), error => error.code === 'IDEMPOTENCY_KEY_REUSED');
+  Object.assign(task, originalTask);
+}
+
+{
+ const original = structuredClone(reviewed);
+ original.todos = original.todos.map(todo => todo.type === "待通知客户" ? {...todo,id:"T-EXISTING-NOTIFICATION"} : todo);
+ const replay = await service.reviewPhoto({workspace:{productionFinishedGoodsPhotoTransactionRepository:{readReviewReceipt:async()=>original}},productionTaskId:"PT-1",operatorId:"U-OFFICE",body:{idempotencyKey:"retained-todo-replay",reviewStatus:"已接受",expectedRevision:2,expectedAttachmentId:"ATT-1"}});
+ assert.equal(replay.todo.id,"T-EXISTING-NOTIFICATION","Reused task-owned todo retains its persisted identity on replay");
 }

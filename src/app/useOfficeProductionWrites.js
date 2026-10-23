@@ -1,10 +1,10 @@
-import { normalizeOrderType } from "../../shared/orderRouting.js";
 import { useCallback } from "react";
 import {
   createFinishedGoodsPhotoAttachmentInput,
 } from "../services/officeAttachmentInputs.js";
 import { createOfficeAttachment } from "../services/officeAttachmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
+import { normalizeOrderType } from "../../shared/orderRouting.js";
 import {
   completeOfficePackingTask,
   moveOfficeProductionMachineQueueItem,
@@ -80,7 +80,7 @@ function normalizeWriteResultForRuntime(result, { label, serverRequired }) {
 }
 
 function hasProjectionRefreshFailure(results) {
-  return results.some((result) => !result || result.blocked || result.source !== "api");
+  return results.some((result) => !result || result.blocked || (result.source !== "api" && !(result.source === "excluded" && result.excluded === true)));
 }
 
 function formatSyncTime() {
@@ -195,18 +195,13 @@ export function createOfficeProductionWriteActions({
 }) {
   const productionApi = { ...defaultApi, ...api };
 
-  async function refreshCommittedProjections(tasks) {
-    const results = await Promise.all(tasks);
-    return { results, failed: hasProjectionRefreshFailure(results) };
-  }
-
   async function finishCommittedWrite(result, refreshTasks, successFeedback, refreshFailureFeedback) {
     if (result.source !== "api") return withFeedback(result, successFeedback, { projectionRefreshFailed: false });
-    const projection = await refreshCommittedProjections(refreshTasks.map((task) => task()));
+    const refreshFailed = hasProjectionRefreshFailure(await Promise.all(refreshTasks.map((task) => task())));
     return withFeedback(
       result,
-      projection.failed ? refreshFailureFeedback : successFeedback,
-      { projectionRefreshFailed: projection.failed },
+      refreshFailed ? refreshFailureFeedback : successFeedback,
+      { projectionRefreshFailed: refreshFailed },
     );
   }
 
@@ -222,18 +217,19 @@ export function createOfficeProductionWriteActions({
   }
 
   function findProductionLine(payload = {}) {
-    return (
-      findOrderLine(payload) ??
-      (productionPackingRef.current.productionTasks ?? []).find(
-        (item) => item.id === payload.orderLineId || item.orderLineId === payload.orderLineId,
-      ) ??
-      null
-    );
+    const taskId = cleanProductionPackingText(payload.productionTaskId);
+    if (!taskId) return findOrderLine(payload);
+    const lineId = cleanProductionPackingText(payload.orderLineId);
+    return [...(productionPackingRef.current.productionTasks ?? []), payload.orderLine, ...orderLinesRef.current]
+      .find(item => item && buildProductionTaskId(item) === taskId &&
+        (!lineId || cleanProductionPackingText(item.id ?? item.orderLineId) === lineId)) ?? null;
   }
 
   function addTodoIfMissing(input) {
     const existing = todosRef.current.find(
-      (item) => item.ref === input.ref && item.type === input.type && !item.handled,
+      (item) => input.id
+        ? (item.id ?? item.todoId) === input.id
+        : item.ref === input.ref && item.type === input.type && !item.handled,
     );
     if (existing) return existing;
     const todo = createOfficeTodo(input);
@@ -670,7 +666,7 @@ export function createOfficeProductionWriteActions({
       fileName: attachmentResult.attachment?.fileName || sampleFile.name,
     };
     const updateLinePhoto = (item) =>
-      item.id === result.orderLineId || item.orderLineId === result.orderLineId
+      buildProductionTaskId(item) === productionTaskId
         ? {
             ...item,
             finishedGoodsPhoto,
@@ -717,7 +713,7 @@ export function createOfficeProductionWriteActions({
       rejectedReason: reviewStatus === "需重拍" ? reason : "",
     };
     const updateLinePhoto = (item) =>
-      item.id === result.orderLineId || item.orderLineId === result.orderLineId
+      buildProductionTaskId(item) === productionTaskId
         ? {
             ...item,
             finishedGoodsPhoto,

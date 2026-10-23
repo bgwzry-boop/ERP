@@ -2,6 +2,8 @@ import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { normalizeCoreWorkspaceState } from "./coreWorkspaceReadRepository.mjs";
+import { acceptsWorkspaceRecordVersion } from "./workspaceRecordVersion.mjs";
 import {
   buildIdempotencyConflictError,
   buildIdempotencyRequestHash,
@@ -29,6 +31,9 @@ export function createLocalTodoActionRepository() {
     kind: "local_memory",
     async getTodo({ workspace, todoId }) {
       return buildLocalTodoSnapshot(findWorkspaceTodo(workspace, todoId));
+    },
+    async findTodoActionReplay(input = {}) {
+      return input.idempotencyKey ? readLocalTodoActionReplay(todoActionResults, input) : null;
     },
     async recordTodoAction(input = {}) {
       const replay = readLocalTodoActionReplay(todoActionResults, input);
@@ -66,6 +71,7 @@ export function createLocalTodoActionRepository() {
           ...record,
           fulfillmentId: input.fulfillment?.fulfillmentId ?? input.fulfillment?.id,
           status: "待打印标签",
+          revision: Math.max(1, nonNegativeInteger(record.revision ?? 1)) + 1,
           updatedAt: input.fulfillment?.updatedAt,
         })),
         oldTodoEventId: input.oldTodoEvent?.eventId,
@@ -86,15 +92,97 @@ export function createPostgresTodoActionRepository(options = {}) {
   const queryJson = options.queryJson ?? ((text, values) => postgresClient.queryJson(text, values));
   const { idempotentTransactionJson } = createPostgresTransactionExecutor({ ...options, databaseUrl, postgresClient });
 
+  async function readCurrentTodo(todoId) {
+    const query = buildGetTodoActionStateQuery(todoId);
+    return normalizeTodoLookupResult(await queryJson(query.text, query.values));
+  }
+
+  async function hydrateActionReceipt(value, input) {
+    assertTodoReplayTarget(value, input);
+    const todoId = cleanText(input.todoId ?? input.todo?.id ?? input.todo?.todoId);
+    let event = value.todoEvent;
+    let operationLog = value.operationLog;
+    if (!event) {
+      const parameters = createPostgresParameterBinder();
+      event = await queryJson(`SELECT ${todoEventJsonExpression("todo_events")} AS result FROM todo_events WHERE id = ${parameters.text(value.todoEventId)} AND todo_id = ${parameters.text(todoId)};`, parameters.values);
+    }
+    if (!operationLog) {
+      const parameters = createPostgresParameterBinder();
+      operationLog = await queryJson(`SELECT ${todoOperationLogJsonExpression("operation_logs")} AS result FROM operation_logs WHERE id = ${parameters.text(value.operationLogId)} AND target_type = 'todo' AND target_id = ${parameters.text(todoId)};`, parameters.values);
+    }
+    if (cleanText(event?.eventId ?? event?.id) !== cleanText(value.todoEventId)
+      || cleanText(event?.todoId ?? event?.todo_id) !== todoId
+      || cleanText(operationLog?.id) !== cleanText(value.operationLogId)
+      || cleanText(operationLog?.targetId) !== todoId) {
+      throw new Error("Todo replay is missing its original audit evidence");
+    }
+    return { ...value, todoEvent: event, operationLog };
+  }
+
+  async function hydrateFulfillmentRepairReceipt(value, input) {
+    const todoId = cleanText(input.idempotencyPayload?.todoId ?? input.completedTodo?.id);
+    if (input.completedTodo?.id && cleanText(input.completedTodo.id) !== todoId) throw buildIdempotencyConflictError();
+    assertTodoReplayTarget(value, { todoId });
+    const labelTodoId = cleanText(value.labelTodo?.id);
+    const parameters = createPostgresParameterBinder();
+    const query = `SELECT json_build_object(
+      'oldTodoEvent', (SELECT ${todoEventJsonExpression("todo_events")} FROM todo_events WHERE id = ${parameters.text(value.oldTodoEventId)} AND todo_id = ${parameters.text(todoId)}),
+      'newTodoEvent', (SELECT ${todoEventJsonExpression("todo_events")} FROM todo_events WHERE id = ${parameters.text(value.newTodoEventId)} AND todo_id = ${parameters.text(labelTodoId)}),
+      'operationLog', (SELECT ${todoOperationLogJsonExpression("operation_logs")} FROM operation_logs WHERE id = ${parameters.text(value.operationLogId)} AND target_type = 'todo' AND target_id = ${parameters.text(todoId)})
+    ) AS result;`;
+    // Older receipts contain only IDs. Recover immutable evidence, never the retry's projections.
+    const evidence = await queryJson(query, parameters.values);
+    if (!labelTodoId || !evidence?.oldTodoEvent || !evidence?.newTodoEvent || !evidence?.operationLog) {
+      throw new Error("Fulfillment repair replay is missing its original audit evidence");
+    }
+    return { ...value, ...evidence };
+  }
+
+  async function readCurrentFulfillmentRepair(saved) {
+    const query = buildCurrentFulfillmentRepairQuery(saved);
+    const value = await queryJson(query.text, query.values);
+    const state = normalizeCoreWorkspaceState(value?.state);
+    const todo = normalizeTodoLookupResult(value?.todo);
+    const labelTodo = normalizeTodoLookupResult(value?.labelTodo);
+    const fulfillment = state.fulfillments[0];
+    if (!todo || !labelTodo || !fulfillment || !state.packages.length) {
+      throw new Error("PostgreSQL fulfillment repair current state is unavailable");
+    }
+    return {
+      ...saved, todo, labelTodo, fulfillment, packages: state.packages,
+      printRecords: state.printRecords,
+      paperOutboundDocuments: state.paperOutboundDocuments,
+      warehouseOutboundExecutions: state.warehouseOutboundExecutions,
+    };
+  }
+
+  async function restoreFulfillmentRepairWorkspace(workspace, receipt, saved) {
+    if (!workspace) return;
+    applyFulfillmentRepairWorkspaceMutation(workspace, await readCurrentFulfillmentRepair(saved), {
+      oldTodoEvent: normalizeTodoEvent(receipt.oldTodoEvent),
+      newTodoEvent: normalizeTodoEvent(receipt.newTodoEvent),
+      operationLog: normalizeOperationLog(receipt.operationLog),
+    });
+  }
+
   return {
     kind: "postgres",
     async getTodo({ todoId }) {
-      const query = buildGetTodoActionStateQuery(todoId);
-      return normalizeTodoLookupResult(await queryJson(query.text, query.values));
+      return readCurrentTodo(todoId);
+    },
+    async findTodoActionReplay(input = {}) {
+      const replay = await readPostgresIdempotencyReplay({
+        queryJson,
+        scope: `todo.action.${normalizeScopePart(input.action)}`,
+        idempotencyKey: input.idempotencyKey,
+        payload: input.idempotencyPayload,
+      });
+      if (!replay) return null;
+      return normalizeTodoActionTransactionResult(await hydrateActionReceipt(replay, input));
     },
     async recordTodoAction(input = {}) {
       const query = buildRecordTodoActionTransactionQuery(input);
-      const result = normalizeTodoActionTransactionResult(
+      const receipt = await hydrateActionReceipt(
         await idempotentTransactionJson(
           buildPostgresIdempotencyRequest({
             scope: `todo.action.${normalizeScopePart(input.action)}`,
@@ -106,15 +194,17 @@ export function createPostgresTodoActionRepository(options = {}) {
             resourceLocks: [`todo:${input.todo?.id ?? input.todo?.todoId ?? ""}`],
             query,
           }),
-        ),
-        input.todo,
+        ), input,
       );
+      const result = normalizeTodoActionTransactionResult(receipt);
       if (!result.todo) throw new Error("PostgreSQL todo action returned an invalid todo");
+      const current = await readCurrentTodo(result.todo.id);
+      if (!current) throw new Error("PostgreSQL todo action current state is unavailable");
       applyTodoActionWorkspaceMutation({
         workspace: input.workspace,
-        todo: result.todo,
-        todoEvent: result.todoEventId === input.todoEvent?.eventId ? input.todoEvent : null,
-        operationLog: result.operationLogId === input.operationLog?.id ? input.operationLog : null,
+        todo: current,
+        todoEvent: normalizeTodoEvent(receipt.todoEvent),
+        operationLog: normalizeOperationLog(receipt.operationLog),
       });
       return result;
     },
@@ -125,11 +215,15 @@ export function createPostgresTodoActionRepository(options = {}) {
         idempotencyKey: input.idempotencyKey,
         payload: input.idempotencyPayload,
       });
-      return replay ? normalizeFulfillmentRepairResult(replay) : null;
+      if (!replay) return null;
+      const receipt = await hydrateFulfillmentRepairReceipt(replay, input);
+      const saved = normalizeFulfillmentRepairResult(receipt);
+      await restoreFulfillmentRepairWorkspace(input.workspace, receipt, saved);
+      return saved;
     },
     async repairMissingFulfillment(input = {}) {
       const query = buildRepairMissingFulfillmentTransactionQuery(input);
-      const saved = normalizeFulfillmentRepairResult(
+      const receipt = await hydrateFulfillmentRepairReceipt(
         await idempotentTransactionJson(
           buildPostgresIdempotencyRequest({
             scope: "todo.fulfillment_repair",
@@ -149,10 +243,11 @@ export function createPostgresTodoActionRepository(options = {}) {
         ),
         input,
       );
+      const saved = normalizeFulfillmentRepairResult(receipt);
       if (!saved.todo || !saved.labelTodo || !saved.fulfillment || saved.packages.length === 0) {
         throw new Error("PostgreSQL fulfillment repair transaction returned an invalid result");
       }
-      applyFulfillmentRepairWorkspaceMutation(input.workspace, saved, input);
+      await restoreFulfillmentRepairWorkspace(input.workspace, receipt, saved);
       return saved;
     },
   };
@@ -161,7 +256,13 @@ export function createPostgresTodoActionRepository(options = {}) {
 export function buildGetTodoActionStateQuery(todoId) {
   const parameters = createPostgresParameterBinder();
   return {
-    text: `
+    text: `${currentTodoReadSql(parameters.text(todoId))};`,
+    values: parameters.values,
+  };
+}
+
+export function currentTodoReadSql(todoIdParameter) {
+  return `
 SELECT json_build_object(
   'todo', ${todoJsonExpression("todo_record")},
   'todoEvent', CASE WHEN latest_event.id IS NULL THEN NULL ELSE ${todoEventJsonExpression("latest_event")} END
@@ -171,11 +272,37 @@ LEFT JOIN LATERAL (
   SELECT *
   FROM todo_events
   WHERE todo_id = todo_record.id
-  ORDER BY occurred_at DESC, created_at DESC, id DESC
+  ORDER BY (
+    COALESCE(event_payload #>> '{todo,updatedAt}', event_payload #>> '{after,updatedAt}')
+      = to_char(todo_record.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  ) DESC NULLS LAST, occurred_at DESC, created_at DESC, id DESC
   LIMIT 1
 ) AS latest_event ON true
-WHERE todo_record.id = ${parameters.text(todoId)};
-`.trim(),
+WHERE todo_record.id = ${todoIdParameter}`.trim();
+}
+
+function buildCurrentFulfillmentRepairQuery(saved) {
+  const parameters = createPostgresParameterBinder();
+  const todoId = parameters.text(saved.todo.id);
+  const labelTodoId = parameters.text(saved.labelTodo.id);
+  const fulfillmentId = parameters.text(saved.fulfillment.fulfillmentId);
+  const orderLineId = `(SELECT order_line_id FROM fulfillment_records WHERE id = ${fulfillmentId})`;
+  const rows = (table, predicate) => `(SELECT COALESCE(json_agg(to_jsonb(record) ORDER BY record.id), '[]'::json) FROM ${table} record WHERE ${predicate})`;
+  return {
+    text: `SELECT json_build_object(
+      'todo', (${currentTodoReadSql(todoId)}),
+      'labelTodo', (${currentTodoReadSql(labelTodoId)}),
+      'state', json_build_object(
+        'fulfillments', ${rows("fulfillment_records", `record.id = ${fulfillmentId}`)},
+        'packages', ${rows("packages", `record.fulfillment_id = ${fulfillmentId}`)},
+        'orderLines', ${rows("order_lines", `record.id = ${orderLineId}`)},
+        'inventoryReservations', ${rows("inventory_reservations", `record.order_line_id = ${orderLineId}`)},
+        'inventories', ${rows("inventory_items", `record.id IN (SELECT inventory_item_id FROM inventory_reservations WHERE order_line_id = ${orderLineId})`)},
+        'printRecords', ${rows("print_records", `record.target_type = 'fulfillment' AND record.target_id = ${fulfillmentId}`)},
+        'paperOutboundDocuments', ${rows("paper_outbound_documents", `record.fulfillment_id = ${fulfillmentId}`)},
+        'warehouseOutboundExecutions', ${rows("warehouse_outbound_executions", `record.fulfillment_id = ${fulfillmentId}`)}
+      )
+    ) AS result;`,
     values: parameters.values,
   };
 }
@@ -242,8 +369,7 @@ inserted_todo_event AS (
     ${parameters.timestamp(todoEvent.occurredAt)},
     ${parameters.timestamp(todoEvent.createdAt)}
   FROM updated_todo
-  ON CONFLICT (id) DO NOTHING
-  RETURNING id
+  RETURNING id, ${todoEventJsonExpression("todo_events")} AS result
 ),
 inserted_operation_log AS (
   INSERT INTO operation_logs (
@@ -263,13 +389,14 @@ inserted_operation_log AS (
     ${parameters.timestamp(operationLog.occurredAt)},
     ${parameters.timestamp(operationLog.createdAt)}
   FROM updated_todo
-  ON CONFLICT (id) DO NOTHING
-  RETURNING id
+  RETURNING id, ${todoOperationLogJsonExpression("operation_logs")} AS result
 )
 SELECT json_build_object(
   'todo', (SELECT result FROM updated_todo),
   'todoEventId', (SELECT id FROM inserted_todo_event),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'todoEvent', (SELECT result FROM inserted_todo_event),
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'operationLog', (SELECT result FROM inserted_operation_log)
 ) AS result;
 COMMIT;
 `.trim(),
@@ -399,6 +526,7 @@ updated_packages AS (
   SET
     fulfillment_id = ${parameters.text(fulfillment.fulfillmentId)},
     status = '待打印标签',
+    revision = packages.revision + 1,
     updated_at = ${parameters.timestamp(updatedAt)}
   FROM inserted_fulfillment
   WHERE packages.order_line_id = ${parameters.text(fulfillment.orderLineId)}
@@ -508,24 +636,24 @@ export function normalizeTodoLookupResult(value) {
   return normalizeTodoRecord(value?.todo, value?.todoEvent);
 }
 
-export function normalizeTodoActionTransactionResult(value, projectedTodo = {}) {
-  const canonicalTodo = normalizeTodoRecord(value?.todo);
+export function normalizeTodoActionTransactionResult(value) {
+  const canonicalTodo = normalizeTodoRecord(value?.todo, value?.todoEvent);
   return {
-    todo: canonicalTodo ? { ...projectedTodo, ...canonicalTodo } : null,
+    todo: canonicalTodo,
     todoEventId: cleanText(value?.todoEventId ?? value?.todo_event_id),
     operationLogId: cleanText(value?.operationLogId ?? value?.operation_log_id),
   };
 }
 
 export function normalizeFulfillmentRepairResult(value, input = {}) {
-  const todo = normalizeTodoRecord(value?.todo);
-  const labelTodo = normalizeTodoRecord(value?.labelTodo ?? value?.label_todo);
+  const todo = normalizeTodoRecord(value?.todo, value?.oldTodoEvent);
+  const labelTodo = normalizeTodoRecord(value?.labelTodo ?? value?.label_todo, value?.newTodoEvent);
   const fulfillment = normalizeFulfillmentRepairRecord(value?.fulfillment);
   const packages = normalizeFulfillmentRepairPackages(value?.packages);
   return {
     todo: todo ? { ...(input.completedTodo ?? {}), ...todo } : null,
     labelTodo: labelTodo ? { ...(input.labelTodo ?? {}), ...labelTodo } : null,
-    fulfillment: fulfillment ? { ...(input.fulfillment ?? {}), ...fulfillment } : null,
+    fulfillment: fulfillment ? { ...(input.fulfillment ?? {}), ...normalizeObject(value?.operationLog?.after?.fulfillment), ...fulfillment } : null,
     packages,
     oldTodoEventId: cleanText(value?.oldTodoEventId ?? value?.old_todo_event_id),
     newTodoEventId: cleanText(value?.newTodoEventId ?? value?.new_todo_event_id),
@@ -646,6 +774,7 @@ function normalizeFulfillmentRepairPackage(value) {
     packageCount: nonNegativeInteger(value.packageCount ?? value.package_count ?? 1),
     packedQty: nonNegativeInteger(value.packedQty ?? value.packed_qty ?? value.qty),
     labelPrintRecordId: cleanText(value.labelPrintRecordId ?? value.label_print_record_id),
+    revision: Math.max(1, nonNegativeInteger(value.revision ?? 1)),
     status: cleanText(value.status) || "待打印标签",
     createdBy: cleanText(value.createdBy ?? value.created_by),
     createdAt: normalizeTimestampOrText(value.createdAt ?? value.created_at),
@@ -672,7 +801,7 @@ function normalizeOperationLog(value) {
   };
 }
 
-function todoJsonExpression(alias) {
+export function todoJsonExpression(alias) {
   return `json_build_object(
     'id', ${alias}.id,
     'bizNo', ${alias}.biz_no,
@@ -693,7 +822,16 @@ function todoJsonExpression(alias) {
   )`;
 }
 
-function todoEventJsonExpression(alias) {
+function todoOperationLogJsonExpression(alias) {
+  return `json_build_object(
+    'id', ${alias}.id, 'targetType', ${alias}.target_type, 'targetId', ${alias}.target_id,
+    'action', ${alias}.action, 'before', ${alias}.before_json, 'after', ${alias}.after_json,
+    'reason', ${alias}.reason, 'operatorId', ${alias}.operator_id, 'pageKey', ${alias}.page_key,
+    'occurredAt', ${alias}.occurred_at, 'createdAt', ${alias}.created_at
+  )`;
+}
+
+export function todoEventJsonExpression(alias) {
   return `json_build_object(
     'eventId', ${alias}.id,
     'todoId', ${alias}.todo_id,
@@ -734,6 +872,7 @@ function fulfillmentRepairPackageJsonExpression(alias) {
     'packageCount', ${alias}.package_count,
     'packedQty', ${alias}.packed_qty,
     'labelPrintRecordId', ${alias}.label_print_record_id,
+    'revision', ${alias}.revision,
     'status', ${alias}.status,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at,
@@ -742,18 +881,36 @@ function fulfillmentRepairPackageJsonExpression(alias) {
 }
 
 function applyTodoActionWorkspaceMutation({ workspace, todo, todoEvent, operationLog }) {
-  workspace.todos = upsertById(workspace.todos ?? [], todo, "id");
+  const existing = findWorkspaceTodo(workspace, todo.id);
+  const existingVersion = Date.parse(existing?.updatedAt);
+  if (!existing || !Number.isFinite(existingVersion) || Date.parse(todo.updatedAt) >= existingVersion) {
+    workspace.todos = upsertById(workspace.todos ?? [], todo, "id");
+  }
   if (todoEvent) workspace.todoEvents = upsertById(workspace.todoEvents ?? [], todoEvent, "eventId");
   if (operationLog) workspace.operationLogs = upsertById(workspace.operationLogs ?? [], operationLog, "id");
 }
 
 function applyFulfillmentRepairWorkspaceMutation(workspace, result, input = {}) {
   if (!workspace || !result) return;
-  if (result.todo) workspace.todos = upsertById(workspace.todos ?? [], result.todo, "id");
-  if (result.labelTodo) workspace.todos = upsertById(workspace.todos ?? [], result.labelTodo, "id");
-  if (result.fulfillment) workspace.fulfillments = upsertById(workspace.fulfillments ?? [], result.fulfillment, "id");
+  // Print records have no standalone version. Their writes advance the parent fulfillment.
+  const acceptFulfillment = result.fulfillment && isCurrentRecord(workspace.fulfillments ?? [], result.fulfillment, "id");
+  if (result.todo) workspace.todos = upsertCurrentRecord(workspace.todos ?? [], result.todo, "id");
+  if (result.labelTodo) workspace.todos = upsertCurrentRecord(workspace.todos ?? [], result.labelTodo, "id");
   for (const packageRecord of result.packages ?? []) {
-    workspace.packages = upsertById(workspace.packages ?? [], packageRecord, "packageId");
+    workspace.packages = upsertCurrentRecord(workspace.packages ?? [], packageRecord, "packageId");
+  }
+  if (acceptFulfillment) {
+    const fulfillment = { ...result.fulfillment };
+    if (Array.isArray(fulfillment.packageRecords)) {
+      fulfillment.packageRecords = (workspace.packages ?? []).filter(record => record.fulfillmentId === fulfillment.fulfillmentId)
+        .sort((left, right) => left.packageSeq - right.packageSeq);
+    }
+    workspace.fulfillments = upsertCurrentRecord(workspace.fulfillments ?? [], fulfillment, "id");
+  }
+  for (const collection of acceptFulfillment ? ["printRecords", "paperOutboundDocuments", "warehouseOutboundExecutions"] : []) {
+    for (const record of result[collection] ?? []) {
+      workspace[collection] = upsertCurrentRecord(workspace[collection] ?? [], record, "id");
+    }
   }
   if (result.oldTodoEventId === input.oldTodoEvent?.eventId) {
     workspace.todoEvents = upsertById(workspace.todoEvents ?? [], input.oldTodoEvent, "eventId");
@@ -766,6 +923,15 @@ function applyFulfillmentRepairWorkspaceMutation(workspace, result, input = {}) 
   }
 }
 
+function upsertCurrentRecord(rows, record, key) {
+  return isCurrentRecord(rows, record, key) ? upsertById(rows, record, key) : rows;
+}
+
+function isCurrentRecord(rows, record, key) {
+  const existing = rows.find(item => cleanText(item[key] ?? item.id) === cleanText(record[key] ?? record.id));
+  return acceptsWorkspaceRecordVersion(existing, record);
+}
+
 function readLocalTodoActionReplay(store, input = {}) {
   const key = resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id);
   const scope = `todo.action.${normalizeScopePart(input.action)}`;
@@ -774,7 +940,15 @@ function readLocalTodoActionReplay(store, input = {}) {
   if (existing.requestHash !== buildIdempotencyRequestHash(input.idempotencyPayload ?? { action: input.action, todo: input.todo })) {
     throw buildIdempotencyConflictError();
   }
+  assertTodoReplayTarget(existing.result, input);
   return structuredClone(existing.result);
+}
+
+function assertTodoReplayTarget(result, input) {
+  const expected = cleanText(input.todoId ?? input.todo?.id ?? input.todo?.todoId);
+  if (!expected || cleanText(result.todo?.id ?? result.todo?.todoId) !== expected) {
+    throw buildIdempotencyConflictError();
+  }
 }
 
 function saveLocalTodoActionReplay(store, input, result) {

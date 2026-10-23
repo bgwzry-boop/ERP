@@ -90,14 +90,13 @@ export function createOfficeProductionPackingActions({
       productionPacking.productionTasks?.find((item) => item.id === orderLineId || item.orderLineId === orderLineId) ??
       productionPacking.packingTasks?.find((item) => item.orderLineId === orderLineId)?.orderLine;
     const inventoryItem = orderLine ? findProductionInventoryItem(orderLine, inventoryRecords) : null;
-    const reportResult =
-      (orderLineId ? productionPacking.reportResultsByLineId?.[orderLineId] : null) ??
-      productionPacking.productionTasks?.find(
-        (item) => item.productionTaskId === requestedId || item.orderLineId === orderLineId,
-      )?.latestReport ??
-      Object.values(productionPacking.reportResultsByLineId ?? {}).find(
-        (item) => item?.reportId === focusTarget?.sourceId || item?.productionTaskId === requestedId,
-      );
+    const reportResult = [
+      productionPacking.productionTasks?.find(item => item.productionTaskId === requestedId)?.latestReport,
+      ...Object.values(productionPacking.reportResultsByLineId ?? {}),
+    ].find(item => item && (item.productionTaskId
+      ? item.productionTaskId === requestedId
+      : Boolean(focusTarget?.sourceId && item.reportId === focusTarget.sourceId)));
+
 
     const rawResult = requestedType === "packing"
       ? await detailApi.getOfficePackingTaskDetail({

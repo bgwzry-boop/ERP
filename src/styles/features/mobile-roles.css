@@ -1224,3 +1224,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.maintenance-mobile-notice > button,
+.decision-mobile-notice > button { min-height: 44px; margin-top: 8px; padding: 8px 12px; font: inherit; }
+.mobile-action-blocker { color: var(--erp-text-muted); font-size: 14px; line-height: 21px; margin: 8px 0; }

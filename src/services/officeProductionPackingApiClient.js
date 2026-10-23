@@ -358,6 +358,15 @@ export async function getOfficeProductionTaskDetail(input = {}, options = {}) {
       };
     }
 
+    const returnedTaskId = cleanText(json?.productionTaskId);
+    const returnedLineId = cleanText(json?.orderLineId);
+    if (returnedTaskId !== safeProductionTaskId || !returnedLineId ||
+        cleanText(json?.productionTask?.productionTaskId) !== returnedTaskId ||
+        cleanText(json?.productionTask?.orderLineId) !== returnedLineId) {
+      return { source: "api_error", blocked: true, detail: null,
+        error: { code: "PRODUCTION_TASK_DETAIL_IDENTITY_INVALID", message: "生产任务详情身份不完整或不匹配，请刷新核对。" } };
+    }
+
     return {
       source: "api",
       detail: mapProductionTaskDetailResponse(json, {
@@ -548,7 +557,7 @@ export async function reportOfficeProductionComplete(input = {}, options = {}) {
     authState,
     orderLine,
     productionTaskId = buildProductionTaskId(orderLine),
-    productionTask = orderLine?.productionTask,
+    productionTask = orderLine?.productionTask ?? {},
     inventoryItem,
     inventoryItemId = inventoryItem?.id,
     qualifiedQty = orderLine?.qty ?? 0,
@@ -560,9 +569,9 @@ export async function reportOfficeProductionComplete(input = {}, options = {}) {
   } = input;
   const safeProductionTaskId = cleanText(productionTaskId);
   const safeOrderLineId = cleanText(orderLine?.id ?? orderLine?.orderLineId);
-  const safeQualifiedQty = Math.trunc(Number(qualifiedQty ?? 0));
+  const safeQualifiedQty = Number(qualifiedQty ?? 0);
 
-  if (!safeProductionTaskId || !safeOrderLineId || !Number.isFinite(safeQualifiedQty) || safeQualifiedQty <= 0) {
+  if (!safeProductionTaskId || !safeOrderLineId || !Number.isSafeInteger(safeQualifiedQty) || safeQualifiedQty <= 0) {
     return {
       source: "api_error",
       blocked: true,
@@ -582,8 +591,8 @@ export async function reportOfficeProductionComplete(input = {}, options = {}) {
       body: {
         productionTaskId: safeProductionTaskId,
         orderLineId: safeOrderLineId,
-        processType: productionTask?.taskType ?? getProductionProcessType(orderLine),
-        machineId: productionTask?.machineId ?? getProductionMachineId(orderLine),
+        processType: productionTask.taskType || getProductionProcessType(orderLine),
+        machineId: productionTask.machineId || orderLine?.machineId || undefined,
         plannedQty: Number(orderLine?.qty ?? orderLine?.originalQty ?? safeQualifiedQty),
         qualifiedQty: safeQualifiedQty,
         exceptionQty: Math.max(0, Math.trunc(Number(exceptionQty ?? 0))),
@@ -674,7 +683,7 @@ export async function reportOfficeProductionDailyProgress(input = {}, options = 
         productionTaskId: safeProductionTaskId,
         orderLineId: safeOrderLineId,
         processType: getProductionProcessType(orderLine),
-        machineId: getProductionMachineId(orderLine),
+        machineId: orderLine?.productionTask?.machineId || orderLine?.machineId || undefined,
         plannedQty: Number(orderLine?.qty ?? orderLine?.originalQty ?? safeDailyQualifiedQty),
         dailyQualifiedQty: safeDailyQualifiedQty,
         exceptionQty: Math.max(0, Math.trunc(Number(exceptionQty ?? 0))),
@@ -764,7 +773,7 @@ export async function reportOfficeProductionException(input = {}, options = {}) 
         productionTaskId: safeProductionTaskId,
         orderLineId: safeOrderLineId,
         processType: getProductionProcessType(orderLine),
-        machineId: getProductionMachineId(orderLine),
+        machineId: orderLine?.productionTask?.machineId || orderLine?.machineId || undefined,
         exceptionType: safeExceptionType,
         continuationMode: safeContinuationMode,
         estimatedLossQty: safeEstimatedLossQty,
@@ -993,13 +1002,17 @@ export async function reviewOfficeProductionFinishedGoodsPhoto(input = {}, optio
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey: input.idempotencyKey,
       body: {
+        idempotencyKey: input.idempotencyKey,
         productionTaskId: safeProductionTaskId,
         orderLineId: safeOrderLineId,
+        expectedRevision: input.expectedRevision ?? orderLine?.productionTask?.revision ?? orderLine?.revision,
+        expectedAttachmentId: cleanText(input.expectedAttachmentId ?? orderLine?.finishedGoodsPhoto?.attachmentId ?? orderLine?.productionTask?.finishedGoodsPhoto?.attachmentId),
         reviewStatus: safeReviewStatus,
         reason: cleanText(reason),
         operatorId,
-        reviewedAt: reviewedAt ?? new Date().toISOString(),
+        reviewedAt,
       },
     });
     const json = await readJson(response);
@@ -1010,6 +1023,21 @@ export async function reviewOfficeProductionFinishedGoodsPhoto(input = {}, optio
         blocked: true,
         error: toApiError(json, response.status, "成品图复核 API 返回错误。"),
       };
+    }
+
+    const expectedRevision = input.expectedRevision ?? orderLine?.productionTask?.revision ?? orderLine?.revision;
+    const expectedStatus = ["已接受", "通过", "确认", "accepted", "accept"].includes(safeReviewStatus) ? "已接受"
+      : ["需重拍", "退回", "退回重拍", "rejected", "retake_required", "reject"].includes(safeReviewStatus) ? "需重拍" : "";
+    const expectedAttachmentId = cleanText(input.expectedAttachmentId ?? orderLine?.finishedGoodsPhoto?.attachmentId ?? orderLine?.productionTask?.finishedGoodsPhoto?.attachmentId);
+    if (cleanText(json?.productionTaskId) !== safeProductionTaskId || cleanText(json?.orderLineId) !== safeOrderLineId ||
+        !expectedAttachmentId || cleanText(json?.finishedGoodsPhoto?.attachmentId) !== expectedAttachmentId ||
+        !cleanText(json?.operationLogId) || cleanText(json?.productionTask?.productionTaskId) !== safeProductionTaskId ||
+        cleanText(json?.productionTask?.orderLineId) !== safeOrderLineId ||
+        !expectedStatus || cleanText(json?.finishedGoodsPhoto?.status) !== expectedStatus ||
+        !Number.isSafeInteger(expectedRevision) || expectedRevision < 1 ||
+        !Number.isSafeInteger(json?.productionTask?.revision) || json.productionTask.revision !== expectedRevision + 1) {
+      return { source: "api_error", blocked: true,
+        error: { code: "PRODUCTION_PHOTO_REVIEW_UNCONFIRMED", message: "审核回执不完整或不匹配，请刷新核对结果。" } };
     }
 
     return {

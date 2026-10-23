@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   getOfficePrintDriverConfig,
   getOfficePrintDriverCupsDiagnostics,
@@ -65,6 +65,7 @@ export function createOfficePrintReadActions({
   authState,
   currentUserId,
   printerDeviceQaSelectedIdRef,
+  printerQaRequestRef = { current: 0 },
   printJobQueueItemsRef,
   serverRequired = isOfficeApiServerRequired,
   setPrintDriverConfig,
@@ -143,6 +144,9 @@ export function createOfficePrintReadActions({
   }
 
   async function refreshPrinterDeviceQa({ showToast = false, selectedDeviceId = "" } = {}) {
+    const requestVersion = ++printerQaRequestRef.current;
+    const isStale = () => requestVersion !== printerQaRequestRef.current;
+
     setPrinterDeviceQa((current) => ({ ...current, loading: true, error: "" }));
     const deviceResult = normalizeReadResultForRuntime(
       await api.listOfficePrintDevices({
@@ -152,6 +156,8 @@ export function createOfficePrintReadActions({
       }),
       { label: "打印设备", serverRequired },
     );
+
+    if (isStale()) return { blocked: true, stale: true };
 
     if (deviceResult.blocked) {
       const errorMessage = getReadErrorMessage(deviceResult, "打印设备列表 API 返回错误。");
@@ -176,7 +182,20 @@ export function createOfficePrintReadActions({
 
     const devices = Array.isArray(deviceResult.items) ? deviceResult.items : [];
     const requestedDeviceId = String(selectedDeviceId || printerDeviceQaSelectedIdRef.current || "").trim();
-    const selectedDevice = devices.find((item) => item.printDeviceId === requestedDeviceId) ?? devices[0] ?? null;
+    const requestedDevice = devices.find((item) => item.printDeviceId === requestedDeviceId);
+    if (!requestedDevice) {
+      const error = requestedDeviceId ? "原打印设备不在当前可用列表中，请重新选择设备后再操作。" : "请先选择要验收的打印设备。";
+      setPrinterDeviceQa((current) => ({
+        ...current, source: deviceResult.source, recordSource: "idle", devices,
+        selectedDeviceId: "", eligiblePrintJobs: [], selectedPrintJobId: "", fieldTests: [], latestRecord: null,
+        checks: createPrinterDeviceFieldTestChecks(), evidence: createPrinterDeviceFieldTestEvidence(),
+        deviceLabel: "", driverLabel: "", paperLabel: "", driverModeDraft: "preview_only",
+        loading: false, error, lastSyncedAt: formatSyncTime(),
+      }));
+      return withFeedback({devices:deviceResult,fieldTests:null,blocked:true,
+        error:{code:"PRINT_DEVICE_SELECTION_UNAVAILABLE",message:error}},showToast,error);
+    }
+    const selectedDevice = requestedDevice;
     const nextSelectedDeviceId = selectedDevice?.printDeviceId ?? "";
     const [fieldTestApiResult, printedJobApiResult] = nextSelectedDeviceId
       ? await Promise.all([
@@ -196,6 +215,7 @@ export function createOfficePrintReadActions({
           }),
         ])
       : [null, null];
+    if (isStale()) return { blocked: true, stale: true };
     const fieldTestResult = fieldTestApiResult
       ? normalizeReadResultForRuntime(fieldTestApiResult, {
           label: "打印设备现场验收记录",
@@ -226,7 +246,7 @@ export function createOfficePrintReadActions({
     const latestPrintJobId = String(latestRecord?.printJobId ?? "").trim();
     const selectedPrintJobId = eligiblePrintJobs.some((item) => item.printJobId === latestPrintJobId)
       ? latestPrintJobId
-      : eligiblePrintJobs[0]?.printJobId ?? "";
+      : "";
     const errorMessages = [deviceResult, fieldTestResult, printedJobResult]
       .map((result) => getReadErrorMessage(result))
       .filter(Boolean);
@@ -324,7 +344,9 @@ export function createOfficePrintReadActions({
 }
 
 export function useOfficePrintReads(options) {
-  const actions = createOfficePrintReadActions(options);
+  const printerQaRequestRef = useRef(0);
+  useEffect(() => () => { printerQaRequestRef.current += 1; }, [options.currentUserId, options.authState?.session?.accessToken]);
+  const actions = createOfficePrintReadActions({ ...options, printerQaRequestRef });
   const { authState, currentUserId, printerDeviceQaSelectedIdRef, printJobQueueItemsRef, serverRequired } = options;
   const dependencies = [authState, currentUserId, printerDeviceQaSelectedIdRef, printJobQueueItemsRef, serverRequired];
   return {

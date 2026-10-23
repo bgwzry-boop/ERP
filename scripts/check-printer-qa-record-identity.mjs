@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {buildPrinterDeviceFieldTestRecord} from '../src/services/printerDeviceFieldTestClient.js';
+const input={printDevice:{printDeviceId:'PRN-1'},currentUser:{userId:'U-1'},now:new Date('2026-09-06T01:00:00Z')};
+const first=buildPrinterDeviceFieldTestRecord(input);
+const second=buildPrinterDeviceFieldTestRecord(input);
+assert.notEqual(first.recordId,second.recordId,'Independent records in the same second must not share an identity');
+assert.equal(first.checkedAt,second.checkedAt);
+assert.equal(first.printDeviceId,second.printDeviceId);
+assert.match(first.recordId,/^PDQA-20260906010000-PRN-1-[0-9a-f-]{36}$/);
+console.log('PASS printer QA record identity: independent same-device same-second drafts receive distinct UUID suffixes.');

@@ -56,6 +56,8 @@ const packingTask = {
 };
 
 assert(buildProductionTaskId(productionLine) === "PT-ORD-0629-003-01", "production task ID was not derived from order line");
+assert(buildProductionTaskId({ ...productionLine, productionTaskId: "PT-DOWNSTREAM-BAG" }) === "PT-DOWNSTREAM-BAG", "downstream task must retain its server identity");
+assert(buildProductionTaskId({ ...productionLine, productionTask: { productionTaskId: "PT-NESTED-BAG" } }) === "PT-NESTED-BAG", "nested server task identity must not be regenerated from order line");
 assert(buildPackingTaskId(productionLine) === "PKT-ORD-0629-003-01", "packing task ID was not derived from order line");
 assert(getProductionProcessType(productionLine) === "制袋", "bag-making process type was not mapped");
 assert(getProductionMachineId({ ...productionLine, machineId: "" }) === "BAG-01", "default bag-making machine ID was not mapped");
@@ -790,6 +792,9 @@ const finishedPhotoReviewResult = await reviewOfficeProductionFinishedGoodsPhoto
     productionTaskId: "PT-ORD-0629-003-01",
     reviewStatus: "已接受",
     reason: "frontend finished goods photo review check",
+    expectedAttachmentId: "ATT-FINISHED-001",
+    expectedRevision: 7,
+    idempotencyKey: "photo-review-client-001",
     operatorId: "U-OFFICE-A",
   },
   {
@@ -798,6 +803,7 @@ const finishedPhotoReviewResult = await reviewOfficeProductionFinishedGoodsPhoto
       return createJsonResponse(200, {
         productionTaskId: "PT-ORD-0629-003-01",
         orderLineId: productionLine.id,
+        productionTask: { productionTaskId: "PT-ORD-0629-003-01", orderLineId: productionLine.id, revision: 8 },
         finishedGoodsPhoto: {
           status: "已接受",
           required: true,
@@ -827,6 +833,10 @@ const finishedPhotoReviewResult = await reviewOfficeProductionFinishedGoodsPhoto
 );
 
 assert(finishedPhotoReviewResult.source === "api", "finished-goods photo review did not use API response");
+assert(finishedPhotoReviewCalls[0]?.body.idempotencyKey === "photo-review-client-001", "review retry key must be transported");
+assert(finishedPhotoReviewCalls[0]?.body.reviewedAt === undefined, "client must not generate a changing review time for identical retries");
+assert(finishedPhotoReviewCalls[0]?.body.expectedRevision === 7, "review must bind viewed revision");
+assert(finishedPhotoReviewCalls[0]?.body.expectedAttachmentId === "ATT-FINISHED-001", "review must bind the viewed attachment identity");
 assert(finishedPhotoReviewCalls[0]?.url === "http://127.0.0.1:8787/api/production-tasks/PT-ORD-0629-003-01/finished-goods-photo-review", "finished-goods photo review URL is incorrect");
 assert(finishedPhotoReviewCalls[0]?.init.method === "POST", "finished-goods photo review method is incorrect");
 assert(finishedPhotoReviewCalls[0]?.body.reviewStatus === "已接受", "finished-goods photo review status is incorrect");
@@ -1275,4 +1285,40 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+// A successful HTTP status must not fabricate task identity from request fallback.
+for (const responseBody of [
+  {},
+  { productionTaskId: 'PT-EXACT', orderLineId: 'OL-1' },
+  { productionTaskId: 'PT-WRONG', orderLineId: 'OL-1', productionTask: { productionTaskId: 'PT-WRONG', orderLineId: 'OL-1' } },
+  { productionTaskId: 'PT-EXACT', orderLineId: 'OL-1', productionTask: { productionTaskId: 'PT-OTHER-STAGE', orderLineId: 'OL-1' } },
+  { productionTaskId: 'PT-EXACT', orderLineId: 'OL-1', productionTask: { productionTaskId: 'PT-EXACT', orderLineId: 'OL-OTHER' } },
+]) {
+  const value = await getOfficeProductionTaskDetail({ authState, productionTaskId: 'PT-EXACT', orderLine: productionLine, reportResult }, {
+    fetchImpl: async () => createJsonResponse(200, responseBody),
+  });
+  assert(value.blocked === true && value.detail === null, 'malformed HTTP success must not expose fallback task data');
+  assert(value.error.code === 'PRODUCTION_TASK_DETAIL_IDENTITY_INVALID', 'malformed detail identity code');
+}
+
+for (const body of [{}, { productionTaskId: 'PT-EXACT', orderLineId: 'OL-1', finishedGoodsPhoto: { attachmentId: 'ATT-OTHER' }, productionTask: { productionTaskId: 'PT-EXACT', revision: 2 }, operationLogId: 'LOG-1' }]) {
+  const result = await reviewOfficeProductionFinishedGoodsPhoto({ authState, productionTaskId: 'PT-EXACT', orderLineId: 'OL-1', expectedAttachmentId: 'ATT-VIEWED', expectedRevision: 1, reviewStatus: '已接受' }, { fetchImpl: async () => createJsonResponse(200, body), serverRequired: true });
+  assert(result.blocked && result.error.code === 'PRODUCTION_PHOTO_REVIEW_UNCONFIRMED', 'incomplete/mismatched success must stay unconfirmed');
+}
+
+{
+  const input = { authState, productionTaskId: 'PT-RECEIPT', orderLineId: 'OL-1', expectedAttachmentId: 'ATT-1', expectedRevision: 4, reviewStatus: 'accepted' };
+  const valid = { productionTaskId: 'PT-RECEIPT', orderLineId: 'OL-1', finishedGoodsPhoto: { attachmentId: 'ATT-1', status: '已接受' }, productionTask: { productionTaskId: 'PT-RECEIPT', orderLineId: 'OL-1', revision: 5 }, operationLogId: 'LOG-RECEIPT' };
+  for (const bad of [
+    {...valid, productionTask: {...valid.productionTask, revision: 4}},
+    {...valid, productionTask: {...valid.productionTask, revision: 6}},
+    {...valid, productionTask: {...valid.productionTask, orderLineId: 'OL-OTHER'}},
+    {...valid, finishedGoodsPhoto: {...valid.finishedGoodsPhoto, status: '需重拍'}},
+  ]) {
+    const result = await reviewOfficeProductionFinishedGoodsPhoto(input, { fetchImpl: async () => createJsonResponse(200, bad), serverRequired: true });
+    assert(result.blocked && result.error.code === 'PRODUCTION_PHOTO_REVIEW_UNCONFIRMED', 'wrong receipt transition must not report success');
+  }
+  const result = await reviewOfficeProductionFinishedGoodsPhoto(input, { fetchImpl: async () => createJsonResponse(200, valid), serverRequired: true });
+  assert(result.source === 'api' && !result.blocked, 'exact version transition and accepted alias must work');
 }

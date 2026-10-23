@@ -8,13 +8,6 @@ import {
   repairOfficeTodoReference,
 } from "../src/services/officeTodoApiClient.js";
 import { createOfficePrintBatchRecord } from "../src/services/officePrintBatchApiClient.js";
-import {
-  applyBatchPrintResult,
-  createPrintBatchRecord,
-  getBatchPrintPackageRows,
-  getBatchPrintStats,
-  getTodoPrintLabelCount,
-} from "../src/state/officeTodoActions.js";
 
 const authState = createLocalSeedAuthState("U-OFFICE-A");
 
@@ -43,57 +36,15 @@ assert(notificationSentPayload.action === "customer_notification_sent", "custome
 const customerPendingPayload = mapTodoUiActionToApiPayload("客户待确认");
 assert(customerPendingPayload.action === "customer_pending", "customer pending action was not mapped correctly");
 
-const printTodoA = { id: "T-PRINT-A", type: "待打印标签", summary: "快运 3 包，打包工已提交包裹明细", urgency: "今天" };
-const printTodoB = { id: "T-PRINT-B", type: "待打印标签", summary: "快运 2 包，打包工已提交包裹明细", urgency: "今天" };
-const nonPrintTodo = { id: "T-NORMAL", type: "订单草稿待确认", summary: "普通待办", urgency: "普通" };
-assert(getTodoPrintLabelCount(printTodoA) === 3, "print todo package count was not inferred");
-assert(getBatchPrintStats([printTodoA, printTodoB]).totalLabels === 5, "batch print total labels were not calculated");
-assert(getBatchPrintPackageRows([printTodoA]).map((item) => item.labelText).join(",") === "第 1/3 包,第 2/3 包,第 3/3 包", "print package rows were not generated");
-const partialPrintProjection = applyBatchPrintResult([printTodoA, printTodoB, nonPrintTodo], (todo) => todo.type.includes("打印") || todo.type.includes("标签"), {
-  todoIds: ["T-PRINT-A", "T-PRINT-B"],
-  result: "部分打出",
-  printedLabelCount: 4,
-  operatorName: "办公室A",
-});
-assert(partialPrintProjection.fullPrintedTodos.length === 1, "partial batch print should fully handle one todo");
-assert(partialPrintProjection.todos.find((todo) => todo.id === "T-PRINT-A")?.handled === true, "fully printed todo should be handled");
-assert(partialPrintProjection.todos.find((todo) => todo.id === "T-PRINT-B")?.printResultStatus === "partial", "partially printed todo should remain open with partial status");
-assert(partialPrintProjection.todos.find((todo) => todo.id === "T-PRINT-B")?.pendingLabelCount === 1, "partial pending label count is incorrect");
-assert(getTodoPrintLabelCount(partialPrintProjection.todos.find((todo) => todo.id === "T-PRINT-B")) === 1, "partial reprint should use pending label count");
-const packageSpecificProjection = applyBatchPrintResult([printTodoA], (todo) => todo.type.includes("打印") || todo.type.includes("标签"), {
-  todoIds: ["T-PRINT-A"],
-  result: "部分打出",
-  printedLabelCount: 2,
-  printedPackageIds: ["T-PRINT-A-PKG-1", "T-PRINT-A-PKG-3"],
-});
-assert(packageSpecificProjection.todos[0].printPackages.find((item) => item.packageId === "T-PRINT-A-PKG-1")?.status === "printed", "selected package 1 should be printed");
-assert(packageSpecificProjection.todos[0].printPackages.find((item) => item.packageId === "T-PRINT-A-PKG-2")?.status === "not_printed", "unselected package 2 should remain pending for reprint");
-assert(packageSpecificProjection.todos[0].printPackages.find((item) => item.packageId === "T-PRINT-A-PKG-3")?.status === "printed", "selected package 3 should be printed");
-const unknownPrintProjection = applyBatchPrintResult([printTodoA], (todo) => todo.type.includes("打印") || todo.type.includes("标签"), {
-  todoIds: ["T-PRINT-A"],
-  result: "不确定",
-  printedLabelCount: 0,
-});
-assert(unknownPrintProjection.todos[0].printResultStatus === "unknown", "uncertain print result should be marked unknown");
-assert(unknownPrintProjection.todos[0].urgency === "异常", "uncertain print result should become an exception");
-const printBatchDraft = createPrintBatchRecord({
-  printBatchId: "PB-CHECK-1",
-  resultLabel: "部分打出",
-  todoIds: ["T-PRINT-A"],
-  todoRefs: ["ORD-CHECK-1"],
-  totalTaskCount: 1,
-  totalLabelCount: 3,
-  printedLabelCount: 2,
-  pendingLabelCount: 1,
-  printedPackageIds: ["T-PRINT-A-PKG-1", "T-PRINT-A-PKG-3"],
-  pendingPackageIds: ["T-PRINT-A-PKG-2"],
-  printPackages: packageSpecificProjection.todos[0].printPackages,
-  operatorId: "U-OFFICE-A",
-  operatorName: "办公室A",
-});
-assert(printBatchDraft.status === "partial", "print batch partial status was not derived");
-assert(printBatchDraft.summary === "部分打出：已打出 2/3，待重打 1", "print batch summary is incorrect");
-assert(printBatchDraft.pendingPackages[0]?.packageId === "T-PRINT-A-PKG-2", "print batch pending package detail was not preserved");
+// Historical batch records remain readable/API-compatible; no client projection
+// may manufacture printed package state or close a todo.
+const printBatchDraft = {
+  printBatchId: "PB-CHECK-1", resultLabel: "部分打出", status: "partial",
+  todoIds: ["T-PRINT-A"], todoRefs: ["ORD-CHECK-1"], totalTaskCount: 1,
+  totalLabelCount: 3, printedLabelCount: 2, pendingLabelCount: 1,
+  printedPackageIds: ["T-PRINT-A-PKG-1", "T-PRINT-A-PKG-3"], pendingPackageIds: ["T-PRINT-A-PKG-2"],
+  printPackages: [], operatorId: "U-OFFICE-A", operatorName: "Office A",
+};
 
 const listCalls = [];
 const listResult = await listOfficeTodos(
@@ -160,7 +111,7 @@ const listResult = await listOfficeTodos(
 );
 
 assert(listResult.source === "api", "todo list API client did not use API response");
-assert(listCalls[0]?.url === "http://127.0.0.1:8787/api/todos?status=all&pageSize=200", "todo list API URL is incorrect");
+assert(listCalls[0]?.url === "http://127.0.0.1:8787/api/todos?status=all&pageSize=200&page=1", "todo list API URL must retain the explicit server page");
 assert(listResult.items[0]?.id === "T-LIST-NOTIFY-1", "todo list API id was not mapped");
 assert(listResult.items[0]?.ref === "ORD-CHECK-1", "todo list API ref was not mapped");
 assert(listResult.items[0]?.notificationCopyText === "客户通知文案", "todo list API notification copy text was not mapped");
@@ -569,7 +520,7 @@ assert(strictBatchFallbackResult.blocked === true, "strict todo batch handling m
 assert(strictBatchFallbackResult.source === "api_error", "strict todo batch handling should report an API error");
 assert(strictBatchFallbackResult.error?.code === "TODO_HANDLE_API_UNAVAILABLE", "strict todo batch handling reported the wrong API error");
 
-console.log("Frontend todo API client check passed: action mapping, customer notification actions, print-result confirmation, print batch records, API calls, denial blocking, batch handling, and local fallback are covered.");
+console.log("Frontend todo API client check passed: action mapping, customer notification actions, legacy print action payload compatibility, print batch records, API calls, denial blocking, batch handling, and local fallback are covered.");
 
 function createJsonResponse(status, body) {
   return {
@@ -595,3 +546,9 @@ function assert(condition, message) {
     throw new Error(message);
   }
 }
+
+const reminderRequests=[];
+for(let attempt=0;attempt<2;attempt++) await handleOfficeTodoAction({authState,todoId:'T-REMINDER',action:'稍后指定时间',snoozeUntil:'2027-01-02T01:00:00.000Z',idempotencyKey:'todo-reminder-fixed-key'}, {serverRequired:true,fetchImpl:async(_url,init)=>{reminderRequests.push(init);return new Response(JSON.stringify({todo:{id:'T-REMINDER'},operationLogId:'LOG-REMINDER'}),{status:200});}});
+assert(reminderRequests[0].headers['idempotency-key']==='todo-reminder-fixed-key','Reminder must forward the frozen idempotency key');
+assert(reminderRequests[0].body===reminderRequests[1].body,'Reminder retry must preserve its body');
+assert(JSON.parse(reminderRequests[0].body).snoozeUntil==='2027-01-02T01:00:00.000Z','Reminder must forward the selected exact time');

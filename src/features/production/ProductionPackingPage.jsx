@@ -1,3 +1,5 @@
+import {useDecisionEvidenceGate} from "../../components/useDecisionEvidenceGate.js";
+import {formatOperationalError} from "../../shared/ui/errorPresentation.js";
 import { useEffect, useRef, useState } from "react";
 import {
   buildPackingTaskRows,
@@ -21,6 +23,7 @@ import {
   getScheduleQueueItemsForMachine,
   getScheduleQueueMachineOptions,
   getVisibleProductionPackingSourceDetail,
+  selectProductionExceptionForFocus,
   inferPackageCountFromQty,
   isProductionFinishedGoodsPhotoRequired,
   isProductionPackingTaskListFromApi,
@@ -39,6 +42,7 @@ import {
 import { buildPackingCompletionSummary } from "../../services/packingCompletionConfirmationClient.js";
 import { buildProductionReportSummary } from "../../services/productionReportConfirmationClient.js";
 import { isDelegatedBusinessDecisionComplete } from "../../components/DelegatedBusinessDecisionFields.jsx";
+import { normalizeOrderType } from "../../../shared/orderRouting.js";
 import {
   buildPackingCompletionActionPayload,
   buildProductionExceptionActionPayload,
@@ -104,7 +108,7 @@ export function ProductionPackingPage({
       ? findFocusedProductionLine([...apiProductionLines, ...orderLines], focusTarget, buildProductionTaskId)
       : null;
   const productionLines =
-    focusedProductionLine && !baseProductionLines.some((line) => line.id === focusedProductionLine.id)
+    focusedProductionLine && !baseProductionLines.some((line) => buildProductionTaskId(line) === buildProductionTaskId(focusedProductionLine))
       ? [focusedProductionLine, ...baseProductionLines]
       : baseProductionLines;
   const packingTasks = buildPackingTaskRows({
@@ -113,7 +117,7 @@ export function ProductionPackingPage({
     includeLocalProjections: !taskListFromApi,
   });
   const lastAppliedFocusKeyRef = useRef("");
-  const [selectedProductionLineId, setSelectedProductionLineId] = useState(productionLines[0]?.id ?? "");
+  const [selectedProductionTaskId, setSelectedProductionTaskId] = useState(buildProductionTaskId(productionLines[0]));
   const [selectedPackingTaskId, setSelectedPackingTaskId] = useState(packingTasks[0]?.packingTaskId ?? "");
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState(productionLines.length ? "production" : "packing");
   const [productionTaskPriority, setProductionTaskPriority] = useState("attention");
@@ -139,14 +143,11 @@ export function ProductionPackingPage({
     targetQueueSeq: "1",
     reasonCode: "supervisor_order",
   });
-  const [scheduleDecision, setScheduleDecision] = useState({
-    decisionChannel: "wechat",
-    decidedAt: new Date().toISOString(),
-    decisionContent: { summary: "" },
-    authorizationBasis: "",
-    evidenceDraftId: "",
-    evidenceAttachmentIds: [],
-  });
+  const scheduleEvidence = useDecisionEvidenceGate();
+  const scheduleRequestRef = useRef(null);
+  const scheduleContextRef = useRef(0);
+  const [scheduleError, setScheduleError] = useState("");
+  const [scheduleDecision, setScheduleDecision] = useState(createScheduleDecision);
   const [scheduleActionConfirmation, setScheduleActionConfirmation] = useState(null);
   const [scheduleActionSubmitting, setScheduleActionSubmitting] = useState(false);
   const scheduleActionDialogRef = useRef(null);
@@ -154,14 +155,15 @@ export function ProductionPackingPage({
   const restoreScheduleActionTriggerRef = useRef(false);
   const [scheduleWriteConflict, setScheduleWriteConflict] = useState(null);
   const resolveInventoryItem = (line, task = null) => findProductionInventoryItem(line, inventoryRecords) ?? line?.inventoryItem ?? task?.inventoryItem ?? null;
-  const isAttentionProductionLine = (line) => !resolveInventoryItem(line) || line.confidence === "medium";
+  const isAttentionProductionLine = (line) => (!resolveInventoryItem(line) && normalizeOrderType(line?.orderType) !== "custom_special") || line.confidence === "medium";
   const productionAttentionCount = productionLines.filter(isAttentionProductionLine).length;
   const productionTaskCards = [...productionLines].sort((left, right) => {
     const leftAttention = Number(isAttentionProductionLine(left));
     const rightAttention = Number(isAttentionProductionLine(right));
     return productionTaskPriority === "attention" ? rightAttention - leftAttention : leftAttention - rightAttention;
   });
-  const selectedProductionLine = productionTaskCards.find((item) => item.id === selectedProductionLineId) ?? productionTaskCards[0] ?? null;
+  const selectedProductionLine = productionTaskCards.find((item) => buildProductionTaskId(item) === selectedProductionTaskId) ?? productionTaskCards[0] ?? null;
+  const selectedTaskKey = buildProductionTaskId(selectedProductionLine);
   const pendingPackingTaskCount = packingTasks.filter((item) => item.status !== "已完成").length;
   const completedPackingTaskCount = packingTasks.length - pendingPackingTaskCount;
   const visiblePackingTasks = packingTasks.filter((item) => {
@@ -189,18 +191,19 @@ export function ProductionPackingPage({
   const acceptFinishedPhotoState = getUiActionState("productionPacking", "确认成品图");
   const rejectFinishedPhotoState = getUiActionState("productionPacking", "退回成品图");
   const packingState = getUiActionState("productionPacking", "提交打包完成");
-  const reportQualifiedQty = getNumericInput(reportInputs, selectedProductionLine?.id, "qualifiedQty", selectedProductionLine?.qty ?? 0);
-  const reportExceptionQty = getNumericInput(reportInputs, selectedProductionLine?.id, "exceptionQty", 0);
-  const reportMachineCount = getNumericInput(reportInputs, selectedProductionLine?.id, "machineCount", "");
-  const productionExceptionType = String(reportInputs[selectedProductionLine?.id]?.exceptionType ?? "");
-  const productionExceptionLossQty = getNumericInput(reportInputs, selectedProductionLine?.id, "estimatedLossQty", 0);
-  const productionExceptionAffectsDelivery = getBooleanInput(reportInputs, selectedProductionLine?.id, "exceptionAffectsDelivery", false);
-  const productionExceptionRemark = String(reportInputs[selectedProductionLine?.id]?.exceptionRemark ?? "");
-  const productionExceptionResolutionCode = String(reportInputs[selectedProductionLine?.id]?.exceptionResolutionCode ?? "");
-  const productionExceptionResolutionNote = String(reportInputs[selectedProductionLine?.id]?.exceptionResolutionNote ?? "");
+  const reportQualifiedQty = getNumericInput(reportInputs, selectedTaskKey, "qualifiedQty", selectedProductionLine?.qty ?? 0);
+  const reportExceptionQty = getNumericInput(reportInputs, selectedTaskKey, "exceptionQty", 0);
+  const reportMachineCount = getNumericInput(reportInputs, selectedTaskKey, "machineCount", "");
+  const productionExceptionType = String(reportInputs[selectedTaskKey]?.exceptionType ?? "");
+  const productionExceptionLossQty = getNumericInput(reportInputs, selectedTaskKey, "estimatedLossQty", 0);
+  const productionExceptionAffectsDelivery = getBooleanInput(reportInputs, selectedTaskKey, "exceptionAffectsDelivery", false);
+  const productionExceptionRemark = String(reportInputs[selectedTaskKey]?.exceptionRemark ?? "");
+  const productionExceptionResolutionCode = String(reportInputs[selectedTaskKey]?.exceptionResolutionCode ?? "");
+  const productionExceptionResolutionNote = String(reportInputs[selectedTaskKey]?.exceptionResolutionNote ?? "");
   const packingActualQty = getNumericInput(packingInputs, selectedPackingTask?.packingTaskId, "actualPackedQty", selectedPackingTask?.plannedQty ?? 0);
   const packingPackageCount = getNumericInput(packingInputs, selectedPackingTask?.packingTaskId, "packageCount", selectedPackingTask?.packageCount ?? inferPackageCountFromQty(selectedPackingTask?.plannedQty));
   const selectedProductionCanReport = selectedProductionLine ? isProductionReportCandidate(selectedProductionLine) : false;
+  const selectedProductionIsCustomSpecial = normalizeOrderType(selectedProductionLine?.orderType) === "custom_special";
   const selectedProductionPaused = isProductionReportingBlocked(selectedProductionLine);
   const selectedPublishedScheduleId = getProductionPublishedScheduleId(selectedProductionLine);
   const selectedProductionMachineId = getProductionMachineIdLabel(selectedProductionLine);
@@ -249,7 +252,7 @@ export function ProductionPackingPage({
     selectedScheduleSourceMachineId === queueMoveTargetMachineId &&
     Math.max(1, Math.trunc(Number(selectedScheduleQueueItem.queueSeq ?? 1))) === queueMoveTargetSeq;
   const scheduleDirectAllowed = authState?.permissions?.actionPermissions?.includes("production.schedule.direct") === true;
-  const scheduleDecisionReady = scheduleDirectAllowed || isDelegatedBusinessDecisionComplete(scheduleDecision);
+  const scheduleDecisionReady = scheduleDirectAllowed || (scheduleEvidence.ready && isDelegatedBusinessDecisionComplete(scheduleDecision));
   const scheduleDecisionPayload = (summary) => scheduleDirectAllowed
     ? { directDecisionContent: { summary } }
     : { delegatedDecision: scheduleDecision };
@@ -270,12 +273,13 @@ export function ProductionPackingPage({
     selectedPackingTask,
     buildProductionTaskId,
   });
-  const focusNotice = getProductionPackingFocusNotice(focusTarget, {
+  const focusNotice = [getProductionPackingFocusNotice(focusTarget, {
     detailMode,
     selectedProductionLine,
     selectedPackingTask,
     buildProductionTaskId,
-  });
+  }), focusTarget?.taskId === selectedProductionTaskId && focusTarget?.productionExceptionId
+    ? `待办对应异常：${focusTarget.productionExceptionId}。读取到该异常后才能处理，不自动切换到最新异常。` : ""].filter(Boolean).join(" · ");
   const stats = [
     ["待报工", baseProductionLines.length, baseProductionLines.length ? "warning" : "success"],
     ["排产队列", productionPacking.scheduleQueueTotal ?? scheduleQueueItems.length, scheduleQueueItems.length ? "blue" : "success"],
@@ -283,14 +287,15 @@ export function ProductionPackingPage({
     ["待打包", packingTasks.filter((item) => item.status !== "已完成").length, "blue"],
     ["已打包", packingTasks.filter((item) => item.status === "已完成").length, "success"],
   ];
-  const reportDisabled = reportState.disabled || !selectedProductionLine || !detailInventoryItem || !selectedProductionCanReport || selectedProductionPaused;
-  const reportTitle = reportState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : !selectedProductionCanReport ? "该订单明细已完成生产报工或不在可报工状态" : !detailInventoryItem ? "未找到匹配库存键，不能报工入库" : "");
+  const reportDisabled = reportState.disabled || !selectedProductionLine || (!detailInventoryItem && !selectedProductionIsCustomSpecial) || !selectedProductionCanReport || selectedProductionPaused;
+  const reportTitle = reportState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : !selectedProductionCanReport ? "该订单明细已完成生产报工或不在可报工状态" : !detailInventoryItem && !selectedProductionIsCustomSpecial ? "未找到匹配库存键，不能报工入库" : "");
   const reportDailyDisabled = reportDailyState.disabled || !selectedProductionLine || !selectedProductionCanReport || selectedProductionPaused;
   const reportDailyTitle = reportDailyState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : !selectedProductionCanReport ? "该订单明细已完成生产报工或不在可报工状态" : "");
   const productionExceptionDisabled = productionExceptionState.disabled || !selectedProductionLine || !productionExceptionType;
   const productionExceptionTitle = productionExceptionState.title || (!productionExceptionType ? "请先选择异常类型" : "");
-  const latestProductionException =
-    selectedProductionLine?.latestException ?? productionPacking.productionExceptionsByLineId?.[selectedProductionLine?.id] ?? null;
+  const latestProductionException = selectProductionExceptionForFocus({ focusTarget, selectedTaskId: selectedProductionTaskId,
+    line: selectedProductionLine, detail: visibleSourceDetail?.detail,
+    fallback: productionPacking.productionExceptionsByLineId?.[selectedProductionLine?.id] });
   const productionExceptionResolutionTerminal = isTerminalProductionException(latestProductionException);
   const productionExceptionResolutionDisabled =
     productionExceptionResolutionState.disabled ||
@@ -350,7 +355,7 @@ export function ProductionPackingPage({
   useEffect(() => {
     setProductionReportConfirmation(null);
     setProductionExceptionResolutionConfirmation(null);
-  }, [selectedProductionLine?.id, activeWorkbenchTab]);
+  }, [selectedProductionTaskId, activeWorkbenchTab]);
 
   useEffect(() => {
     if (productionReportConfirmation) {
@@ -390,7 +395,7 @@ export function ProductionPackingPage({
   }, [packingCompletionConfirmation]);
 
   function selectProductionLine(lineId) {
-    setSelectedProductionLineId(lineId);
+    setSelectedProductionTaskId(lineId);
     setActiveWorkbenchTab("production");
   }
 
@@ -400,21 +405,23 @@ export function ProductionPackingPage({
   }
 
   function selectScheduleQueueItem(queueItem) {
-    const targetLine = productionLines.find((line) => {
-      const lineTaskId = buildProductionTaskId(line);
-      return (
-        queueItem.productionTaskId === line.productionTaskId ||
-        queueItem.productionTaskId === lineTaskId ||
-        queueItem.orderLineId === line.id ||
-        queueItem.orderLineId === line.orderLineId
-      );
-    });
+    const targetLine = findFocusedProductionLine(productionLines, queueItem, buildProductionTaskId);
     if (!targetLine) return;
-    selectProductionLine(targetLine.id);
+    selectProductionLine(buildProductionTaskId(targetLine));
   }
 
+  useEffect(() => {
+    scheduleContextRef.current += 1;
+    scheduleRequestRef.current = null;
+    setScheduleDecision(createScheduleDecision());
+    setScheduleActionConfirmation(null); setScheduleActionSubmitting(false);
+    setScheduleWriteConflict(null); setScheduleError("");
+  }, [selectedProductionLine?.productionTaskId, selectedProductionLine?.id, activeWorkbenchTab, currentUser?.userId, authState?.session?.accessToken]);
+
   function requestScheduleAction(action, payload, summary, effects) {
+    if (!scheduleDirectAllowed && !scheduleEvidence.isReady()) return;
     if (!scheduleDecisionReady || scheduleActionSubmitting || scheduleActionConfirmation) return;
+    setScheduleError("");
     if (typeof document !== "undefined") scheduleActionTriggerRef.current = document.activeElement;
     setScheduleWriteConflict(null);
     setScheduleActionConfirmation({
@@ -438,22 +445,27 @@ export function ProductionPackingPage({
   }
 
   async function submitScheduleAction() {
-    if (!scheduleActionConfirmation || scheduleActionSubmitting) return;
-    setScheduleActionSubmitting(true);
-    const result = await onAction(scheduleActionConfirmation.action, scheduleActionConfirmation.payload);
-    setScheduleActionSubmitting(false);
-    setScheduleActionConfirmation(null);
-    if (result?.error?.status === 409 || String(result?.error?.code ?? "").includes("CONFLICT")) {
-      setScheduleWriteConflict(result.error);
-    } else if (!result?.error) {
-      setScheduleDecision({
-        decisionChannel: "wechat",
-        decidedAt: new Date().toISOString(),
-        decisionContent: { summary: "" },
-        authorizationBasis: "",
-        evidenceDraftId: "",
-        evidenceAttachmentIds: [],
-      });
+    if (!scheduleActionConfirmation || scheduleRequestRef.current) return;
+    const snapshot = scheduleActionConfirmation;
+    if (getUiActionState("productionPacking", snapshot.action).disabled || (snapshot.directAllowed && !scheduleDirectAllowed)) {
+      setScheduleError("当前权限已变化，请返回修改并重新核对。"); return;
+    }
+    const context = scheduleContextRef.current; const request = {};
+    scheduleRequestRef.current = request; setScheduleActionSubmitting(true); setScheduleError("");
+    try {
+      const result = await onAction(snapshot.action, snapshot.payload);
+      if (context !== scheduleContextRef.current) return;
+      if (result?.error?.status === 409 || result?.error?.statusCode === 409 || String(result?.error?.code ?? "").includes("CONFLICT")) {
+        setScheduleActionConfirmation(null); setScheduleWriteConflict(result.error); return;
+      }
+      if (!result || result.blocked || result.error || result.source !== "api" || !result.operationLogId) {
+        setScheduleError(formatOperationalError(result?.error, "未收到排产成功确认，请重试原请求。")); return;
+      }
+      setScheduleActionConfirmation(null); setScheduleDecision(createScheduleDecision());
+    } catch(error) {
+      if (context === scheduleContextRef.current) setScheduleError(formatOperationalError(error, "提交失败，请重试原请求。"));
+    } finally {
+      if (scheduleRequestRef.current === request) { scheduleRequestRef.current = null; setScheduleActionSubmitting(false); }
     }
   }
 
@@ -534,7 +546,7 @@ export function ProductionPackingPage({
     if (focusTarget.mode === "production") {
       const targetLine = findFocusedProductionLine(productionLines, focusTarget, buildProductionTaskId);
       if (!targetLine) return;
-      setSelectedProductionLineId(targetLine.id);
+      setSelectedProductionTaskId(buildProductionTaskId(targetLine));
       setActiveWorkbenchTab("production");
       lastAppliedFocusKeyRef.current = focusTarget.focusKey;
     }
@@ -544,8 +556,8 @@ export function ProductionPackingPage({
     if (!selectedProductionLine) return;
     setReportInputs((current) => ({
       ...current,
-      [selectedProductionLine.id]: {
-        ...(current[selectedProductionLine.id] ?? {}),
+      [selectedTaskKey]: {
+        ...(current[selectedTaskKey] ?? {}),
         [field]: value,
       },
     }));
@@ -719,7 +731,6 @@ export function ProductionPackingPage({
     onPackingTaskFilterChange: setPackingTaskFilter,
     onPrintWorkspaceTabChange: setActivePrintWorkspaceTab,
     onProductionTaskPriorityChange: setProductionTaskPriority,
-    onScheduleDecisionChange: setScheduleDecision,
     onSelectPackingTask: selectPackingTask,
     onSelectProductionLine: selectProductionLine,
     onSelectScheduleQueueItem: selectScheduleQueueItem,
@@ -728,7 +739,7 @@ export function ProductionPackingPage({
     productionTaskPriority, queueMoveDisabled, queueMoveImpact, queueMovePositionOptions,
     queueMoveReason, queueMoveTargetMachineId, queueMoveTargetSeq, queueMoveTitle,
     resolveInventoryItem, scheduleActionConfirmationOpen: Boolean(scheduleActionConfirmation),
-    scheduleActionSubmitting, scheduleDecision, scheduleDecisionReady, scheduleDirectAllowed,
+    scheduleActionSubmitting, scheduleDecisionReady, scheduleDirectAllowed,
     scheduleQueueItems, scheduleQueueMachineOptions, scheduleQueueStatusText,
     scheduleWriteConflict, selectedPackingTask, selectedProductionLine,
     selectedScheduleQueueItem, sequenceState, stats, statusTone, taskListStatusText,
@@ -766,9 +777,9 @@ export function ProductionPackingPage({
     requestScheduleAction, returnToPackingCompletionEdit,
     returnToProductionExceptionResolutionEdit, returnToProductionReportEdit,
     scheduleActionConfirmation, scheduleActionSubmitting, scheduleDecision,
-    scheduleDecisionPayload, scheduleDirectAllowed, selectedFinishedGoodsPhoto,
+    scheduleDecisionPayload, scheduleDirectAllowed, onScheduleEvidenceReady: scheduleEvidence.onReadinessChange, selectedFinishedGoodsPhoto,
     selectedPackingTask, selectedProductionLine, selectedProductionMachineId,
-    selectedPublishedScheduleId, setScheduleDecision, submitProductionException,
+    selectedPublishedScheduleId, selectedProductionIsCustomSpecial, setScheduleDecision, submitProductionException,
     updatePackingInput, updateReportInput, visibleSourceDetail,
   };
 
@@ -808,8 +819,13 @@ export function ProductionPackingPage({
       dialogRef={scheduleActionDialogRef}
       onReturnToEdit={returnToScheduleActionEdit}
       onSubmit={submitScheduleAction}
+      error={scheduleError}
       submitting={scheduleActionSubmitting}
     />
     </>
   );
+}
+
+function createScheduleDecision() {
+  return {decisionChannel:"wechat", decidedAt:new Date().toISOString(), decisionContent:{summary:""}, authorizationBasis:"", evidenceDraftId:"", evidenceAttachmentIds:[]};
 }

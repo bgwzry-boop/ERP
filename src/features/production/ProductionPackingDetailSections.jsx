@@ -1,6 +1,7 @@
 import { InfoGrid, StatusPill } from "../../shared/ui/operational.jsx";
 import { BusinessDecisionHistoryPanel } from "../../components/BusinessDecisionHistoryPanel.jsx";
 import { DelegatedBusinessDecisionFields } from "../../components/DelegatedBusinessDecisionFields.jsx";
+import { normalizeOrderType } from "../../../shared/orderRouting.js";
 import {
   buildProductionPackingSourceDetailRows,
   formatCompactDateTime,
@@ -42,7 +43,7 @@ export function ProductionPackingDetailHeader({
           ["货品", `${detailLine.product} / ${detailLine.size}`],
           ["颜色/印刷/提手", `${getLineColorSpecLabel(detailLine)} / ${getLinePrintSide(detailLine)}`],
           ["排产发布", detailMode === "production" ? (selectedPublishedScheduleId ? `${selectedProductionMachineId} / ${selectedPublishedScheduleId}` : "未发布到车间任务池") : "生产完成后进入打包"],
-          ["库存键", detailInventoryItem ? `${detailInventoryItem.id} / ${detailInventoryItem.zone}` : "未找到匹配库存键"],
+          ["库存键", normalizeOrderType(detailLine?.orderType) === "custom_special" ? "特殊尺寸按单生产，不进入通货库存" : detailInventoryItem ? `${detailInventoryItem.id} / ${detailInventoryItem.zone}` : "未找到匹配库存键"],
           ["跨日进度", formatProductionDailyProgressLabel(detailLine) || "暂无日报数"],
           ["成品图", detailMode === "production" ? formatProductionFinishedGoodsPhotoLabel(selectedFinishedGoodsPhoto) : "生产侧确认"],
           ["生产异常", detailMode === "production" && latestProductionException ? `${latestProductionException.exceptionType} · ${latestProductionException.continuationMode}` : "无"],
@@ -61,6 +62,7 @@ export function ProductionScheduleDecisionSection({
   directAllowed,
   onChange,
   scheduleDecision,
+  onReadinessChange,
 }) {
   return (
     <section className="detail-section production-schedule-decision-section">
@@ -73,6 +75,7 @@ export function ProductionScheduleDecisionSection({
           authState={authState}
           operatorId={currentUser?.userId}
           operatorName={currentUser?.displayName}
+          onReadinessChange={onReadinessChange}
           value={scheduleDecision}
           onChange={onChange}
           title="排产决定代录"

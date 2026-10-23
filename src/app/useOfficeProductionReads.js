@@ -17,6 +17,9 @@ function formatSyncTime() {
 
 function normalizeReadResultForRuntime(result, { label, serverRequired }) {
   const safeResult = result ?? {};
+  if (safeResult.error?.requiredPermission || ["PERMISSION_DENIED", "AUTH_SESSION_REQUIRED", "PRODUCTION_MACHINE_ASSIGNMENT_REQUIRED"].includes(safeResult.error?.code)) {
+    return { ...safeResult, source: "api_error", blocked: true, clearCachedItems: true };
+  }
   if (!serverRequired() || safeResult.source === "api") return safeResult;
   return {
     ...safeResult,
@@ -73,23 +76,26 @@ export function createOfficeProductionReadActions({
       pageSize: 200,
       ...(productionTaskQuery.machineId ? { machineId: productionTaskQuery.machineId } : {}),
     };
+    const permissions = authState?.permissions?.actionPermissions;
+    const mayRead = (permission) => Array.isArray(permissions) ? permissions.includes(permission) : !serverRequired();
+    const excluded = { source: "api", items: [], machines: [], total: 0, excluded: true };
 
     const [rawProductionResult, rawPackingResult, rawScheduleQueueResult] = await Promise.all([
-      api.listOfficeProductionTasks({
+      mayRead("production.read") ? api.listOfficeProductionTasks({
         authState,
         operatorId: currentUserId,
         query: productionTaskQuery,
-      }),
-      api.listOfficePackingTasks({
+      }) : excluded,
+      mayRead("packing.read") ? api.listOfficePackingTasks({
         authState,
         operatorId: currentUserId,
         query: { pageSize: 200 },
-      }),
-      api.listOfficeProductionMachineQueue({
+      }) : excluded,
+      mayRead("production.read") ? api.listOfficeProductionMachineQueue({
         authState,
         operatorId: currentUserId,
         query: scheduleQueueQuery,
-      }),
+      }) : excluded,
     ]);
 
     const productionResult = normalizeReadResultForRuntime(rawProductionResult, {
@@ -121,31 +127,31 @@ export function createOfficeProductionReadActions({
           ? (productionResult.items ?? [])
               .map((item) => mapProductionTaskListItemToLine(item, orderLinesRef.current))
               .filter((item) => item.id)
-          : current.productionTasks ?? [],
+          : productionResult.clearCachedItems ? [] : current.productionTasks ?? [],
       packingTasks:
         packingResult.source === "api"
           ? (packingResult.items ?? [])
               .map((item) => mapPackingTaskListItemToTask(item, orderLinesRef.current))
               .filter((item) => item.packingTaskId)
-          : current.packingTasks ?? [],
+          : packingResult.clearCachedItems ? [] : current.packingTasks ?? [],
       taskListSource,
       taskListLoading: false,
       taskListError: errorMessages.join("；"),
       taskListLastSyncedAt: lastSyncedAt,
       productionTaskTotal:
-        productionResult.source === "api" ? productionResult.total ?? 0 : current.productionTaskTotal ?? 0,
+        productionResult.source === "api" ? productionResult.total ?? 0 : productionResult.clearCachedItems ? 0 : current.productionTaskTotal ?? 0,
       packingTaskTotal:
         packingResult.source === "api"
           ? packingResult.total ?? 0
-          : current.packingTaskTotal ?? current.packingTasks?.length ?? 0,
+          : packingResult.clearCachedItems ? 0 : current.packingTaskTotal ?? current.packingTasks?.length ?? 0,
       scheduleQueueItems:
-        scheduleQueueResult.source === "api" ? scheduleQueueResult.items ?? [] : current.scheduleQueueItems ?? [],
+        scheduleQueueResult.source === "api" ? scheduleQueueResult.items ?? [] : scheduleQueueResult.clearCachedItems ? [] : current.scheduleQueueItems ?? [],
       scheduleQueueMachines:
         scheduleQueueResult.source === "api"
           ? scheduleQueueResult.machines ?? []
-          : current.scheduleQueueMachines ?? [],
+          : scheduleQueueResult.clearCachedItems ? [] : current.scheduleQueueMachines ?? [],
       scheduleQueueTotal:
-        scheduleQueueResult.source === "api" ? scheduleQueueResult.total ?? 0 : current.scheduleQueueTotal ?? 0,
+        scheduleQueueResult.source === "api" ? scheduleQueueResult.total ?? 0 : scheduleQueueResult.clearCachedItems ? 0 : current.scheduleQueueTotal ?? 0,
       scheduleQueueSource: scheduleQueueResult.source ?? "local_fallback",
       scheduleQueueError: getReadErrorMessage(scheduleQueueResult),
       scheduleQueueLastSyncedAt:

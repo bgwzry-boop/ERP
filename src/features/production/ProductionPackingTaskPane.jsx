@@ -23,13 +23,13 @@ export function ProductionPackingTaskPane({ runtime }) {
     onConflictBack, onConflictRefresh, onMoveDirection, onMoveReasonChange,
     onMoveTargetMachineChange, onMoveTargetSeqChange, onMoveToTarget,
     onPackingTaskFilterChange, onPrintWorkspaceTabChange, onProductionTaskPriorityChange,
-    onScheduleDecisionChange, onSelectPackingTask, onSelectProductionLine,
+    onSelectPackingTask, onSelectProductionLine,
     onSelectScheduleQueueItem, packingTaskFilter, packingTasks, pendingPackingTaskCount,
     printWorkspaceItems, productionAttentionCount, productionLines, productionPacking,
     productionTaskCards, productionTaskPriority, queueMoveDisabled, queueMoveImpact,
     queueMovePositionOptions, queueMoveReason, queueMoveTargetMachineId, queueMoveTargetSeq,
     queueMoveTitle, resolveInventoryItem, scheduleActionConfirmationOpen,
-    scheduleActionSubmitting, scheduleDecision, scheduleDecisionReady, scheduleDirectAllowed,
+    scheduleDecisionReady, scheduleDirectAllowed,
     scheduleQueueItems, scheduleQueueMachineOptions, scheduleQueueStatusText,
     scheduleWriteConflict, selectedPackingTask, selectedProductionLine,
     selectedScheduleQueueItem, sequenceState, stats, statusTone, taskListStatusText,
@@ -94,7 +94,6 @@ export function ProductionPackingTaskPane({ runtime }) {
         onMoveTargetMachineChange={onMoveTargetMachineChange}
         onMoveTargetSeqChange={onMoveTargetSeqChange}
         onMoveToTarget={onMoveToTarget}
-        onScheduleDecisionChange={onScheduleDecisionChange}
         onSelectScheduleQueueItem={onSelectScheduleQueueItem}
         productionPacking={productionPacking}
         queueMoveDisabled={queueMoveDisabled}
@@ -105,8 +104,6 @@ export function ProductionPackingTaskPane({ runtime }) {
         queueMoveTargetSeq={queueMoveTargetSeq}
         queueMoveTitle={queueMoveTitle}
         scheduleActionConfirmationOpen={scheduleActionConfirmationOpen}
-        scheduleActionSubmitting={scheduleActionSubmitting}
-        scheduleDecision={scheduleDecision}
         scheduleDecisionReady={scheduleDecisionReady}
         scheduleDirectAllowed={scheduleDirectAllowed}
         scheduleQueueItems={scheduleQueueItems}

@@ -123,3 +123,12 @@ function createHarness({ allowLocalFallback = false, api = {}, guardResult = tru
 }
 
 console.log("Office production/packing actions check passed: trusted detail reads, formal write gates, print refreshes, and App ownership are isolated.");
+
+{
+  let submitted;
+  const harness = createHarness({ api: { getOfficeProductionTaskDetail: async input => {
+    submitted = input; return { source: "api", detail: { productionTaskId: input.productionTaskId } };
+  } } });
+  await harness.controller.loadProductionPackingSourceDetail({ mode: "production", taskId: "PT-OTHER", orderLineId: "OL-1", sourceId: "R-1" });
+  assert.equal(submitted.reportResult, undefined, "same-order report must not be attached to a different stage");
+}

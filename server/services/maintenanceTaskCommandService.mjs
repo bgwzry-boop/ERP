@@ -15,6 +15,20 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
   async function createTask({ workspace, body = {}, operatorId } = {}) {
     const idempotencyKey = readIdempotencyKey(body);
     if (idempotencyKey.error) return idempotencyKey;
+    const idempotencyPayload = { requestVersion: 2, operatorId,
+      machineId: cleanText(body.machineId), type: cleanText(body.type ?? body.taskType),
+      faultCategory: cleanText(body.faultCategory), priority: cleanText(body.priority) || "普通",
+      summary: cleanText(body.summary), dueAt: nullableTimestamp(body.dueAt),
+      assignedEmployeeId: cleanText(body.assignedTechnicianEmployeeId) };
+    // Invalid dates must not be normalized into an existing empty-date receipt.
+    if (body.dueAt != null && body.dueAt !== "" && !idempotencyPayload.dueAt) return error(422, "MAINTENANCE_TASK_DUE_AT_INVALID", "最晚处理时间无效。");
+    try {
+      const replay = await workspace.maintenanceTaskRepository.findCreateReplay?.({ workspace, idempotencyKey: idempotencyKey.value, payload: idempotencyPayload });
+      if (replay) return { statusCode: 200, response: replay };
+    } catch (caught) {
+      if (Number.isInteger(caught?.statusCode)) return error(caught.statusCode, caught.code, caught.message);
+      throw caught;
+    }
     const machine = findMachine(workspace, body.machineId);
     if (!machine) return error(404, "MAINTENANCE_MACHINE_NOT_FOUND", "请选择有效机台后再创建任务。");
     const type = cleanText(body.type ?? body.taskType);
@@ -26,7 +40,6 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
     if (!faultCategory || faultCategory.length > 80) return error(422, "MAINTENANCE_FAULT_CATEGORY_REQUIRED", "请填写 80 个字以内的故障或检查分类。");
     if (summary.length < 2 || summary.length > 300) return error(422, "MAINTENANCE_TASK_SUMMARY_REQUIRED", "请填写 2–300 个字的任务说明。");
     const dueAt = nullableTimestamp(body.dueAt);
-    if (body.dueAt && !dueAt) return error(422, "MAINTENANCE_TASK_DUE_AT_INVALID", "最晚处理时间无效。");
     const assignedEmployeeId = cleanText(body.assignedTechnicianEmployeeId);
     if (assignedEmployeeId && !findFormalEmployee(workspace, assignedEmployeeId)) {
       return error(422, "MAINTENANCE_ASSIGNEE_INVALID", "指定机修人员必须是有效正式员工。");
@@ -70,13 +83,23 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
     return write(workspace, "createTask", {
       workspace, task, todo, operationLog,
       idempotencyKey: idempotencyKey.value,
-      idempotencyPayload: { machineId: task.machineId, type, faultCategory, priority, summary, dueAt, assignedEmployeeId },
+      idempotencyPayload,
     }, 201);
   }
 
   async function updateTask({ workspace, taskId, body = {}, operatorId } = {}) {
     const idempotencyKey = readIdempotencyKey(body);
     if (idempotencyKey.error) return idempotencyKey;
+    const idempotencyPayload = { requestVersion: 2, taskId, operatorId, expectedRevision: body.expectedRevision,
+      status: cleanText(body.status), finding: cleanText(body.finding), actionTaken: cleanText(body.actionTaken ?? body.action),
+      photoAttachmentIds: [...new Set(stringList(body.photoAttachmentIds))], completionConfirmed: body.completionConfirmed === true };
+    try {
+      const replay = await workspace.maintenanceTaskRepository.findUpdateReplay?.({ workspace, idempotencyKey: idempotencyKey.value, payload: idempotencyPayload });
+      if (replay) return { statusCode: 200, response: replay };
+    } catch (caught) {
+      if (Number.isInteger(caught?.statusCode)) return error(caught.statusCode, caught.code, caught.message);
+      throw caught;
+    }
     const current = findTask(workspace, taskId);
     if (!current) return error(404, "MAINTENANCE_TASK_NOT_FOUND", "设备任务不存在。");
     if (terminalStatuses.has(current.status)) return error(409, "MAINTENANCE_TASK_ALREADY_COMPLETED", "该设备任务已经完工，不能覆盖历史结果。");
@@ -97,7 +120,7 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
       ...current.photoAttachmentIds,
       ...stringList(body.photoAttachmentIds),
     ])];
-    const attachmentValidation = validateMaintenanceAttachments(workspace, current.id, photoAttachmentIds, operatorId);
+    const attachmentValidation = validateMaintenanceAttachments(workspace, current.id, photoAttachmentIds, operatorId, current.photoAttachmentIds);
     if (attachmentValidation.error) return attachmentValidation;
     const terminal = terminalStatuses.has(status);
     if (terminal && body.completionConfirmed !== true) {
@@ -133,10 +156,7 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
     return write(workspace, "updateTask", {
       workspace, task, todo, operationLog, expectedRevision,
       idempotencyKey: idempotencyKey.value,
-      idempotencyPayload: {
-        taskId: task.id, expectedRevision, status, finding, actionTaken,
-        photoAttachmentIds, completionConfirmed: body.completionConfirmed === true,
-      },
+      idempotencyPayload,
     }, 200);
   }
 
@@ -190,7 +210,8 @@ function buildMaintenanceTodo(task, { operatorId, timestamp }) {
   };
 }
 
-function validateMaintenanceAttachments(workspace, taskId, attachmentIds, operatorId) {
+function validateMaintenanceAttachments(workspace, taskId, attachmentIds, operatorId, persistedAttachmentIds = []) {
+  const persisted = new Set(persistedAttachmentIds);
   for (const attachmentId of attachmentIds) {
     const attachment = (workspace?.attachments ?? []).find((item) => cleanText(item.attachmentId ?? item.id) === attachmentId);
     if (!attachment) return error(422, "MAINTENANCE_ATTACHMENT_NOT_FOUND", "设备照片不存在或尚未上传完成。");
@@ -200,9 +221,9 @@ function validateMaintenanceAttachments(workspace, taskId, attachmentIds, operat
       || cleanText(attachment.purpose) !== "maintenance_evidence"
       || cleanText(attachment.status) !== "uploaded"
       || attachment.hasContent !== true
-      || cleanText(attachment.uploadedBy) !== cleanText(operatorId)
+      || (!persisted.has(attachmentId) && cleanText(attachment.uploadedBy) !== cleanText(operatorId))
     ) {
-      return error(422, "MAINTENANCE_ATTACHMENT_INVALID", "设备照片必须由当前机修人员上传并绑定当前任务。");
+      return error(422, "MAINTENANCE_ATTACHMENT_INVALID", "设备照片必须有效并绑定当前任务；新增照片须由当前机修人员上传。");
     }
   }
   return { ok: true };
@@ -218,10 +239,10 @@ function resolveFormalTechnician(workspace, operatorId) {
 function findFormalEmployee(workspace, employeeId) {
   const employee = (workspace?.employees ?? []).find((item) => cleanText(item.id ?? item.employeeId) === cleanText(employeeId));
   if (!employee || !cleanText(employee.name)) return null;
-  const source = cleanText(employee.sourceType ?? employee.source).toLowerCase();
+  const source = cleanText(employee.sourceType ?? employee.source ?? employee.source_type).toLowerCase();
   const status = cleanText(employee.profileStatus ?? employee.profile_status).toLowerCase();
   if (["seed", "demo", "synthetic", "real_sample", "isolated_test_fixture"].some((item) => source.includes(item))) return null;
-  if (["retired", "voided", "merged", "departed", "left"].some((item) => status.includes(item))) return null;
+  if (status === "inactive_employee" || ["retired", "void", "merged", "departed", "left"].some((item) => status.includes(item))) return null;
   return employee;
 }
 
@@ -270,9 +291,15 @@ function initialStatus(type) {
 }
 
 function nullableTimestamp(value) {
-  if (!value) return "";
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
+  if (typeof value !== "string") return "";
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/);
+  if (!match) return "";
+  const [, year, month, day, hour, minute, second = "00", fraction = "", zone] = match;
+  const wall = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+  const calendar = new Date(`${wall}Z`);
+  if (!Number.isFinite(calendar.getTime()) || calendar.toISOString().slice(0, 19) !== wall) return "";
+  const instant = new Date(`${wall}${fraction}${zone}`);
+  return Number.isFinite(instant.getTime()) ? instant.toISOString() : "";
 }
 
 function stringList(value) {
@@ -280,8 +307,7 @@ function stringList(value) {
 }
 
 function positiveInteger(value) {
-  const number = Math.trunc(Number(value));
-  return number > 0 ? number : 0;
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
 function error(statusCode, code, message, details) {

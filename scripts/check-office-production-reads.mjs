@@ -56,7 +56,7 @@ function createDependencies(api, options = {}) {
     actions: createOfficeProductionReadActions({
       api: trackedApi,
       activePage: options.activePage ?? "packing",
-      authState: { authenticated: true },
+      authState: { authenticated: true, permissions: { actionPermissions: options.actionPermissions ?? ["production.read", "packing.read"] } },
       currentUser: options.currentUser ?? { userId: "U-OFFICE-A" },
       currentUserId: options.currentUserId ?? "U-OFFICE-A",
       orderLinesRef: { current: [localOrderLine] },
@@ -181,6 +181,12 @@ const deniedCase = createDependencies({
 });
 const deniedResult = await deniedCase.actions.refreshProductionPackingTaskLists({ showToast: true });
 assert.equal(deniedResult.blocked, true);
+assert.deepEqual(deniedCase.productionPacking.value.productionTasks, []);
 assert.match(deniedResult.feedback, /缺少权限 production\.task\.view/);
 
-console.log("Office production reads check passed: task, packing, queue, workshop scope, denial, and production fail-closed behavior are covered.");
+const workerCase = createDependencies(successApi, { serverRequired: true, actionPermissions: ["production.read"] });
+await workerCase.actions.refreshProductionPackingTaskLists();
+assert.equal(workerCase.calls.some((call) => call.name === "listOfficePackingTasks"), false);
+assert.deepEqual(workerCase.productionPacking.value.packingTasks, []);
+assert.equal(workerCase.productionPacking.value.taskListError, "");
+console.log("Office production reads check passed: task, packing, queue, workshop scope, denial/cache clearing, role-specific requests and production fail-closed behavior are covered.");

@@ -199,10 +199,9 @@ export function upsertProductionTaskLine(tasks = [], nextLine) {
   const matches = (item) => {
     const itemOrderLineId = cleanProductionPackingText(item?.id ?? item?.orderLineId);
     const itemProductionTaskId = cleanProductionPackingText(item?.productionTaskId);
-    return (
-      (nextOrderLineId && itemOrderLineId === nextOrderLineId) ||
-      (nextProductionTaskId && itemProductionTaskId === nextProductionTaskId)
-    );
+    if (nextProductionTaskId && itemProductionTaskId) return itemProductionTaskId === nextProductionTaskId;
+    if (itemProductionTaskId) return false;
+    return Boolean(nextOrderLineId && itemOrderLineId === nextOrderLineId);
   };
   return tasks.some(matches) ? tasks.map((item) => (matches(item) ? { ...item, ...nextLine } : item)) : [nextLine, ...tasks];
 }

@@ -130,3 +130,13 @@ assert.equal(nestedOnly.reviewedAt, "2026-07-14T07:00:00.000Z");
 console.log(
   "Production finished-goods photo projection checks passed: nested history, legacy aliases, todo reuse, factory shorthand, and Chinese customer copy are covered.",
 );
+
+const retakeWorkspace = { ...workspace, todos: [
+  { id: "T-SILK", type: "成品图需重拍", ref: "OL-1", handled: false },
+  { id: "T-BAG", type: "成品图需重拍", ref: "OL-1", handled: false },
+], todoEvents: [
+  { todoId: "T-SILK", eventPayload: { productionTaskId: "PT-SILK" } },
+  { todoId: "T-BAG", eventPayload: { productionTaskId: "PT-1" } },
+] };
+assert.equal(service.buildPhotoRetakeTodo(retakeWorkspace, orderLine, productionTask, "重拍", "U-OFFICE", "T-NEW").id, "T-BAG");
+assert.equal(service.buildPhotoRetakeTodo({ ...retakeWorkspace, todoEvents: [] }, orderLine, productionTask, "重拍", "U-OFFICE", "T-NEW").id, "T-NEW");

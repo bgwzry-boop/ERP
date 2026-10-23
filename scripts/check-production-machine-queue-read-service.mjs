@@ -1,3 +1,4 @@
+import {createLocalProductionPackingReadRepository} from "../server/productionPackingReadRepository.mjs";
 import assert from "node:assert/strict";
 import { createProductionMachineQueueReadService } from "../server/services/productionMachineQueueReadService.mjs";
 
@@ -61,7 +62,7 @@ await assert.rejects(
 
 const queue = await service.buildMachineQueue({ workspace, query: new URLSearchParams({ status: "open" }) });
 assert.equal(calls.schedules, 1);
-assert.deepEqual(calls.tasks[0], { status: "open", machineId: "", taskType: "", keyword: "", pageSize: 200 });
+assert.deepEqual(calls.tasks[0], { status: "open", machineId: "", taskType: "", keyword: "", pageSize: 200, page:1 });
 assert.deepEqual(queue.items.map((item) => item.productionTaskId), ["PT-B", "PT-A", "PT-C", "PT-F"]);
 assert.deepEqual(queue.items.map((item) => item.queueSeq), [1, 2, 1, 1]);
 assert.equal(queue.total, 4);
@@ -94,8 +95,9 @@ assert.deepEqual(calls.tasks[1], {
   status: "open",
   machineId: "BAG-02",
   taskType: "制袋",
-  keyword: "跨日客户",
+  keyword: "",
   pageSize: 200,
+  page: 1,
 });
 
 const statusFiltered = await service.buildMachineQueue({ workspace, query: { status: "丝印已排产" } });
@@ -142,3 +144,41 @@ function schedule(scheduleRecordId, productionTaskId, machineId, publishedSchedu
     source: "manual_resequence",
   };
 }
+
+{
+  const tasks=Array.from({length:205},(_,index)=>task(`PT-PAGE-${index}`,`OL-PAGE-${index}`,'BAG-01',`SCH-PAGE-${index}`,'制袋已排产','2026-07-14T07:00:00.000Z'));
+  const actualWorkspace={productionTasks:tasks,orderLines:tasks.map(t=>orderLine(t.orderLineId,'C-A','批量队列','30*38',100)),customers:workspace.customers,productionScheduleRecordRepository:{listProductionScheduleRecords:async()=>[]},productionPackingReadRepository:createLocalProductionPackingReadRepository()};
+  const complete=await service.buildMachineQueue({workspace:actualWorkspace});
+  assert.equal(complete.total,205,'Machine queue must include candidates beyond the first 200');
+  assert.equal(complete.machines[0].total,205);assert.equal(complete.machines[0].plannedQty,20500);
+  assert.equal(new Set(complete.items.map(item=>item.productionTaskId)).size,205);
+  assert.deepEqual(complete.items.map(item=>item.queueSeq),Array.from({length:205},(_,index)=>index+1));
+  assert.equal((await service.buildMachineQueue({workspace:actualWorkspace,query:{keyword:'甲客户'}})).total,205,'Customer-name queue search must run after the customer name is resolved');
+}
+{
+  const isolated={...workspace,productionScheduleRecordRepository:{listProductionScheduleRecords:async()=>[schedule('OTHER-SQR','PT-OTHER','BAG-01','SHARED-PUBLISH',99),schedule('RIGHT-SQR','PT-TARGET','BAG-01','SHARED-PUBLISH',2)]},productionPackingReadRepository:{listProductionTasks:async()=>({items:[candidate(task('PT-TARGET','OL-A','BAG-01','SHARED-PUBLISH','制袋已排产',''))]})}};
+  const matching=await service.buildMachineQueue({workspace:isolated});
+  assert.equal(matching.items[0].scheduleRecordId,'RIGHT-SQR','An explicit task identity wins over a shared publication id');
+  isolated.productionScheduleRecordRepository.listProductionScheduleRecords=async()=>[schedule('OTHER-SQR','PT-OTHER','BAG-01','SHARED-PUBLISH',99)];
+  const missing=await service.buildMachineQueue({workspace:isolated});
+  assert.notEqual(missing.items[0].scheduleRecordId,'OTHER-SQR');assert.equal(missing.items[0].manualQueueSeq,0);
+}
+
+{
+  const row=candidate(task('ONE','OL-A','BAG-01','SCH-ONE','制袋已排产',''));
+  for(const second of [{items:[row],total:2},{items:[],total:2},{items:[{...row,productionTaskId:'TWO'}],total:3}]) {
+    let page=0;
+    const inconsistent={...workspace,productionPackingReadRepository:{listProductionTasks:async()=> ++page===1?{items:[row],total:2}:second}};
+    await assert.rejects(service.buildMachineQueue({workspace:inconsistent}),error=>error.code==='PRODUCTION_QUEUE_READ_CONFLICT');
+  }
+}
+
+{
+  const row=candidate(task('PT-TARGET','OL-A','BAG-01','LEGACY-PUBLISH','制袋已排产',''));
+  const legacy=schedule('LEGACY-SQR','','BAG-01','LEGACY-PUBLISH',3);
+  const legacyWorkspace={...workspace,productionPackingReadRepository:{listProductionTasks:async()=>({items:[row]})},productionScheduleRecordRepository:{listProductionScheduleRecords:async()=>[legacy]}};
+  assert.equal((await service.buildMachineQueue({workspace:legacyWorkspace})).items[0].scheduleRecordId,'LEGACY-SQR');
+  legacyWorkspace.productionScheduleRecordRepository.listProductionScheduleRecords=async()=>[legacy,{...legacy,scheduleRecordId:'AMBIGUOUS'}];
+  await assert.rejects(service.buildMachineQueue({workspace:legacyWorkspace}),error=>error.code==='PRODUCTION_QUEUE_READ_CONFLICT');
+}
+console.log('PASS queue completeness: actual local repository 205 tasks, customer-name search, exact schedule ownership, legacy ambiguity and unstable pagination guards.');

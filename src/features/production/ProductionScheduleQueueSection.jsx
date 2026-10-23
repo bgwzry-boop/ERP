@@ -1,7 +1,6 @@
 import { DataTable } from "../../shared/ui/operational.jsx";
 import { BusinessDecisionHistoryPanel } from "../../components/BusinessDecisionHistoryPanel.jsx";
 import { BusinessWriteConflictDialog } from "../../components/BusinessWriteConflictDialog.jsx";
-import { DelegatedBusinessDecisionFields } from "../../components/DelegatedBusinessDecisionFields.jsx";
 import {
   formatProductionScheduleQueueQty,
   formatProductionScheduleQueueSpec,
@@ -23,7 +22,6 @@ export function ProductionScheduleQueueSection({
   onMoveTargetMachineChange,
   onMoveTargetSeqChange,
   onMoveToTarget,
-  onScheduleDecisionChange,
   onSelectScheduleQueueItem,
   productionPacking,
   queueMoveDisabled,
@@ -34,8 +32,6 @@ export function ProductionScheduleQueueSection({
   queueMoveTargetSeq,
   queueMoveTitle,
   scheduleActionConfirmationOpen,
-  scheduleActionSubmitting,
-  scheduleDecision,
   scheduleDecisionReady,
   scheduleDirectAllowed,
   scheduleQueueItems,
@@ -110,21 +106,7 @@ export function ProductionScheduleQueueSection({
         </div>
       </div>
       <div className="queue-move-impact" aria-live="polite">{queueMoveImpact.text}</div>
-      {!scheduleDirectAllowed ? (
-        <DelegatedBusinessDecisionFields
-          scope="production_schedule"
-          businessType="production_task"
-          businessId={selectedScheduleQueueItem?.productionTaskId || selectedProductionLine?.productionTaskId || (selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "")}
-          authState={authState}
-          operatorId={currentUser?.userId}
-          operatorName={currentUser?.displayName}
-          value={scheduleDecision}
-          onChange={onScheduleDecisionChange}
-          title="排产决定代录"
-          disabled={scheduleActionSubmitting || scheduleActionConfirmationOpen}
-        />
-      ) : null}
-      {scheduleDirectAllowed ? <p className="form-note">当前管理账号直接决定；操作人、决定内容、目标任务和影响范围仍写入审计。</p> : null}
+      {!scheduleDirectAllowed && !scheduleDecisionReady ? <p role="status" className="form-note">请在当前任务详情中完成排产决定及凭据核对，再调整队列。</p> : null}
       <DataTable
         className="production-schedule-queue-table"
         columns={["机台", "顺序", "任务", "客户", "货品规格", "计划/剩余", "状态"]}

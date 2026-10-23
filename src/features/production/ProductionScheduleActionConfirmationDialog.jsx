@@ -13,6 +13,7 @@ export function ProductionScheduleActionConfirmationDialog({
   onReturnToEdit,
   onSubmit,
   submitting,
+  error,
 }) {
   if (!confirmation || typeof document === "undefined") return null;
 
@@ -45,6 +46,7 @@ export function ProductionScheduleActionConfirmationDialog({
           ["授权依据", confirmation.directAllowed ? "本人当前有效权限" : confirmation.payload.delegatedDecision?.authorizationBasis],
           ["预计影响", confirmation.effects],
         ]} />
+        {error ? <p role="alert">{error} 可重试原请求，复核快照保持不变。</p> : null}
         <div className="action-row modal-actions">
           <button type="button" disabled={submitting} onClick={onReturnToEdit}>返回修改</button>
           <button type="button" className="primary-action" disabled={submitting} onClick={onSubmit}>{submitting ? "提交中…" : "确认提交"}</button>

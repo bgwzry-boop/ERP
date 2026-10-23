@@ -57,7 +57,7 @@ export function ProductionPackingDetailPane({ runtime }) {
     requestScheduleAction, returnToPackingCompletionEdit,
     returnToProductionExceptionResolutionEdit, returnToProductionReportEdit,
     scheduleActionConfirmation, scheduleActionSubmitting, scheduleDecision,
-    scheduleDecisionPayload, scheduleDirectAllowed, selectedFinishedGoodsPhoto,
+    scheduleDecisionPayload, scheduleDirectAllowed, onScheduleEvidenceReady, selectedFinishedGoodsPhoto,
     selectedPackingTask, selectedProductionLine, selectedProductionMachineId,
     selectedPublishedScheduleId, setScheduleDecision, submitProductionException,
     updatePackingInput, updateReportInput, visibleSourceDetail,
@@ -182,6 +182,7 @@ export function ProductionPackingDetailPane({ runtime }) {
                 disabled={scheduleActionSubmitting || Boolean(scheduleActionConfirmation)}
                 directAllowed={scheduleDirectAllowed}
                 onChange={setScheduleDecision}
+                onReadinessChange={onScheduleEvidenceReady}
                 scheduleDecision={scheduleDecision}
               />
               <div className="action-row">

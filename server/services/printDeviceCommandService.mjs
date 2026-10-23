@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   getPrinterDeviceFieldTestAcceptance,
   getPrinterDeviceFieldTestEvidenceSummary,
@@ -105,6 +105,7 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
         printJobId,
         documentType: body.documentType ?? printJob?.documentType,
         operatorId,
+        operatorName: normalizeText((workspace.users ?? []).find(user => (user.userId ?? user.id) === operatorId)?.displayName) || operatorId,
         deviceLabel: body.deviceLabel ?? printDevice.name,
         driverLabel: body.driverLabel ?? printDevice.driverName ?? printDevice.connectionType,
         paperLabel: body.paperLabel ?? getPrintDevicePaperLabel(printDevice),
@@ -167,7 +168,7 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
 
 function normalizePrinterDeviceFieldTestApiRecord(value, now) {
   const printDeviceId = normalizeText(value.printDeviceId ?? value.printerDeviceId);
-  const checkedAt = normalizeTimestamp(value.checkedAt, nowIso(now));
+  const checkedAt = nowIso(now);
   const checks = normalizePrinterDeviceFieldTestChecks(value.checks ?? []);
   const evidence = normalizePrinterDeviceFieldTestEvidence(value.evidence ?? value.summary?.evidence);
   const summary = {
@@ -184,7 +185,7 @@ function normalizePrinterDeviceFieldTestApiRecord(value, now) {
   });
   const recordId =
     normalizeText(value.recordId) ||
-    `PDQA-${compactTimestamp(checkedAt)}-${safeRecordPart(printDeviceId || "PRINT")}`;
+    `PDQA-${compactTimestamp(checkedAt)}-${safeRecordPart(printDeviceId || "PRINT")}-${randomUUID()}`;
   return {
     recordId,
     printDeviceId,
@@ -272,11 +273,6 @@ function getPrintDevicePaperLabel(printDevice) {
 function normalizeOfficePrintDeviceDriverMode(value) {
   const mode = normalizeText(value);
   return mode === "preview_only" || mode === "system_printer" ? mode : "";
-}
-
-function normalizeTimestamp(value, fallback) {
-  const timestamp = normalizeText(value);
-  return timestamp && Number.isFinite(Date.parse(timestamp)) ? new Date(timestamp).toISOString() : fallback;
 }
 
 function compactTimestamp(value) {

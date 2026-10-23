@@ -1,3 +1,4 @@
+import { validateFormalBusinessDecisionMaker } from "./businessDecisionEmployeePolicy.mjs";
 import { toBusinessDecisionProjection } from "./businessDecisionEvidenceService.mjs";
 import { getBusinessDecisionScopeLabel } from "../../shared/businessDecisionCatalog.js";
 
@@ -96,11 +97,7 @@ export function createBusinessDecisionReadProjectionService() {
 }
 
 function getAuthorizationEffectiveState(record, employee, asOf) {
-  const employeeStatus = cleanText(employee.profileStatus ?? employee.profile_status).toLowerCase();
-  const employeeSource = cleanText(employee.sourceType ?? employee.source ?? employee.source_type).toLowerCase();
-  const employeeInvalid = !cleanText(employee.id ?? employee.employeeId) || !cleanText(employee.name) ||
-    ["seed", "demo", "synthetic", "real_sample"].some((value) => employeeSource.includes(value)) ||
-    ["depart", "retir", "void", "merged"].some((value) => employeeStatus.includes(value));
+  const employeeInvalid = !validateFormalBusinessDecisionMaker({ employees: [employee] }, employee.id ?? employee.employeeId).ok;
   if (employeeInvalid) return { status: "employee_invalid", label: "员工档案无效" };
   if (cleanText(record.status || "active") !== "active") return { status: "inactive", label: "已停用" };
   const point = asOf.getTime();

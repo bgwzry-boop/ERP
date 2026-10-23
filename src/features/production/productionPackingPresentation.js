@@ -22,7 +22,7 @@ export function findFocusedProductionLine(orderLines, focusTarget, buildProducti
   const taskId = String(focusTarget.taskId ?? focusTarget.productionTaskId ?? "").trim();
   return (orderLines ?? []).find((line) => {
     const lineId = String(line?.id ?? line?.orderLineId ?? "").trim();
-    return (orderLineId && lineId === orderLineId) || (taskId && buildProductionTaskId(line) === taskId);
+    return taskId ? buildProductionTaskId(line) === taskId : Boolean(orderLineId && lineId === orderLineId);
   }) ?? null;
 }
 
@@ -60,6 +60,12 @@ export function getVisibleProductionPackingSourceDetail(sourceDetailState, conte
     if (selectedTaskId && selectedTaskId === sourceDetailState.requestedId) return sourceDetailState;
   }
   return null;
+}
+
+export function selectProductionExceptionForFocus({ focusTarget, selectedTaskId, line, detail, fallback }) {
+  const exceptionId = focusTarget?.taskId === selectedTaskId ? focusTarget?.productionExceptionId : "";
+  if (!exceptionId) return line?.latestException ?? fallback ?? null;
+  return (detail?.exceptions ?? line?.productionExceptions ?? []).find(item => item.productionExceptionId === exceptionId) ?? null;
 }
 
 export function buildProductionPackingSourceDetailRows(detailState, detailMode) {

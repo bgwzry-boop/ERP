@@ -7,9 +7,11 @@ function createHarness({
   printerSource = "api",
   refreshResult = { devices: { source: "api" } },
   results = {},
+  saving = false,
 } = {}) {
   let printerDeviceQa = {
     source: printerSource,
+    saving,
     devices: [{
       printDeviceId: "PRN-1",
       name: "标签机A",
@@ -121,6 +123,9 @@ function createHarness({
   const result = await harness.controller.selectPrinterDeviceQaDevice("PRN-1");
   assert.equal(result.devices.source, "api");
   assert.equal(harness.getQa().selectedDeviceId, "PRN-1");
+  assert.equal(harness.getQa().selectionRevision, 1);
+  await harness.controller.selectPrinterDeviceQaDevice("PRN-1");
+  assert.equal(harness.getQa().selectionRevision, 2, "Reselecting the same device starts a new editor session");
   assert.equal(harness.getQa().driverModeDraft, "system_printer");
   assert.equal(harness.getQa().paperLabel, "76x50");
   assert.deepEqual(harness.calls.refresh[0], { selectedDeviceId: "PRN-1", showToast: false });
@@ -134,3 +139,12 @@ function createHarness({
 }
 
 console.log("Office print device actions check passed: permissions, formal API-source gates, device selection, and QA drafts are covered.");
+
+{
+  const harness = createHarness({ saving: true });
+  const original = structuredClone(harness.getQa());
+  harness.controller.changePrinterDeviceQaField("note", "Changed during save");
+  harness.controller.changePrinterDeviceQaCheck("sample_print", "passed");
+  harness.controller.changePrinterDeviceQaEvidenceField("samplePrintReference", "REPLACED");
+  assert.deepEqual(harness.getQa(), original, "Pending QA inputs must not change under the submitted record");
+}

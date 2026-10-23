@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  createLocalProductionFinishedGoodsPhotoTransactionRepository,
   buildReviewPhotoTransactionQuery,
   buildUploadPhotoTransactionQuery,
 } from "../server/productionFinishedGoodsPhotoTransactionRepository.mjs";
@@ -59,3 +60,37 @@ assert.ok(review.values.includes("U-2"));
 assert.ok(!review.text.includes("成品图已确认"), "todo values must use SQL parameters");
 
 console.log("production finished-goods photo transaction repository checks passed");
+
+{
+  const repository = createLocalProductionFinishedGoodsPhotoTransactionRepository();
+  const workspace = { productionTasks: [{ ...common.productionTask, revision: 1 }], todos: [], todoEvents: [], operationLogs: [] };
+  const results = await Promise.allSettled([
+    repository.uploadPhoto({ ...common, workspace }),
+    repository.reviewPhoto({ ...common, workspace, todos: [todo] }),
+  ]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'BUSINESS_WRITE_CONFLICT');
+  assert.equal(workspace.productionTasks[0].revision, 2);
+  assert.equal(workspace.todos.length, 0);
+  assert.equal(workspace.operationLogs.length, 1);
+  const before = structuredClone(workspace);
+  await assert.rejects(repository.reviewPhoto({ ...common, workspace, productionTask: { ...common.productionTask, revision: 3, orderLineId: 'OL-OTHER' }, todos: [todo] }), error => error.statusCode === 409 && error.code === 'BUSINESS_WRITE_CONFLICT');
+  assert.deepEqual(workspace, before);
+}
+
+{
+  const repository = createLocalProductionFinishedGoodsPhotoTransactionRepository();
+  const workspace = { productionTasks: [{ ...common.productionTask, revision: 1 }], todos: [], todoEvents: [], operationLogs: [] };
+  const input = { ...common, workspace, idempotencyKey: 'review-receipt-001', idempotencyPayload: { task: 'PT-1', operator: 'U-1', attachment: 'ATT-1' }, todos: [todo] };
+  const first = await repository.reviewPhoto(input);
+  workspace.productionTasks[0] = { ...workspace.productionTasks[0], revision: 8, finishedGoodsPhoto: { attachmentId: 'ATT-NEW' } };
+  const before = structuredClone(workspace);
+  const retry = await repository.reviewPhoto(input);
+  assert.deepEqual(retry, first);
+  assert.deepEqual(workspace, before);
+  retry.productionTask.finishedGoodsPhoto.attachmentId = 'MUTATED';
+  assert.equal(repository.readReviewReceipt(input).productionTask.finishedGoodsPhoto.attachmentId, 'ATT-1');
+  assert.equal(repository.readReviewReceipt({ ...input, workspace: {} }), null);
+  await assert.rejects(repository.reviewPhoto({ ...input, idempotencyPayload: { task: 'PT-OTHER' } }), error => error.code === 'IDEMPOTENCY_KEY_REUSED');
+  assert.deepEqual(workspace, before);
+}

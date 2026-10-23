@@ -1,3 +1,5 @@
+import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,mergePrintTodoCompletion,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
+import {buildGetTodoActionStateQuery,normalizeTodoLookupResult} from "./todoActionRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { captureLegacyPrintOrderPrice } from "./services/fulfillmentPrintPricingService.mjs";
 import { captureFulfillmentBillingSnapshot, buildFulfillmentBillingSnapshotGuard } from "./services/fulfillmentBillingSnapshotService.mjs";
@@ -80,6 +82,7 @@ const localFulfillmentWorkspaceKeys = Object.freeze([
   "statements",
   "statementLines",
   "todos",
+  "todoEvents",
   "operationLogs",
   "operationIdempotencyRecords",
 ]);
@@ -141,6 +144,7 @@ function commitLocalFulfillmentAction(input) {
     printJobOperationLog: input.printJobOperationLog,
   });
   const response = { ...transaction, replayed: false };
+  response.completedPrintTodos = completeLocalPrintTodos(input, stagedWorkspace);
   if (idempotencyKey) {
     stagedWorkspace.operationIdempotencyRecords.unshift({
       scope,
@@ -301,6 +305,12 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       printJobOperationLog:
         saved.printJobOperationLogId === input.printJobOperationLog?.id ? input.printJobOperationLog : null,
     });
+    if (saved.completedPrintTodos.length) {
+      const currentTodos = await Promise.all(saved.completedPrintTodos.map(async receipt => {
+        const q = buildGetTodoActionStateQuery(receipt.todo.id); return normalizeTodoLookupResult(await queryJson(q.text,q.values));
+      }));
+      mergePrintTodoCompletion(input.workspace,saved.completedPrintTodos,currentTodos);
+    }
     applyFulfillmentDecisionWorkspaceMutation(
       input.workspace,
       saved.businessDecision,
@@ -535,6 +545,7 @@ inserted_print_job_operation_log AS (
 written_print_job AS (
   ${buildWritePrintJobSql(printJob, printJobWriteMode, parameters)}
 ),
+${buildPrintTodoCompletionCtes(input, parameters)},
 written_paper_outbound_document AS (
   ${buildWritePaperOutboundDocumentSql(paperOutboundDocument, parameters)}
 ),
@@ -597,6 +608,8 @@ SELECT json_build_object(
   'paperOutboundDocument', (SELECT result FROM written_paper_outbound_document),
   'warehouseOutboundExecution', (SELECT result FROM inserted_warehouse_outbound_execution),
   'packages', (SELECT COALESCE(json_agg(result ORDER BY result->>'packageId'), '[]'::json) FROM updated_packages),
+  'completedPrintTodos', ${printTodoCompletionResultSql},
+  'printTodoSourceGuard', (SELECT ok FROM print_todo_source_guard),
   'fulfillmentException', (SELECT result FROM inserted_fulfillment_exception),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM updated_inventory_reservations),
   'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
@@ -640,6 +653,7 @@ export function normalizeFulfillmentActionTransactionResult(value) {
       paperOutboundDocument: null,
       warehouseOutboundExecution: null,
       packages: [],
+      completedPrintTodos: [],
       fulfillmentException: null,
       inventoryReservations: [],
       inventoryItems: [],
@@ -664,6 +678,7 @@ export function normalizeFulfillmentActionTransactionResult(value) {
       ? normalizeWarehouseOutboundExecution(value.warehouseOutboundExecution)
       : null,
     packages: normalizePackages(value.packages ?? []),
+    completedPrintTodos: Array.isArray(value.completedPrintTodos) ? value.completedPrintTodos : [],
     fulfillmentException: value.fulfillmentException ? normalizeFulfillmentException(value.fulfillmentException) : null,
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
     inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),

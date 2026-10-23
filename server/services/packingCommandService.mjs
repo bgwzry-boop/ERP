@@ -36,7 +36,11 @@ export function createPackingCommandService({
       if (body.orderLineId != null && body.orderLineId !== orderLineId) return businessError(409, "PACKING_TASK_BINDING_MISMATCH", "打包任务不能改绑订单。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
-      const fulfillment = findFulfillmentByOrderLineId(workspace, orderLineId);
+      const matching = (workspace.fulfillments ?? []).filter(item => (item.orderLineId ?? item.lineId) === orderLineId);
+      const candidates = matching.filter(item => !["已交付","已取消","已作废","已出库","已拉走","配送中"].includes(item.status) && !item.physicalOutboundAt && !item.finalDeliveryAt && !item.deliveredAt && !item.loadedAt);
+      const requestedId = body.fulfillmentId;
+      const fulfillment = requestedId ? candidates.find(item => (item.fulfillmentId ?? item.id) === requestedId) : candidates.length === 1 ? candidates[0] : null;
+      if ((requestedId && !fulfillment) || (matching.length && !fulfillment)) return businessError(409,"PACKING_FULFILLMENT_REVIEW_REQUIRED","交付批次不唯一或已出库，请办公室核对本次打包所属批次。");
       const actualPackedQty = body.actualPackedQty;
       if (!Number.isSafeInteger(actualPackedQty) || actualPackedQty <= 0) {
         return businessError(422, "VALIDATION_ERROR", "请填写实际打包数量，必须为正整数，不能用计划数量代替。");

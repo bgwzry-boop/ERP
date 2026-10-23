@@ -477,6 +477,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const [expandedGroups, setExpandedGroups] = useState(() => new Set(pcNavGroups.map((group) => group.id)));
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiptFocusId, setReceiptFocusId] = useState("");
+  const [productionFocusId,setProductionFocusId] = useState("");
   const [receiveBusy, setReceiveBusy] = useState(false);
   const [receiveError, setReceiveError] = useState("");
   const [sourceRoll, setSourceRoll] = useState(null);
@@ -514,7 +515,8 @@ export function App({ permissionContext = defaultPermissionContext }) {
       return next;
     });
   };
-  const navigate = (navId) => {
+  const navigate = (navId, focus = {}) => {
+    setProductionFocusId(focus.productionTaskId || "");
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
     const nextView = navViewMap[normalizedNavId];
     if (nextView && visibleViews.includes(nextView)) {
@@ -557,7 +559,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
       </header> : null}
       {activeView === "卷料库存" ? <RollInventory onOpenSource={setSourceRoll} sourceRolls={currentInventoryRolls} /> : null}
       {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={() => setReceiveOpen(true)} records={receiptRecords} /> : null}
-      {!isRawMaterialView ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} /> : null}
+      {!isRawMaterialView ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} /> : null}
     </main>
     {receiveOpen ? <ReceiveDialog busy={receiveBusy} error={receiveError} onClose={() => { if (!receiveBusy) setReceiveOpen(false); }} onFile={recognizeReceiptFile} /> : null}
     {sourceRoll ? <SourceDialog onClose={() => setSourceRoll(null)} roll={sourceRoll} /> : null}

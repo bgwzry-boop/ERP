@@ -98,7 +98,7 @@ export function PrinterDeviceQaPanel({
             onChange={(event) => onSelectDevice?.(event.target.value)}
             disabled={qaState.loading || !devices.length}
           >
-            {devices.length ? null : <option value="">未配置打印设备</option>}
+            <option value="">{devices.length ? "请选择打印设备" : "未配置打印设备"}</option>
             {devices.map((device) => (
               <option value={device.printDeviceId} key={device.printDeviceId}>
                 {device.name || device.printDeviceId}
@@ -119,7 +119,7 @@ export function PrinterDeviceQaPanel({
           <select
             value={draftDriverMode}
             onChange={(event) => onChangeField?.("driverModeDraft", event.target.value)}
-            disabled={qaState.loading || qaState.savingDeviceMode || !qaState.selectedDeviceId}
+            disabled={qaState.loading || qaState.saving || qaState.savingDeviceMode || !qaState.selectedDeviceId}
           >
             {PRINT_DRIVER_MODE_OPTIONS.map((option) => (
               <option value={option.value} key={option.value}>{option.label}</option>
@@ -149,6 +149,7 @@ export function PrinterDeviceQaPanel({
         <label>
           <span>已打印作业</span>
           <select
+            disabled={Boolean(qaState.saving)}
             value={qaState.selectedPrintJobId ?? ""}
             onChange={(event) => onChangeField?.("selectedPrintJobId", event.target.value)}
           >
@@ -163,6 +164,7 @@ export function PrinterDeviceQaPanel({
         <label>
           <span>设备标签</span>
           <input
+            disabled={Boolean(qaState.saving)}
             value={qaState.deviceLabel ?? ""}
             onChange={(event) => onChangeField?.("deviceLabel", event.target.value)}
             placeholder="如 标签机A"
@@ -171,6 +173,7 @@ export function PrinterDeviceQaPanel({
         <label>
           <span>驱动/连接</span>
           <input
+            disabled={Boolean(qaState.saving)}
             value={qaState.driverLabel ?? ""}
             onChange={(event) => onChangeField?.("driverLabel", event.target.value)}
             placeholder="如 EPSON LQ-610KII/615KII / USB"
@@ -179,6 +182,7 @@ export function PrinterDeviceQaPanel({
         <label>
           <span>纸张</span>
           <input
+            disabled={Boolean(qaState.saving)}
             value={qaState.paperLabel ?? ""}
             onChange={(event) => onChangeField?.("paperLabel", event.target.value)}
             placeholder="如 80x60 热敏标签"
@@ -196,7 +200,7 @@ export function PrinterDeviceQaPanel({
               <span>{item.target}</span>
               <small>现场手动确认，保存后生成 PDQA 验收记录</small>
             </div>
-            <select value={item.status} onChange={(event) => onChangeCheck?.(item.key, event.target.value)}>
+            <select disabled={Boolean(qaState.saving)} value={item.status} onChange={(event) => onChangeCheck?.(item.key, event.target.value)}>
               {PRINTER_DEVICE_FIELD_TEST_STATUS_OPTIONS.map((option) => (
                 <option value={option.value} key={option.value}>{option.label}</option>
               ))}
@@ -214,7 +218,8 @@ export function PrinterDeviceQaPanel({
             <label key={item.key}>
               <span>{item.label}</span>
               <input
-                value={evidence[item.key] ?? ""}
+                disabled={Boolean(qaState.saving)}
+            value={evidence[item.key] ?? ""}
                 onChange={(event) => onChangeEvidence?.(item.key, event.target.value)}
                 placeholder={item.placeholder}
               />
@@ -224,7 +229,8 @@ export function PrinterDeviceQaPanel({
       </div>
       <div className="driver-field-test-note printer-device-qa-note">
         <input
-          value={qaState.note ?? ""}
+          disabled={Boolean(qaState.saving)}
+            value={qaState.note ?? ""}
           onChange={(event) => onChangeField?.("note", event.target.value)}
           placeholder="记录样张、扫码、驱动回写、作废重打问题"
         />
@@ -417,18 +423,6 @@ function getPrintJobStatusTone(status) {
   if (status === "queued") return "warning";
   if (status === "failed") return "danger";
   return "neutral";
-}
-
-function getPrintJobDocumentLabel(documentType) {
-  const normalized = String(documentType ?? "").trim();
-  const labels = {
-    express_ltl_label: "包裹标签",
-    package_label: "包裹标签",
-    pickup_note: "自提单",
-    delivery_note: "送货单",
-    outbound_note: "出库单",
-  };
-  return (labels[normalized] ?? normalized) || "单据待补";
 }
 
 function getPrintJobSummary(printJob = {}) {

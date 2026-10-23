@@ -65,6 +65,7 @@ export function createPrintJobBusinessProjectionService({
         }),
         printRecord: plan.printRecord,
         packages: plan.nextPackages,
+        labelPrintCompletion: plan.labelPrintCompletion,
         operationLog: plan.operationLog,
         printJob,
         printJobWriteMode,
@@ -173,6 +174,7 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
       ? findFulfillment(workspace, beforePrintRecord.targetId)
       : null;
   const isPackageLabel = normalizeText(beforePrintRecord.documentType ?? printJob.documentType) === "express_ltl_label";
+  printRecord.documentType = normalizeText(beforePrintRecord.documentType ?? printJob.documentType);
   const labelTrust = fulfillment ? evaluateFulfillmentLabelTrust(workspace, { fulfillment, printRecord, isPackageLabel }) : null;
   const physicalPrintConfirmed =
     jobStatus === "printed" && (!labelTrust?.required || labelTrust.trusted === true);
@@ -228,6 +230,7 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
     physicalPrintConfirmed,
     isPackageLabel,
     printTrustStatus: labelTrust?.required ? (labelTrust.trusted ? "current" : labelTrust.reason) : "not_required",
+    labelPrintCompletion: physicalPrintConfirmed && isPackageLabel && fulfillment ? {fulfillmentId:fulfillment.fulfillmentId ?? fulfillment.id,printRecordId,printJobId:printJob.printJobId,jobStatus} : null,
   };
 }
 
@@ -245,7 +248,8 @@ function formatProjectionFulfillment(fulfillment, plan) {
 }
 
 function evaluateFulfillmentLabelTrust(workspace, { fulfillment, printRecord, isPackageLabel = false }) {
-  const required = normalizeFulfillmentMethod(fulfillment.method) === "express_ltl" && isPackageLabel;
+  const required = isPackageLabel;
+  if (required && normalizeFulfillmentMethod(fulfillment.method) !== "express_ltl") return {required,trusted:false,reason:"delivery_method_changed",packages:[]};
   if (!required) return { required: false, trusted: true, reason: "not_required", packages: [] };
 
   const packages = listFulfillmentPackages(workspace, fulfillment);

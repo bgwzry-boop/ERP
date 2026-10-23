@@ -78,9 +78,9 @@ export function ProductionPackingTaskCards({
       <div className="production-task-cards" aria-label={`${workbenchTabs.find((tab) => tab.value === activeWorkbenchTab)?.label ?? "任务"}列表`}>
         {activeWorkbenchTab === "production" ? productionTaskCards.map((line) => {
           const inventoryItem = resolveInventoryItem(line);
-          const isActive = line.id === selectedProductionLine?.id;
+          const isActive = buildProductionTaskId(line) === buildProductionTaskId(selectedProductionLine);
           return (
-            <button className={`production-task-card ${isActive ? "active" : ""}`} key={line.id} onClick={() => onSelectProductionLine(line.id)}>
+            <button className={`production-task-card ${isActive ? "active" : ""}`} key={buildProductionTaskId(line)} onClick={() => onSelectProductionLine(buildProductionTaskId(line))}>
               <StatusPill tone={inventoryItem ? (line.confidence === "medium" ? "warning" : "success") : "danger"}>{inventoryItem ? (line.confidence === "medium" ? "待复核" : "正常") : "缺货"}</StatusPill>
               <div className="production-task-card-main">
                 <strong>{buildProductionTaskId(line)}</strong>
@@ -139,10 +139,10 @@ export function ProductionPackingTaskTables({
             const inventoryItem = resolveInventoryItem(line);
             const progressLabel = formatProductionDailyProgressLabel(line);
             return {
-              id: line.id,
-              active: line.id === selectedProductionLine?.id && detailMode === "production",
+              id: buildProductionTaskId(line),
+              active: buildProductionTaskId(line) === buildProductionTaskId(selectedProductionLine) && detailMode === "production",
               tone: inventoryItem ? statusTone(line.status) : "danger",
-              onClick: () => onSelectProductionLine(line.id),
+              onClick: () => onSelectProductionLine(buildProductionTaskId(line)),
               cells: [
                 buildProductionTaskId(line),
                 findCustomer(line.customerId).name,

@@ -336,13 +336,8 @@ const fallbackResult = await recordOfficePrinterDeviceFieldTest(
   },
 );
 
-assert(fallbackResult.source === "local_fallback", "printer device field test should fall back only on network failure");
-assert(fallbackResult.record.recordId.startsWith("PDQA-20260702114000-PRN-LABEL-A"), "fallback record id should be generated");
-assert(fallbackResult.record.summary.passedCount === 4, "fallback record summary should be computed");
-assert(
-  fallbackResult.printDevice.latestFieldTestRecord.recordId === fallbackResult.record.recordId,
-  "fallback device should carry latest field-test record",
-);
+assert(fallbackResult.source === "api_error" && fallbackResult.blocked === true, "Offline QA must remain unconfirmed");
+assert(!fallbackResult.record && !fallbackResult.resultStatus, "Offline QA must not fabricate a saved record");
 
 const strictFallbackResult = await recordOfficePrinterDeviceFieldTest(
   {
@@ -395,7 +390,7 @@ assert(missingDeviceResult.blocked === true, "printer device field-test should r
 assert(missingDeviceResult.error.code === "PRINT_DEVICE_REQUIRED", "printer device field-test missing-device code is incorrect");
 
 console.log(
-  "Frontend printer device API client check passed: device list, device mode save, field-test record/list, denial blocking, generated fallback records, local list fallback, and normalization are covered.",
+  "Frontend printer device API client check passed: device list, device mode save, field-test record/list, denial blocking, offline save blocking, local list fallback, and normalization are covered.",
 );
 
 function createJsonResponse(status, body) {
@@ -413,3 +408,44 @@ function assert(condition, message) {
     throw new Error(message);
   }
 }
+
+for (const body of [
+ {},
+ {printDeviceId:'PRN-LABEL-A',driverMode:'system_printer',operationLogId:'L'},
+ {printDeviceId:'OTHER',driverMode:'system_printer',operationLogId:'L',printDevice:{...printDevice,settings:{driverMode:'system_printer'}}},
+ {printDeviceId:'PRN-LABEL-A',driverMode:'system_printer',operationLogId:'L',printDevice},
+ {printDeviceId:'PRN-LABEL-A',driverMode:'system_printer',printDevice:{...printDevice,settings:{driverMode:'system_printer'}}},
+]) {
+ const result=await updateOfficePrintDeviceDriverMode({authState,printDeviceId:'PRN-LABEL-A',driverMode:'system_printer'},
+ {fetchImpl:async()=>new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})});
+ assert(result.blocked===true && result.error.code==='PRINT_DEVICE_MODE_SAVE_UNCONFIRMED','Malformed success must not confirm printer mode');
+}
+
+for (const body of [{},{printDeviceId:printDevice.printDeviceId,operationLogId:'L'},
+ {printDeviceId:printDevice.printDeviceId,record:{...record,printDeviceId:'OTHER'},operationLogId:'L'},
+ {printDeviceId:printDevice.printDeviceId,record:{...record,printJobId:'OTHER'},operationLogId:'L'},
+ {printDeviceId:printDevice.printDeviceId,record}]) {
+ const result=await recordOfficePrinterDeviceFieldTest({authState,printDevice,printJob,record},{fetchImpl:async()=>createJsonResponse(200,body)});
+ assert(result.blocked && result.error.code==='PRINTER_DEVICE_FIELD_TEST_SAVE_UNCONFIRMED','Invalid QA receipt accepted');
+}
+
+const retryRequests = [];
+const retryResults = [];
+for (let attempt = 0; attempt < 2; attempt += 1) {
+  retryResults.push(await recordOfficePrinterDeviceFieldTest(
+    { authState, printDevice, printJob, record, idempotencyKey: "QA-STABLE-REQUEST" },
+    { fetchImpl: async (_url, init) => {
+      retryRequests.push({ headers: init.headers, body: JSON.parse(init.body) });
+      if (attempt === 0) throw new Error("Response lost after server commit");
+      return createJsonResponse(200, { printDeviceId: printDevice.printDeviceId, record, operationLogId: "LOG-STABLE" });
+    } },
+  ));
+}
+assert(retryResults[0].blocked === true && !retryResults[0].record, "Lost response must not fabricate saved evidence");
+assert(retryResults[1].source === "api" && !retryResults[1].blocked, "Original receipt should resolve retry");
+for (const request of retryRequests) {
+  assert(request.headers["idempotency-key"] === "QA-STABLE-REQUEST", "Caller key must reach every request header");
+  assert(request.body.idempotencyKey === "QA-STABLE-REQUEST", "Caller key must reach every request body");
+}
+assert(JSON.stringify(retryRequests[0].body) === JSON.stringify(retryRequests[1].body), "Prepared record retry must preserve request body");
+console.log("PASS prepared printer QA request transport after response loss (mock HTTP; not UI or database replay).");

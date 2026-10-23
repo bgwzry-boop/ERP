@@ -11,26 +11,19 @@ export function createProductionMachineQueueReadService({ now = () => new Date()
       });
       workspace.productionScheduleRecords = productionScheduleRecords;
 
-      const listResult = await workspace.productionPackingReadRepository.listProductionTasks({
-        workspace,
-        query: {
-          status: filters.status || "open",
-          machineId: filters.machineId,
-          taskType: filters.taskType,
-          keyword: filters.keyword,
-          pageSize: 200,
-        },
-      });
-      const rows = (listResult.items ?? [])
-        .map((item) => buildQueueItem(workspace, item))
+      const candidates = await readAllQueueCandidates(workspace, filters);
+      const sequences = new Map();
+      const queueWorkspace = { ...workspace, productionScheduleRecords };
+      const rows = candidates
+        .map((item) => buildQueueItem(queueWorkspace, item))
         .filter(Boolean)
         .filter((item) => matchesFilters(item, filters))
         .sort(sortQueueItems)
-        .map((item, index, items) => ({
-          ...item,
-          queueSeq:
-            items.slice(0, index).filter((candidate) => candidate.machineId === item.machineId).length + 1,
-        }));
+        .map((item) => {
+          const queueSeq = (sequences.get(item.machineId) || 0) + 1;
+          sequences.set(item.machineId, queueSeq);
+          return { ...item, queueSeq };
+        });
 
       return {
         items: rows,
@@ -42,6 +35,55 @@ export function createProductionMachineQueueReadService({ now = () => new Date()
       };
     },
   };
+}
+
+async function readAllQueueCandidates(workspace, filters) {
+  const items = [];
+  const seen = new Set();
+  let total = null;
+  for (let page = 1; ; page += 1) {
+    // Customer display names exist only after queue projection; filtering the
+    // underlying task rows first would discard valid customer-name matches.
+    const result = await workspace.productionPackingReadRepository.listProductionTasks({
+      workspace,
+      query: {
+        status: filters.status || "open",
+        machineId: filters.machineId,
+        taskType: filters.taskType,
+        keyword: "",
+        pageSize: 200,
+        page,
+      },
+    });
+    if (!Array.isArray(result?.items)) throw queueReadConflict();
+    if (result.total !== undefined) {
+      const nextTotal = Number(result.total);
+      if (!Number.isSafeInteger(nextTotal) || nextTotal < 0 || (total !== null && nextTotal !== total)) {
+        throw queueReadConflict();
+      }
+      total = nextTotal;
+    }
+    for (const item of result.items) {
+      const id = cleanText(item?.productionTaskId ?? item?.productionTask?.productionTaskId);
+      if (!id || seen.has(id)) throw queueReadConflict();
+      seen.add(id);
+      items.push(item);
+    }
+    if (total !== null) {
+      if (items.length > total || (!result.items.length && items.length < total)) throw queueReadConflict();
+      if (items.length === total) return items;
+    } else if (result.items.length < 200) {
+      // Older in-memory callers can supply an unpaged short collection.
+      return items;
+    }
+  }
+}
+
+function queueReadConflict() {
+  return Object.assign(new Error("机台队列读取期间发生变化或来源不完整，请刷新后重试。"), {
+    statusCode: 409,
+    code: "PRODUCTION_QUEUE_READ_CONFLICT",
+  });
 }
 
 function normalizeQuery(query) {
@@ -209,13 +251,19 @@ function findCustomerName(workspace, customerId) {
 }
 
 function findScheduleRecord(workspace, { productionTaskId, publishedScheduleId, machineId }) {
-  return (workspace.productionScheduleRecords ?? []).find((record) => {
-    if (machineId && cleanText(record.machineId) !== machineId) return false;
-    return (
-      (productionTaskId && cleanText(record.productionTaskId) === productionTaskId) ||
-      (publishedScheduleId && cleanText(record.publishedScheduleId) === publishedScheduleId)
-    );
-  }) ?? null;
+  const records = (workspace.productionScheduleRecords ?? []).filter(
+    (record) => !machineId || cleanText(record.machineId) === machineId,
+  );
+  const exact = records.filter((record) => productionTaskId && cleanText(record.productionTaskId) === productionTaskId);
+  if (exact.length > 1) throw queueReadConflict();
+  if (exact.length === 1) return exact[0];
+  // Publication-only legacy records may fill a missing task link; a record
+  // explicitly owned by another task must never supply revision/order/audit.
+  const legacy = records.filter(
+    (record) => !cleanText(record.productionTaskId) && publishedScheduleId && cleanText(record.publishedScheduleId) === publishedScheduleId,
+  );
+  if (legacy.length > 1) throw queueReadConflict();
+  return legacy[0] ?? null;
 }
 
 function getQueryValue(query, key) {

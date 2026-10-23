@@ -49,7 +49,7 @@ export function createOfficePrintDeviceActions({
   async function runWriteAction({ surfaceAction, label, execute }) {
     if (!guardUiAction("productionPacking", surfaceAction)) return null;
     const result = normalizeFormalWriteResult(await execute(), label);
-    if (result?.feedback) setToast(result.feedback);
+    if (result?.feedback && !result.stale) setToast(result.feedback);
     return result;
   }
 
@@ -82,6 +82,9 @@ export function createOfficePrintDeviceActions({
       setPrinterDeviceQa((current) => ({
         ...current,
         selectedDeviceId: safePrintDeviceId,
+        selectionRevision: (current.selectionRevision ?? 0) + 1,
+        saving: false,
+        savingDeviceMode: false,
         eligiblePrintJobs: [],
         selectedPrintJobId: "",
         fieldTests: [],
@@ -101,16 +104,16 @@ export function createOfficePrintDeviceActions({
       setToast("打印设备列表尚未通过后端 API 刷新，production 不使用本地设备。");
       return null;
     }
-    if (result?.feedback) setToast(result.feedback);
+    if (result?.feedback && !result.stale) setToast(result.feedback);
     return result;
   }
 
   function changePrinterDeviceQaField(field, value) {
-    setPrinterDeviceQa((current) => ({ ...current, [field]: value }));
+    setPrinterDeviceQa((current) => current.saving ? current : ({ ...current, [field]: value }));
   }
 
   function changePrinterDeviceQaCheck(checkKey, status) {
-    setPrinterDeviceQa((current) => ({
+    setPrinterDeviceQa((current) => current.saving ? current : ({
       ...current,
       checks: normalizePrinterDeviceFieldTestChecks(
         current.checks.map((item) => item.key === checkKey ? { ...item, status } : item),
@@ -119,7 +122,7 @@ export function createOfficePrintDeviceActions({
   }
 
   function changePrinterDeviceQaEvidenceField(field, value) {
-    setPrinterDeviceQa((current) => ({
+    setPrinterDeviceQa((current) => current.saving ? current : ({
       ...current,
       evidence: normalizePrinterDeviceFieldTestEvidence({
         ...(current.evidence ?? {}),

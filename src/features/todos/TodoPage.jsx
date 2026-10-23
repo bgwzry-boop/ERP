@@ -1,7 +1,7 @@
+import { TodoReminderForm } from "./TodoReminderForm.jsx";
 import { useEffect, useState } from "react";
 import {
   CheckCircleOutlined,
-  ClockCircleOutlined,
   FileTextOutlined,
   LinkOutlined,
   NotificationOutlined,
@@ -41,7 +41,7 @@ const TODO_REFERENCE_TYPE_OPTIONS = [
   ["maintenance_task", "设备任务"],
 ];
 
-export function TodoPage({ todos, printBatchRecords = [], selectedTodoId, onSelect, view, setView, onAction, onRepairReference, helpers }) {
+export function TodoPage({ authState, onReminderSaved, todos, printBatchRecords = [], selectedTodoId, onSelect, view, setView, onAction, onRepairReference, helpers }) {
   const [detailTab, setDetailTab] = useState("处理");
   const [query, setQuery] = useState("");
   const [businessArea, setBusinessArea] = useState("全部业务");
@@ -50,7 +50,6 @@ export function TodoPage({ todos, printBatchRecords = [], selectedTodoId, onSele
   const [repairReason, setRepairReason] = useState("办公室核对原始待办后重新关联");
   const { currentUser, findCustomer, getTodoActions, getTodoCustomerNotificationDraft, getTodoHandlingRule, getTodoTone, getUiActionState, isPrintTodo, sortTodos } = helpers;
   const sortedTodos = sortTodos(todos);
-  const openTodos = sortedTodos.filter((item) => !item.handled);
   const businessMatched = sortedTodos.filter((item) => businessArea === "全部业务" || getTodoBusinessArea(item) === businessArea);
   const queryMatched = businessMatched.filter((item) => todoMatchesQuery(item, query, findCustomer, getTodoHandlingRule));
   const visibleTodos = queryMatched.filter((item) => todoMatchesView(item, view, isPrintTodo));
@@ -65,7 +64,6 @@ export function TodoPage({ todos, printBatchRecords = [], selectedTodoId, onSele
   const actions = selected ? getTodoActions(selected) : [];
   const customerNotificationDraft = selected && customerInfo ? getTodoCustomerNotificationDraft?.(selected, customerInfo) : null;
   const selectedPrintBatchRecords = selected ? getPrintBatchRecordsForTodo(printBatchRecords, selected.id).slice(0, 3) : [];
-  const printOpenCount = openTodos.filter(isPrintTodo).length;
   const activeFilterCount = Number(Boolean(query.trim())) + Number(businessArea !== "全部业务") + Number(view !== "未处理");
   useEffect(() => {
     const candidate = selected?.referenceCandidates?.[0];
@@ -89,17 +87,6 @@ export function TodoPage({ todos, printBatchRecords = [], selectedTodoId, onSele
         summary={`${visibleTodos.length} / ${todos.length} 条`}
         actions={(
           <div className="todo-filter-actions">
-            {printOpenCount > 0 ? (
-              <button
-                className="todo-batch-print"
-                disabled={getUiActionState("todo", "批量打印标签").disabled}
-                title={getUiActionState("todo", "批量打印标签").title}
-                onClick={() => onAction("批量打印标签")}
-                type="button"
-              >
-                <PrinterOutlined /> 批量打印 {printOpenCount}
-              </button>
-            ) : null}
             <button type="button" disabled={!activeFilterCount} onClick={resetFilters}>
               <ReloadOutlined /> 重置
             </button>
@@ -263,21 +250,7 @@ export function TodoPage({ todos, printBatchRecords = [], selectedTodoId, onSele
                 );
               })}
             </div>
-            {!selected.handled && (
-              <TodoDetailSection title="稍后提醒">
-                <div className="action-row todo-snooze-actions">
-                  {[
-                    ["稍后30分钟", "30分钟"],
-                    ["稍后2小时", "2小时"],
-                    ["稍后明早", "明早"],
-                    ["稍后指定时间", "指定时间"],
-                  ].map(([action, label]) => {
-                    const actionState = getUiActionState("todo", action);
-                    return <button disabled={actionState.disabled} key={action} title={actionState.title} onClick={() => onAction(action, selected.id)}><ClockCircleOutlined /> {label}</button>;
-                  })}
-                </div>
-              </TodoDetailSection>
-            )}
+            <TodoReminderForm todo={selected} authState={authState} onSaved={onReminderSaved} />
           </div>
           <div hidden={detailTab !== "通知/打印"}>
             {customerNotificationDraft ? (
@@ -297,7 +270,8 @@ export function TodoPage({ todos, printBatchRecords = [], selectedTodoId, onSele
             ) : null}
             {selectedPrintBatchRecords.length ? (
               <section className="todo-detail-section">
-                <h3>打印批次</h3>
+                <h3>打印核对记录</h3>
+                <p>以下保留历史人工核对结果；当前是否打印完成，以关联出库单的设备确认状态为准。</p>
                 <div className="print-batch-records">
                   {selectedPrintBatchRecords.map((record) => (
                     <div className="print-batch-record" key={record.printBatchId}>

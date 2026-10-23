@@ -5,8 +5,6 @@ import {
 } from "../services/officeTodoLazyApi.js";
 import { createOfficeTodo } from "../services/officeLocalActions.js";
 import {
-  getBatchPrintPackageRows,
-  getBatchPrintStats,
   getNextOpenTodoId,
   markTodoCustomerNotificationSent,
   markTodoCustomerPending,
@@ -14,7 +12,6 @@ import {
   markTodoManagementViewed,
   markTodoNotificationCopyPrepared,
   reopenTodo,
-  snoozeTodo,
 } from "../state/officeTodoActions.js";
 
 export function createOfficeTodoAppender({ createTodo = createOfficeTodo, setSelectedTodoId, setTodos }) {
@@ -44,6 +41,7 @@ export function createOfficeTodoActions({
   focusInventoryByRef,
   focusOrderDraftByRef,
   focusOrderLine,
+  focusProductionTask,
   focusStatementByRef,
   getTodoCustomerNotificationDraft,
   guardUiAction,
@@ -87,7 +85,7 @@ export function createOfficeTodoActions({
     const selected = todos.find((item) => item.id === todoId);
     if (!selected && action !== "批量打印标签") return;
     if (blockedReferenceStatuses.has(selected?.referenceStatus) && referenceNavigationActions.has(action)) {
-      setToast(`待办引用不可直接使用：${selected.referenceReason || "目标不存在或暂不可校验"}。本次未执行，请核对来源后重新关联或关闭待办。`);
+      setToast(`待办引用不可直接使用：${selected.referenceReason || "目标不存在或暂不可校验"}。本次未执行，${isPrintTodo(selected) ? "请先修复出库关联，再执行打印" : "请核对来源后重新关联或关闭待办"}。`);
       return;
     }
 
@@ -96,15 +94,7 @@ export function createOfficeTodoActions({
         setToast("当前待办不是打印类待办，不能走标签打印确认。");
         return;
       }
-      const stats = getBatchPrintStats([selected]);
-      openModal({
-        type: "batchPrintResult",
-        action,
-        todoIds: [selected.id],
-        printPackages: getBatchPrintPackageRows([selected]),
-        totalTasks: stats.totalTasks,
-        totalLabels: stats.totalLabels,
-      });
+      await focusFulfillmentByRef(selected.resolvedRefId || selected.refId || selected.ref, { exactFulfillmentId: true });
       return;
     }
 
@@ -183,45 +173,18 @@ export function createOfficeTodoActions({
     }
 
     if (action === "批量打印标签") {
-      const printTodos = todos.filter((item) => !item.handled && isPrintTodo(item));
-      if (!printTodos.length) {
-        setToast("当前没有可批量处理的打印类待办。");
-        return;
-      }
-      const stats = getBatchPrintStats(printTodos);
-      openModal({
-        type: "batchPrintResult",
-        action,
-        todoIds: printTodos.map((item) => item.id),
-        printPackages: getBatchPrintPackageRows(printTodos),
-        totalTasks: stats.totalTasks,
-        totalLabels: stats.totalLabels,
-      });
+      setTodoView("待打印");
+      setToast("请逐项打开出库交付执行标签打印；当前有效的打印结果会自动完成待办。");
       return;
     }
 
-    if (action.startsWith("稍后")) {
-      const apiResult = await handleOfficeTodoAction({
-        authState,
-        todoId,
-        action,
-        operatorId: currentUserId,
-        reason: action,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝设置稍后提醒：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝设置稍后提醒：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
+    if (action === "打开生产任务") {
+      try {
+        const { openProductionTodo } = await import("./todoReferenceNavigation.js");
+        return await openProductionTodo({ authState, selected, focusProductionTask, setToast });
+      } catch {
+        setToast("生产任务暂时无法打开，请刷新后重试。");
       }
-      const result = snoozeTodo(todos, todoId, action);
-      setTodos((current) => snoozeTodo(current, todoId, action).todos);
-      refreshCommittedTodos(apiResult);
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}给 ${selected.type} 设置稍后提醒：${result.reminder}，不改变待办处理状态。`);
-      return;
     }
 
     if (action === "打开订单录入") {
@@ -373,36 +336,19 @@ export function createOfficeTodoActions({
   }
 
   async function repairTodoReference(todoId, input) {
-    if (!guardUiAction("todo", "重新关联待办")) return;
-    const selected = todos.find((item) => item.id === todoId);
-    if (!selected || selected.referenceStatus === "valid") {
-      setToast("当前待办引用有效，无需重新关联。");
-      return;
+    try {
+      const { repairTodoReferenceAction } = await import("./todoReferenceNavigation.js");
+      return await repairTodoReferenceAction({ todoId, input, guardUiAction, todos, setToast, todoApi, authState, currentUserId, setTodos, refreshTodos });
+    } catch {
+      setToast("待办重新关联未能确认，请刷新核对后重试。");
     }
-    const result = await todoApi.repairOfficeTodoReference({
-      authState,
-      todoId,
-      operatorId: currentUserId,
-      ...input,
-      idempotencyKey: `${todoId}:${input.refType}:${input.refId}:${selected.updatedAt || selected.ref}`,
-    }, { serverRequired: true });
-    if (result?.source !== "api" || result.blocked) {
-      setToast(
-        result?.error?.requiredPermission
-          ? `后端拒绝重新关联：缺少权限 ${result.error.requiredPermission}。`
-          : `后端拒绝重新关联：${result?.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-    setTodos((current) => current.map((item) => item.id === todoId ? result.todo : item));
-    await refreshTodos({ showToast: false });
-    setToast(`待办已重新关联到 ${result.todo.ref}，服务端已记录操作人、原因和修改前后引用。`);
   }
 
-  return { handleTodo, repairTodoReference };
+  return { handleTodo, repairTodoReference, refreshTodos: () => refreshTodos({showToast:false}) };
 }
 
 const referenceNavigationActions = new Set([
+  "打开生产任务",
   "打开订单录入",
   "打开订单池",
   "打开订单",

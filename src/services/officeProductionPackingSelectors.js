@@ -3,6 +3,8 @@ function cleanText(value) {
 }
 
 export function buildProductionTaskId(orderLine) {
+  const persistedTaskId = cleanText(orderLine?.productionTaskId) || cleanText(orderLine?.productionTask?.productionTaskId ?? orderLine?.productionTask?.id);
+  if (persistedTaskId) return persistedTaskId;
   const orderLineId = cleanText(orderLine?.id ?? orderLine?.orderLineId);
   return orderLineId ? `PT-${orderLineId}` : "";
 }

@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { getAllowedTodoReferenceTypes, resolveTodoReference } from "./todoReferenceService.mjs";
+import { getAllowedTodoReferenceTypes, getTodoReferenceErrorCode, resolveTodoReference } from "./todoReferenceService.mjs";
 
 const reminderLabels = {
   稍后30分钟: "30 分钟后",
   稍后2小时: "2 小时后",
   稍后明早: "明早 09:00",
-  稍后指定时间: "今天 17:30",
 };
 
 export function createTodoCommandService({ buildOperationLog, now = () => new Date() } = {}) {
@@ -17,12 +16,53 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
       if (!supportedActions.has(action)) {
         return businessError(422, "VALIDATION_ERROR", `Unsupported todo action: ${action}`);
       }
+      const replay = body.idempotencyKey
+        ? await workspace.todoActionRepository.findTodoActionReplay?.({
+          action, todoId, idempotencyKey: body.idempotencyKey, idempotencyPayload: body,
+        }) : null;
+      if (replay) return replay;
       const before = await workspace.todoActionRepository.getTodo({ workspace, todoId });
       if (!before) return { notFound: true, code: "TODO_NOT_FOUND" };
+      const alreadyHandled = isTodoHandled(before);
+      if (alreadyHandled && ["mark_handled", "batch_print_confirm", "batch_print_result_pending", "customer_notification_sent", "customer_pending", "snooze"].includes(action)) {
+        return businessError(409, "TODO_ALREADY_HANDLED", "该待办已处理；再次处理前请先明确重新打开");
+      }
+      if (!alreadyHandled && action === "reopen") {
+        return businessError(409, "TODO_ALREADY_OPEN", "该待办已经处于未处理状态，请刷新后继续");
+      }
+      const maintenanceTodo = cleanText(before.refType ?? before.ref_type) === "maintenance_task"
+        || ["设备报修 · 设备任务", "日常巡检 · 设备任务", "预防维护 · 设备任务"].includes(before.type);
+      if (maintenanceTodo && action === "reopen") {
+        return businessError(409, "TODO_MAINTENANCE_REOPEN_REQUIRES_SOURCE", "已完工设备任务保留原维修结果，不能单独重开待办。设备再次出现问题时，请在设备报修中新建任务并说明关联的原任务编号。");
+      }
+      if (maintenanceTodo && ["mark_handled", "batch_print_confirm", "customer_notification_sent"].includes(action)) {
+        return businessError(409, "TODO_MAINTENANCE_RESULT_REQUIRED", "设备待办须由机修本人提交有效完工结果后同步完成，请进入设备报修查看处理记录。");
+      }
+      if (before.type === "成品图需重拍" && ["mark_handled", "batch_print_confirm", "customer_notification_sent"].includes(action)) {
+        return businessError(409, "TODO_PHOTO_REVIEW_REQUIRED", "重拍待办须在对应生产任务的成品图审核通过后自动完成，请打开生产任务核对原图");
+      }
+      if (before.type === "生产异常" && ["mark_handled", "batch_print_confirm", "customer_notification_sent"].includes(action)) {
+        return businessError(409, "TODO_PRODUCTION_EXCEPTION_RESOLUTION_REQUIRED", "请打开生产任务处理对应异常；只有异常处理的终态决定才能完成该待办，记录售后或质量问题仍需继续跟进。");
+      }
+
+      if ((before.type === "待打印标签" && ["mark_handled", "batch_print_confirm", "customer_notification_sent"].includes(action))
+        || action === "batch_print_confirm") {
+        return businessError(409, "TODO_PRINT_SOURCE_REQUIRED", "打印待办由当前有效的标签打印结果完成，请进入出库交付执行打印；人工结果登记不能代替打印确认");
+      }
 
       const timestamp = nowIso(now);
+      if (action === "snooze") {
+        const explicit = cleanText(body.snoozeUntil ?? body.remindAt);
+        if (body.reason === "稍后指定时间" && !explicit) {
+          return businessError(422, "TODO_REMINDER_TIME_REQUIRED", "请选择提醒日期和时间");
+        }
+        if (explicit && (!isValidReminderInstant(explicit) || Date.parse(explicit) <= Date.parse(timestamp))) {
+          return businessError(422, "TODO_REMINDER_TIME_INVALID", "提醒时间必须是带时区的有效未来时间，请重新选择");
+        }
+      }
       const after = {
         ...applyTodoAction({ before, action, body, operatorId, timestamp }),
+        updatedAt: advanceTodoVersion(before.updatedAt, timestamp),
         createdAt: cleanText(before.createdAt) || timestamp,
       };
       const operationLogId = buildTodoOperationLogId(todoId, action, body.idempotencyKey);
@@ -68,9 +108,18 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
       if (!refType || !refId || !reason) {
         return businessError(422, "VALIDATION_ERROR", "refType、refId 和 reason 均为必填项");
       }
+      const replay = body.idempotencyKey
+        ? await workspace.todoActionRepository.findTodoActionReplay?.({
+          action: "repair_reference", todoId, idempotencyKey: body.idempotencyKey,
+          idempotencyPayload: { refType, refId, reason },
+        }) : null;
+      if (replay) return { ...replay, reference: {
+        referenceStatus: "valid", referenceReason: "",
+        resolvedRefType: replay.todo.refType, resolvedRefId: replay.todo.refId,
+      } };
       const before = await workspace.todoActionRepository.getTodo({ workspace, todoId });
       if (!before) return { notFound: true, code: "TODO_NOT_FOUND" };
-      if (before.handled) return businessError(409, "TODO_ALREADY_HANDLED", "已处理待办不能重新关联业务引用");
+      if (isTodoHandled(before)) return businessError(409, "TODO_ALREADY_HANDLED", "已处理待办不能重新关联业务引用");
       if (resolveTodoReference(workspace, before).referenceStatus === "valid") {
         return businessError(409, "TODO_REFERENCE_STILL_VALID", "当前待办引用仍然有效，无需重新关联");
       }
@@ -82,7 +131,7 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
       const candidate = { ...before, refType, refId, ref: refId };
       const reference = resolveTodoReference(workspace, candidate);
       if (reference.referenceStatus !== "valid") {
-        return businessError(422, "TODO_REFERENCE_TARGET_NOT_FOUND", "重新关联目标不存在或不支持校验");
+        return businessError(422, getTodoReferenceErrorCode(reference, refId, refType), reference.referenceReason || "重新关联目标不存在或不支持校验");
       }
       const after = {
         ...candidate,
@@ -100,7 +149,7 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
           operatorName: cleanText(operatorName) || operatorId,
           repairedAt: timestamp,
         },
-        updatedAt: timestamp,
+        updatedAt: advanceTodoVersion(before.updatedAt, timestamp),
         createdAt: cleanText(before.createdAt) || timestamp,
       };
       const action = "repair_reference";
@@ -143,7 +192,7 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
       if (!reason) return businessError(422, "VALIDATION_ERROR", "reason 为必填项");
       const idempotencyPayload = { todoId, reason };
       const replay = idempotencyKey
-        ? await workspace.todoActionRepository.findFulfillmentRepairReplay?.({ idempotencyKey, idempotencyPayload })
+        ? await workspace.todoActionRepository.findFulfillmentRepairReplay?.({ workspace, idempotencyKey, idempotencyPayload })
         : null;
       if (replay) return replay;
 
@@ -152,7 +201,7 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
       if (cleanText(before.type) !== "出库交付待补建") {
         return businessError(409, "TODO_FULFILLMENT_REPAIR_TYPE_MISMATCH", "仅“出库交付待补建”待办可执行该修复");
       }
-      if (before.handled) {
+      if (isTodoHandled(before)) {
         return businessError(409, "TODO_ALREADY_HANDLED", "该待办已经处理，不能重复补建出库交付");
       }
       const reference = resolveTodoReference(workspace, before);
@@ -230,7 +279,7 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
         handledAt: timestamp,
         handlingResult: `已补建出库交付 ${fulfillmentId}`,
         lastAction: `已补建出库交付 ${fulfillmentId}`,
-        updatedAt: timestamp,
+        updatedAt: advanceTodoVersion(before.updatedAt, timestamp),
       };
       const labelTodo = {
         id: labelTodoId,
@@ -333,7 +382,6 @@ function applyTodoAction({ before, action, body, operatorId, timestamp }) {
       handledAt: timestamp,
       handlingResult: cleanText(body.handlingResult) || action,
       lastAction: cleanText(body.handlingResult) || action,
-      updatedAt: timestamp,
     };
   }
   if (action === "batch_print_result_pending") {
@@ -353,18 +401,19 @@ function applyTodoAction({ before, action, body, operatorId, timestamp }) {
       printedPackageIds: stringList(body.printedPackageIds),
       pendingPackageIds: stringList(body.pendingPackageIds),
       printPackages: Array.isArray(body.printPackages) ? body.printPackages : before.printPackages,
-      updatedAt: timestamp,
     };
   }
   if (action === "snooze") {
     const reason = cleanText(body.reason) || "稍后30分钟";
-    const reminder = reminderLabels[reason] ?? "稍后";
+    const explicit = cleanText(body.snoozeUntil ?? body.remindAt);
+    const reminder = explicit ? new Intl.DateTimeFormat("zh-CN", {
+      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).format(new Date(explicit)) : reminderLabels[reason] ?? "稍后";
     return {
       ...before,
       reminder,
       remindAt: resolveReminderTimestamp(reason, body.snoozeUntil ?? body.remindAt, timestamp),
       lastAction: `稍后提醒：${reminder}`,
-      updatedAt: timestamp,
     };
   }
   if (action === "reopen") {
@@ -378,11 +427,10 @@ function applyTodoAction({ before, action, body, operatorId, timestamp }) {
       reminder: "",
       remindAt: "",
       lastAction: "重新打开",
-      updatedAt: timestamp,
     };
   }
   if (action === "mark_viewed") {
-    return { ...before, lastAction: "管理查看已提示", updatedAt: timestamp };
+    return { ...before, lastAction: "管理查看已提示" };
   }
   if (action === "customer_notification_copied") {
     return {
@@ -393,7 +441,6 @@ function applyTodoAction({ before, action, body, operatorId, timestamp }) {
       notificationCopiedBy: operatorId,
       notificationCopiedAt: timestamp,
       lastAction: cleanText(body.handlingResult) || "已复制客户通知话术",
-      updatedAt: timestamp,
     };
   }
   if (action === "customer_pending") {
@@ -403,7 +450,6 @@ function applyTodoAction({ before, action, body, operatorId, timestamp }) {
       handled: false,
       reminder: "等待客户回复",
       lastAction: cleanText(body.handlingResult) || "客户待确认",
-      updatedAt: timestamp,
     };
   }
   return {
@@ -419,8 +465,24 @@ function applyTodoAction({ before, action, body, operatorId, timestamp }) {
     notifiedAt: timestamp,
     handlingResult: cleanText(body.handlingResult) || "已人工通知客户",
     lastAction: cleanText(body.handlingResult) || "已人工通知客户",
-    updatedAt: timestamp,
   };
+}
+
+function isTodoHandled(todo) { return todo.handled === true || cleanText(todo.status) === "已处理"; }
+
+// updatedAt doubles as the optimistic write token. Keep it increasing even
+// when the server clock has not advanced; actual event/handling times stay on
+// the server clock and are not synthesized from this token.
+function advanceTodoVersion(previous, timestamp) {
+  const prior = Date.parse(previous);
+  return new Date(Math.max(Date.parse(timestamp), Number.isFinite(prior) ? prior + 1 : 0)).toISOString();
+}
+
+function isValidReminderInstant(value) {
+  const parts = value.match(/^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/i);
+  if (!parts || !Number.isFinite(Date.parse(value))) return false;
+  const date = new Date(`${parts[1]}-${parts[2]}-${parts[3]}T00:00:00Z`);
+  return date.getUTCFullYear() === Number(parts[1]) && date.getUTCMonth() + 1 === Number(parts[2]) && date.getUTCDate() === Number(parts[3]);
 }
 
 function resolveReminderTimestamp(reason, explicitValue, timestamp) {
@@ -429,13 +491,12 @@ function resolveReminderTimestamp(reason, explicitValue, timestamp) {
   const base = new Date(timestamp);
   if (reason === "稍后2小时") return new Date(base.getTime() + 2 * 60 * 60 * 1000).toISOString();
   if (reason === "稍后明早") {
-    base.setUTCDate(base.getUTCDate() + 1);
-    base.setUTCHours(1, 0, 0, 0);
-    return base.toISOString();
-  }
-  if (reason === "稍后指定时间") {
-    base.setUTCHours(9, 30, 0, 0);
-    return base.toISOString();
+    // Shift to the factory calendar before adding a day; UTC's date is
+    // still yesterday between 00:00 and 07:59 in China.
+    const factoryDay = new Date(base.getTime() + 8 * 60 * 60 * 1000);
+    factoryDay.setUTCDate(factoryDay.getUTCDate() + 1);
+    factoryDay.setUTCHours(9, 0, 0, 0);
+    return new Date(factoryDay.getTime() - 8 * 60 * 60 * 1000).toISOString();
   }
   return new Date(base.getTime() + 30 * 60 * 1000).toISOString();
 }

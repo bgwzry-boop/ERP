@@ -622,6 +622,7 @@ export function isPrintTodo(todo) {
 }
 
 export function getTodoHandlingRule(todo) {
+  if (isPrintTodo(todo) && ["missing", "unverifiable"].includes(todo.referenceStatus)) return "先修复出库关联，再执行标签打印";
   if (todo.referenceStatus === "missing") return "引用失效，需核对来源后关闭";
   if (todo.referenceStatus === "unverifiable") return "引用待核，禁止直接跳转";
   if (todo.type.includes("数量") || todo.type.includes("差额") || todo.type.includes("缺货")) return "必须逐条处理";
@@ -630,12 +631,22 @@ export function getTodoHandlingRule(todo) {
   if (todo.printResultStatus === "unknown") return "打印异常，需核对";
   if (todo.printResultStatus === "partial") return "部分未打出，待重打";
   if (todo.printResultStatus === "not_printed") return "未打出，待重打";
-  if (isPrintTodo(todo)) return "低风险，可批量处理";
+  if (todo.type === "待打印标签") return "当前有效的标签打印结果会自动完成待办";
+  if (isPrintTodo(todo)) return "进入出库交付，核对打印任务与当前结果";
   if (todo.type.includes("老板") || todo.type.includes("管理")) return "查看后记录处理人";
   return "普通待办，可稍后提醒";
 }
 
+function createTodoCompletionAction() {
+  return { label: "处理完成", variant: "secondary" };
+}
+
 export function getTodoActions(todo) {
+  // Maintenance completion belongs to its source command. The accepted desktop
+  // review provides the exact task link; generic todo actions cannot finish it.
+  if ((todo.refType ?? todo.ref_type) === "maintenance_task"
+    || ["设备报修 · 设备任务", "日常巡检 · 设备任务", "预防维护 · 设备任务"].includes(todo.type)) return [];
+
   if (todo.handled) {
     return [
       { label: "重新打开", variant: "secondary" },
@@ -651,13 +662,13 @@ export function getTodoActions(todo) {
   }
 
   if (todo.referenceStatus === "missing" || todo.referenceStatus === "unverifiable") {
-    return [{ label: "处理完成", variant: "secondary" }];
+    return isPrintTodo(todo) || ["成品图需重拍", "生产异常"].includes(todo.type) ? [] : [createTodoCompletionAction()];
   }
 
   if (todo.type.includes("订单草稿")) {
     return [
       { label: "打开订单录入", variant: "primary" },
-      { label: "处理完成", variant: "secondary" },
+      createTodoCompletionAction(),
       { label: "打开订单池", variant: "secondary" },
     ];
   }
@@ -667,14 +678,14 @@ export function getTodoActions(todo) {
       { label: "打开库存查询", variant: "primary" },
       { label: "客户待确认", variant: "secondary" },
       { label: "打开订单池", variant: "secondary" },
-      { label: "处理完成", variant: "secondary" },
+      createTodoCompletionAction(),
     ];
   }
 
   if (todo.type.includes("数量")) {
     return [
       { label: "打开出库异常", variant: "primary" },
-      { label: "处理完成", variant: "secondary" },
+      createTodoCompletionAction(),
       { label: "打印预览", variant: "secondary" },
     ];
   }
@@ -682,8 +693,6 @@ export function getTodoActions(todo) {
   if (todo.type.includes("打印") || todo.type.includes("标签")) {
     return [
       { label: "打印标签", variant: "primary" },
-      { label: "批量打印标签", variant: "secondary" },
-      { label: "打开出库异常", variant: "secondary" },
     ];
   }
 
@@ -698,7 +707,7 @@ export function getTodoActions(todo) {
   if (todo.type.includes("对账") || todo.type.includes("收款")) {
     return [
       { label: "打开对账收款", variant: "primary" },
-      { label: "处理完成", variant: "secondary" },
+      createTodoCompletionAction(),
       { label: "打印预览", variant: "secondary" },
     ];
   }
@@ -711,10 +720,9 @@ export function getTodoActions(todo) {
     ];
   }
 
-  if (todo.type.includes("成品图需重拍")) {
+  if (todo.type.includes("成品图需重拍") || todo.type === "生产异常") {
     return [
-      { label: "打开订单", variant: "primary" },
-      { label: "处理完成", variant: "secondary" },
+      { label: "打开生产任务", variant: "primary" },
     ];
   }
 
@@ -727,7 +735,7 @@ export function getTodoActions(todo) {
 
   return [
     { label: "打开订单池", variant: "primary" },
-    { label: "处理完成", variant: "secondary" },
+    createTodoCompletionAction(),
   ];
 }
 

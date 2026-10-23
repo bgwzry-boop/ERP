@@ -917,6 +917,7 @@ function toPackage(row) {
     packageSeq: integer(row.package_seq, 1),
     packageCount: integer(row.package_count, 1),
     packedQty: integer(row.packed_qty),
+    revision: integer(row.revision, 1),
     labelPrintRecordId: clean(row.label_print_record_id),
     status: clean(row.status),
     createdBy: clean(row.created_by),
