@@ -1,4 +1,5 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { normalizeRawMaterialSourceRowIndex } from "../shared/rawMaterialOcrSourcePosition.js";
 import { enrichRawMaterialSpecValues } from "../shared/rawMaterialSpec.js";
 import {
   applyRawMaterialOcrLineReviews,
@@ -280,7 +281,7 @@ function normalizeLines(lines) {
       ...line,
       lineId: cleanText(line?.lineId) || `OCR-LINE-${index + 1}`,
       sourcePageIndex: Math.max(0, Number(line?.sourcePageIndex) || 0),
-      sourceRowIndex: Math.max(0, Number(line?.sourceRowIndex) || 0),
+      sourceRowIndex: normalizeRawMaterialSourceRowIndex(line?.sourceRowIndex),
       sourceText: cleanText(line?.sourceText),
       reviewStatus: cleanText(line?.reviewStatus) || "待人工复核",
       values,

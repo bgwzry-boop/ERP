@@ -1,3 +1,7 @@
+import { readRawMaterialConsumptionMeasurement } from "../shared/rawMaterialConsumptionMeasurement.js";
+import { assertRawMaterialConsumptionMeasurement } from "../shared/rawMaterialMeasurements.js";
+import { requireRawMaterialCurrentRecord } from "../shared/rawMaterialCurrentRecord.js";
+import { requireRawMaterialIssueAssignment } from "../shared/rawMaterialIssueAssignment.js";
 import { rawMaterialRecordIdentitySuffix } from "../shared/rawMaterialRecordIdentity.js";
 import { rawMaterialRollFacts } from "../shared/rawMaterialRollFacts.js";
 import { resolveRawMaterialProductionTaskMatch } from "./rawMaterialInboundRecordService.mjs";
@@ -278,6 +282,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
     };
   }
   if (action === "confirm_consumption") {
+    assertRawMaterialConsumptionMeasurement(input.body);
     const rollId = cleanText(input.body?.rollId);
     const requestedWeightKg = Number(input.body?.consumedWeightKg ?? input.body?.weightKg);
     const requestedQuantity = Number(input.body?.consumedQuantity ?? input.body?.quantity);
@@ -299,42 +304,11 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       });
     }
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
-    for (const roll of targetMachineSideRolls) {
-      const issueRecord = existingIssueRecords.find((record) => record.rollId === roll.id);
-      const fullWeightKg = Number(roll.weightKg) || Number(issueRecord?.issuedWeightKg) || 0;
-      if (Number.isFinite(requestedWeightKg) && requestedWeightKg > 0 && fullWeightKg > 0 && Math.abs(requestedWeightKg - fullWeightKg) > 0.001) {
-        if (requestedWeightKg - fullWeightKg > 0.001) {
-          throw Object.assign(new Error("Consumed raw-material weight cannot exceed machine-side weight"), {
-            statusCode: 422,
-            code: "RAW_MATERIAL_CONSUMPTION_WEIGHT_EXCEEDS_MACHINE_SIDE",
-          });
-        }
-      }
-      if (Number.isFinite(requestedQuantity) && requestedQuantity > 0 && requestedQuantity !== 1) {
-        throw Object.assign(new Error("V1 consumption confirmation only supports full-piece consumption; partial quantity requires return-leftover workflow"), {
-          statusCode: 422,
-          code: "RAW_MATERIAL_PARTIAL_QUANTITY_CONSUMPTION_NOT_SUPPORTED",
-        });
-      }
-    }
     const consumptionRecordId = `RMI-CONS-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
     const consumedRollIds = new Set(targetMachineSideRolls.map((roll) => roll.id));
     const consumptionRecords = targetMachineSideRolls.map((roll, rollIndex) => {
-      const issueRecord = existingIssueRecords.find((record) => record.rollId === roll.id);
-      const machineSideWeightKg =
-        Number(roll.weightKg) ||
-        Number(issueRecord?.remainingMachineSideWeightKg) ||
-        Number(issueRecord?.remainingWeightKg) ||
-        Number(issueRecord?.issuedWeightKg) ||
-        0;
-      const isPartialWeightConsumption =
-        machineSideWeightKg > 0 &&
-        Number.isFinite(requestedWeightKg) &&
-        requestedWeightKg > 0 &&
-        machineSideWeightKg - requestedWeightKg > 0.001;
-      const consumedWeightKg = isPartialWeightConsumption ? roundWeight(requestedWeightKg) : machineSideWeightKg;
-      const remainingMachineSideWeightKg = isPartialWeightConsumption ? roundWeight(machineSideWeightKg - requestedWeightKg) : 0;
-      const consumedQuantity = consumedWeightKg > 0 ? 0 : 1;
+      const issueRecord = requireRawMaterialCurrentRecord(roll, existingIssueRecords, "issueRecordId");
+      const {machineSideWeightKg, consumedWeightKg, consumedQuantity, remainingMachineSideWeightKg, partialConsumption:isPartialWeightConsumption} = readRawMaterialConsumptionMeasurement(roll, input.body, before.unit);
       return {
         consumptionRecordId: `${consumptionRecordId}-${String(rollIndex + 1).padStart(2, "0")}`,
         inboundId: before.id,
@@ -348,8 +322,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         remainingMachineSideWeightKg,
         partialConsumption: isPartialWeightConsumption,
         unit: before.unit || (consumedWeightKg > 0 ? "kg" : "件"),
-        machineId: cleanText(input.body?.machineId) || roll.machineId || issueRecord?.machineId || "机边待分配",
-        productionTaskId: cleanText(input.body?.productionTaskId) || roll.productionTaskId || issueRecord?.productionTaskId || "",
+        ...requireRawMaterialIssueAssignment(roll, issueRecord, input.body),
         machineCount: cleanText(input.body?.machineCount),
         qualifiedOutputQuantity: Number(input.body?.qualifiedOutputQuantity) || 0,
         consumptionStatus: isPartialWeightConsumption ? "部分消耗/机边" : "已确认消耗",
@@ -376,12 +349,16 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
           consumedBy: operatorName,
           consumedByUserId: operatorId,
           lastConsumedWeightKg: record.consumedWeightKg,
+          lastConsumedQuantity: record.consumedQuantity,
           remainingMachineSideWeightKg: record.remainingMachineSideWeightKg,
         };
       }
       return {
         ...roll,
         inventoryStatus: "已消耗",
+        lastConsumedWeightKg: record.consumedWeightKg,
+        lastConsumedQuantity: record.consumedQuantity,
+        remainingMachineSideWeightKg: 0,
         location: "已消耗归档",
         consumptionStatus: "已确认消耗",
         consumptionRecordId: record.consumptionRecordId,
@@ -391,9 +368,9 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       };
     });
     const nextIssueRecords = existingIssueRecords.map((record) =>
-      consumedRollIds.has(record.rollId)
+      consumptionRecords.some(entry => entry.issueRecordId === record.issueRecordId)
         ? (() => {
-            const consumptionRecord = consumptionRecords.find((item) => item.rollId === record.rollId);
+            const consumptionRecord = consumptionRecords.find((item) => item.issueRecordId === record.issueRecordId);
             const previousConsumedWeightKg = Number(record.consumedWeightKg) || 0;
             return {
               ...record,

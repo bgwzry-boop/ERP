@@ -1,3 +1,4 @@
+import { RAW_MATERIAL_RECEIPT_STAGES, resolveRawMaterialReceiptStage } from "../../shared/rawMaterialReceiptStage.js";
 import { normalizeRawMaterialInbounds } from "../rawMaterialInboundRecordService.mjs";
 
 export function buildRawMaterialInboundListResponse(inbounds = [], query = new URLSearchParams()) {
@@ -10,6 +11,10 @@ export function buildRawMaterialInboundListResponse(inbounds = [], query = new U
     const keyword = filters.keyword.toLowerCase();
     items = items.filter((item) => buildSearchText(item).includes(keyword));
   }
+  const receiptStageCounts = Object.fromEntries(RAW_MATERIAL_RECEIPT_STAGES.map((stage) => [stage, items.filter((item) => resolveRawMaterialReceiptStage(item) === stage).length]));
+  if (filters.receiptStage && filters.receiptStage !== "全部") {
+    items = items.filter((item) => resolveRawMaterialReceiptStage(item) === filters.receiptStage);
+  }
   items = items.sort((left, right) => compareDateDesc(left.receivedAt, right.receivedAt) || String(right.id).localeCompare(String(left.id)));
   const total = items.length;
   const page = Math.max(1, Number(filters.page) || 1);
@@ -20,6 +25,7 @@ export function buildRawMaterialInboundListResponse(inbounds = [], query = new U
     page,
     pageSize,
     total,
+    receiptStageCounts,
     metrics: buildRawMaterialInboundMetrics(inbounds),
   };
 }
@@ -28,6 +34,7 @@ export function normalizeRawMaterialInboundListQuery(query) {
   return {
     keyword: cleanText(getQueryValue(query, "keyword")),
     status: cleanText(getQueryValue(query, "status")),
+    receiptStage: cleanText(getQueryValue(query, "receiptStage")),
     page: Number(getQueryValue(query, "page") || 1),
     pageSize: Number(getQueryValue(query, "pageSize") || 50),
   };

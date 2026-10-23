@@ -27,6 +27,17 @@ export async function hydratePersistentWorkspaceState({
     }
   }
 
+  const useLocalSupplierColours = !productionRuntime && workspace.coreWorkspaceReadRepository?.kind === "local_memory";
+  const persistedSupplierColours = useLocalSupplierColours
+    ? await workspace.masterDataImportTransactionRepository?.loadSupplierColourState?.()
+    : null;
+  if (persistedSupplierColours) {
+    for (const key of ["standardColors", "colorAliases"]) workspace[key] = persistedSupplierColours[key];
+    for (const log of persistedSupplierColours.operationLogs) {
+      workspace.operationLogs = upsertByKey(workspace.operationLogs, log, "id");
+    }
+  }
+
   const persistedMachineConfigurationState = await loadState(
     workspace.masterDataMachineConfigurationRepository,
   );
@@ -97,6 +108,8 @@ export async function hydratePersistentWorkspaceState({
     : productionRuntime
       ? []
       : toArray(workspace.initialRawMaterialInbounds);
+
+  workspace.rawMaterialInboundActionReceipts = toArray(persistedRawMaterialInboundState.rawMaterialInboundActionReceipts);
 
   const persistedRawMaterialSupplierStatementReviewState = await loadState(
     workspace.rawMaterialSupplierStatementReviewRepository,

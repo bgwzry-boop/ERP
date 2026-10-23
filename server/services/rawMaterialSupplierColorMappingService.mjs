@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   RAW_MATERIAL_SUPPLIER_COLOR_SOURCE_TYPE,
   listRawMaterialFactoryColors,
@@ -31,7 +31,7 @@ export function createRawMaterialSupplierColorMappingService(dependencies = {}) 
     const timestamp = now().toISOString();
     const standardColors = Array.isArray(workspace.standardColors) ? workspace.standardColors : [];
     const existingStandardColor = standardColors.find((item) => normalizeRawMaterialFactoryColorName(item?.name) === factoryColor);
-    if (existingStandardColor?.enabled === false) {
+    if (existingStandardColor?.enabled === false && body.enabled !== false) {
       return businessError(409, "RAW_MATERIAL_FACTORY_COLOR_DISABLED", "这个厂内标准色已经停用，请先在颜色资料中启用，或输入新的标准色。");
     }
     const standardColor = existingStandardColor ?? {
@@ -43,11 +43,23 @@ export function createRawMaterialSupplierColorMappingService(dependencies = {}) 
       updatedAt: timestamp,
     };
     const aliases = Array.isArray(workspace.colorAliases) ? workspace.colorAliases : [];
-    const existing = aliases.find((item) => (
+    const candidates = aliases.filter((item) => (
       cleanText(item?.sourceType ?? item?.source_type) === RAW_MATERIAL_SUPPLIER_COLOR_SOURCE_TYPE
       && normalizeRawMaterialSupplierSourceId(item?.sourceId ?? item?.source_id) === supplierSourceId
       && normalizeRawMaterialSupplierColor(item?.alias) === supplierColor
     ));
+    const mappingId = cleanText(body.mappingId);
+    const existing = mappingId ? candidates.find(item => cleanText(item.id) === mappingId) : candidates[0];
+    if ((mappingId && !existing) || (!mappingId && candidates.length > 1)) {
+      return businessError(409, "RAW_MATERIAL_COLOR_MAPPING_IDENTITY_CONFLICT", "厂家颜色规则存在多条记录或已变化，请重新选择具体规则后修改。");
+    }
+    if (existing) {
+      const current = listMappings(workspace, { supplierSourceId }).find(item => item.id === existing.id);
+      const expected = body.expectedMapping;
+      if (!expected || Object.keys(current).some(key => current[key] !== expected[key])) {
+        return businessError(409, "RAW_MATERIAL_COLOR_MAPPING_SNAPSHOT_CONFLICT", "规则已变化或缺少编辑快照，请刷新并重新选择规则后修改。");
+      }
+    }
     const alias = {
       ...(existing ?? {}),
       id: cleanText(existing?.id) || stableId("CA-RM", `${supplierSourceId}|${supplierColor}`),
@@ -61,6 +73,7 @@ export function createRawMaterialSupplierColorMappingService(dependencies = {}) 
       updatedAt: timestamp,
     };
     const operationLog = buildOperationLog(workspace, {
+      id: `LOG-RM-COLOR-${randomUUID()}`,
       targetType: "raw_material_supplier_color_mapping",
       targetId: alias.id,
       action: existing ? "raw_material_supplier_color_mapping_updated" : "raw_material_supplier_color_mapping_created",
@@ -95,6 +108,7 @@ export function createRawMaterialSupplierColorMappingService(dependencies = {}) 
         workspace,
         importExecution,
         operationLog,
+        supplierColourExpected: existing ? structuredClone(existing) : null,
       });
       return {
         statusCode: 200,
@@ -104,6 +118,9 @@ export function createRawMaterialSupplierColorMappingService(dependencies = {}) 
         },
       };
     } catch (error) {
+      if (error?.message === "RAW_MATERIAL_COLOR_MAPPING_SNAPSHOT_CONFLICT" || String(error?.message).includes("supplier_colour_snapshot_conflict")) {
+        return businessError(409, "RAW_MATERIAL_COLOR_MAPPING_SNAPSHOT_CONFLICT", "规则已被其他操作修改，请刷新并重新选择规则。");
+      }
       return businessError(409, "RAW_MATERIAL_COLOR_MAPPING_WRITE_FAILED", cleanText(error?.message) || "厂家颜色规则保存失败。");
     }
   }

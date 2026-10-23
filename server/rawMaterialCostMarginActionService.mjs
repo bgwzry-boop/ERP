@@ -1,3 +1,4 @@
+import { selectUncalibratedRawMaterialConfirmations } from "../shared/rawMaterialLossScope.js";
 import { createRawMaterialCostMarginBuilder } from "./rawMaterialCostMarginBuilderService.mjs";
 import {
   buildRawMaterialProductionTaskGoodsSpec,
@@ -191,7 +192,7 @@ export function applyRawMaterialCostMarginAction(input = {}) {
       costAllocationConfirmedByUserId: operatorId,
       costAllocationConfirmedAt: now,
       costAllocationConfirmedCount: allConfirmedCostDrafts.length,
-      costAllocationConfirmedAmount: roundMoney(allConfirmedCostDrafts.reduce((sum, item) => sum + Number(item.confirmedCostAmount || item.allocatedCostAmount || 0), 0)),
+      costAllocationConfirmedAmount: roundMoney(allConfirmedCostDrafts.reduce((sum, item) => sum + Number(item.confirmedCostAmount ?? 0), 0)),
       costAllocationConfirmationId: confirmation.costConfirmationId,
       nextStep: "成本草稿已复核为原材料成本快照；仍需损耗校准和订单毛利报表确认。",
       rawMaterialIssueRecords: nextIssueRecords,
@@ -215,14 +216,7 @@ export function applyRawMaterialCostMarginAction(input = {}) {
         code: "RAW_MATERIAL_LOSS_CALIBRATION_REQUIRES_COST_CONFIRMATION",
       });
     }
-    const calibratedConfirmationIds = new Set(
-      existingCalibrations
-        .flatMap((record) => [record.costConfirmationId, ...(record.costConfirmationIds ?? [])])
-        .filter(Boolean),
-    );
-    const calibratableConfirmations = existingConfirmations.filter(
-      (record) => !calibratedConfirmationIds.has(record.costConfirmationId) && record.lossCalibrationStatus !== "已校准/待毛利确认",
-    );
+    const calibratableConfirmations = selectUncalibratedRawMaterialConfirmations(existingConfirmations, existingCalibrations);
     if (!calibratableConfirmations.length) {
       throw Object.assign(new Error("Raw-material cost confirmations are already loss-calibrated"), {
         statusCode: 409,
@@ -252,7 +246,7 @@ export function applyRawMaterialCostMarginAction(input = {}) {
             lossCalibrationStatus: "已校准/待毛利确认",
             lossCalibrationId: calibration.lossCalibrationId,
             lossRatePercent: calibration.lossRatePercent,
-            calibratedCostAmount: record.confirmedCostAmount || record.allocatedCostAmount,
+            calibratedCostAmount: record.confirmedCostAmount,
             calibratedBy: operatorName,
             calibratedByUserId: operatorId,
             calibratedAt: now,

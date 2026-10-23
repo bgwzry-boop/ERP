@@ -205,7 +205,7 @@ export function RawMaterialMobileReceiving({
             badge={`${countResolvedRolls(selected)}/${selected?.rolls?.length || 0}`}
             title="逐卷贴标"
           />
-          <MobileLabelVerification attachState={attachState} onAttach={onAttach} onOneClickInbound={onOneClickInbound} selected={selected} />
+          <MobileLabelVerification key={selected?.id || "no-inbound"} attachState={attachState} onAttach={onAttach} onOneClickInbound={onOneClickInbound} selected={selected} />
         </section>
       ) : null}
 
@@ -596,6 +596,7 @@ function MobileLabelVerification({ attachState, onAttach, onOneClickInbound, sel
     try {
       const updatedInbound = await onAttach?.({
         rollId: roll.id,
+        expectedLabelVersion: draft.expectedLabelVersion ?? Math.max(1, Number(roll.labelVersion) || 1),
         matchResult,
         checkedWeightKg: draft.checkedWeightKg ?? roll.weightKg ?? "",
         checkedColor: draft.checkedColor ?? roll.factoryColor ?? selected?.factoryColor ?? selected?.supplierColor ?? "",
@@ -615,6 +616,7 @@ function MobileLabelVerification({ attachState, onAttach, onOneClickInbound, sel
     setMismatchDrafts((current) => ({
       ...current,
       [roll.id]: current[roll.id] ?? {
+        expectedLabelVersion: Math.max(1, Number(roll.labelVersion) || 1),
         checkedWeightKg: roll.weightKg ?? "",
         checkedColor: roll.factoryColor ?? selected?.factoryColor ?? selected?.supplierColor ?? "",
         checkedSpec: roll.spec ?? selected?.spec ?? "",

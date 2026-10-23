@@ -1,3 +1,4 @@
+import { normalizeInventoryHoldTimestamp } from "../shared/inventoryHoldTime.js";
 import assert from "node:assert/strict";
 import { createInventoryIntentCommandService } from "../server/services/inventoryIntentCommandService.mjs";
 import {
@@ -55,6 +56,14 @@ assert.equal(extended.error, undefined);
 assert.equal(extended.response.hold.expiresAt, "2026-07-12T12:30:00.000Z");
 assert.equal(workspace.inventories[0].reserved, 220, "extension must not change reserved stock");
 
+const extensionState = JSON.stringify(workspace);
+const extensionReplayInput = { workspace, reservationId: created.response.hold.reservationId, body: { expectedRevision: 2, expiresAt: "2026-07-12T20:30:00+08:00", reason: "客户已明确回复，授权延长一小时", idempotencyKey: "hold-extend-001" }, operatorId: "U-OFFICE-A" };
+clock.value = new Date("2026-07-13T00:00:00Z");
+assert.deepEqual(await service.extendTemporaryHold(extensionReplayInput), extended);
+assert.equal(JSON.stringify(workspace), extensionState);
+assert.equal((await service.extendTemporaryHold({...extensionReplayInput,body:{...extensionReplayInput.body,reason:"另一个原因"}})).code,"IDEMPOTENCY_KEY_REUSED");
+clock.value = new Date("2026-07-12T02:00:00Z");
+
 const released = await service.releaseTemporaryHold({
   workspace,
   reservationId: created.response.hold.reservationId,
@@ -70,6 +79,27 @@ assert.equal(released.response.intent.intentStatus, "已取消");
 assert.equal(released.response.hold.reservedQty, 0);
 assert.equal(workspace.inventories[0].reserved, 100);
 assert.equal(workspace.inventoryLedgers[0].qtyChange, -120);
+
+// Replay must return the original receipt without a second release or audit write.
+const afterRelease = JSON.stringify(workspace);
+const creationReplayInput = {workspace,intentId:"INT-HOLD",body:{expectedRevision:1,candidateIndex:0,inventoryItemId:"INV-001",qty:120,idempotencyKey:"hold-create-001"},operatorId:"U-OFFICE-A"};
+clock.value = new Date("2026-07-13T00:00:00Z");
+assert.deepEqual(await service.createTemporaryHold(creationReplayInput), created);
+assert.equal(JSON.stringify(workspace),afterRelease,"Historical create receipt cannot restore released inventory");
+assert.equal((await service.createTemporaryHold({...creationReplayInput,body:{...creationReplayInput.body,reason:"changed reason"}})).code,"IDEMPOTENCY_KEY_REUSED");
+clock.value = new Date("2026-07-12T02:00:00Z");
+assert.deepEqual(await service.extendTemporaryHold(extensionReplayInput), extended);
+assert.equal(JSON.stringify(workspace), afterRelease, "Historical extension receipt must never restore a released hold");
+const replayReleaseInput = { workspace, reservationId: created.response.hold.reservationId,
+  body: { expectedRevision: 3, reason: "客户取消临时留货", idempotencyKey: "hold-release-001" }, operatorId: "U-OFFICE-A" };
+assert.deepEqual(await service.releaseTemporaryHold(replayReleaseInput), released);
+assert.equal(JSON.stringify(workspace), afterRelease);
+const changedReleaseReason = await service.releaseTemporaryHold({ ...replayReleaseInput, body: { ...replayReleaseInput.body, reason: "另一项释放原因" } });
+assert.equal(changedReleaseReason.code, "IDEMPOTENCY_KEY_REUSED");
+const detachedReceipt = await service.releaseTemporaryHold(replayReleaseInput);
+detachedReceipt.response.hold.status = "不应污染缓存";
+assert.deepEqual(await service.releaseTemporaryHold(replayReleaseInput), released);
+assert.equal(JSON.stringify(workspace), afterRelease);
 
 const expiryWorkspace = buildWorkspace();
 const expiring = await service.createTemporaryHold({
@@ -252,4 +282,103 @@ function buildSqlInput() {
     },
     updatedAt: "2026-07-12T02:00:00.000Z",
   };
+}
+
+{
+ const missingStock = buildWorkspace();
+ missingStock.inventoryReservations = [{reservationId:'HOLD-MISSING-STOCK',sourceIntentId:'INT-HOLD',inventoryItemId:'INV-MISSING',reservationType:'临时留货',status:'生效',expiresAt:'2026-07-12T11:30:00.000Z',reservedQty:20}];
+ const result = await service.expireDueTemporaryHolds({workspace:missingStock});
+ assert.equal(result.response.expiredCount,0,'Missing inventory must not count as successfully expired');
+ assert.deepEqual(result.response.skipped,[{reservationId:'HOLD-MISSING-STOCK',code:'INVENTORY_ITEM_NOT_FOUND'}]);
+ assert.equal(missingStock.inventoryReservations[0].status,'生效');
+}
+
+{
+ const inconsistent = buildWorkspace();
+ inconsistent.inventoryIntents[0].intentStatus='临时留货-生效';
+ inconsistent.inventoryReservations=[{id:'HOLD-UNDERFLOW',reservationId:'HOLD-UNDERFLOW',sourceIntentId:'INT-HOLD',inventoryItemId:'INV-001',reservationType:'临时留货',status:'生效',reservedQty:120,revision:1}];
+ const before=structuredClone({inventories:inconsistent.inventories,reservations:inconsistent.inventoryReservations,intents:inconsistent.inventoryIntents});
+ const result=await service.releaseTemporaryHold({workspace:inconsistent,reservationId:'HOLD-UNDERFLOW',body:{expectedRevision:1,idempotencyKey:'underflow'},operatorId:'U-OFFICE-A'});
+ assert.equal(result.error,true,'Insufficient reserved stock must block release, not clamp to zero');
+ assert.deepEqual({inventories:inconsistent.inventories,reservations:inconsistent.inventoryReservations,intents:inconsistent.inventoryIntents},before);
+ assert.equal(inconsistent.inventoryLedgers.length,0);
+ assert.equal(inconsistent.operationLogs.length,0);
+}
+
+{
+ const raceClock={value:new Date('2026-07-12T02:00:00Z')};
+ const raceService=createInventoryIntentCommandService({now:()=>raceClock.value});
+ const race=buildWorkspace();
+ const created=await raceService.createTemporaryHold({workspace:race,intentId:'INT-HOLD',body:{expectedRevision:1,qty:80,idempotencyKey:'race-create'},operatorId:'U-OFFICE-A'});
+ const reservationId=created.response.hold.reservationId;
+ const staleRevision=created.response.intent.revision;
+ await raceService.extendTemporaryHold({workspace:race,reservationId,body:{expectedRevision:staleRevision,expiresAt:'2026-07-13T11:30:00Z',reason:'Customer confirmed extension',idempotencyKey:'race-extend'},operatorId:'U-OFFICE-A'});
+ const snapshot=structuredClone({inventories:race.inventories,reservations:race.inventoryReservations,intents:race.inventoryIntents,ledgers:race.inventoryLedgers,logs:race.operationLogs});
+ const oldRelease=await raceService.releaseTemporaryHold({workspace:race,reservationId,body:{expectedRevision:staleRevision,idempotencyKey:'race-old-expiry'},expired:true});
+ assert.equal(oldRelease.code,'TEMPORARY_HOLD_NOT_DUE');
+ assert.deepEqual({inventories:race.inventories,reservations:race.inventoryReservations,intents:race.inventoryIntents,ledgers:race.inventoryLedgers,logs:race.operationLogs},snapshot);
+ raceClock.value=new Date('2026-07-12T12:00:00Z');
+ const sweep=await raceService.expireDueTemporaryHolds({workspace:race});
+ assert.equal(sweep.response.dueCount,0,'Extended hold must not appear in old expiry window');
+ assert.equal(race.inventories[0].reserved,180);
+}
+console.log('PASS local stale expiry after extension preserves inventory, reservation, intent, ledger and audit.');
+
+{
+ const query=buildReleaseTemporaryHoldQuery({...buildSqlInput(),reservationId:'HOLD-SQL',expectedRevision:2,targetStatus:'已过期'});
+ assert.match(query.text,/expires_at <= \$[0-9]+::timestamptz/);
+}
+
+for (const invalid of [true, [20], {valueOf:()=>20}, Number.MAX_SAFE_INTEGER + 1]) {
+ const invalidWorkspace=buildWorkspace();
+ const result=await service.createTemporaryHold({workspace:invalidWorkspace,intentId:'INT-HOLD',body:{expectedRevision:1,qty:invalid,expiresAt:'2099-01-01T00:00:00Z',idempotencyKey:'invalid-qty'},operatorId:'U-OFFICE-A'});
+ assert.equal(result.code,'VALIDATION_ERROR','Non-scalar or unsafe quantities must fail before reservation');
+ assert.equal(invalidWorkspace.inventoryReservations.length,0);
+ assert.equal(invalidWorkspace.inventories[0].reserved,100);
+}
+
+for (const invalid of [true, [1], Number.MAX_SAFE_INTEGER + 1]) {
+ const result=await service.createTemporaryHold({workspace:buildWorkspace(),intentId:'INT-HOLD',body:{expectedRevision:invalid,qty:20,expiresAt:'2099-01-01T00:00:00Z'},operatorId:'U-OFFICE-A'});
+ assert.equal(result.code,'VALIDATION_ERROR');
+}
+{
+ const valid=buildWorkspace();
+ const result=await service.createTemporaryHold({workspace:valid,intentId:'INT-HOLD',body:{expectedRevision:'1',qty:'20',expiresAt:'2099-01-01T00:00:00Z',idempotencyKey:'valid-scalar'},operatorId:'U-OFFICE-A'});
+ assert.equal(result.response.hold.reservedQty,20);
+}
+
+for (const candidateIndex of [null, '', false, [], [0]]) {
+ const ambiguous=buildWorkspace();
+ ambiguous.inventoryIntents[0].candidate.parsedCandidates.push({...ambiguous.inventoryIntents[0].candidate.parsedCandidates[0],qty:50});
+ const result=await service.createTemporaryHold({workspace:ambiguous,intentId:'INT-HOLD',body:{expectedRevision:1,candidateIndex,qty:20,expiresAt:'2099-01-01T00:00:00Z'},operatorId:'U-OFFICE-A'});
+ assert.equal(result.code,'TEMPORARY_HOLD_CANDIDATE_REQUIRED','Empty or nonnumeric candidate selection must not choose first item');
+ assert.equal(ambiguous.inventoryReservations.length,0);
+}
+
+for (const candidateIndex of [0, '0']) {
+ const valid=buildWorkspace();
+ const result=await service.createTemporaryHold({workspace:valid,intentId:'INT-HOLD',body:{expectedRevision:1,candidateIndex,qty:20,expiresAt:'2099-01-01T00:00:00Z'},operatorId:'U-OFFICE-A'});
+ assert.equal(result.response.hold.reservedQty,20);
+}
+
+{
+ const localTime=buildWorkspace();
+ const result=await service.createTemporaryHold({workspace:localTime,intentId:'INT-HOLD',body:{expectedRevision:1,qty:20,expiresAt:'2099-01-01T19:30'},operatorId:'U-OFFICE-A'});
+ assert.equal(result.response.hold.expiresAt,'2099-01-01T11:30:00.000Z');
+}
+
+for (const value of ['2099-02-29T19:30','2099-01-01T24:00',true,123,'2099-01-01']) assert.equal(normalizeInventoryHoldTimestamp(value),'');
+assert.equal(normalizeInventoryHoldTimestamp('2096-02-29T19:30'),'2096-02-29T11:30:00.000Z');
+
+{
+ const rows=[{reservationId:'H1',inventoryItemId:'INV1',reservationType:'临时留货',status:'生效'}, {reservationId:'H2',inventoryItemId:'INV2',reservationType:'临时留货',status:'生效'}];
+ assert.deepEqual(service.listTemporaryHolds({workspace:{inventoryReservations:rows},filters:{inventoryItemId:'INV2'}}).map(row=>row.reservationId),['H2']);
+ assert.equal(service.listTemporaryHolds({workspace:{inventoryReservations:rows},filters:{inventoryItemId:'MISSING'}}).length,0);
+}
+
+{
+ const input={inventoryReservations:[{id:'H-CUSTOMER',reservationType:'临时留货',customerId:'C1',customerName:'stale'}],customers:[{id:'C1',name:'Current customer'},{id:'C2',name:'Other customer'}]};
+ assert.equal(service.listTemporaryHolds({workspace:input})[0].customerName,'Current customer');
+ input.customers=[];
+ assert.equal(service.listTemporaryHolds({workspace:input})[0].customerName,'');
 }

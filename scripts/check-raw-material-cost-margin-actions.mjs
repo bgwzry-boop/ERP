@@ -1,3 +1,4 @@
+import { selectUncalibratedRawMaterialConfirmations } from "../shared/rawMaterialLossScope.js";
 import assert from "node:assert/strict";
 import { applyRawMaterialCostMarginAction } from "../server/rawMaterialCostMarginActionService.mjs";
 
@@ -79,6 +80,15 @@ assert.equal(confirmed.costAllocationStatus, "成本已复核待损耗校准");
 assert.equal(confirmed.costAllocationConfirmedAmount, 270);
 assert.match(confirmed.rawMaterialCostAllocationConfirmations[0].costConfirmationId, /^RMCC-/);
 
+const doneConfirmation = {...confirmed.rawMaterialCostAllocationConfirmations[0],costConfirmationId:'CC-DONE'};
+const withHistory = {...confirmed,rawMaterialCostAllocationConfirmations:[...confirmed.rawMaterialCostAllocationConfirmations,doneConfirmation],rawMaterialCostLossCalibrations:[{lossCalibrationId:'LC-HISTORY',costConfirmationId:'CC-DONE'}]};
+const expectedScope = selectUncalibratedRawMaterialConfirmations(withHistory.rawMaterialCostAllocationConfirmations, withHistory.rawMaterialCostLossCalibrations).map(row=>row.costConfirmationId);
+const scoped = applyRawMaterialCostMarginAction({action:'calibrate_loss',before:withHistory,body:{expectedOutputQuantity:100,actualQualifiedOutputQuantity:95},now:'2026-09-02T01:02:00.000Z',...common});
+assert.deepEqual(scoped.rawMaterialCostLossCalibrations.at(-1).costConfirmationIds,expectedScope);
+assert.equal(expectedScope.length,1,'Existing legacy singular calibration excludes its confirmation');
+assert.equal(scoped.rawMaterialCostAllocationConfirmations.find(row=>row.costConfirmationId==='CC-DONE').lossCalibrationId,doneConfirmation.lossCalibrationId || '');
+assert.deepEqual(selectUncalibratedRawMaterialConfirmations([{costConfirmationId:'A'},{costConfirmationId:'B'},{costConfirmationId:'C',lossCalibrationStatus:'已校准/待毛利确认'},{}],[{costConfirmationIds:['A','B']}]),[]);
+
 const calibrated = applyRawMaterialCostMarginAction({
   action: "calibrate_loss",
   before: confirmed,
@@ -113,3 +123,25 @@ assert.equal(reviewed.rawMaterialOrderMarginReports[0].grossProfitAmount, 630);
 assert.equal(reviewed.rawMaterialOrderMarginSnapshots[0].reviewStatus, "已财务复核/报表可用");
 
 console.log("Raw-material cost/margin action checks passed: routing isolation, input immutability, and the full draft-to-report lifecycle are covered.");
+
+for (const changed of [
+ {rawMaterialCostAllocationDrafts:[]},
+ {rawMaterialCostAllocationDrafts:confirmed.rawMaterialCostAllocationDrafts.map(row=>({...row,confirmedCostAmount:999}))},
+ {rawMaterialCostAllocationDrafts:confirmed.rawMaterialCostAllocationDrafts.map(row=>({...row,costConfirmationId:'OTHER-CONFIRMATION'}))},
+]) {
+ const before={...confirmed,...changed};const frozen=JSON.stringify(before);
+ assert.throws(()=>applyRawMaterialCostMarginAction({action:'calibrate_loss',before,body:{expectedOutputQuantity:1000,actualQualifiedOutputQuantity:950},now:'2026-09-02T01:02:00.000Z',...common}),error=>error.code==='RAW_MATERIAL_COST_CONFIRMATION_SOURCE_INVALID');
+ assert.equal(JSON.stringify(before),frozen,'Rejected source must not mutate the inbound or append calibration evidence');
+}
+console.log('PASS actual calibration action rejects missing/mismatched/cross-confirmation sources without changing its input.');
+
+for(const drafts of [
+ [...drafted.rawMaterialCostAllocationDrafts,...drafted.rawMaterialCostAllocationDrafts],
+ drafted.rawMaterialCostAllocationDrafts.map(row=>({...row,inboundId:'OTHER-INBOUND'})),
+ drafted.rawMaterialCostAllocationDrafts.map(row=>({...row,marginSnapshotId:'OLD-SNAPSHOT'})),
+]) {
+ const before={...drafted,rawMaterialCostAllocationDrafts:drafts};const frozen=JSON.stringify(before);
+ assert.throws(()=>applyRawMaterialCostMarginAction({action:'confirm_cost_draft',before,body:{},now:'2026-09-02T01:01:00.000Z',...common}),e=>e.code==='RAW_MATERIAL_COST_DRAFT_SOURCE_INVALID');
+ assert.equal(JSON.stringify(before),frozen);
+}
+console.log('PASS actual cost confirmation rejects duplicate/cross-inbound/later-stage drafts without mutating source.');

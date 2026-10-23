@@ -31,7 +31,10 @@ let corrected = { ...inbound, rolls: [{ ...roll, inventoryStatus: "待确认", l
 corrected = act(corrected, "void_label", { rollId: roll.id, reason: "重核颜色" });
 corrected = act(corrected, "reprint_label", { rollId: roll.id });
 assert.equal(corrected.rolls[0].labelVersion, 2);
-corrected = act(corrected, "attach_confirm", { rollId: roll.id, matchResult: "matched" });
+assert.throws(() => act(corrected, "attach_confirm", { rollId: roll.id, expectedLabelVersion: 1, matchResult: "matched" }), error => error.code === "RAW_MATERIAL_LABEL_VERSION_CONFLICT");
+assert.throws(() => act(corrected, "attach_confirm", { rollId: roll.id, expectedLabelVersion: 2, matchResult: "matched", checkedWeightKg: 99 }), error => error.code === "RAW_MATERIAL_LABEL_FACTS_MISMATCH");
+assert.throws(() => act(corrected, "attach_confirm", { rollId: roll.id, expectedLabelVersion: 2, matchResult: "matched", checkedColor: "" }), error => error.code === "RAW_MATERIAL_LABEL_FACTS_MISMATCH");
+corrected = act(corrected, "attach_confirm", { rollId: roll.id, expectedLabelVersion: corrected.rolls[0].labelVersion, matchResult: "matched" });
 assert.equal(corrected.rolls[0].inventoryStatus, "可用");
 
 const consumed = act(issued, "confirm_consumption", { rollId: roll.id, consumedWeightKg: 20 });

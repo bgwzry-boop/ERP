@@ -1,3 +1,4 @@
+import { buildRawMaterialRollListResponse } from "./services/rawMaterialRollReadProjectionService.mjs";
 import { mergeRawMaterialCurrentInbound } from "../shared/rawMaterialCurrentInbound.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -76,11 +77,14 @@ export function createRawMaterialInboundRepository(options = {}) {
   throw new Error(`Unsupported raw material inbound repository mode: ${mode}`);
 }
 export function createLocalRawMaterialInboundRepository(options = {}) {
-  const store = createRawMaterialInboundLocalStore({ storageRoot: options.storageRoot });
+  const store = options.store ?? createRawMaterialInboundLocalStore({ storageRoot: options.storageRoot });
   return {
     kind: "local_json",
     loadState({ seedInbounds = [] } = {}) {
       return store.load({ seedInbounds });
+    },
+    listRawMaterialRolls({ workspace, query } = {}) {
+      return buildRawMaterialRollListResponse(workspace?.rawMaterialInbounds, query);
     },
     listRawMaterialInbounds({ workspace, query } = {}) {
       return buildRawMaterialInboundListResponse(workspace?.rawMaterialInbounds, query);
@@ -102,8 +106,9 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
         });
       }
       const safeOperationLog = normalizeOperationLog(operationLog);
-      workspace.rawMaterialInbounds = [safeInbound, ...normalizeRawMaterialInbounds(workspace.rawMaterialInbounds)];
-      store.save(workspace.rawMaterialInbounds);
+      const nextInbounds = [safeInbound, ...normalizeRawMaterialInbounds(workspace.rawMaterialInbounds)];
+      store.save(nextInbounds, workspace.rawMaterialInboundActionReceipts ?? []);
+      workspace.rawMaterialInbounds = nextInbounds;
       return { inbound: safeInbound, operationLog: safeOperationLog, deduplicated: false };
     },
 
@@ -115,9 +120,11 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
       if (!result.inbound) {
         throw Object.assign(new Error(`Raw material inbound not found: ${inboundId}`), { statusCode: 404 });
       }
-      workspace.rawMaterialInbounds = result.inbounds;
-      recordLocalRawMaterialActionResult(input, result);
-      store.save(workspace.rawMaterialInbounds);
+      const stagedWorkspace = { ...workspace, rawMaterialInbounds: result.inbounds };
+      recordLocalRawMaterialActionResult({ ...input, workspace: stagedWorkspace }, result);
+      store.save(stagedWorkspace.rawMaterialInbounds, stagedWorkspace.rawMaterialInboundActionReceipts ?? []);
+      workspace.rawMaterialInbounds = stagedWorkspace.rawMaterialInbounds;
+      workspace.rawMaterialInboundActionReceipts = stagedWorkspace.rawMaterialInboundActionReceipts ?? [];
       return {
         inbound: result.inbound,
         operationLog: result.operationLog,
@@ -151,6 +158,10 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
       return {
         rawMaterialInbounds: normalizeRawMaterialInbounds(await queryJson(builtQuery.text, builtQuery.values)),
       };
+    },
+    async listRawMaterialRolls({ query } = {}) {
+      const builtQuery = buildListRawMaterialInboundPayloadsQuery({});
+      return buildRawMaterialRollListResponse(await queryJson(builtQuery.text, builtQuery.values), query);
     },
     async listRawMaterialInbounds({ query } = {}) {
       const builtQuery = buildListRawMaterialInboundPayloadsQuery({ query });

@@ -15,7 +15,7 @@ import { createOfficeOrderActions } from "./app/createOfficeOrderActions.js";
 import { createOfficePageRefreshActions } from "./app/createOfficePageRefreshActions.js";
 import { createOfficePrintDeviceActions } from "./app/createOfficePrintDeviceActions.js";
 import { createOfficeProductionPackingActions } from "./app/createOfficeProductionPackingActions.js";
-import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
+import { useOfficeRawMaterialActions } from "./app/useOfficeRawMaterialActions.js";
 import { createOfficeTodoActions, createOfficeTodoAppender } from "./app/createOfficeTodoActions.js";
 import {
   copyTextToClipboard,
@@ -271,7 +271,8 @@ function OfficeWorkbenchRuntime({
     setToast,
     showMasterDataTemplatePanel,
   });
-  const rawMaterialActions = createOfficeRawMaterialActions({
+  const rawMaterialActions = useOfficeRawMaterialActions({
+    activePage, renderedPage, selectedRawMaterialInboundId: officeWorkspace.selectedRawMaterialInboundId,
     allowLocalFallback: !runtimeServerRequired,
     authState,
     customers,

@@ -12,3 +12,6 @@ export const listOfficeRawMaterialInbounds = lazyApiCall("listOfficeRawMaterialI
 export const listOfficeRawMaterialSupplierStatementReviews = lazySupplierStatementApiCall("listOfficeRawMaterialSupplierStatementReviews");
 export const recognizeOfficeRawMaterialDeliveryNote = lazyApiCall("recognizeOfficeRawMaterialDeliveryNote");
 export const updateOfficeRawMaterialInboundAction = lazyApiCall("updateOfficeRawMaterialInboundAction");
+
+const stockCall = createLazyApiClient(() => import("./officeRawMaterialStockApiClient.js"));
+export const listOfficeRawMaterialStockInbounds = stockCall("listOfficeRawMaterialStockInbounds");

@@ -15,6 +15,12 @@ export function createInventoryCorrectionReadProjectionService() {
         const keyword = filters.keyword.toLowerCase();
         items = items.filter((item) => buildSearchText(item).includes(keyword));
       }
+      items.sort((a,b) => {
+        const aTime=Date.parse(a.createdAt), bTime=Date.parse(b.createdAt);
+        const byTime=(Number.isFinite(bTime)?bTime:-Infinity)-(Number.isFinite(aTime)?aTime:-Infinity);
+        if (byTime && !Number.isNaN(byTime)) return byTime;
+        return a.correctionDraftId < b.correctionDraftId ? -1 : a.correctionDraftId > b.correctionDraftId ? 1 : 0;
+      });
       return { items, filters };
     },
 

@@ -303,6 +303,7 @@ export function RawMaterialInboundReceivingSections({
       if (!labelVerification.matchResult) return;
       const result = await onAction?.("确认贴标入库", selected.id, {
         rollId: labelVerification.rollId,
+        expectedLabelVersion: Math.max(1, Number(selected.rolls?.find(roll => roll.id === labelVerification.rollId)?.labelVersion) || 1),
         matchResult: labelVerification.matchResult,
         checkedWeightKg: labelVerification.checkedWeightKg,
         checkedColor: labelVerification.checkedColor,

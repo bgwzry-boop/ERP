@@ -1,3 +1,4 @@
+import { normalizeInventoryHoldTimestamp } from "../../shared/inventoryHoldTime.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import {
   buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
@@ -6,25 +7,8 @@ import {
   toOfficeApiError as toApiError,
 } from "./officeApiClientCore.js";
 
-const reasonCodeByLabel = {
-  盘点差异: "cycle_count",
-  找不到货: "outbound_found_mismatch",
-  "包装/标签问题": "outbound_found_mismatch",
-  车间报数需复核: "workshop_report_check",
-  待处理转报废: "damaged_or_scrap",
-  其他: "other",
-};
-
-export const inventoryCorrectionReasonOptions = Object.freeze(Object.keys(reasonCodeByLabel));
-
-const reasonLabelByCode = {
-  cycle_count: "盘点差异",
-  outbound_found_mismatch: "找不到货/出库差异",
-  workshop_report_check: "车间报数需复核",
-  damaged_or_scrap: "待处理转报废",
-  manual_review: "人工复核",
-  other: "其他",
-};
+import {reasonCodeByLabel,reasonLabelByCode} from "../domain/inventoryCorrectionReasons.js";
+export {inventoryCorrectionReasonOptions} from "../domain/inventoryCorrectionReasons.js";
 
 export async function listOfficeInventoryIntents(input = {}, options = {}) {
   const { authState, operatorId, filters = {} } = input;
@@ -38,7 +22,8 @@ export async function listOfficeInventoryIntents(input = {}, options = {}) {
     if (!response.ok) {
       return { source: "api_error", blocked: true, error: toApiError(json, response.status, "库存意图队列 API 返回错误。"), items: [] };
     }
-    return { source: "api", items: Array.isArray(json?.items) ? json.items : [] };
+    if (!Array.isArray(json?.items)) return { source: "api_error", blocked: true, items: [], error: { code: "INVENTORY_INTENT_LIST_INVALID", message: "留货申请列表返回不完整，请刷新重试。" } };
+    return { source: "api", items: json.items };
   } catch (error) {
     return {
       source: "api_error",
@@ -61,7 +46,13 @@ export async function listOfficeTemporaryInventoryHolds(input = {}, options = {}
     if (!response.ok) {
       return { source: "api_error", blocked: true, error: toApiError(json, response.status, "临时留货列表 API 返回错误。"), items: [] };
     }
-    return { source: "api", items: Array.isArray(json?.items) ? json.items : [] };
+    if (!Array.isArray(json?.items)) {
+      return { source: "api_error", blocked: true, items: [], error: {
+        code: "TEMPORARY_HOLD_LIST_INVALID",
+        message: "留货列表返回不完整，请重新读取。",
+      } };
+    }
+    return { source: "api", items: json.items };
   } catch (error) {
     return {
       source: "api_error",
@@ -76,6 +67,7 @@ export function createOfficeTemporaryInventoryHold(input = {}, options = {}) {
   return requestInventoryIntentWrite({
     input,
     options,
+    targetId: cleanText(input.intentId),
     path: `/inventory/intents/${encodeURIComponent(cleanText(input.intentId))}/hold`,
     fallbackCode: "TEMPORARY_HOLD_CREATE_API_UNAVAILABLE",
     fallbackMessage: "创建临时留货失败。",
@@ -86,6 +78,7 @@ export function releaseOfficeTemporaryInventoryHold(input = {}, options = {}) {
   return requestInventoryIntentWrite({
     input,
     options,
+    targetId: cleanText(input.holdId ?? input.reservationId),
     path: `/inventory/holds/${encodeURIComponent(cleanText(input.holdId ?? input.reservationId))}/release`,
     fallbackCode: "TEMPORARY_HOLD_RELEASE_API_UNAVAILABLE",
     fallbackMessage: "释放临时留货失败。",
@@ -96,6 +89,7 @@ export function extendOfficeTemporaryInventoryHold(input = {}, options = {}) {
   return requestInventoryIntentWrite({
     input,
     options,
+    targetId: cleanText(input.holdId ?? input.reservationId),
     path: `/inventory/holds/${encodeURIComponent(cleanText(input.holdId ?? input.reservationId))}/extend`,
     fallbackCode: "TEMPORARY_HOLD_EXTEND_API_UNAVAILABLE",
     fallbackMessage: "延长临时留货失败。",
@@ -112,8 +106,8 @@ export function expireDueOfficeTemporaryInventoryHolds(input = {}, options = {})
   });
 }
 
-async function requestInventoryIntentWrite({ input, options, path, fallbackCode, fallbackMessage }) {
-  if (!cleanText(path) || /\/(?:intents|holds)\/$/.test(path)) {
+async function requestInventoryIntentWrite({ input, options, path, targetId, fallbackCode, fallbackMessage }) {
+  if (path !== "/inventory/holds/expire-due" && !targetId) {
     return { source: "client_validation", blocked: true, error: { code: "INVENTORY_INTENT_ID_REQUIRED", message: "缺少库存意图或留货 ID。" } };
   }
   try {
@@ -122,13 +116,43 @@ async function requestInventoryIntentWrite({ input, options, path, fallbackCode,
       authState: input.authState,
       method: "POST",
       operatorId: input.operatorId,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       body: omitTransportFields(input),
     });
     const json = await readJson(response);
     if (!response.ok) {
       return { source: "api_error", blocked: true, error: toApiError(json, response.status, fallbackMessage) };
     }
-    return { source: "api", response: json, ...json };
+    if (!path.endsWith("/expire-due")) {
+      const receiptHoldId = cleanText(json?.hold?.reservationId ?? json?.hold?.id);
+      const receiptIntentId = cleanText(json?.intent?.intentId ?? json?.intent?.id);
+      const expectedHoldId = cleanText(input.holdId ?? input.reservationId);
+      const expectedIntentId = cleanText(input.intentId);
+      const releasing = path.endsWith("/release");
+      const expectedRevision = Number(input.expectedRevision);
+      const quantity = json?.hold?.reservedQty;
+      const creating = path.endsWith("/hold");
+      const extending = path.endsWith("/extend");
+      const requestedExpiry = Date.parse(normalizeInventoryHoldTimestamp(input.expiresAt));
+      const receivedExpiry = Date.parse(json?.hold?.expiresAt);
+      const requestMismatch = (creating && input.qty != null && quantity !== Number(input.qty)) ||
+        (creating && cleanText(input.inventoryItemId) && cleanText(json?.hold?.inventoryItemId) !== cleanText(input.inventoryItemId)) ||
+        (extending && (!Number.isFinite(requestedExpiry) || receivedExpiry !== requestedExpiry));
+      const invalidBusinessReceipt = requestMismatch || json?.hold?.status !== (releasing ? "已取消" : "生效") ||
+        json?.intent?.intentStatus !== (releasing ? "已取消" : "临时留货-生效") ||
+        !Number.isSafeInteger(quantity) || (releasing ? quantity !== 0 : quantity <= 0) ||
+        !Number.isSafeInteger(expectedRevision) || json?.intent?.revision !== expectedRevision + 1 ||
+        cleanText(json?.hold?.sourceIntentId) !== receiptIntentId;
+      if (invalidBusinessReceipt || !receiptHoldId || !receiptIntentId || !cleanText(json?.operationLogId) ||
+        (expectedHoldId && receiptHoldId !== expectedHoldId) ||
+        (expectedIntentId && receiptIntentId !== expectedIntentId)) {
+        return { source: "api_error", blocked: true, error: {
+          code: "TEMPORARY_HOLD_SAVE_UNCONFIRMED",
+          message: "留货操作返回的记录不完整或与当前对象不一致，请刷新核对后再操作。",
+        } };
+      }
+    }
+    return { ...json, source: "api", response: json };
   } catch (error) {
     if (isOfficeApiServerRequired()) return buildServerRequiredWriteError(fallbackCode, error);
     return { source: "api_error", blocked: true, error: { code: fallbackCode, message: error?.message ?? String(error) } };
@@ -136,7 +160,7 @@ async function requestInventoryIntentWrite({ input, options, path, fallbackCode,
 }
 
 function omitTransportFields(input) {
-  const { authState: _authState, operatorId: _operatorId, intentId: _intentId, holdId: _holdId, reservationId: _reservationId, ...body } = input;
+  const { idempotencyKey: _idempotencyKey, authState: _authState, operatorId: _operatorId, intentId: _intentId, holdId: _holdId, reservationId: _reservationId, ...body } = input;
   return body;
 }
 
@@ -145,7 +169,7 @@ function buildInventoryIntentQuery(filters = {}) {
 }
 
 function buildInventoryHoldQuery(filters = {}) {
-  return buildSimpleQuery(filters, ["status", "customerId"]);
+  return buildSimpleQuery(filters, ["status", "customerId", "inventoryItemId"]);
 }
 
 function buildSimpleQuery(filters, keys) {
@@ -184,7 +208,16 @@ export async function listOfficeInventoryLedgerEntries(input = {}, options = {})
       };
     }
 
-    const items = Array.isArray(json?.items) ? json.items.map(mapApiInventoryLedgerEntryToLocal).filter(Boolean) : [];
+    const items = Array.isArray(json?.items) ? json.items.map(mapApiInventoryLedgerEntryToLocal) : null;
+    const inventoryItemId = cleanText(filters.inventoryItemId);
+    if (!items || items.some(item => !item || (inventoryItemId && item.inventoryItemId !== inventoryItemId))) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: { code: "INVENTORY_LEDGER_RESPONSE_MISMATCH", message: "库存流水返回不完整或与当前库存不一致，请刷新核对。" },
+        items: [], page, pageSize, total: 0,
+      };
+    }
     return {
       source: "api",
       items,
@@ -295,9 +328,23 @@ export async function listOfficeInventoryCorrectionDrafts(input = {}, options = 
       };
     }
 
-    const items = Array.isArray(json?.items)
-      ? json.items.map(mapApiInventoryCorrectionDraftSummaryToLocal).filter(Boolean)
-      : [];
+    const validQuantity = value => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+    const seen = new Set();
+    const invalid = !Array.isArray(json?.items) || json.page !== Number(page) || json.pageSize !== Number(pageSize)
+      || !Number.isSafeInteger(json.total) || json.total < 0 || json.items.length > Number(pageSize) || json.total < json.items.length
+      || json.items.some(item => {
+        const id = cleanText(item?.correctionDraftId ?? item?.id);
+        const inventoryId = cleanText(item?.inventoryItemId ?? item?.inventory_item_id);
+        const before = item?.qtyBefore?.onHand ?? item?.qtyBefore?.on_hand ?? item?.systemQty ?? item?.system_qty;
+        const after = item?.requestedQtyAfter?.onHand ?? item?.requestedQtyAfter?.on_hand ?? item?.actualQty ?? item?.actual_qty;
+        const bad = !id || seen.has(id) || !inventoryId || (queryFilters.inventoryItemId && inventoryId !== queryFilters.inventoryItemId)
+          || !validQuantity(before) || !validQuantity(after) || !cleanText(item?.status);
+        seen.add(id); return bad;
+      });
+    if (invalid) {
+      return {source:"api_error",blocked:true,error:{code:"INVENTORY_CORRECTION_LIST_INVALID",message:"库存修正记录不完整，请刷新重试。"},items:[],page,pageSize,total:0};
+    }
+    const items = json.items.map(mapApiInventoryCorrectionDraftSummaryToLocal);
     return {
       source: "api",
       items,
@@ -424,6 +471,16 @@ export async function confirmOfficeInventoryCorrectionDraft(input = {}, options 
       };
     }
 
+    const validQty = value => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+    const ledger = json?.ledger;
+    if (json?.correctionDraftId !== safeCorrectionDraftId || !cleanText(json.inventoryItemId)
+      || !validQty(json.qtyBefore?.onHand) || !validQty(json.qtyAfter?.onHand)
+      || !cleanText(ledger?.ledgerId) || ledger.sourceId !== safeCorrectionDraftId
+      || !validQty(ledger.qtyBefore) || !validQty(ledger.qtyAfter)
+      || ledger.qtyAfter !== json.qtyAfter.onHand || ledger.qtyChange !== ledger.qtyAfter - ledger.qtyBefore
+      || !cleanText(json.operationLogId)) {
+      return {source:"api_error",blocked:true,error:{code:"INVENTORY_CORRECTION_CONFIRM_UNCONFIRMED",message:"库存修正确认结果不完整，请按原请求重试并核对库存流水。"},confirmation:null};
+    }
     return {
       source: "api",
       confirmation: mapApiInventoryCorrectionConfirmToLocal(json),
@@ -445,7 +502,7 @@ export async function confirmOfficeInventoryCorrectionDraft(input = {}, options 
 export async function linkOfficeInventoryCorrectionAttachments(input = {}, options = {}) {
   const { authState, operatorId, correctionDraftId, attachmentIds = [], remark = "" } = input;
   const safeCorrectionDraftId = cleanText(correctionDraftId);
-  const safeAttachmentIds = [...new Set(attachmentIds.map(cleanText).filter(Boolean))];
+  const safeAttachmentIds = [...new Set((Array.isArray(attachmentIds) ? attachmentIds : []).map(cleanText).filter(Boolean))];
   if (!safeCorrectionDraftId || !safeAttachmentIds.length) {
     return {
       source: "client_validation",
@@ -486,6 +543,13 @@ export async function linkOfficeInventoryCorrectionAttachments(input = {}, optio
         linkage: null,
       };
     }
+    if (json?.correctionDraftId !== safeCorrectionDraftId || !Array.isArray(json.attachmentIds)
+      || json.attachmentIds.some(id => typeof id !== "string" || !id.trim())
+      || new Set(json.attachmentIds).size !== json.attachmentIds.length
+      || safeAttachmentIds.some(id => !json.attachmentIds.includes(id))
+      || !Number.isSafeInteger(json.revision) || json.revision < 1) {
+      return {source:"api_error",blocked:true,error:{code:"INVENTORY_CORRECTION_ATTACHMENT_LINK_UNCONFIRMED",message:"凭证关联结果不完整，请保留原凭证并重试核对。"},linkage:null};
+    }
     return {
       source: "api",
       linkage: {
@@ -508,24 +572,33 @@ export async function createOfficeInventoryCorrectionDraft(input, options = {}) 
   const {
     authState,
     stock,
-    expectedQty = stock?.inStock ?? 0,
+    expectedQty = stock?.onHandQty ?? stock?.inStock,
     actualQty,
     reason,
     operatorId,
     remark,
   } = input;
-  const normalizedActualQty = Number(actualQty ?? expectedQty ?? 0);
+  const normalizedActualQty = parseCorrectionQuantity(actualQty);
+  const normalizedExpectedQty = parseCorrectionQuantity(expectedQty);
+  if (normalizedActualQty === null || normalizedExpectedQty === null) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: { code: "VALIDATION_ERROR", message: "系统数量和实盘数量必须是明确填写的非负整数。" },
+      draft: null,
+    };
+  }
 
   try {
     const response = await requestInventoryApi("/inventory/correction-drafts", {
       ...options,
-        idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       authState,
       method: "POST",
       operatorId,
       body: {
         inventoryItemId: stock?.id,
-        expectedQty: Number(expectedQty ?? 0),
+        expectedQty: normalizedExpectedQty,
         actualQty: normalizedActualQty,
         reason: mapInventoryCorrectionReason(reason),
         remark: remark ?? reason ?? "",
@@ -566,13 +639,22 @@ export async function createOfficeInventoryCorrectionDraft(input, options = {}) 
   }
 }
 
+function parseCorrectionQuantity(value) {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !value.trim()) return null;
+  const quantity = Number(value);
+  return Number.isSafeInteger(quantity) && quantity >= 0 ? quantity : null;
+}
+
 export function mapInventoryCorrectionReason(reason) {
-  return reasonCodeByLabel[reason] ?? "manual_review";
+  const value = cleanText(reason);
+  if (Object.hasOwn(reasonCodeByLabel, value)) return reasonCodeByLabel[value];
+  return Object.hasOwn(reasonLabelByCode, value) ? value : "manual_review";
 }
 
 function mapInventoryCorrectionReasonLabel(reason) {
   const text = cleanText(reason);
-  return reasonLabelByCode[text] ?? text;
+  return Object.hasOwn(reasonLabelByCode, text) ? reasonLabelByCode[text] : text;
 }
 
 export function mapApiInventoryLedgerEntryToLocal(entry) {
@@ -626,6 +708,9 @@ export function mapApiInventoryItemToLocal(item) {
     state.includes("待复核");
   return {
     id,
+    category: cleanText(item.category),
+    goodsType: cleanText(item.goodsType),
+    pattern: cleanText(item.pattern),
     inventoryKey: cleanText(item.inventoryKey ?? item.inventory_key) || id,
     size: cleanText(item.size),
     color: cleanText(item.color ?? item.colorName ?? item.color_name),

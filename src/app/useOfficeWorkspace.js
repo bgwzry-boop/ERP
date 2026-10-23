@@ -441,6 +441,7 @@ export function useOfficeWorkspace({
     setSelectedFulfillmentId,
   });
   const roleToolReads = useOfficeRoleToolReads({
+    activePage,
     authState,
     currentUserId,
     customers,

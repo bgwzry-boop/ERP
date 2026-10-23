@@ -1,4 +1,4 @@
-import { mergeRawMaterialCurrentInbound } from "../../shared/rawMaterialCurrentInbound.js";
+import {mergeRawMaterialCurrentInbound} from "../../shared/rawMaterialCurrentInbound.js";
 import {
   confirmOfficeRawMaterialSupplierPayment,
   confirmOfficeRawMaterialSupplierStatement,
@@ -34,6 +34,7 @@ export function createOfficeRawMaterialActions({
   currentUser,
   currentUserId,
   guardUiAction,
+  isCurrent = () => true,
   now = () => new Date().toISOString(),
   nowTimeLabel = () => new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
   orderLines,
@@ -49,7 +50,7 @@ export function createOfficeRawMaterialActions({
   const operatorName = () => currentUser.displayName || currentUserId;
 
   async function recognizeRawMaterialDeliveryNote(file = {}) {
-    if (!guardUiAction("rawMaterial", "复核送货单")) return null;
+    if (!isCurrent() || !guardUiAction("rawMaterial", "复核送货单")) return null;
     const result = await api.recognizeOfficeRawMaterialDeliveryNote({
       authState,
       operatorId: currentUserId,
@@ -69,11 +70,12 @@ export function createOfficeRawMaterialActions({
       pdfPageNumber: file.pdfPageNumber,
       useNewModel: false,
       pages: Array.isArray(file.pages) ? file.pages : undefined,
-      onProgress: file.onProgress,
+      onProgress: (...args) => { if (isCurrent()) file.onProgress?.(...args); },
       signal: file.signal,
       duplicateConfirmationToken: file.duplicateConfirmationToken,
       ocrJobId: file.ocrJobId,
     });
+    if (!isCurrent()) return null;
     if (
       result.blocked &&
       result.error?.code === "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_CONFIRMATION_REQUIRED" &&
@@ -128,7 +130,7 @@ export function createOfficeRawMaterialActions({
   }
 
   async function updateRawMaterialInbound(action, inboundId, options = {}) {
-    if (!guardUiAction("rawMaterial", action)) return null;
+    if (!isCurrent() || !guardUiAction("rawMaterial", action)) return null;
     const target = rawMaterialInboundsRef.current.find((item) => item.id === inboundId);
     if (!target) {
       setToast(`未找到原材料入库单 ${inboundId}。`);
@@ -139,6 +141,7 @@ export function createOfficeRawMaterialActions({
       applyRawMaterialInboundLocalAction,
       buildRawMaterialInboundToastText,
     } = await loadRawMaterialInboundLocalActions();
+    if (!isCurrent()) return null;
     const toastText = buildRawMaterialInboundToastText(action, target, options);
     const result = await api.updateOfficeRawMaterialInboundAction({
       authState,
@@ -151,6 +154,7 @@ export function createOfficeRawMaterialActions({
       // only on the ref here would submit the old version and cause a false
       // optimistic-lock conflict.
       expectedRevision: Number(options.expectedRevision ?? target.revision ?? 0),
+      idempotencyKey: options.idempotencyKey,
       action,
       rollId: options.rollId,
       sourceReturnInboundId: options.sourceReturnInboundId,
@@ -173,9 +177,12 @@ export function createOfficeRawMaterialActions({
       reviewLocation: options.reviewLocation,
       machineCount: options.machineCount,
       qualifiedOutputQuantity: options.qualifiedOutputQuantity,
+      expectedOutputQuantity: options.expectedOutputQuantity,
+      actualQualifiedOutputQuantity: options.actualQualifiedOutputQuantity,
       reviewFields: options.reviewFields,
       lineReviews: options.lineReviews,
       matchResult: options.matchResult,
+      expectedLabelVersion: options.expectedLabelVersion,
       checkedWeightKg: options.checkedWeightKg,
       checkedColor: options.checkedColor,
       checkedSpec: options.checkedSpec,
@@ -186,6 +193,13 @@ export function createOfficeRawMaterialActions({
       supplierNameHint: options.supplierNameHint,
     });
 
+    if (!isCurrent()) return null;
+    if (result.inbound?.id && result.inbound.id !== inboundId) {
+      const message = "返回的入库单与本次操作不一致，当前记录未替换。请刷新核实保存结果。";
+      setRawMaterialInboundMeta(current => ({...current, source:"api_error", error:message}));
+      setToast(message);
+      return null;
+    }
     if (!result.blocked && result.inbound?.id) {
       setRawMaterialInbounds((current) =>
         mergeRawMaterialCurrentInbound(current, result.inbound),
@@ -258,7 +272,7 @@ export function createOfficeRawMaterialActions({
   }
 
   async function saveRawMaterialSupplierStatementReviewDraft(statementResult, options = {}) {
-    if (!guardUiAction("rawMaterial", "复核送货单")) return null;
+    if (!isCurrent() || !guardUiAction("rawMaterial", "复核送货单")) return null;
     const result = await api.createOfficeRawMaterialSupplierStatementReviewDraft({
       authState,
       operatorId: currentUserId,
@@ -267,6 +281,7 @@ export function createOfficeRawMaterialActions({
       fileName: options.fileName,
       note: options.note,
     });
+    if (!isCurrent()) return null;
     if (result.blocked || !result.review?.reviewId) {
       setRawMaterialSupplierStatementReviewMeta((current) => ({
         ...current,
@@ -296,19 +311,25 @@ export function createOfficeRawMaterialActions({
   }
 
   async function updateSupplierReview({ action, failureLabel, permissionLabel, reviewId, successMessage, options = {} }) {
-    if (!guardUiAction("rawMaterial", action.guardAction)) return null;
+    if (!isCurrent() || !guardUiAction("rawMaterial", action.guardAction)) return null;
     const result = await action.operation({
       authState,
       operatorId: currentUserId,
       reviewId,
       ...action.buildInput(options),
     });
+    if (!isCurrent()) return null;
     if (result.blocked || !result.review?.reviewId) {
       setToast(
         result.error?.requiredPermission
           ? `后端拒绝${permissionLabel}：缺少权限 ${result.error.requiredPermission}。`
           : `${failureLabel}：${result.error?.message ?? "未知错误"}`,
       );
+      return null;
+    }
+    if (result.source !== "api" || result.review.reviewId !== reviewId || !String(result.operationLogId || "").trim()
+      || (action.validateResult && !action.validateResult(result, options))) {
+      setToast("未收到与本次操作一致的完整保存凭据，结果暂无法确认。请刷新该单据核对后再操作，避免重复记账。");
       return null;
     }
     setRawMaterialSupplierStatementReviews((current) =>
@@ -364,6 +385,18 @@ export function createOfficeRawMaterialActions({
     action: {
       guardAction: "确认付款",
       operation: api.confirmOfficeRawMaterialSupplierPayment,
+      validateResult: (result, input) => {
+        const review = result.review;
+        const payment = review.supplierPaymentRecord;
+        const amount = Number(payment?.paidAmount);
+        return review.paymentStatus === "已确认付款"
+          && Boolean(review.supplierPaymentConfirmationId && review.supplierPayableId)
+          && payment?.supplierPaymentConfirmationId === review.supplierPaymentConfirmationId
+          && payment?.sourceReviewId === review.reviewId
+          && payment?.supplierPayableId === review.supplierPayableId
+          && Number.isFinite(amount) && amount > 0
+          && (input.paidAmount == null || Math.abs(amount - Number(input.paidAmount)) < 0.005);
+      },
       buildInput: (input) => ({
         paidAmount: input.paidAmount,
         paymentMethod: input.paymentMethod,

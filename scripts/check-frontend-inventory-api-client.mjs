@@ -162,7 +162,11 @@ const writeCalls = [];
 const writeOptions = {
   fetchImpl: async (url, init) => {
     writeCalls.push({ url, init, body: JSON.parse(init.body) });
-    return createJsonResponse(200, { intent: inventoryIntent, hold: { reservationId: "HOLD-CLIENT-001" }, operationLogId: "LOG-1" });
+    const releasing = url.endsWith("/release");
+    return createJsonResponse(200, {
+      intent: {...inventoryIntent, revision: Number(JSON.parse(init.body).expectedRevision) + 1, intentStatus: releasing ? "已取消" : "临时留货-生效"},
+      hold: { reservationId: "HOLD-CLIENT-001", sourceIntentId: inventoryIntent.intentId, expiresAt: JSON.parse(init.body).expiresAt, status: releasing ? "已取消" : "生效", reservedQty: releasing ? 0 : 120 }, operationLogId: "LOG-1"
+    });
   },
 };
 await createOfficeTemporaryInventoryHold(
@@ -537,6 +541,26 @@ const fallbackCorrectionDetailResult = await getOfficeInventoryCorrectionDetail(
 assert(fallbackCorrectionDetailResult.source === "local_fallback", "inventory correction detail should fall back locally");
 assert(fallbackCorrectionDetailResult.detail.actualQty === 2488, "inventory correction detail fallback missed ledger quantity");
 
+// Reject malformed HTTP-200 data before mapping can silently discard evidence.
+for (const payload of [
+  {}, { items: null }, { items: [{}] },
+  { items: [{ ledgerId: "L", inventoryItemId: "OTHER-STOCK" }] },
+  { items: [{ ledgerId: "L", inventoryItemId: stock.id }, {}] },
+]) {
+  const result = await listOfficeInventoryLedgerEntries(
+    { authState, filters: { inventoryItemId: stock.id } },
+    { fetchImpl: async () => createJsonResponse(200, payload) },
+  );
+  assert(result.blocked === true, "malformed ledger must not become a successful empty/partial list");
+  assert(result.error.code === "INVENTORY_LEDGER_RESPONSE_MISMATCH", "ledger mismatch needs explicit feedback");
+  assert(result.items.length === 0, "invalid ledger must not expose partial evidence");
+}
+const emptyLedgerResult = await listOfficeInventoryLedgerEntries(
+  { authState, filters: { inventoryItemId: stock.id } },
+  { fetchImpl: async () => createJsonResponse(200, { items: [], total: 0 }) },
+);
+assert(emptyLedgerResult.source === "api" && emptyLedgerResult.items.length === 0, "valid empty ledger remains readable");
+
 const ledgerCalls = [];
 const ledgerResult = await listOfficeInventoryLedgerEntries(
   {
@@ -681,6 +705,27 @@ const fallbackLedgerResult = await listOfficeInventoryLedgerEntries(
 assert(fallbackLedgerResult.source === "local_fallback", "inventory ledger network failure should fall back locally");
 assert(fallbackLedgerResult.items[0].ledgerId === "LEDGER-FALLBACK-1", "inventory ledger fallback entries were not mapped");
 assert(fallbackLedgerResult.total === 1, "inventory ledger fallback did not apply filters");
+
+for (const field of ['expectedQty', 'actualQty']) {
+  for (const value of [null, '', ' ', true, false, [], [0], {}, -1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1]) {
+    let requested = false;
+    const result = await createOfficeInventoryCorrectionDraft({stock, expectedQty: 10, actualQty: 0, [field]: value}, {
+      fetchImpl: async () => { requested = true; throw new Error('must not request'); },
+    });
+    assert(result.blocked && result.draft === null && result.error.code === 'VALIDATION_ERROR', 'invalid correction quantity must block without local draft');
+    assert(!requested, 'invalid correction quantity must not reach API');
+  }
+}
+for (const input of [{stock}, {stock: {}, actualQty: 0}]) {
+  const result = await createOfficeInventoryCorrectionDraft(input, {fetchImpl: async () => {throw new Error('offline');}});
+  assert(result.blocked && result.error.code === 'VALIDATION_ERROR', 'missing quantity must not be invented');
+}
+
+let zeroRequest;
+await createOfficeInventoryCorrectionDraft({stock: {id: 'ZERO', onHandQty: 12, inStock: 99}, actualQty: '0'}, {
+  fetchImpl: async (_url, init) => { zeroRequest = JSON.parse(init.body); return createJsonResponse(403, {code: 'FORBIDDEN'}); },
+});
+assert(zeroRequest.actualQty === 0 && zeroRequest.expectedQty === 12, 'explicit zero is valid and canonical onHandQty must win');
 
 const apiCalls = [];
 const apiResult = await createOfficeInventoryCorrectionDraft(
@@ -848,4 +893,84 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+for (const body of [{}, {hold:{reservationId:'WRONG'},intent:inventoryIntent,operationLogId:'L'}, {hold:{reservationId:'HOLD-CLIENT-001'},intent:inventoryIntent}]) {
+ const result=await releaseOfficeTemporaryInventoryHold({authState,holdId:'HOLD-CLIENT-001',expectedRevision:1},{fetchImpl:async()=>createJsonResponse(200,body)});
+ assert(result.blocked && result.error.code==='TEMPORARY_HOLD_SAVE_UNCONFIRMED','Malformed success must not report release');
+}
+const validReceipt=await releaseOfficeTemporaryInventoryHold({authState,holdId:'HOLD-CLIENT-001',expectedRevision:1},writeOptions);
+assert(validReceipt.source==='api' && !validReceipt.blocked,'Matching receipt remains accepted');
+
+for (const command of [createOfficeTemporaryInventoryHold, extendOfficeTemporaryInventoryHold, releaseOfficeTemporaryInventoryHold]) {
+ let called=false;
+ const result=await command({authState},{fetchImpl:async()=>{called=true;return createJsonResponse(200,{});}});
+ assert(!called,'Missing hold/intent identity must block before network');
+ assert(result.blocked && result.error.code==='INVENTORY_INTENT_ID_REQUIRED','Missing identity requires explicit validation feedback');
+}
+
+for (const patch of [{status:'生效'}, {reservedQty:3}, {reservedQty:'0'}, {sourceIntentId:'OTHER'}]) {
+ const body={intent:{...inventoryIntent,intentStatus:'已取消',revision:2},hold:{reservationId:'HOLD-CLIENT-001',sourceIntentId:inventoryIntent.intentId,status:'已取消',reservedQty:0,...patch},operationLogId:'L'};
+ const result=await releaseOfficeTemporaryInventoryHold({authState,holdId:'HOLD-CLIENT-001',expectedRevision:1},{fetchImpl:async()=>createJsonResponse(200,body)});
+ assert(result.blocked,'Invalid post-release state must not report success');
+}
+for (const revision of [1,3,'2']) {
+ const body={intent:{...inventoryIntent,intentStatus:'已取消',revision},hold:{reservationId:'HOLD-CLIENT-001',sourceIntentId:inventoryIntent.intentId,status:'已取消',reservedQty:0},operationLogId:'L'};
+ const result=await releaseOfficeTemporaryInventoryHold({authState,holdId:'HOLD-CLIENT-001',expectedRevision:1},{fetchImpl:async()=>createJsonResponse(200,body)});
+ assert(result.blocked,'Wrong revision must not confirm the submitted transition');
+}
+
+const requestReceipt={intent:{...inventoryIntent,intentStatus:'临时留货-生效',revision:2},hold:{reservationId:'H1',sourceIntentId:inventoryIntent.intentId,status:'生效',reservedQty:20,inventoryItemId:'INV1',expiresAt:'2099-01-01T00:00:00Z'},operationLogId:'L'};
+for (const patch of [{qty:21},{inventoryItemId:'INV2'}]) {
+ const result=await createOfficeTemporaryInventoryHold({authState,intentId:inventoryIntent.intentId,expectedRevision:1,qty:20,inventoryItemId:'INV1',...patch},{fetchImpl:async()=>createJsonResponse(200,requestReceipt)});
+ assert(result.blocked,'Receipt must match requested quantity and inventory');
+}
+for (const expiresAt of ['2099-01-02T00:00:00Z','invalid']) {
+ const result=await extendOfficeTemporaryInventoryHold({authState,holdId:'H1',expectedRevision:1,expiresAt},{fetchImpl:async()=>createJsonResponse(200,requestReceipt)});
+ assert(result.blocked,'Extension receipt must match the requested instant');
+}
+const sameInstant=await extendOfficeTemporaryInventoryHold({authState,holdId:'H1',expectedRevision:1,expiresAt:'2099-01-01T08:00:00+08:00'},{fetchImpl:async()=>createJsonResponse(200,requestReceipt)});
+assert(!sameInstant.blocked,'Equivalent timezone representations must match');
+
+await listOfficeTemporaryInventoryHolds({authState,filters:{inventoryItemId:'INV/2'}},{fetchImpl:async(url)=>{assert(new URL(url,'http://test').searchParams.get('inventoryItemId')==='INV/2','Item filter must reach API');return createJsonResponse(200,{items:[]});}});
+
+for (const body of [{},{items:null},{items:{}}]) {
+ const result=await listOfficeTemporaryInventoryHolds({authState},{fetchImpl:async()=>createJsonResponse(200,body)});
+ assert(result.blocked && result.error.code==='TEMPORARY_HOLD_LIST_INVALID','Malformed response is not an empty hold list');
+}
+
+const stableHoldCalls=[];
+for(let attempt=0;attempt<2;attempt++) {
+ await releaseOfficeTemporaryInventoryHold({authState,holdId:'HOLD-CLIENT-001',expectedRevision:1,idempotencyKey:'hold-stable-retry'}, {fetchImpl:async(url,init)=>{stableHoldCalls.push(init);return createJsonResponse(503,{});}});
+}
+assert(stableHoldCalls.every(init=>init.headers['idempotency-key']==='hold-stable-retry'),'hold retry key must reach the transport header');
+assert(stableHoldCalls.every(init=>JSON.parse(init.body).idempotencyKey===undefined),'transport key must not pollute business payload');
+
+for (const payload of [
+ {}, {items:[null],page:1,pageSize:20,total:1},
+ {items:[mappedCorrectionSummary,mappedCorrectionSummary],page:1,pageSize:20,total:2},
+ {items:[{...mappedCorrectionSummary,systemQty:null}],page:1,pageSize:20,total:1},
+ {items:[{...mappedCorrectionSummary,actualQty:true}],page:1,pageSize:20,total:1},
+ {items:[{...mappedCorrectionSummary,inventoryItemId:'OTHER'}],page:1,pageSize:20,total:1},
+ {items:[],page:2,pageSize:20,total:0}, {items:[],page:1,pageSize:20},
+]) {
+ const result=await listOfficeInventoryCorrectionDrafts({filters:{inventoryItemId:stock.id}}, {fetchImpl:async()=>createJsonResponse(200,payload)});
+ assert(result.blocked && result.error.code==='INVENTORY_CORRECTION_LIST_INVALID','malformed correction queue must fail closed');
+}
+
+for (const receipt of [{}, {correctionDraftId:'OTHER',attachmentIds:['ATT-X'],revision:2}, {correctionDraftId:'ADJ-X',attachmentIds:[],revision:2}, {correctionDraftId:'ADJ-X',attachmentIds:['ATT-X'],revision:'2'}, {correctionDraftId:'ADJ-X',attachmentIds:['ATT-X','ATT-X'],revision:2}]) {
+ const result=await linkOfficeInventoryCorrectionAttachments({correctionDraftId:'ADJ-X',attachmentIds:['ATT-X'],idempotencyKey:'link-retry-check'}, {fetchImpl:async (_url,init)=>{assert(init.headers['idempotency-key']==='link-retry-check','link retry key must be forwarded');return createJsonResponse(200,receipt);}});
+ assert(result.blocked && result.linkage===null && result.error.code==='INVENTORY_CORRECTION_ATTACHMENT_LINK_UNCONFIRMED','incomplete linkage receipt must not invent success');
+}
+
+for(const receipt of [{}, {correctionDraftId:'OTHER'}, {correctionDraftId:'ADJ-CHECK',inventoryItemId:'INV',qtyBefore:{onHand:0},qtyAfter:{onHand:1},ledger:{ledgerId:'L',sourceId:'ADJ-CHECK',qtyBefore:0,qtyAfter:1,qtyChange:2},operationLogId:'LOG'}]) {
+ const result=await confirmOfficeInventoryCorrectionDraft({correctionDraftId:'ADJ-CHECK',idempotencyKey:'confirm-stable'}, {fetchImpl:async(_url,init)=>{assert(init.headers['idempotency-key']==='confirm-stable','confirmation key must be preserved');return createJsonResponse(200,receipt);}});
+ assert(result.blocked && result.confirmation===null && result.error.code==='INVENTORY_CORRECTION_CONFIRM_UNCONFIRMED','invalid confirmation must not report success');
+}
+
+for(const code of ['cycle_count','outbound_found_mismatch','workshop_report_check','damaged_or_scrap','manual_review','other']) {
+ assert(mapInventoryCorrectionReason(code)===code,'stored reason code must survive resubmission');
+}
+for(const value of ['constructor','toString','__proto__']) {
+ assert(mapInventoryCorrectionReason(value)==='manual_review','inherited object keys must not become reason values');
 }

@@ -98,6 +98,7 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
       pageSize: toNumber(json?.pageSize, pageSize),
       total: toNumber(json?.total, items.length),
       metrics: json?.metrics ?? buildRawMaterialInboundMetrics(items),
+      receiptStageCounts: json?.receiptStageCounts,
     };
   } catch (error) {
     const items = filterLocalRawMaterialInbounds(localInbounds, filters);
@@ -299,6 +300,7 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
     operatorId,
     inboundId,
     expectedRevision,
+    idempotencyKey,
     action,
     rollId,
     sourceReturnInboundId,
@@ -321,9 +323,12 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
     reviewedQuantity,
     reviewLocation,
     machineCount,
+    expectedOutputQuantity,
+    actualQualifiedOutputQuantity,
     qualifiedOutputQuantity,
     reviewFields,
     lineReviews,
+    expectedLabelVersion,
     matchResult,
     checkedWeightKg,
     checkedColor,
@@ -355,6 +360,7 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
         authState,
         operatorId,
         method: "POST",
+        idempotencyKey: idempotencyKey ?? options.idempotencyKey,
         body: {
           expectedRevision,
           operatorId,
@@ -379,9 +385,12 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
           reviewedQuantity,
           reviewLocation,
           machineCount,
+          expectedOutputQuantity,
+          actualQualifiedOutputQuantity,
           qualifiedOutputQuantity,
           reviewFields,
           lineReviews,
+          expectedLabelVersion,
           matchResult,
           checkedWeightKg,
           checkedColor,
@@ -425,6 +434,7 @@ function buildRawMaterialInboundQuery({ page, pageSize, filters = {} }) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("pageSize", String(pageSize));
+  if (filters.receiptStage) params.set("receiptStage", cleanText(filters.receiptStage));
   if (filters.keyword) params.set("keyword", cleanText(filters.keyword));
   if (filters.status && filters.status !== "全部") params.set("status", cleanText(filters.status));
   const query = params.toString();

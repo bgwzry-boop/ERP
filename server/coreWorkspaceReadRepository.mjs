@@ -332,7 +332,7 @@ function toColorAlias(row) {
     enabled: boolean(row.enabled, true),
     createdBy: clean(row.created_by),
     createdAt: timestamp(row.created_at),
-    updatedAt: timestamp(row.updated_at),
+    updatedAt: typeof row.updated_at === "string" ? row.updated_at : timestamp(row.updated_at),
   };
 }
 

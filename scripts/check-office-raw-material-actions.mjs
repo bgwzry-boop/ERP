@@ -299,14 +299,15 @@ for (const [actionName, apiName, guardAction] of supplierActionCases) {
     supplierPayableId: "RMP-1",
     supplierPayableDraft: { payableAmount: 100 },
     supplierPaymentConfirmationId: "RMPAY-1",
-    supplierPaymentRecord: { paidAmount: 100 },
+    paymentStatus: "已确认付款",
+    supplierPaymentRecord: { paidAmount: 100, supplierPaymentConfirmationId: "RMPAY-1", sourceReviewId: "RMSR-1", supplierPayableId: "RMP-1" },
   };
   const harness = createHarness({
     allowLocalFallback: false,
     api: {
       [apiName]: async () => {
         callCount += 1;
-        return { source: "api", blocked: false, review };
+        return { source: "api", blocked: false, review, operationLogId: "LOG-1" };
       },
     },
   });

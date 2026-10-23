@@ -65,6 +65,7 @@ export function RawMaterialInboundPage(props) {
     changeTab
   } = state;
   return (<section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${desktopView === "卷料库存" ? "is-roll-inventory-view" : "is-receiving-view"} ${mobileOcrReviewOpen ? "is-mobile-detail-open" : ""}`}>
+      {state.measurementDialog}
       <RawMaterialLabelPrintSheet inbound={printSheetInbound} />
       {colorMappingOpen ? (
         <Suspense fallback={null}>

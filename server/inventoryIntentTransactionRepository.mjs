@@ -1,7 +1,7 @@
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { readPostgresIdempotencyReplay, buildIdempotencyRequestHash, buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 import { normalizeInventoryIntent } from "./inventoryIntentDomain.mjs";
 
 export function createInventoryIntentTransactionRepository(options = {}) {
@@ -17,9 +17,26 @@ export function createInventoryIntentTransactionRepository(options = {}) {
 }
 
 export function createLocalInventoryIntentTransactionRepository() {
+  const releaseReceipts = new WeakMap();
+  const extensionReceipts = new WeakMap();
+  const creationReceipts = new WeakMap();
   return {
     kind: "local_memory",
+    readCreationReceipt({ workspace, idempotencyKey, idempotencyPayload }) {
+      const prior = creationReceipts.get(workspace)?.get(idempotencyKey);
+      if (!prior) return null;
+      if (prior.hash !== buildIdempotencyRequestHash(idempotencyPayload)) throw conflict("IDEMPOTENCY_KEY_REUSED");
+      return structuredClone(prior.result);
+    },
+    readExtensionReceipt({ workspace, idempotencyKey, idempotencyPayload }) {
+      const prior = extensionReceipts.get(workspace)?.get(idempotencyKey);
+      if (!prior) return null;
+      if (prior.hash !== buildIdempotencyRequestHash(idempotencyPayload)) throw conflict("IDEMPOTENCY_KEY_REUSED");
+      return structuredClone(prior.result);
+    },
     createTemporaryHold(input) {
+      const prior = this.readCreationReceipt(input);
+      if (prior) return prior;
       const intent = findIntent(input.workspace, input.intent?.id);
       const item = findInventoryItem(input.workspace, input.inventoryItem?.id);
       assertCreateHoldState(intent, item, input);
@@ -44,9 +61,27 @@ export function createLocalInventoryIntentTransactionRepository() {
         ledger: input.inventoryLedgerEntry,
         operationLog: input.operationLog,
       });
-      return buildResult(savedIntent, savedReservation, savedItem, input.inventoryLedgerEntry, input.operationLog);
+      const result = buildResult(savedIntent, savedReservation, savedItem, input.inventoryLedgerEntry, input.operationLog);
+      if (input.idempotencyKey) {
+        const cache = creationReceipts.get(input.workspace) ?? new Map();
+        cache.set(input.idempotencyKey, { hash: buildIdempotencyRequestHash(input.idempotencyPayload), result: structuredClone(result) });
+        creationReceipts.set(input.workspace, cache);
+      }
+      return result;
     },
     releaseTemporaryHold(input) {
+      const key = cleanText(input.idempotencyKey);
+      const requestHash = key ? buildIdempotencyRequestHash(input.idempotencyPayload ?? {
+        reservationId: input.reservationId, expectedRevision: input.expectedRevision,
+        targetStatus: input.targetStatus, reason: input.operationLog?.reason,
+        operatorId: input.operationLog?.operatorId,
+      }) : "";
+      const receipts = releaseReceipts.get(input.workspace);
+      const prior = key ? receipts?.get(key) : null;
+      if (prior) {
+        if (prior.requestHash !== requestHash) throw conflict("IDEMPOTENCY_KEY_REUSED");
+        return structuredClone(prior.result);
+      }
       const reservation = findReservation(input.workspace, input.reservationId);
       const intent = findIntent(input.workspace, reservation?.sourceIntentId);
       const item = findInventoryItem(input.workspace, reservation?.inventoryItemId);
@@ -73,9 +108,17 @@ export function createLocalInventoryIntentTransactionRepository() {
         ledger,
         operationLog: input.operationLog,
       });
-      return buildResult(savedIntent, savedReservation, savedItem, ledger, input.operationLog);
+      const result = buildResult(savedIntent, savedReservation, savedItem, ledger, input.operationLog);
+      if (key) {
+        const cache = receipts ?? new Map();
+        cache.set(key, { requestHash, result: structuredClone(result) });
+        releaseReceipts.set(input.workspace, cache);
+      }
+      return result;
     },
     extendTemporaryHold(input) {
+      const prior = this.readExtensionReceipt(input);
+      if (prior) return prior;
       const reservation = findReservation(input.workspace, input.reservationId);
       const intent = findIntent(input.workspace, reservation?.sourceIntentId);
       assertExtendHoldState(intent, reservation, input);
@@ -90,15 +133,29 @@ export function createLocalInventoryIntentTransactionRepository() {
         reservation: savedReservation,
         operationLog: input.operationLog,
       });
-      return buildResult(savedIntent, savedReservation, null, null, input.operationLog);
+      const result = buildResult(savedIntent, savedReservation, null, null, input.operationLog);
+      if (input.idempotencyKey) {
+        const cache = extensionReceipts.get(input.workspace) ?? new Map();
+        cache.set(input.idempotencyKey, { hash: buildIdempotencyRequestHash(input.idempotencyPayload), result: structuredClone(result) });
+        extensionReceipts.set(input.workspace, cache);
+      }
+      return result;
     },
   };
 }
 
 export function createPostgresInventoryIntentTransactionRepository(options = {}) {
-  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson, queryJson } = createPostgresTransactionExecutor(options);
   return {
     kind: "postgres",
+    async readCreationReceipt({ idempotencyKey, idempotencyPayload }) {
+      const result = await readPostgresIdempotencyReplay({ queryJson, scope: "inventory.intent.hold.create", idempotencyKey, payload: idempotencyPayload });
+      return result ? normalizeTransactionResult(result) : null;
+    },
+    async readExtensionReceipt({ idempotencyKey, idempotencyPayload }) {
+      const result = await readPostgresIdempotencyReplay({ queryJson, scope: "inventory.intent.hold.extend", idempotencyKey, payload: idempotencyPayload });
+      return result ? normalizeTransactionResult(result) : null;
+    },
     async createTemporaryHold(input) {
       return execute("inventory.intent.hold.create", input, buildCreateTemporaryHoldQuery(input));
     },
@@ -262,6 +319,7 @@ write_guard AS MATERIALIZED (
     EXISTS (
       SELECT 1 FROM locked_reservation
       WHERE reservation_type = '临时留货' AND status = '生效' AND reserved_qty > 0
+        AND (${parameters.text(targetStatus)} <> '已过期' OR expires_at <= ${parameters.timestamp(input.updatedAt)})
     )
     AND EXISTS (
       SELECT 1 FROM locked_intent
@@ -423,6 +481,14 @@ function assertReleaseHoldState(intent, reservation, item, input) {
   if (!intent || !reservation || !item) throw conflict("TEMPORARY_HOLD_NOT_FOUND");
   if (intent.revision !== input.expectedRevision || intent.intentStatus !== "临时留货-生效"
     || reservation.reservationType !== "临时留货" || reservation.status !== "生效" || reservation.reservedQty <= 0) {
+    throw conflict("TEMPORARY_HOLD_RELEASE_CONFLICT");
+  }
+  if (input.targetStatus === "已过期" &&
+    (!Number.isFinite(Date.parse(reservation.expiresAt)) || !Number.isFinite(Date.parse(input.updatedAt)) ||
+      Date.parse(reservation.expiresAt) > Date.parse(input.updatedAt))) {
+    throw conflict("TEMPORARY_HOLD_RELEASE_CONFLICT");
+  }
+  if (number(item.reserved ?? item.reservedQty) < reservation.reservedQty) {
     throw conflict("TEMPORARY_HOLD_RELEASE_CONFLICT");
   }
 }

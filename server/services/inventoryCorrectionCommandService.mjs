@@ -51,7 +51,7 @@ export function createInventoryCorrectionCommandService({
       const reason = cleanText(body.reason) || "manual_review";
       const todo = buildTodo({
         ...workspace,
-        inventoryCorrectionDrafts: [
+        inventoryCorrectionDrafts: (workspace.inventoryCorrectionDrafts ?? []).some(draft => cleanText(draft.id ?? draft.correctionDraftId) === correctionDraftId) ? workspace.inventoryCorrectionDrafts : [
           ...(workspace.inventoryCorrectionDrafts ?? []),
           { id: correctionDraftId, correctionDraftId },
         ],
@@ -62,7 +62,7 @@ export function createInventoryCorrectionCommandService({
         refType: "inventory_correction",
         refId: correctionDraftId,
         ref: correctionDraftId,
-        customerId: "C001",
+        customerId: "",
         summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`,
         latest: "今天",
         urgency: "关注",
@@ -393,8 +393,9 @@ function getOnHandQty(inventoryItem) {
 }
 
 function parseQuantity(value) {
+  if (!["number", "string"].includes(typeof value) || (typeof value === "string" && !value.trim())) return null;
   const number = Number(value);
-  return Number.isInteger(number) && number >= 0 ? number : null;
+  return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
 
 function positiveRevision(value) {

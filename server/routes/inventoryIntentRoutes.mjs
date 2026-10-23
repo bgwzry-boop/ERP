@@ -38,6 +38,7 @@ export function createInventoryIntentRouteModule(options = {}) {
         filters: {
           status: url.searchParams.get("status"),
           customerId: url.searchParams.get("customerId"),
+          inventoryItemId: url.searchParams.get("inventoryItemId"),
         },
       }),
     });

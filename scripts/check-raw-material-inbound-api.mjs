@@ -121,7 +121,7 @@ async function checkRepository() {
     action: "attach-confirm",
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
-    body: { expectedRevision: 3, rollId: "RM-240704-001-01", matchResult: "matched", now: "2026-07-04T01:10:00.000Z" },
+    body: { expectedRevision: 3, rollId: "RM-240704-001-01", expectedLabelVersion: 1, matchResult: "matched", now: "2026-07-04T01:10:00.000Z" },
   });
   assert.equal(attached.inbound.status, "部分贴标", "single roll attach should keep inbound partially labeled");
   assert.equal(attached.inbound.rolls[0].inventoryStatus, "可用", "attached roll should become available");
@@ -490,7 +490,7 @@ function checkPerRollLabelGate() {
       workspace: { rawMaterialInbounds: [missingWeightInbound] },
       inboundId: missingWeightInbound.id,
       action: "attach_confirm",
-      body: { expectedRevision: 1, rollId: missingWeightInbound.rolls[0].id, matchResult: "matched" },
+      body: { expectedRevision: 1, rollId: missingWeightInbound.rolls[0].id, expectedLabelVersion: 1, matchResult: "matched" },
       operatorId: "U-OFFICE-A",
       operatorName: "办公室A",
     }),
@@ -553,7 +553,7 @@ function checkPerRollLabelGate() {
         workspace,
         inboundId: inbound.id,
         action: "attach_confirm",
-        body: { expectedRevision: 1, matchResult: "matched" },
+        body: { expectedRevision: 1, expectedLabelVersion: 1, matchResult: "matched" },
         operatorId: "U-OFFICE-A",
         operatorName: "办公室A",
       }),
@@ -570,7 +570,7 @@ function checkPerRollLabelGate() {
       body: {
         expectedRevision: current.revision ?? 1,
         rollId: roll.id,
-        matchResult: "matched",
+        expectedLabelVersion: 1, matchResult: "matched",
         checkedWeightKg: roll.weightKg,
         checkedColor: "本白",
         checkedSpec: "55cm / 60g",
@@ -585,7 +585,7 @@ function checkPerRollLabelGate() {
     workspace: { rawMaterialInbounds: [current] },
     inboundId: inbound.id,
     action: "attach_confirm",
-    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8", matchResult: "mismatched", location: "原料隔离区" },
+    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8", expectedLabelVersion: 1, matchResult: "mismatched", location: "原料隔离区" },
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
   }).inbound;
@@ -619,7 +619,7 @@ function checkPerRollLabelGate() {
     workspace: { rawMaterialInbounds: [current] },
     inboundId: inbound.id,
     action: "attach_confirm",
-    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8", matchResult: "matched", location: "原料库-A01" },
+    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8", expectedLabelVersion: 2, matchResult: "matched", location: "原料库-A01" },
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
   }).inbound;
@@ -848,7 +848,7 @@ async function checkApi() {
 
     const invalidOfficeAttach = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/attach-confirm`, {
       userId: "U-OFFICE-A",
-      body: { rollId: "RM-240704-001-01" },
+      body: { rollId: "RM-240704-001-01", expectedLabelVersion: 1 },
     });
     assert.equal(invalidOfficeAttach.status, 422, "office attach confirmation should still require a per-roll match decision");
     assert.equal(
@@ -859,7 +859,7 @@ async function checkApi() {
 
     const attached = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/attach-confirm`, {
       userId: "U-OFFICE-A",
-      body: { rollId: "RM-240704-001-01", matchResult: "matched", now: "2026-07-04T02:10:00.000Z" },
+      body: { rollId: "RM-240704-001-01", expectedLabelVersion: 1, matchResult: "matched", now: "2026-07-04T02:10:00.000Z" },
     });
     assert.equal(attached.status, 200, "office user should be allowed to confirm the label-to-roll check");
     assert.equal(attached.json.inbound.status, "部分贴标", "single roll attach should not close all rolls");
@@ -944,7 +944,7 @@ async function checkApi() {
 
     const attachedWhite = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-002/attach-confirm`, {
       userId: "U-WAREHOUSE-A",
-      body: { rollId: "RM-240704-002-01", matchResult: "matched", now: "2026-07-04T02:13:00.000Z" },
+      body: { rollId: "RM-240704-002-01", expectedLabelVersion: 1, matchResult: "matched", now: "2026-07-04T02:13:00.000Z" },
     });
     assert.equal(attachedWhite.status, 200, "warehouse user should attach a white raw-material roll for task matching");
     const machineMismatchIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-002/issue-to-machine`, {
@@ -1371,7 +1371,7 @@ async function postJson(url, { userId, body }) {
   if (inboundMatch && requestBody.expectedRevision == null) {
     const revisionResponse = await requestJson(endpoint.origin, inboundMatch[1], {
       method: "GET",
-      headers: { "x-erp-user-id": userId },
+      headers: { "x-erp-user-id": "U-MANAGER-A" },
     });
     requestBody.expectedRevision = Number(revisionResponse.body?.inbound?.revision ?? 0);
   }
@@ -1383,6 +1383,17 @@ async function postJson(url, { userId, body }) {
     },
     body: JSON.stringify(requestBody),
   });
+  // Commands for stock-only workers intentionally return a field allowlist.
+  // Inspect authoritative persisted details as management for the accounting assertions below.
+  if (response.status === 200 && response.body?.inbound?.projectionScope === "stock_only") {
+    assert.equal(response.body.inbound.unitPrice, undefined);
+    assert.equal(response.body.inbound.sourceAttachmentId, undefined);
+    const detail = await requestJson(endpoint.origin, `/api/raw-material-inbounds/${encodeURIComponent(response.body.inbound.id)}`, {
+      method: "GET", headers: { "x-erp-user-id": "U-MANAGER-A" },
+    });
+    assert.equal(detail.status, 200);
+    response.body.inbound = detail.body.inbound;
+  }
   return {
     status: response.status,
     json: response.body,

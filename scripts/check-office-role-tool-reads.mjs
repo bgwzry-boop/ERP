@@ -13,7 +13,7 @@ function createState(initialValue) {
   };
 }
 
-function createDependencies(api, { serverRequired = () => false } = {}) {
+function createDependencies(api, { serverRequired = () => false, activePage, isRawMaterialReadCurrent, authState = { authenticated: true } } = {}) {
   const state = {
     driverTasks: createState([]),
     selectedDriverTaskId: createState("F-OLD"),
@@ -27,7 +27,9 @@ function createDependencies(api, { serverRequired = () => false } = {}) {
   return {
     actions: createOfficeRoleToolReadActions({
       api,
-      authState: { authenticated: true },
+      activePage,
+      isRawMaterialReadCurrent,
+      authState,
       currentUserId: "U-DRIVER-A",
       customers: [{ id: "C001", name: "客户A" }],
       fulfillmentsRef: { current: [{ id: "F-LOCAL" }] },
@@ -120,7 +122,40 @@ assert.deepEqual(formalCase.state.driverTasks.value, []);
 assert.deepEqual(formalCase.state.rawInbounds.value, []);
 assert.deepEqual(formalCase.state.supplierReviews.value, []);
 assert.equal(formalCase.state.selectedDriverTaskId.value, "F-OLD");
-assert.equal(formalCase.state.selectedRawInboundId.value, "RMI-LOCAL");
+assert.equal(formalCase.state.selectedRawInboundId.value, "");
 assert.equal(formalOptions.every((options) => options?.serverRequired === true), true);
 
 console.log("Office role-tool reads check passed: driver, raw-material, supplier-review, API empty-state clearing, denial, and production fail-closed behavior are covered.");
+
+let fullReceiptCalls = 0;
+let stockCalls = 0;
+const workerCase = createDependencies({
+  async listOfficeRawMaterialInbounds() { fullReceiptCalls += 1; throw new Error("worker requested receipt data"); },
+  async listOfficeRawMaterialStockInbounds() { stockCalls += 1; return { source: "api", items: [{ id: "STOCK-INBOUND", revision: 3, projectionScope: "stock_only", rolls: [{ id: "ROLL-201" }] }], total: 1, rollTotal: 201 }; },
+}, { serverRequired: () => true, authState: { permissions: { actionPermissions: ["raw_material.stock.read"] } } });
+await workerCase.actions.refreshRawMaterialInbounds();
+assert.equal(stockCalls, 1);
+assert.equal(fullReceiptCalls, 0);
+assert.equal(workerCase.state.rawInbounds.value[0].projectionScope, "stock_only");
+assert.equal(workerCase.state.selectedRawInboundId.value, "STOCK-INBOUND");
+
+// Scanner must use all-page stock reads even when receipt permission also exists.
+const dualAuth = { permissions: { actionPermissions: ['raw_material.stock.read', 'raw_material.inbound.read'] } };
+let scannerStockCalls = 0, scannerReceiptCalls = 0;
+const dualApi = {
+  async listOfficeRawMaterialStockInbounds() { scannerStockCalls++; return {source:'api',items:[{id:'LAST',projectionScope:'stock_only',rolls:[{id:'ROLL-201'}]}],total:1}; },
+  async listOfficeRawMaterialInbounds() { scannerReceiptCalls++; return {source:'api',items:[],total:0}; },
+};
+const scanner = createDependencies(dualApi,{activePage:'rawMaterialScanner',authState:dualAuth,serverRequired:()=>true});
+await scanner.actions.refreshRawMaterialInbounds();
+assert.equal(scanner.state.rawInbounds.value[0].rolls[0].id,'ROLL-201');
+assert.equal(scannerStockCalls,1);assert.equal(scannerReceiptCalls,0);
+await createDependencies(dualApi,{activePage:'rawMaterials',authState:dualAuth}).actions.refreshRawMaterialInbounds();
+assert.equal(scannerReceiptCalls,1);
+let resolveOld, current = true;
+const old = createDependencies({listOfficeRawMaterialInbounds:()=>new Promise(resolve=>resolveOld=resolve)}, {isRawMaterialReadCurrent:()=>current});
+const pending = old.actions.refreshRawMaterialInbounds();
+current=false;resolveOld({source:'api',items:[{id:'OLD-RECEIPT'}],total:1});
+assert.equal((await pending).source,'superseded');
+assert.deepEqual(old.state.rawInbounds.value,[]);
+console.log('Scanner dual-permission routing, receipt routing and superseded response suppression passed.');

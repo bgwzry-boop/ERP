@@ -1,3 +1,4 @@
+import { getRawMaterialLabelMismatchFields } from "../../shared/rawMaterialLabelVerification.js";
 import { rawMaterialRecordIdentitySuffix } from "../../shared/rawMaterialRecordIdentity.js";
 import { rawMaterialWriteConflict } from "../rawMaterialInboundConcurrency.mjs";
 import { applyRawMaterialOcrReparse, applyRawMaterialOcrReview } from "../rawMaterialInboundOcrSupport.mjs";
@@ -172,6 +173,13 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_ATTACH_REQUIRES_CURRENT_LABEL",
       });
     }
+    const expectedLabelVersion = Number(input.body?.expectedLabelVersion);
+    if (!Number.isInteger(expectedLabelVersion) || expectedLabelVersion < 1) {
+      throw Object.assign(new Error("请重新打开当前卷标核对，缺少有效标签版本。"), { statusCode: 422, code: "RAW_MATERIAL_LABEL_VERSION_REQUIRED" });
+    }
+    if (expectedLabelVersion !== currentRawMaterialLabelVersion(targetRoll)) {
+      throw Object.assign(new Error("该卷标签已经重打，请刷新并核对新标签后再提交。"), { statusCode: 409, code: "RAW_MATERIAL_LABEL_VERSION_CONFLICT" });
+    }
     const matchResult = normalizeRawMaterialLabelMatchResult(input.body?.matchResult);
     if (!matchResult) {
       throw Object.assign(new Error("请明确选择标签与实物是否匹配。"), {
@@ -194,12 +202,15 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_ATTACH_WEIGHT_REQUIRED",
       });
     }
+    if (matchResult === "matched") {
+      const fields = getRawMaterialLabelMismatchFields(verification.expected, verification.checked);
+      if (fields.length) throw Object.assign(new Error(`实物${fields.join("、")}与当前卷标不一致，不能确认匹配。`), { statusCode: 409, code: "RAW_MATERIAL_LABEL_FACTS_MISMATCH", details: { fields } });
+    }
     const nextRolls = (before.rolls ?? []).map((roll) => {
       if (roll.id !== rollId) return roll;
       if (matchResult === "matched") {
         return {
           ...roll,
-          weightKg: verification.checked.weightKg,
           labelStatus: "已贴标/可用库存",
           inventoryStatus: "可用",
           labelVerification: verification,
@@ -461,8 +472,8 @@ function normalizeRawMaterialLabelMatchResult(value) {
 function buildRawMaterialLabelVerification({ inbound, roll, body, matchResult, operatorId, operatorName, now }) {
   const expectedWeightKg = finiteRawMaterialNumber(roll.weightKg);
   const checkedWeightKg = finiteRawMaterialNumber(body?.checkedWeightKg ?? body?.actualWeightKg ?? expectedWeightKg);
-  const expectedColor = cleanText(roll.factoryColor ?? inbound.factoryColor ?? inbound.supplierColor);
-  const expectedSpec = cleanText(roll.spec ?? inbound.spec);
+  const expectedColor = cleanText(roll.factoryColor) || cleanText(inbound.factoryColor) || cleanText(inbound.supplierColor);
+  const expectedSpec = cleanText(roll.spec) || cleanText(inbound.spec);
   const location = cleanText(body?.location) || (matchResult === "matched" ? "原料库-可用区" : "原料隔离区");
   return {
     result: matchResult === "matched" ? "匹配" : "不匹配",
@@ -475,8 +486,8 @@ function buildRawMaterialLabelVerification({ inbound, roll, body, matchResult, o
     },
     checked: {
       weightKg: checkedWeightKg,
-      color: cleanText(body?.checkedColor ?? body?.actualColor) || expectedColor,
-      spec: cleanText(body?.checkedSpec ?? body?.actualSpec) || expectedSpec,
+      color: cleanText(body?.checkedColor ?? body?.actualColor ?? expectedColor),
+      spec: cleanText(body?.checkedSpec ?? body?.actualSpec ?? expectedSpec),
     },
     location,
     note: cleanText(body?.verificationNote ?? body?.note),

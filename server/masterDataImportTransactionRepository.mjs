@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import {
@@ -72,11 +74,26 @@ export function createMasterDataImportTransactionRepository(options = {}) {
 }
 
 export function createLocalMasterDataImportTransactionRepository() {
+  const colourPath = join(process.env.ERP_LOCAL_STORAGE_DIR ?? join(process.cwd(), ".erp-local-storage"), "metadata", "supplier-colour-mappings.json");
   return {
+    loadSupplierColourState() {
+      if (!existsSync(colourPath)) return null;
+      const state = JSON.parse(readFileSync(colourPath, "utf8"));
+      if (state.version !== 1 || !Array.isArray(state.standardColors) || !Array.isArray(state.colorAliases) || !Array.isArray(state.operationLogs)) throw new Error("Invalid persisted supplier colour state");
+      return state;
+    },
     kind: "local_memory",
 
     async applyImportExecution(input) {
       assertExecutionCanBeWritten(input.importExecution);
+      if (input.operationLog?.targetType === "raw_material_supplier_color_mapping") {
+        const current = (input.workspace.colorAliases ?? []).find(row => row.id === input.operationLog.targetId) ?? null;
+        const expected = input.supplierColourExpected;
+        const fields = ["id", "alias", "standardColorId", "sourceType", "sourceId", "enabled", "updatedAt"];
+        if (expected === undefined || Boolean(current) !== Boolean(expected) || (current && fields.some(key => current[key] !== expected[key]))) {
+          throw new Error("RAW_MATERIAL_COLOR_MAPPING_SNAPSHOT_CONFLICT");
+        }
+      }
       const snapshot = snapshotWorkspace(input.workspace);
       try {
         const normalizedRecords = normalizeTargetRecords(input.importExecution.importPayload?.targetRecords);
@@ -95,6 +112,17 @@ export function createLocalMasterDataImportTransactionRepository() {
         });
         upsertOperationLog(input.workspace, input.operationLog);
         await persistLocalRuntimeIdentityState(input.workspace, snapshot);
+        if (input.operationLog?.targetType === "raw_material_supplier_color_mapping") {
+          const state = {
+            version: 1,
+            standardColors: input.workspace.standardColors,
+            colorAliases: input.workspace.colorAliases,
+            operationLogs: input.workspace.operationLogs.filter(log => log.targetType === "raw_material_supplier_color_mapping"),
+          };
+          mkdirSync(dirname(colourPath), { recursive: true, mode: 0o700 });
+          writeFileSync(`${colourPath}.tmp`, JSON.stringify(state), { mode: 0o600 });
+          renameSync(`${colourPath}.tmp`, colourPath);
+        }
         return {
           importExecution: committedExecution,
           operationLogId: cleanText(input.operationLog?.id),
@@ -168,7 +196,9 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
         targetRecords: normalizedRecords,
       });
       const rawResult = normalizePostgresTransactionResult(
-        await queryJson(builtQuery.text, builtQuery.values),
+        await (options.queryJson
+          ? queryJson(builtQuery.text, builtQuery.values)
+          : postgresClient.transactionStatementsJson(builtQuery.statements)),
       );
       const writeSummary = {
         ...summarizeTargetRecords(normalizedRecords),
@@ -176,6 +206,10 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
         repositoryKind: "postgres",
       };
       applyTargetRecordsToWorkspace(input.workspace, normalizedRecords);
+      if (rawResult.supplierColourAlias) {
+        const index = input.workspace.colorAliases.findIndex(row => row.id === rawResult.supplierColourAlias.id);
+        if (index >= 0) input.workspace.colorAliases[index] = rawResult.supplierColourAlias;
+      }
       upsertOperationLog(input.workspace, input.operationLog);
       const committedExecution = buildCommittedImportExecution({
         importExecution: input.importExecution,
@@ -203,26 +237,52 @@ export function buildMasterDataImportTransactionQuery(input = {}) {
   const targetRecords = normalizeTargetRecords(input.targetRecords ?? input.importExecution.importPayload?.targetRecords);
   const summary = summarizeTargetRecords(targetRecords);
   const parameters = createPostgresParameterBinder();
+  const colourGuard = buildSupplierColourTransactionGuard(input, parameters);
   const insertStatements = recordTypeWriteOrder
     .map((recordType) => buildInsertRecordsSql(recordType, targetRecords[recordType] ?? [], operationLog.operatorId, parameters))
     .filter(Boolean);
 
-  return {
-    text: `
-BEGIN;
-${insertStatements.join("\n\n")}
-${buildInsertOperationLogSql(operationLog, parameters)}
-SELECT json_build_object(
+  const colourResult = input.operationLog?.targetType === "raw_material_supplier_color_mapping"
+    ? `, 'supplierColourAlias', (SELECT json_build_object('id', id, 'alias', alias, 'standardColorId', standard_color_id, 'sourceType', source_type, 'sourceId', source_id, 'enabled', enabled, 'createdBy', created_by, 'createdAt', created_at, 'updatedAt', updated_at) FROM color_aliases WHERE id = ${parameters.text(input.operationLog.targetId)})`
+    : "";
+  const resultStatement = `SELECT json_build_object(
   'executionId', ${parameters.text(input.importExecution.executionId)},
   'status', 'committed',
   'recordCount', ${parameters.integer(summary.appliedRecordCount)},
   'affectedTableCount', ${parameters.integer(summary.affectedTableCount)},
-  'operationLogId', ${parameters.text(operationLog.id)}
-) AS result;
-COMMIT;
-`.trim(),
-    values: parameters.values,
-  };
+  'operationLogId', ${parameters.text(operationLog.id)}${colourResult}
+) AS result;`;
+  const parts = [...colourGuard, ...insertStatements, buildInsertOperationLogSql(operationLog, parameters), resultStatement];
+  const statements = parts.map(text => {
+    const values = [];
+    const indexes = new Map();
+    const boundText = text.replace(/\$(\d+)/g, (_, value) => {
+      const index = Number(value);
+      if (!indexes.has(index)) { indexes.set(index, values.length + 1); values.push(parameters.values[index - 1]); }
+      return `$${indexes.get(index)}`;
+    });
+    return { text: boundText, values };
+  });
+  return { text: `BEGIN;\n${parts.join("\n")}\nCOMMIT;`, values: parameters.values, statements };
+}
+
+function buildSupplierColourTransactionGuard(input, parameters) {
+  if (input.operationLog?.targetType !== "raw_material_supplier_color_mapping") return [];
+  if (input.supplierColourExpected === undefined) throw new Error("RAW_MATERIAL_COLOR_MAPPING_SNAPSHOT_CONFLICT");
+  const expected = input.supplierColourExpected;
+  const id = parameters.text(input.operationLog.targetId);
+  const predicate = expected
+    ? `EXISTS (SELECT 1 FROM color_aliases WHERE id = ${id}
+        AND alias = ${parameters.text(expected.alias)}
+        AND standard_color_id = ${parameters.text(expected.standardColorId)}
+        AND source_type = ${parameters.text(expected.sourceType)}
+        AND source_id = ${parameters.text(expected.sourceId)}
+        AND enabled = ${parameters.boolean(expected.enabled !== false)}
+        AND updated_at = ${parameters.text(expected.updatedAt)}::timestamptz)`
+    : `NOT EXISTS (SELECT 1 FROM color_aliases WHERE id = ${id})`;
+  return [`LOCK TABLE color_aliases IN SHARE ROW EXCLUSIVE MODE;`, `CREATE TEMP TABLE supplier_colour_precondition (
+  matched boolean NOT NULL CONSTRAINT supplier_colour_snapshot_conflict CHECK (matched)
+ ) ON COMMIT DROP;`, `INSERT INTO supplier_colour_precondition (matched) SELECT ${predicate};`];
 }
 
 export function normalizeTargetRecords(targetRecords = {}) {
@@ -1028,6 +1088,7 @@ ON CONFLICT (id) DO UPDATE SET
 function normalizePostgresTransactionResult(value) {
   if (!value || typeof value !== "object") return { operationLogId: "", summary: {} };
   return {
+    supplierColourAlias: value.supplierColourAlias ?? null,
     operationLogId: cleanText(value.operationLogId ?? value.operation_log_id),
     summary: {
       appliedRecordCount: toFiniteInteger(value.recordCount ?? value.record_count),

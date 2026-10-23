@@ -1,3 +1,6 @@
+import {normalizeFactoryStandardColor} from "./factoryStandardColors.js";
+import {resolveRawMaterialCostPrice} from "./rawMaterialCostPrice.js";
+import {resolveRawMaterialCostUnit} from "./rawMaterialCostUnit.js";
 import {
   RAW_MATERIAL_STANDARD_FABRIC_GSM,
   classifyRawMaterialCategory,
@@ -15,7 +18,7 @@ export function buildRawMaterialStockLookup(inbounds = [], filters = {}) {
     color: cleanText(roll.factoryColor || roll.supplierColor || inbound.factoryColor || inbound.supplierColor),
     widthCm: positiveNumber(roll.widthCm) || resolveSpec(inbound).widthCm,
     gramWeightGsm: positiveNumber(roll.gramWeightGsm) || resolveSpec(inbound).gramWeightGsm,
-    unitPrice: positiveNumber(roll.unitPrice) || positiveNumber(inbound.unitPrice),
+    kgReferencePrice: resolveKgReferencePrice(inbound, roll),
   }))).filter((roll) =>
     (!colorKey || normalizeColorKey(roll.color) === colorKey) &&
     (!widthCm || roll.widthCm === widthCm) &&
@@ -24,7 +27,7 @@ export function buildRawMaterialStockLookup(inbounds = [], filters = {}) {
   const availableRolls = rolls.filter((roll) => roll.inventoryStatus === "可用");
   const machineSideRolls = rolls.filter((roll) => roll.inventoryStatus === "机边领用");
   const latestPricedRoll = [...rolls]
-    .filter((roll) => positiveNumber(roll.unitPrice))
+    .filter((roll) => roll.kgReferencePrice !== null && ["可用", "机边领用", "已消耗", "余料待复核"].includes(roll.inventoryStatus))
     .sort((left, right) => String(right.inbound?.receivedAt || "").localeCompare(String(left.inbound?.receivedAt || "")))[0];
   return {
     color,
@@ -38,7 +41,7 @@ export function buildRawMaterialStockLookup(inbounds = [], filters = {}) {
     availableRollCount: availableRolls.length,
     machineSideWeightKg: roundWeight(sumWeight(machineSideRolls)),
     machineSideRollCount: machineSideRolls.length,
-    latestUnitPrice: positiveNumber(latestPricedRoll?.unitPrice),
+    latestUnitPrice: latestPricedRoll?.kgReferencePrice ?? null,
     priceUnit: "元/kg",
     matchingInboundCount: new Set(rolls.map((roll) => roll.inbound?.id).filter(Boolean)).size,
   };
@@ -97,12 +100,14 @@ function resolveSpec(value = {}) {
 }
 
 function normalizeColorKey(value) {
-  return cleanText(value)
-    .replace(/本白/gu, "白")
-    .replace(/大红|浅红|深红/gu, "红")
-    .replace(/浅黄|深黄/gu, "黄")
-    .replace(/色/gu, "")
-    .replace(/\s+/gu, "");
+  return normalizeFactoryStandardColor(value) || cleanText(value).replace(/\s+/gu, "");
+}
+
+function resolveKgReferencePrice(inbound, roll) {
+  const price = resolveRawMaterialCostPrice(inbound, {rollId: roll.id});
+  const unit = resolveRawMaterialCostUnit(inbound, {rollId: roll.id});
+  if (price === null || !["kg", "吨"].includes(unit)) return null;
+  return unit === "吨" ? price / 1000 : price;
 }
 
 function sumWeight(rolls) {

@@ -1,6 +1,8 @@
+import { normalizeRawMaterialSourceRowIndex } from "../../shared/rawMaterialOcrSourcePosition.js";
+
 const supplierAliasGroups = [
   ["人意无纺布", "人意无纺布销售单", "振恒"],
-  ["宁晋县达翔塑料制品", "达翔塑料", "北陈", "河北北陈无纺布"],
+  ["宁晋县达翔塑料制品", "达翔塑料", "北陈", "北陈辅料", "河北北陈无纺布"],
   ["宁晋县腾胜无纺布", "腾胜无纺布", "腾胜"],
   ["河北宏尚无纺布", "宏尚无纺布", "白候", "白侯"],
   ["新乐市鑫隆宏无纺布", "鑫隆宏无纺布", "鑫隆宏"],
@@ -196,7 +198,7 @@ function buildSupplierReturnEvidence(supplierReturn = {}) {
     ocrRawText: cleanText(supplierReturn.ocrRawText),
     lineEvidence: (Array.isArray(supplierReturn.ocrLines) ? supplierReturn.ocrLines : []).map((line) => ({
       lineId: cleanText(line.lineId),
-      sourceRowIndex: Math.max(0, Number(line.sourceRowIndex) || 0),
+      sourceRowIndex: normalizeRawMaterialSourceRowIndex(line.sourceRowIndex),
       sourceText: cleanText(line.sourceText),
       sourceBounds: line.sourceBounds && typeof line.sourceBounds === "object" ? { ...line.sourceBounds } : null,
       recognizedValues: line.recognizedValues && typeof line.recognizedValues === "object" ? { ...line.recognizedValues } : {},
@@ -263,18 +265,17 @@ export function suppliersAreEquivalent(left, right) {
   const leftKey = normalizeSupplierName(left);
   const rightKey = normalizeSupplierName(right);
   if (!leftKey || !rightKey) return false;
-  if (leftKey === rightKey || leftKey.includes(rightKey) || rightKey.includes(leftKey)) return true;
+  if (leftKey === rightKey) return true;
   return supplierAliasGroups.some((group) => {
     const aliases = group.map(normalizeSupplierName);
-    return aliases.some((alias) => leftKey.includes(alias) || alias.includes(leftKey))
-      && aliases.some((alias) => rightKey.includes(alias) || alias.includes(rightKey));
+    return aliases.includes(leftKey) && aliases.includes(rightKey);
   });
 }
 
 function normalizeSupplierName(value) {
   return cleanText(value)
     .replace(/[\s·,，。()（）\-_/]/g, "")
-    .replace(/有限责任公司|股份有限公司|有限公司|销售单|销货单|退货单|无纺布/g, "");
+    .replace(/有限责任公司|股份有限公司|有限公司|销售单|销货单|送货单|退货单|无纺布/g, "");
 }
 
 function buildReturnDedupeKey(supplierReturn = {}) {

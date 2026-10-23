@@ -45,7 +45,7 @@ export function normalizeRawMaterialSupplierSourceId(value) {
     .normalize("NFKC")
     .trim()
     .replace(/[\s·•()（）]+/gu, "")
-    .replace(/(?:销货单|销售单|送货单|退货单|退料单)$/u, "");
+    .replace(/(?:销售退货单|销货退货单|销售退料单|销货退料单|销货单|销售单|送货单|退货单|退料单|退库单)$/u, "");
 }
 
 export function resolveRawMaterialFactoryColor({

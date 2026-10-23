@@ -9,7 +9,7 @@ export function readLocalRawMaterialActionReplay(input = {}) {
   if (!idempotencyKey) return null;
   const scope = buildRawMaterialActionIdempotencyScope(input);
   const requestHash = buildIdempotencyRequestHash(input.idempotencyPayload ?? input.body ?? {});
-  const stored = (input.workspace?.operationIdempotencyRecords ?? []).find(
+  const stored = [...(input.workspace?.rawMaterialInboundActionReceipts ?? []), ...(input.workspace?.operationIdempotencyRecords ?? [])].find(
     (record) => record.scope === scope && record.idempotencyKey === idempotencyKey,
   );
   if (!stored) return null;
@@ -25,14 +25,14 @@ export function readLocalRawMaterialActionReplay(input = {}) {
 export function recordLocalRawMaterialActionResult(input = {}, result = {}) {
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   if (!idempotencyKey) return;
-  input.workspace.operationIdempotencyRecords = [
+  input.workspace.rawMaterialInboundActionReceipts = [
     {
       scope: buildRawMaterialActionIdempotencyScope(input),
       idempotencyKey,
       requestHash: buildIdempotencyRequestHash(input.idempotencyPayload ?? input.body ?? {}),
       response: { inbound: result.inbound, operationLogId: result.operationLog?.id ?? "" },
     },
-    ...(input.workspace.operationIdempotencyRecords ?? []),
+    ...(input.workspace.rawMaterialInboundActionReceipts ?? []),
   ];
 }
 

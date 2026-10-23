@@ -23,6 +23,20 @@ export function createPostgresPoolClient(options = {}) {
       return readJsonQueryResult(await pool.query({ text, values }));
     },
 
+    async transactionStatementsJson(statements) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        let result;
+        for (const statement of statements) result = await client.query(statement);
+        await client.query("COMMIT");
+        return readJsonQueryResult(result);
+      } catch (error) {
+        try { await client.query("ROLLBACK"); } catch { /* Preserve original failure. */ }
+        throw normalizePostgresWriteError(error);
+      } finally { client.release(); }
+    },
+
     async transactionJson(text, values = [], options = {}) {
       const client = await pool.connect();
       try {

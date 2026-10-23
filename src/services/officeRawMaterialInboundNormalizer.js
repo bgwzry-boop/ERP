@@ -1,3 +1,5 @@
+import { readFiniteRawMaterialNumber } from "../../shared/rawMaterialNumbers.js";
+import { normalizeRawMaterialSummaryNumbers } from "../../shared/rawMaterialSummaryNumbers.js";
 export function normalizeRawMaterialInbound(input = {}) {
   const item = { ...(input ?? {}) };
   normalizeRawMaterialInboundSummary(item);
@@ -83,18 +85,17 @@ function normalizeRawMaterialInboundSummary(item) {
   item.productionTaskOrderLineId = cleanText(item.productionTaskOrderLineId);
   item.productionTaskMachineId = cleanText(item.productionTaskMachineId);
   item.productionTaskGoodsSpec = cleanText(item.productionTaskGoodsSpec);
+  normalizeRawMaterialSummaryNumbers(item);
   item.costAllocationStatus = cleanText(item.costAllocationStatus);
   item.costAllocationDraftedBy = cleanText(item.costAllocationDraftedBy);
   item.costAllocationDraftedByUserId = cleanText(item.costAllocationDraftedByUserId);
   item.costAllocationDraftedAt = cleanText(item.costAllocationDraftedAt);
   item.costAllocationDraftCount = toNumber(item.costAllocationDraftCount, 0);
-  item.costAllocationDraftAmount = toNumber(item.costAllocationDraftAmount, 0);
   item.costAllocationReviewStatus = cleanText(item.costAllocationReviewStatus);
   item.costAllocationConfirmedBy = cleanText(item.costAllocationConfirmedBy);
   item.costAllocationConfirmedByUserId = cleanText(item.costAllocationConfirmedByUserId);
   item.costAllocationConfirmedAt = cleanText(item.costAllocationConfirmedAt);
   item.costAllocationConfirmedCount = toNumber(item.costAllocationConfirmedCount, 0);
-  item.costAllocationConfirmedAmount = toNumber(item.costAllocationConfirmedAmount, 0);
   item.costAllocationConfirmationId = cleanText(item.costAllocationConfirmationId);
   item.lossCalibrationStatus = cleanText(item.lossCalibrationStatus);
   item.lossCalibratedBy = cleanText(item.lossCalibratedBy);
@@ -102,29 +103,17 @@ function normalizeRawMaterialInboundSummary(item) {
   item.lossCalibratedAt = cleanText(item.lossCalibratedAt);
   item.lossCalibrationCount = toNumber(item.lossCalibrationCount, 0);
   item.lossCalibrationId = cleanText(item.lossCalibrationId);
-  item.lossCalibrationRatePercent = toNumber(item.lossCalibrationRatePercent, 0);
-  item.lossCalibrationActualOutputQuantity = toNumber(item.lossCalibrationActualOutputQuantity, 0);
-  item.lossCalibrationExpectedOutputQuantity = toNumber(item.lossCalibrationExpectedOutputQuantity, 0);
-  item.lossCalibrationAmount = toNumber(item.lossCalibrationAmount, 0);
   item.rawMaterialCostAllocationWarnings = Array.isArray(item.rawMaterialCostAllocationWarnings)
     ? item.rawMaterialCostAllocationWarnings.map(cleanText).filter(Boolean)
     : [];
   item.marginSnapshotStatus = cleanText(item.marginSnapshotStatus);
   item.marginSnapshotCount = toNumber(item.marginSnapshotCount, 0);
   item.marginSnapshotId = cleanText(item.marginSnapshotId);
-  item.marginSnapshotTotalSalesAmount = toNumber(item.marginSnapshotTotalSalesAmount, 0);
-  item.marginSnapshotMaterialCostAmount = toNumber(item.marginSnapshotMaterialCostAmount, 0);
-  item.marginSnapshotGrossProfitAmount = toNumber(item.marginSnapshotGrossProfitAmount, 0);
-  item.marginSnapshotGrossMarginRatePercent = toNumber(item.marginSnapshotGrossMarginRatePercent, 0);
   item.marginSnapshotGeneratedBy = cleanText(item.marginSnapshotGeneratedBy);
   item.marginSnapshotGeneratedAt = cleanText(item.marginSnapshotGeneratedAt);
   item.marginReportStatus = cleanText(item.marginReportStatus);
   item.marginReportCount = toNumber(item.marginReportCount, 0);
   item.marginReportId = cleanText(item.marginReportId);
-  item.marginReportTotalSalesAmount = toNumber(item.marginReportTotalSalesAmount, 0);
-  item.marginReportMaterialCostAmount = toNumber(item.marginReportMaterialCostAmount, 0);
-  item.marginReportGrossProfitAmount = toNumber(item.marginReportGrossProfitAmount, 0);
-  item.marginReportGrossMarginRatePercent = toNumber(item.marginReportGrossMarginRatePercent, 0);
   item.marginReviewedBy = cleanText(item.marginReviewedBy);
   item.marginReviewedAt = cleanText(item.marginReviewedAt);
 }
@@ -164,6 +153,7 @@ function normalizeRawMaterialRolls(rolls) {
     consumedAt: cleanText(roll.consumedAt),
     consumedBy: cleanText(roll.consumedBy),
     lastConsumedWeightKg: toNumber(roll.lastConsumedWeightKg, 0),
+    lastConsumedQuantity: toNumber(roll.lastConsumedQuantity, 0),
     remainingMachineSideWeightKg: toNumber(roll.remainingMachineSideWeightKg, 0),
     leftoverReturnRecordId: cleanText(roll.leftoverReturnRecordId),
     leftoverWeightKg: toNumber(roll.leftoverWeightKg, 0),
@@ -212,11 +202,11 @@ function normalizeRawMaterialTraceabilityHistory(item) {
         leftoverReviewedAt: cleanText(record.leftoverReviewedAt),
         costAllocationStatus: cleanText(record.costAllocationStatus),
         costAllocationDraftId: cleanText(record.costAllocationDraftId),
-        allocatedCostAmount: toNumber(record.allocatedCostAmount, 0),
+        allocatedCostAmount: readFiniteRawMaterialNumber(record.allocatedCostAmount),
         allocatedWeightKg: toNumber(record.allocatedWeightKg, 0),
         allocatedQuantity: toNumber(record.allocatedQuantity, 0),
         costConfirmationId: cleanText(record.costConfirmationId),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
+        confirmedCostAmount: readFiniteRawMaterialNumber(record.confirmedCostAmount),
         costConfirmedAt: cleanText(record.costConfirmedAt),
         costConfirmedBy: cleanText(record.costConfirmedBy),
         lossCalibrationId: cleanText(record.lossCalibrationId),
@@ -248,11 +238,11 @@ function normalizeRawMaterialTraceabilityHistory(item) {
         confirmedBy: cleanText(record.confirmedBy),
         costAllocationStatus: cleanText(record.costAllocationStatus),
         costAllocationDraftId: cleanText(record.costAllocationDraftId),
-        allocatedCostAmount: toNumber(record.allocatedCostAmount, 0),
+        allocatedCostAmount: readFiniteRawMaterialNumber(record.allocatedCostAmount),
         allocatedWeightKg: toNumber(record.allocatedWeightKg, 0),
         allocatedQuantity: toNumber(record.allocatedQuantity, 0),
         costConfirmationId: cleanText(record.costConfirmationId),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
+        confirmedCostAmount: readFiniteRawMaterialNumber(record.confirmedCostAmount),
         costConfirmedAt: cleanText(record.costConfirmedAt),
         costConfirmedBy: cleanText(record.costConfirmedBy),
         lossCalibrationId: cleanText(record.lossCalibrationId),
@@ -349,7 +339,7 @@ function normalizeRawMaterialCostHistory(item) {
         unitPrice: toNumber(record.unitPrice, 0),
         allocatedWeightKg: toNumber(record.allocatedWeightKg, 0),
         allocatedQuantity: toNumber(record.allocatedQuantity, 0),
-        allocatedCostAmount: toNumber(record.allocatedCostAmount, 0),
+        allocatedCostAmount: readFiniteRawMaterialNumber(record.allocatedCostAmount),
         productionTaskId: cleanText(record.productionTaskId),
         orderLineId: cleanText(record.orderLineId),
         productionTaskMachineId: cleanText(record.productionTaskMachineId),
@@ -362,7 +352,7 @@ function normalizeRawMaterialCostHistory(item) {
         generatedBy: cleanText(record.generatedBy),
         generatedByUserId: cleanText(record.generatedByUserId),
         generatedAt: cleanText(record.generatedAt),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
+        confirmedCostAmount: readFiniteRawMaterialNumber(record.confirmedCostAmount),
         confirmedBy: cleanText(record.confirmedBy),
         confirmedByUserId: cleanText(record.confirmedByUserId),
         confirmedAt: cleanText(record.confirmedAt),
@@ -370,7 +360,7 @@ function normalizeRawMaterialCostHistory(item) {
         reviewNote: cleanText(record.reviewNote),
         lossCalibrationId: cleanText(record.lossCalibrationId),
         lossRatePercent: toNumber(record.lossRatePercent, 0),
-        calibratedCostAmount: toNumber(record.calibratedCostAmount, 0),
+        calibratedCostAmount: readFiniteRawMaterialNumber(record.calibratedCostAmount),
         calibratedBy: cleanText(record.calibratedBy),
         calibratedAt: cleanText(record.calibratedAt),
         marginSnapshotId: cleanText(record.marginSnapshotId),
@@ -399,7 +389,7 @@ function normalizeRawMaterialCostHistory(item) {
         confirmedCount: toNumber(record.confirmedCount, 0),
         confirmedWeightKg: toNumber(record.confirmedWeightKg, 0),
         confirmedQuantity: toNumber(record.confirmedQuantity, 0),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
+        confirmedCostAmount: readFiniteRawMaterialNumber(record.confirmedCostAmount),
         reviewStatus: cleanText(record.reviewStatus),
         costEffect: cleanText(record.costEffect),
         marginEffect: cleanText(record.marginEffect),
@@ -439,7 +429,7 @@ function normalizeRawMaterialCostHistory(item) {
         confirmedCount: toNumber(record.confirmedCount, 0),
         confirmedWeightKg: toNumber(record.confirmedWeightKg, 0),
         confirmedQuantity: toNumber(record.confirmedQuantity, 0),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
+        confirmedCostAmount: readFiniteRawMaterialNumber(record.confirmedCostAmount),
         expectedOutputQuantity: toNumber(record.expectedOutputQuantity, 0),
         actualQualifiedOutputQuantity: toNumber(record.actualQualifiedOutputQuantity, 0),
         lossQuantity: toNumber(record.lossQuantity, 0),
@@ -488,20 +478,20 @@ function normalizeRawMaterialMarginHistory(item) {
               productName: cleanText(line.productName),
               goodsSpec: cleanText(line.goodsSpec),
               quantity: toNumber(line.quantity, 0),
-              salesAmount: toNumber(line.salesAmount, 0),
-              materialCostAmount: toNumber(line.materialCostAmount, 0),
-              grossProfitAmount: toNumber(line.grossProfitAmount, 0),
-              grossMarginRatePercent: toNumber(line.grossMarginRatePercent, 0),
+              salesAmount: readFiniteRawMaterialNumber(line.salesAmount),
+              materialCostAmount: readFiniteRawMaterialNumber(line.materialCostAmount),
+              grossProfitAmount: readFiniteRawMaterialNumber(line.grossProfitAmount),
+              grossMarginRatePercent: readFiniteRawMaterialNumber(line.grossMarginRatePercent),
               marginStatus: cleanText(line.marginStatus),
               marginSnapshotId: cleanText(line.marginSnapshotId),
               costAllocationDraftIds: Array.isArray(line.costAllocationDraftIds) ? line.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
               productionTaskIds: Array.isArray(line.productionTaskIds) ? line.productionTaskIds.map(cleanText).filter(Boolean) : [],
             })).filter((line) => line.orderLineId)
           : [],
-        totalSalesAmount: toNumber(record.totalSalesAmount, 0),
-        totalMaterialCostAmount: toNumber(record.totalMaterialCostAmount, 0),
-        grossProfitAmount: toNumber(record.grossProfitAmount, 0),
-        grossMarginRatePercent: toNumber(record.grossMarginRatePercent, 0),
+        totalSalesAmount: readFiniteRawMaterialNumber(record.totalSalesAmount),
+        totalMaterialCostAmount: readFiniteRawMaterialNumber(record.totalMaterialCostAmount),
+        grossProfitAmount: readFiniteRawMaterialNumber(record.grossProfitAmount),
+        grossMarginRatePercent: readFiniteRawMaterialNumber(record.grossMarginRatePercent),
         reviewStatus: cleanText(record.reviewStatus),
         reportStatus: cleanText(record.reportStatus),
         costEffect: cleanText(record.costEffect),
@@ -541,19 +531,19 @@ function normalizeRawMaterialMarginHistory(item) {
               productName: cleanText(line.productName),
               goodsSpec: cleanText(line.goodsSpec),
               quantity: toNumber(line.quantity, 0),
-              salesAmount: toNumber(line.salesAmount, 0),
-              materialCostAmount: toNumber(line.materialCostAmount, 0),
-              grossProfitAmount: toNumber(line.grossProfitAmount, 0),
-              grossMarginRatePercent: toNumber(line.grossMarginRatePercent, 0),
+              salesAmount: readFiniteRawMaterialNumber(line.salesAmount),
+              materialCostAmount: readFiniteRawMaterialNumber(line.materialCostAmount),
+              grossProfitAmount: readFiniteRawMaterialNumber(line.grossProfitAmount),
+              grossMarginRatePercent: readFiniteRawMaterialNumber(line.grossMarginRatePercent),
               marginStatus: cleanText(line.marginStatus),
               costAllocationDraftIds: Array.isArray(line.costAllocationDraftIds) ? line.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
               productionTaskIds: Array.isArray(line.productionTaskIds) ? line.productionTaskIds.map(cleanText).filter(Boolean) : [],
             })).filter((line) => line.orderLineId)
           : [],
-        totalSalesAmount: toNumber(record.totalSalesAmount, 0),
-        totalMaterialCostAmount: toNumber(record.totalMaterialCostAmount, 0),
-        grossProfitAmount: toNumber(record.grossProfitAmount, 0),
-        grossMarginRatePercent: toNumber(record.grossMarginRatePercent, 0),
+        totalSalesAmount: readFiniteRawMaterialNumber(record.totalSalesAmount),
+        totalMaterialCostAmount: readFiniteRawMaterialNumber(record.totalMaterialCostAmount),
+        grossProfitAmount: readFiniteRawMaterialNumber(record.grossProfitAmount),
+        grossMarginRatePercent: readFiniteRawMaterialNumber(record.grossMarginRatePercent),
         reviewStatus: cleanText(record.reviewStatus),
         reportStatus: cleanText(record.reportStatus),
         costEffect: cleanText(record.costEffect),

@@ -1,3 +1,4 @@
+import { normalizeRawMaterialSupplierSourceId, normalizeRawMaterialSupplierColor, normalizeRawMaterialFactoryColorName } from "../../../shared/rawMaterialFactoryColors.js";
 import { requestOfficeApi } from "../../services/officeApiClientCore.js";
 
 export async function listOfficeRawMaterialSupplierColorMappings(input = {}, options = {}) {
@@ -20,6 +21,9 @@ export async function listOfficeRawMaterialSupplierColorMappings(input = {}, opt
         options: { suppliers: [], factoryColors: [] },
         error: toApiError(json, response.status, "厂家颜色资料读取失败。"),
       };
+    }
+    if (!Array.isArray(json?.items) || !Array.isArray(json?.options?.suppliers) || !Array.isArray(json?.options?.factoryColors)) {
+      return { source: "api_error", blocked: true, items: [], error: { code: "RAW_MATERIAL_SUPPLIER_COLOR_RESPONSE_INVALID", message: "厂家颜色资料响应不完整，请刷新重试。" } };
     }
     return {
       source: "api",
@@ -57,6 +61,18 @@ export async function saveOfficeRawMaterialSupplierColorMapping(input = {}, opti
         blocked: true,
         error: toApiError(json, response.status, "厂家颜色规则保存失败。"),
       };
+    }
+    const expectedSupplier = normalizeRawMaterialSupplierSourceId(body.supplierSourceId || body.supplierName);
+    const expectedColor = normalizeRawMaterialSupplierColor(body.supplierColor);
+    const expectedFactoryColor = normalizeRawMaterialFactoryColorName(body.factoryColor);
+    if (!cleanText(json?.mapping?.id) || !cleanText(json?.operationLogId)
+      || !expectedSupplier || !expectedColor || !expectedFactoryColor
+      || json.mapping.supplierSourceId !== expectedSupplier
+      || json.mapping.supplierColor !== expectedColor
+      || json.mapping.factoryColor !== expectedFactoryColor
+      || json.mapping.enabled !== (body.enabled !== false)
+      || (cleanText(body.mappingId) && json.mapping.id !== cleanText(body.mappingId))) {
+      return { source: "api_error", blocked: true, error: { code: "RAW_MATERIAL_SUPPLIER_COLOR_SAVE_UNCONFIRMED", message: "未收到完整保存凭据，结果暂无法确认。请刷新规则核对后再操作，避免重复保存。" } };
     }
     return {
       source: "api",

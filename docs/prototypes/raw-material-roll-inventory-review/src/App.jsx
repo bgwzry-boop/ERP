@@ -429,7 +429,7 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
       return;
     }
     if (result === "printed") { void applyAction("打印卷标"); return; }
-    if (flow?.type === "verify" && flow.roll) void applyAction("确认贴标入库", { rollId: flow.roll.id, matchResult: result, checkedWeightKg: flow.roll.weightKg, checkedColor: flow.roll.factoryColor || selected.factoryColor, checkedSpec: flow.roll.spec || selected.spec, location: result === "matched" ? "原材料仓库" : "原料隔离区" });
+    if (flow?.type === "verify" && flow.roll) void applyAction("确认贴标入库", { rollId: flow.roll.id, expectedLabelVersion: Math.max(1, Number(flow.roll.labelVersion) || 1), matchResult: result, checkedWeightKg: flow.roll.weightKg, checkedColor: flow.roll.factoryColor || selected.factoryColor, checkedSpec: flow.roll.spec || selected.spec, location: result === "matched" ? "原材料仓库" : "原料隔离区" });
   };
   return <><div className="secondary-workbench">
     <section className="secondary-list">

@@ -1,3 +1,8 @@
+import { assertRawMaterialConsumptionMeasurement } from "../../shared/rawMaterialMeasurements.js";
+import { rawMaterialRecordIdentitySuffix } from "../../shared/rawMaterialRecordIdentity.js";
+import { resolveRawMaterialCurrentRecord } from "../../shared/rawMaterialCurrentRecord.js";
+import { resolveRawMaterialIssueAssignment } from "../../shared/rawMaterialIssueAssignment.js";
+import { readRawMaterialConsumptionMeasurement } from "../../shared/rawMaterialConsumptionMeasurement.js";
 import { rawMaterialRollFacts } from "../../shared/rawMaterialRollFacts.js";
 import { applyRawMaterialCostMarginLocalAction, buildRawMaterialCostMarginToastText } from "./rawMaterialCostMarginLocalActions.js";
 import { roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
@@ -325,18 +330,22 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
       return updatedItem;
     }
     if (action === "确认消耗") {
+      try { assertRawMaterialConsumptionMeasurement(options); } catch { return item; }
       const rollId = options.rollId ?? "";
       const targetRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "机边领用" && (!rollId || roll.id === rollId));
       if (!targetRolls.length) return item;
-      const consumptionRecordPrefix = `RMI-CONS-LOCAL-${Date.now().toString(36).toUpperCase()}`;
+      if (targetRolls.some(roll => !resolveRawMaterialCurrentRecord(roll, item.rawMaterialIssueRecords, "issueRecordId"))) return item;
+      if (targetRolls.some(roll => !resolveRawMaterialIssueAssignment(roll, resolveRawMaterialCurrentRecord(roll, item.rawMaterialIssueRecords, "issueRecordId"), options))) return item;
+      const consumptionMeasurements = new Map();
+      try {
+        if (targetRolls.length > 1 && ['consumedWeightKg','weightKg','consumedQuantity','quantity'].some(key=>options[key] !== undefined)) return item;
+        for (const roll of targetRolls) consumptionMeasurements.set(roll.id, readRawMaterialConsumptionMeasurement(roll, options, item.unit));
+      } catch { return item; }
+      const consumptionRecordPrefix = `RMI-CONS-LOCAL-${rawMaterialRecordIdentitySuffix()}`;
       const consumedRollIds = new Set(targetRolls.map((roll) => roll.id));
       const consumptionRecords = targetRolls.map((roll, index) => {
-        const issueRecord = (item.rawMaterialIssueRecords ?? []).find((record) => record.rollId === roll.id);
-        const machineSideWeightKg = Number(roll.weightKg) || Number(issueRecord?.remainingWeightKg) || Number(issueRecord?.issuedWeightKg) || 0;
-        const requestedWeightKg = Number(options.consumedWeightKg);
-        const isPartialConsumption = machineSideWeightKg > 0 && requestedWeightKg > 0 && machineSideWeightKg - requestedWeightKg > 0.001;
-        const consumedWeightKg = isPartialConsumption ? roundLocalRawMaterialWeight(requestedWeightKg) : machineSideWeightKg;
-        const remainingMachineSideWeightKg = isPartialConsumption ? roundLocalRawMaterialWeight(machineSideWeightKg - requestedWeightKg) : 0;
+        const issueRecord = resolveRawMaterialCurrentRecord(roll, item.rawMaterialIssueRecords, "issueRecordId");
+        const {machineSideWeightKg, consumedWeightKg, consumedQuantity, remainingMachineSideWeightKg, partialConsumption:isPartialConsumption} = consumptionMeasurements.get(roll.id);
         return {
           consumptionRecordId: `${consumptionRecordPrefix}-${String(index + 1).padStart(2, "0")}`,
           inboundId: item.id,
@@ -345,13 +354,12 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
           supplierRollNo: roll.supplierRollNo,
           ...rawMaterialRollFacts(item, roll),
           consumedWeightKg,
-          consumedQuantity: consumedWeightKg > 0 ? 0 : 1,
+          consumedQuantity,
           consumedFromWeightKg: machineSideWeightKg,
           remainingMachineSideWeightKg,
           partialConsumption: isPartialConsumption,
           unit: item.unit || (consumedWeightKg > 0 ? "kg" : "件"),
-          machineId: options.machineId || roll.machineId || issueRecord?.machineId || "机边待分配",
-          productionTaskId: options.productionTaskId || roll.productionTaskId || issueRecord?.productionTaskId || "",
+          ...resolveRawMaterialIssueAssignment(roll, issueRecord, options),
           consumptionStatus: isPartialConsumption ? "部分消耗/机边" : "已确认消耗",
           confirmedBy: operatorName,
           confirmedAt: now,
@@ -373,12 +381,16 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
             consumedAt: now,
             consumedBy: operatorName,
             lastConsumedWeightKg: record.consumedWeightKg,
+            lastConsumedQuantity: record.consumedQuantity,
             remainingMachineSideWeightKg: record.remainingMachineSideWeightKg,
           };
         }
         return {
           ...roll,
           inventoryStatus: "已消耗",
+          lastConsumedWeightKg: record.consumedWeightKg,
+          lastConsumedQuantity: record.consumedQuantity,
+          remainingMachineSideWeightKg: 0,
           location: "已消耗归档",
           consumptionStatus: "已确认消耗",
           consumptionRecordId: record?.consumptionRecordId || "",
@@ -387,15 +399,15 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
         };
       });
       const nextIssueRecords = (item.rawMaterialIssueRecords ?? []).map((record) =>
-        consumedRollIds.has(record.rollId)
+        consumptionRecords.some(entry => entry.issueRecordId === record.issueRecordId)
           ? (() => {
-              const consumptionRecord = consumptionRecords.find((entry) => entry.rollId === record.rollId);
+              const consumptionRecord = consumptionRecords.find((entry) => entry.issueRecordId === record.issueRecordId);
               return {
                 ...record,
                 consumptionStatus: consumptionRecord?.partialConsumption ? "部分消耗/机边" : "已确认消耗",
                 consumptionRecordId: consumptionRecord?.consumptionRecordId || "",
                 consumedWeightKg: roundLocalRawMaterialWeight(Number(record.consumedWeightKg || 0) + Number(consumptionRecord?.consumedWeightKg || 0)),
-                remainingWeightKg: Number(consumptionRecord?.remainingMachineSideWeightKg) || 0,
+                remainingMachineSideWeightKg: Number(consumptionRecord?.remainingMachineSideWeightKg) || 0,
                 consumedAt: now,
               };
             })()

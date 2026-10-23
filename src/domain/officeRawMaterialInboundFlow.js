@@ -95,6 +95,7 @@ export function buildOfficeMatchedAttachPayload(inbound = {}, roll = {}) {
   const facts = describeOfficeRollFacts(roll, inbound);
   return {
     rollId: roll.id,
+    expectedLabelVersion: Math.max(1, Number(roll.labelVersion) || 1),
     matchResult: "matched",
     checkedWeightKg: roll.weightKg,
     checkedColor: facts.color,

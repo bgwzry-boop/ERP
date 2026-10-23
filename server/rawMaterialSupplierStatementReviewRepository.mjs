@@ -1,4 +1,6 @@
 import { resolveStoreMode } from "./storeMode.mjs";
+import { buildPostgresIdempotencyRequest } from "./idempotency.mjs";
+import { supplierSettlementState } from "../shared/reviewListSemantics.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -101,6 +103,30 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
     options.queryJson ??
     ((text, values) => postgresClient.transactionJson(text, values));
 
+  async function guardedTransaction(text, values, resultContext) {
+    try {
+      const returnIds = collectSupplierReturnIds(resultContext.review);
+      const request = buildPostgresIdempotencyRequest({
+        scope: "raw-material.supplier-review.write",
+        idempotencyKey: resultContext.operationLog.id,
+        payload: resultContext.review,
+        operatorId: resultContext.operationLog.operatorId,
+        targetType: "raw_material_supplier_statement_review",
+        targetId: resultContext.review.reviewId,
+        resourceLocks: [`supplier-review:${resultContext.review.reviewId}`, ...returnIds.map((id) => `raw-material:${id}`)],
+        query: { text, values },
+      });
+      const result = typeof postgresClient?.idempotentTransactionJson === "function"
+        ? await postgresClient.idempotentTransactionJson(request)
+        : await transactionJson(text, values);
+      if (!result?.review) throw supplierReviewConflict();
+      return result;
+    } catch (error) {
+      if (error?.code === "BUSINESS_WRITE_CONFLICT" || /ERP_SUPPLIER_REVIEW.*CONFLICT/.test(error?.message ?? "")) throw supplierReviewConflict();
+      throw error;
+    }
+  }
+
   return {
     kind: "postgres",
 
@@ -120,7 +146,7 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
       const result = createReviewDraftPayload(input);
       const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog);
       const saved = normalizeReviewTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await guardedTransaction(builtQuery.text, builtQuery.values, result),
       );
       input.workspace.rawMaterialSupplierStatementReviews = [
         saved.review ?? result.review,
@@ -137,9 +163,9 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
 
     async confirmReview(input = {}) {
       const result = applyReviewConfirmation(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog);
+      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
       const saved = normalizeReviewTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await guardedTransaction(builtQuery.text, builtQuery.values, result),
       );
       input.workspace.rawMaterialSupplierStatementReviews = [
         saved.review ?? result.review,
@@ -154,9 +180,9 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
 
     async confirmStatement(input = {}) {
       const result = applyStatementConfirmation(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog);
+      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
       const saved = normalizeReviewTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await guardedTransaction(builtQuery.text, builtQuery.values, result),
       );
       input.workspace.rawMaterialSupplierStatementReviews = [
         saved.review ?? result.review,
@@ -171,9 +197,9 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
 
     async generatePayableDraft(input = {}) {
       const result = applyPayableDraftGeneration(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog);
+      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
       const saved = normalizeReviewTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await guardedTransaction(builtQuery.text, builtQuery.values, result),
       );
       input.workspace.rawMaterialSupplierStatementReviews = [
         saved.review ?? result.review,
@@ -188,9 +214,9 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
 
     async confirmPayment(input = {}) {
       const result = applySupplierPaymentConfirmation(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog);
+      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
       const saved = normalizeReviewTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await guardedTransaction(builtQuery.text, builtQuery.values, result),
       );
       input.workspace.rawMaterialSupplierStatementReviews = [
         saved.review ?? result.review,
@@ -239,12 +265,43 @@ export function buildUpsertReviewPayloadTransactionSql(review, operationLog = nu
   return buildUpsertReviewPayloadTransactionQuery(review, operationLog).text;
 }
 
-export function buildUpsertReviewPayloadTransactionQuery(review, operationLog = null) {
+export function buildUpsertReviewPayloadTransactionQuery(review, operationLog = null, { expectedReview } = {}) {
   const safeReview = normalizeReview(review);
   if (!safeReview?.reviewId) throw new Error("raw material supplier statement review id is required");
   const safeOperationLog = normalizeOperationLog(operationLog);
   const parameters = createPostgresParameterBinder();
   const operationLogSql = safeOperationLog ? buildInsertOperationLogSql(safeOperationLog, parameters) : "";
+  const expected = expectedReview ? normalizeReview(expectedReview) : null;
+  const returnIds = collectSupplierReturnIds(safeReview);
+  const hasReturnClaim = returnIds.length && (safeReview.statementConfirmationId || safeReview.supplierPayableId);
+  const returnIdsSql = hasReturnClaim ? parameters.textArray(returnIds) : "";
+  const reviewIdSql = hasReturnClaim ? parameters.text(safeReview.reviewId) : "";
+  const returnClaimGuard = hasReturnClaim
+    ? `NOT EXISTS (
+        SELECT 1 FROM raw_material_supplier_statement_reviews AS other
+        WHERE other.id <> ${reviewIdSql}
+          AND (COALESCE(other.payload_json->>'statementConfirmationId', '') <> '' OR COALESCE(other.payload_json->>'supplierPayableId', '') <> '')
+          AND (
+            COALESCE(other.payload_json->'linkedSupplierReturnIds', '[]'::jsonb) ?| ${returnIdsSql}
+            OR COALESCE(other.payload_json->'addedSupplierReturnIds', '[]'::jsonb) ?| ${returnIdsSql}
+            OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(other.payload_json->'rows', '[]'::jsonb) || COALESCE(other.payload_json->'adjustments', '[]'::jsonb)) AS source
+              WHERE source->>'sourceReturnInboundId' = ANY(${returnIdsSql}))
+          )
+      )`
+    : "true";
+
+  const conflictClause = expected
+    ? `DO UPDATE SET
+        supplier_name = EXCLUDED.supplier_name, file_name = EXCLUDED.file_name,
+        status = EXCLUDED.status, review_status = EXCLUDED.review_status,
+        payload_json = EXCLUDED.payload_json, updated_at = now()
+      WHERE COALESCE((raw_material_supplier_statement_reviews.payload_json->>'revision')::integer, 1) = ${parameters.integer(expected.revision)}
+        AND COALESCE(raw_material_supplier_statement_reviews.payload_json->>'reviewStatus', 'draft') = ${parameters.text(expected.reviewStatus)}
+        AND COALESCE(raw_material_supplier_statement_reviews.payload_json->>'statementConfirmationId', '') = ${parameters.text(expected.statementConfirmationId)}
+        AND COALESCE(raw_material_supplier_statement_reviews.payload_json->>'supplierPayableId', '') = ${parameters.text(expected.supplierPayableId)}
+        AND COALESCE(raw_material_supplier_statement_reviews.payload_json->>'supplierPaymentConfirmationId', '') = ${parameters.text(expected.supplierPaymentConfirmationId)}`
+    : "DO NOTHING";
+
   return {
     text: `
 BEGIN;
@@ -258,7 +315,7 @@ WITH upserted_review AS (
     payload_json,
     created_at,
     updated_at
-  ) VALUES (
+  ) SELECT * FROM (VALUES (
     ${parameters.text(safeReview.reviewId)},
     ${parameters.text(safeReview.supplierName)},
     ${parameters.text(safeReview.fileName)},
@@ -267,18 +324,15 @@ WITH upserted_review AS (
     ${parameters.json(safeReview)},
     ${parameters.timestamp(safeReview.createdAt)},
     now()
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    supplier_name = EXCLUDED.supplier_name,
-    file_name = EXCLUDED.file_name,
-    status = EXCLUDED.status,
-    review_status = EXCLUDED.review_status,
-    payload_json = EXCLUDED.payload_json,
-    updated_at = now()
+  )) AS candidate
+  WHERE ${expected ? `EXISTS (SELECT 1 FROM raw_material_supplier_statement_reviews WHERE id = ${parameters.text(safeReview.reviewId)})` : 'true'}
+    AND ${returnClaimGuard}
+  ON CONFLICT (id) ${conflictClause}
   RETURNING payload_json AS result
 )
 ${safeOperationLog ? `, inserted_operation_log AS (${operationLogSql})` : ""}
 SELECT json_build_object(
+  'writeGuard', erp_require((SELECT COUNT(*) FROM upserted_review) = 1, 'ERP_SUPPLIER_REVIEW_CONCURRENCY_CONFLICT'),
   'review', (SELECT result FROM upserted_review),
   'operationLogId', ${safeOperationLog ? "(SELECT id FROM inserted_operation_log)" : "NULL"}
 ) AS result;
@@ -335,6 +389,7 @@ export function buildReviewListResponse(reviews = [], query = new URLSearchParam
         .includes(keyword),
     );
   }
+  if (filters.settlementStage && filters.settlementStage !== "全部阶段") items = items.filter((item) => supplierSettlementState(item).label === filters.settlementStage);
   items = items.sort((left, right) => compareDateDesc(left.updatedAt, right.updatedAt) || right.reviewId.localeCompare(left.reviewId));
   const total = items.length;
   const page = Math.max(1, Number(filters.page) || 1);
@@ -420,22 +475,29 @@ export function applyReviewConfirmation(input = {}) {
     throw Object.assign(new Error(`Raw material supplier statement review not found: ${reviewId}`), { statusCode: 404 });
   }
   const before = reviews[index];
-  if (before.reviewStatus === "reviewed") {
+  if (before.reviewStatus !== "draft" || before.statementConfirmationId || before.supplierPayableId || before.supplierPaymentConfirmationId) {
     throw Object.assign(new Error(`Raw material supplier statement review already reviewed: ${reviewId}`), { statusCode: 409 });
   }
   const now = cleanText(input.now ?? input.body?.now) || new Date().toISOString();
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
   const decision = cleanText(input.decision ?? input.body?.decision);
+  if (!["一致", "有差异"].includes(decision)) {
+    throw Object.assign(new Error("复核结果必须明确选择一致或有差异。"), {
+      statusCode: 422,
+      code: "RAW_MATERIAL_SUPPLIER_REVIEW_DECISION_INVALID",
+    });
+  }
   const reviewedAdjustments = resolveReviewedAdjustments(before.adjustments, input.adjustments ?? input.body?.adjustments, {
     operatorId,
     operatorName,
     now,
   });
   validateReviewedSupplierReturnFacts(before.rows, reviewedAdjustments);
-  const status = decision.includes("一致") ? "已人工复核/一致" : "已人工复核/有差异";
+  const status = decision === "一致" ? "已人工复核/一致" : "已人工复核/有差异";
   const review = normalizeReview({
     ...before,
+    revision: before.revision + 1,
     adjustments: reviewedAdjustments,
     status,
     reviewStatus: "reviewed",
@@ -544,7 +606,7 @@ export function applyStatementConfirmation(input = {}) {
   if (before.reviewStatus === "statement_confirmed" || before.statementConfirmationId) {
     throw Object.assign(new Error(`Raw material supplier statement already confirmed: ${reviewId}`), { statusCode: 409 });
   }
-  if (before.reviewStatus !== "reviewed" || !before.status.includes("一致")) {
+  if (before.reviewStatus !== "reviewed" || before.status !== "已人工复核/一致") {
     throw Object.assign(new Error(`Raw material supplier statement must be reviewed as consistent before confirmation: ${reviewId}`), {
       statusCode: 409,
     });
@@ -574,6 +636,7 @@ export function applyStatementConfirmation(input = {}) {
   const note = cleanText(input.note ?? input.body?.note);
   const review = normalizeReview({
     ...before,
+    revision: before.revision + 1,
     status: "已确认对账/待付款",
     reviewStatus: "statement_confirmed",
     statementStatus: "已确认对账",
@@ -640,6 +703,7 @@ export function applyPayableDraftGeneration(input = {}) {
   });
   const review = normalizeReview({
     ...before,
+    revision: before.revision + 1,
     status: "已生成应付/待付款确认",
     payableStatus: payableDraft.status,
     supplierPayableId,
@@ -727,6 +791,7 @@ export function applySupplierPaymentConfirmation(input = {}) {
   });
   const review = normalizeReview({
     ...before,
+    revision: before.revision + 1,
     status: "已确认付款/已完成",
     paymentStatus: "已确认付款",
     payableStatus: "已付款",
@@ -777,6 +842,7 @@ function normalizeReview(input = {}) {
     ...input,
     id: reviewId,
     reviewId,
+    revision: Math.max(1, Math.trunc(Number(input.revision) || 1)),
     supplierName: cleanText(input.supplierName),
     fileName: cleanText(input.fileName),
     adapter: {
@@ -1196,6 +1262,7 @@ function normalizeQuery(query) {
     status: cleanText(getQueryValue(query, "status")),
     reviewStatus: cleanText(getQueryValue(query, "reviewStatus")),
     supplierName: cleanText(getQueryValue(query, "supplierName")),
+    settlementStage: cleanText(getQueryValue(query, "settlementStage")),
     page: Number(getQueryValue(query, "page") || 1),
     pageSize: Number(getQueryValue(query, "pageSize") || 50),
   };
@@ -1272,4 +1339,8 @@ function toNumber(value) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function supplierReviewConflict() {
+  return Object.assign(new Error("供应商对账或付款记录已被更新，请刷新后核对；原有确认和付款凭证未被覆盖。"), { statusCode: 409, code: "RAW_MATERIAL_SUPPLIER_REVIEW_CONFLICT" });
 }

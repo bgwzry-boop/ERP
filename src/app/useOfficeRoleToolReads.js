@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { listOfficeRawMaterialStockInbounds } from "../services/officeRawMaterialLazyApi.js";
+import { useCallback, useRef } from "react";
 import { listDriverDeliveryTasks } from "../services/driverMobileLazyApi.js";
 import {
   listOfficeRawMaterialInbounds,
@@ -15,6 +16,7 @@ function withFeedback(result, showToast, feedback) {
 }
 
 const defaultApi = {
+  listOfficeRawMaterialStockInbounds,
   listDriverDeliveryTasks,
   listOfficeRawMaterialInbounds,
   listOfficeRawMaterialSupplierStatementReviews,
@@ -40,6 +42,8 @@ function normalizeReadResultForRuntime(result, { label, serverRequired }) {
 
 export function createOfficeRoleToolReadActions({
   api = defaultApi,
+  activePage,
+  isRawMaterialReadCurrent = () => true,
   authState,
   currentUserId,
   customers,
@@ -106,9 +110,17 @@ export function createOfficeRoleToolReadActions({
   }
 
   async function refreshRawMaterialInbounds({ showToast = false } = {}) {
+    if (!isRawMaterialReadCurrent()) return { source: "superseded", blocked: true };
     setRawMaterialInboundMeta((current) => ({ ...current, loading: true, error: "" }));
+    const permissions = authState?.permissions?.actionPermissions ?? [];
+    const stockOnly = activePage === "rawMaterialScanner" || (permissions.includes("raw_material.stock.read") && !permissions.includes("raw_material.inbound.read"));
+    if (stockOnly && rawMaterialInboundsRef.current.some((item) => item.projectionScope !== "stock_only")) {
+      setRawMaterialInbounds([]);
+      setSelectedRawMaterialInboundId("");
+    }
+    const readRawMaterials = stockOnly ? api.listOfficeRawMaterialStockInbounds : api.listOfficeRawMaterialInbounds;
     const result = normalizeReadResultForRuntime(
-      await api.listOfficeRawMaterialInbounds({
+      await readRawMaterials({
         authState,
         operatorId: currentUserId,
         pageSize: 200,
@@ -116,8 +128,11 @@ export function createOfficeRoleToolReadActions({
       }, { serverRequired: serverRequired() }),
       { label: "原材料入库单", serverRequired },
     );
+    if (!isRawMaterialReadCurrent()) return { source: "superseded", blocked: true };
 
     if (result.blocked) {
+      setRawMaterialInbounds([]);
+      setSelectedRawMaterialInboundId("");
       setRawMaterialInboundMeta((current) => ({
         ...current,
         source: result.source,
@@ -149,7 +164,7 @@ export function createOfficeRoleToolReadActions({
     return withFeedback(
       { ...result, selectedRawMaterialInboundId: nextSelectedId },
       showToast,
-      `原材料入库单已通过${sourceLabel}刷新，共 ${result.total ?? nextItems.length} 条；打印标签仍不会直接入可用库存。`,
+      stockOnly ? `卷料库存已通过后端刷新，共 ${result.rollTotal ?? 0} 卷；请逐卷扫码领料。` : `原材料入库单已通过${sourceLabel}刷新，共 ${result.total ?? nextItems.length} 条；打印标签仍不会直接入可用库存。`,
     );
   }
 
@@ -200,8 +215,14 @@ export function createOfficeRoleToolReadActions({
 }
 
 export function useOfficeRoleToolReads(options) {
-  const actions = createOfficeRoleToolReadActions(options);
+  const contextRef = useRef(null);
+  if (contextRef.current?.authState !== options.authState || contextRef.current?.activePage !== options.activePage || contextRef.current?.currentUserId !== options.currentUserId) {
+    contextRef.current = { authState: options.authState, activePage: options.activePage, currentUserId: options.currentUserId };
+  }
+  const context = contextRef.current;
+  const actions = createOfficeRoleToolReadActions({ ...options, isRawMaterialReadCurrent: () => contextRef.current === context });
   const {
+    activePage,
     authState,
     currentUserId,
     customers,
@@ -219,7 +240,7 @@ export function useOfficeRoleToolReads(options) {
     ),
     refreshRawMaterialInbounds: useCallback(
       actions.refreshRawMaterialInbounds,
-      [authState, currentUserId, rawMaterialInboundsRef, selectedRawMaterialInboundIdRef, serverRequired],
+      [activePage, authState, currentUserId, rawMaterialInboundsRef, selectedRawMaterialInboundIdRef, serverRequired],
     ),
     refreshRawMaterialSupplierStatementReviews: useCallback(
       actions.refreshRawMaterialSupplierStatementReviews,

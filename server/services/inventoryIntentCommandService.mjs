@@ -1,3 +1,4 @@
+import { normalizeInventoryHoldTimestamp } from "../../shared/inventoryHoldTime.js";
 import { createHash } from "node:crypto";
 
 export function createInventoryIntentCommandService(options = {}) {
@@ -28,9 +29,11 @@ export function createInventoryIntentCommandService(options = {}) {
 
   function listTemporaryHolds({ workspace, filters = {} }) {
     const status = cleanText(filters.status);
+    const inventoryItemId = cleanText(filters.inventoryItemId);
     const customerId = cleanText(filters.customerId);
     return (workspace.inventoryReservations ?? [])
       .filter((reservation) => reservation.reservationType === "临时留货")
+      .filter((reservation) => !inventoryItemId || reservation.inventoryItemId === inventoryItemId)
       .filter((reservation) => !status || reservation.status === status)
       .filter((reservation) => !customerId || reservation.customerId === customerId)
       .sort((left, right) => Date.parse(right.createdAt ?? 0) - Date.parse(left.createdAt ?? 0))
@@ -55,8 +58,14 @@ export function createInventoryIntentCommandService(options = {}) {
     if (intent.candidate?.requiresExpiryReview === true && !requestedExpiresAt) {
       return businessError(409, "TEMPORARY_HOLD_EXPIRY_REVIEW_REQUIRED", "A future expiry must be confirmed for hold requests received at or after 19:30.");
     }
-    const expiresAt = normalizeFutureTimestamp(requestedExpiresAt || intent.candidate?.expiresAt, now());
-    if (!expiresAt) return validation("expiresAt must be a future timestamp.");
+    const expiresAt = normalizeTimestamp(requestedExpiresAt || intent.candidate?.expiresAt);
+    const reason = cleanText(body.reason) || "客户明确要求临时留货";
+    const idempotencyPayload = { intentId, expectedRevision, inventoryItemId: inventoryResult.inventoryItem.id, qty, expiresAt, operatorId, candidateIndex: candidateResult.index, reason };
+    try {
+      const prior = await workspace.inventoryIntentTransactionRepository.readCreationReceipt?.({ workspace, idempotencyKey: body.idempotencyKey, idempotencyPayload });
+      if (prior) return success(toMutationResponse(prior));
+    } catch (error) { return repositoryError(error); }
+    if (!expiresAt || Date.parse(expiresAt) <= new Date(now()).getTime()) return validation("expiresAt must be a future timestamp.");
 
     const timestamp = new Date(now()).toISOString();
     const reservationId = buildStableId("HOLD", intent.id);
@@ -118,7 +127,7 @@ export function createInventoryIntentCommandService(options = {}) {
         operationLog,
         updatedAt: timestamp,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { intentId, expectedRevision, inventoryItemId: inventoryItem.id, qty, expiresAt, operatorId },
+        idempotencyPayload,
       });
       return success(toMutationResponse(result));
     } catch (error) {
@@ -134,6 +143,9 @@ export function createInventoryIntentCommandService(options = {}) {
     const expectedRevision = positiveInteger(body.expectedRevision ?? (expired ? intent.revision : 0));
     if (!expectedRevision) return validation("expectedRevision must be a positive integer.");
     const timestamp = new Date(now()).toISOString();
+    if (expired && (!Number.isFinite(Date.parse(reservation.expiresAt)) || Date.parse(reservation.expiresAt) > Date.parse(timestamp))) {
+      return businessError(409, "TEMPORARY_HOLD_NOT_DUE", "The temporary hold is not due for expiry.");
+    }
     const targetStatus = expired ? "已过期" : "已取消";
     const reason = expired ? "临时留货已到期自动释放" : cleanText(body.reason) || "办公室主动释放临时留货";
     const inventoryItem = findInventoryItem(workspace, reservation.inventoryItemId);
@@ -178,7 +190,7 @@ export function createInventoryIntentCommandService(options = {}) {
         operationLog,
         updatedAt: timestamp,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { reservationId, expectedRevision, targetStatus, operatorId: operatorId || "" },
+        idempotencyPayload: { reservationId, expectedRevision, targetStatus, reason, operatorId: operatorId || "" },
       });
       return success(toMutationResponse(result));
     } catch (error) {
@@ -193,11 +205,16 @@ export function createInventoryIntentCommandService(options = {}) {
     if (!intent) return notFound("INVENTORY_INTENT_NOT_FOUND");
     const expectedRevision = positiveInteger(body.expectedRevision);
     if (!expectedRevision) return validation("expectedRevision must be a positive integer.");
-    const expiresAt = normalizeFutureTimestamp(body.expiresAt, now());
-    if (!expiresAt || Date.parse(expiresAt) <= Date.parse(reservation.expiresAt ?? 0)) {
+    const expiresAt = normalizeTimestamp(body.expiresAt);
+    const reason = cleanText(body.reason);
+    const idempotencyPayload = { reservationId, expectedRevision, expiresAt, reason, operatorId };
+    try {
+      const prior = await workspace.inventoryIntentTransactionRepository.readExtensionReceipt?.({ workspace, idempotencyKey: body.idempotencyKey, idempotencyPayload });
+      if (prior) return success(toMutationResponse(prior));
+    } catch (error) { return repositoryError(error); }
+    if (!expiresAt || Date.parse(expiresAt) <= new Date(now()).getTime() || Date.parse(expiresAt) <= Date.parse(reservation.expiresAt ?? 0)) {
       return validation("expiresAt must be later than the current expiry.");
     }
-    const reason = cleanText(body.reason);
     if (!reason) return validation("reason is required when extending a temporary hold.");
     const timestamp = new Date(now()).toISOString();
     const operationLog = buildOperationLog({
@@ -220,7 +237,7 @@ export function createInventoryIntentCommandService(options = {}) {
         operationLog,
         updatedAt: timestamp,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { reservationId, expectedRevision, expiresAt, reason, operatorId },
+        idempotencyPayload,
       });
       return success(toMutationResponse(result));
     } catch (error) {
@@ -242,22 +259,23 @@ export function createInventoryIntentCommandService(options = {}) {
     const expired = [];
     const skipped = [];
     for (const reservation of due) {
+      const reservationId = reservation.id ?? reservation.reservationId;
       const intent = findIntent(workspace, reservation.sourceIntentId);
       if (!intent) {
-        skipped.push({ reservationId: reservation.id, code: "INVENTORY_INTENT_NOT_FOUND" });
+        skipped.push({ reservationId, code: "INVENTORY_INTENT_NOT_FOUND" });
         continue;
       }
       const result = await releaseTemporaryHold({
         workspace,
-        reservationId: reservation.id ?? reservation.reservationId,
+        reservationId,
         body: {
-          clientRevision: intent.revision,
-          idempotencyKey: buildStableId("EXPIRE", `${reservation.id}:${reservation.expiresAt}`),
+          expectedRevision: intent.revision,
+          idempotencyKey: buildStableId("EXPIRE", `${reservationId}:${reservation.expiresAt}`),
         },
         operatorId: "",
         expired: true,
       });
-      if (result.error) skipped.push({ reservationId: reservation.id, code: result.code });
+      if (result.error || result.notFound) skipped.push({ reservationId, code: result.code });
       else expired.push(result.response);
     }
     return success({ cutoffAt: cutoff, dueCount: due.length, expiredCount: expired.length, expired, skipped });
@@ -266,7 +284,10 @@ export function createInventoryIntentCommandService(options = {}) {
 
 function resolveHoldCandidate(intent, body) {
   const candidates = Array.isArray(intent.candidate?.parsedCandidates) ? intent.candidate.parsedCandidates : [];
-  const requestedIndex = body.candidateIndex === undefined ? (candidates.length === 1 ? 0 : -1) : Number(body.candidateIndex);
+  const rawIndex = body.candidateIndex;
+  const explicitIndex = (typeof rawIndex === "number" || (typeof rawIndex === "string" && rawIndex.trim() !== ""))
+    ? Number(rawIndex) : -1;
+  const requestedIndex = rawIndex === undefined ? (candidates.length === 1 ? 0 : -1) : explicitIndex;
   if (!Number.isInteger(requestedIndex) || requestedIndex < 0 || requestedIndex >= candidates.length) {
     return { error: businessError(422, "TEMPORARY_HOLD_CANDIDATE_REQUIRED", "candidateIndex must select one parsed hold candidate.") };
   }
@@ -299,12 +320,14 @@ function resolveInventoryItem(workspace, candidate, requestedId) {
 
 function toIntentSummary(workspace, intent) {
   const reservation = intent.relatedReservationId ? findReservation(workspace, intent.relatedReservationId) : null;
-  return { ...intent, hold: reservation ? toHoldSummary(workspace, reservation) : null };
+  return { ...intent, customerName: cleanText((workspace.customers ?? []).find(item => item.id === intent.customerId)?.name), hold: reservation ? toHoldSummary(workspace, reservation) : null };
 }
 
 function toHoldSummary(workspace, reservation) {
+  const customer = (workspace.customers ?? []).find(item => item.id === reservation.customerId);
   return {
     ...reservation,
+    customerName: cleanText(customer?.name),
     intent: findIntent(workspace, reservation.sourceIntentId),
     inventoryItem: findInventoryItem(workspace, reservation.inventoryItemId),
   };
@@ -373,19 +396,14 @@ function businessError(statusCode, code, message) {
   return { error: true, statusCode, code, message };
 }
 
-function normalizeFutureTimestamp(value, reference) {
-  const timestamp = normalizeTimestamp(value);
-  return timestamp && Date.parse(timestamp) > new Date(reference).getTime() ? timestamp : "";
-}
-
 function normalizeTimestamp(value) {
-  const date = new Date(value ?? "");
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  return normalizeInventoryHoldTimestamp(value);
 }
 
 function positiveInteger(value) {
+  if (typeof value !== "number" && typeof value !== "string") return 0;
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
 }
 
 function number(value) {

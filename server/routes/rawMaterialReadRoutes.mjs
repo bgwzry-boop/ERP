@@ -1,4 +1,10 @@
-export async function handleRawMaterialReadRoutes({ url, response, workspace, sendJson, sendNotFound }) {
+import { projectRawMaterialRollReadAccess } from "../services/rawMaterialStockAccessProjectionService.mjs";
+export async function handleRawMaterialReadRoutes({ url, response, workspace, permissionContext, sendJson, sendNotFound }) {
+  if (url.pathname === "/api/raw-material-rolls") {
+    const result = await workspace.rawMaterialInboundRepository.listRawMaterialRolls({ workspace, query: url.searchParams });
+    sendJson(response, 200, projectRawMaterialRollReadAccess(result, permissionContext));
+    return true;
+  }
   if (url.pathname === "/api/raw-material-inbounds") {
     sendJson(
       response,

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {canApplySupplierColorToReview as canApply} from '../src/features/raw-materials/supplierColorReviewScope.js';
+const inbound={id:'IN-A',supplierName:'A厂'};
+const context={inboundId:'IN-A',supplierName:'A厂',supplierColor:'184'};
+const mapping={enabled:true,factoryColor:'本白',supplierSourceId:'A厂',supplierColor:'184'};
+assert.equal(canApply(mapping,context,inbound),true);
+for(const changed of [{enabled:false},{supplierSourceId:'B厂'},{supplierColor:'185'},{factoryColor:''}]) assert.equal(canApply({...mapping,...changed},context,inbound),false);
+assert.equal(canApply(mapping,context,{...inbound,id:'IN-B'}),false);
+assert.equal(canApply(mapping,context,{...inbound,supplierName:'B厂'}),false);
+assert.equal(canApply(mapping,null,inbound),false);
+console.log('PASS colour review application requires same receipt, supplier, ticket colour and enabled mapping.');

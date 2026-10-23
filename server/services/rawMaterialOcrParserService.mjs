@@ -6,6 +6,7 @@ import {
 import { resolveRawMaterialFactoryColor } from "../../shared/rawMaterialFactoryColors.js";
 import { classifyRawMaterialSupplierReturnCategory } from "../../shared/rawMaterialSupplierReturn.js";
 import { RAW_MATERIAL_SUPPLIER_PROFILES } from "../../shared/rawMaterialSupplierProfiles.js";
+import { normalizeRawMaterialSourceRowIndex } from "../../shared/rawMaterialOcrSourcePosition.js";
 
 const headerAliases = {
   productName: ["品名", "品名称", "商品名称", "商品全名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
@@ -29,7 +30,7 @@ const keyValueAliases = {
   receivedAt: ["送货日期", "单据日期", "日期"],
 };
 
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 20;
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 21;
 
 export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
   delivery: "supplier_delivery",
@@ -389,7 +390,7 @@ function parseCountTotalAmountRollWeightLine(cells) {
   const unitPriceIndex = specIndex + 3;
   const amountIndex = specIndex + 4;
   const rollWeightStart = specIndex + 5;
-  const rollCount = parsePositiveInteger(texts[rollCountIndex]);
+  const rollCount = parseStandalonePositiveInteger(texts[rollCountIndex]);
   if (!rollCount || rollCount > 100) return null;
   const rollWeightsKg = texts.slice(rollWeightStart, rollWeightStart + rollCount)
     .map(parseNumber)
@@ -433,7 +434,7 @@ function parseVariableRollWeightLine(cells) {
   let supplierColor = texts[1];
   let productName = "无纺布卷料";
   let rollCountIndex = 2;
-  if (!looksLikeSpec(spec) && parsePositiveInteger(texts[1])) {
+  if (!looksLikeSpec(spec) && parseStandalonePositiveInteger(texts[1])) {
     if (/^退/u.test(spec)) {
       productName = spec;
       supplierColor = "";
@@ -443,7 +444,7 @@ function parseVariableRollWeightLine(cells) {
     spec = "";
     rollCountIndex = 1;
   }
-  const rollCount = parsePositiveInteger(texts[rollCountIndex]);
+  const rollCount = parseStandalonePositiveInteger(texts[rollCountIndex]);
   if (!rollCount || rollCount > 100) return null;
   const weightStart = rollCountIndex + 1;
   const rollWeightsKg = texts.slice(weightStart, weightStart + rollCount).map(parseNumber).filter(isNonZeroNumber);
@@ -584,7 +585,7 @@ function buildFallbackLine(rows) {
     confidences[key] = found.confidence;
   }
   values.spec = buildSpec(values);
-  return { lineId: "OCR-FALLBACK-1", sourceRowIndex: 0, values, confidences, sourceText: "" };
+  return { lineId: "OCR-FALLBACK-1", sourceRowIndex: null, values, confidences, sourceText: "" };
 }
 
 function normalizeLine(input = {}, index, {
@@ -636,7 +637,7 @@ function normalizeLine(input = {}, index, {
   return {
     lineId: cleanText(input.lineId) || `OCR-LINE-${index + 1}`,
     sourcePageIndex: Math.max(0, Number(input.sourcePageIndex) || 0),
-    sourceRowIndex: Math.max(0, Number(input.sourceRowIndex) || 0),
+    sourceRowIndex: normalizeRawMaterialSourceRowIndex(input.sourceRowIndex),
     sourceBounds: normalizeSourceBounds(input.sourceBounds),
     sourceText: cleanText(input.sourceText),
     factoryColorResolution,
@@ -856,7 +857,7 @@ function inferRecognizedDate(allText) {
 }
 
 function normalizeSupplierName(value) {
-  return cleanText(value).replace(/(?:销货单|销售单|送货单|退货单|退料单)\s*$/u, "").trim();
+  return cleanText(value).replace(/(?:销售退货单|销货退货单|销售退料单|销货退料单|销货单|销售单|送货单|退货单|退料单|退库单)\s*$/u, "").trim();
 }
 
 function normalizeDocumentDirectionHint(value) {
@@ -867,14 +868,14 @@ function normalizeDocumentDirectionHint(value) {
 }
 
 function inferDocumentDirection({ allRows = [], allText = "" } = {}) {
-  if (/(?:退货单|退料单)/u.test(allText)) return RAW_MATERIAL_DOCUMENT_DIRECTIONS.return;
+  if (/(?:退货单|退料单|退库单)/u.test(allText)) return RAW_MATERIAL_DOCUMENT_DIRECTIONS.return;
   const hasNegativeMaterialLine = allRows.some((row) => {
     const texts = row.map((cell) => cleanText(cell.text)).filter(Boolean);
     if (!texts.length) return false;
     const joined = texts.join(" ");
     if (/^(?:合计|总计|上期欠款|本单金额|累计欠款)/u.test(joined)) return false;
     const identity = texts.slice(0, 2).join(" ");
-    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
+    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|退料|退卷|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
     return hasMaterialIdentity && texts.slice(1).some((text) => parseNumber(text) < 0);
   });
   return hasNegativeMaterialLine
@@ -995,6 +996,7 @@ function buildOcrRolls({ inboundId, lines }) {
     gramWeightGsm: positiveNumber(line.values.gramWeightGsm, 0),
     widthCm: positiveNumber(line.values.widthCm, 0),
     lengthM: positiveNumber(line.values.lengthM, 0),
+    unit: cleanText(line.values.unit),
     unitPrice: positiveNumber(line.values.unitPrice, 0),
     materialCategory: cleanText(line.values.materialCategory),
     specNeedsReview: line.values.specNeedsReview === true,
@@ -1021,6 +1023,14 @@ function looksLikeUnit(value) {
 function parsePositiveInteger(value) {
   const number = parseNumber(value);
   return Number.isInteger(number) && number > 0 ? number : 0;
+}
+
+function parseStandalonePositiveInteger(value) {
+  const normalized = cleanText(value).normalize("NFKC").replace(/[,，\s]/gu, "");
+  const match = normalized.match(/^\+?(\d+)(?:\.0+)?(?:卷|件|个|只|页)?$/u);
+  if (!match) return 0;
+  const number = Number(match[1]);
+  return Number.isSafeInteger(number) && number > 0 ? number : 0;
 }
 
 function approximatelyEqual(left, right) {
@@ -1075,7 +1085,7 @@ function getFieldLabel(key) {
 }
 
 function parseNumber(value) {
-  const normalized = cleanText(value).replace(/[,，\s]/g, "");
+  const normalized = cleanText(value).normalize("NFKC").replace(/[−—–﹣－]/gu, "-").replace(/[,，\s]/gu, "");
   const number = Number(normalized.match(/-?\d+(?:\.\d+)?/)?.[0]);
   return Number.isFinite(number) ? number : 0;
 }

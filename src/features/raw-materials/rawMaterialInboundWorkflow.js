@@ -1,10 +1,13 @@
+import {resolveRawMaterialCostUnit} from "../../../shared/rawMaterialCostUnit.js";
+import {rawMaterialConsumptionCostBasis} from "../../../shared/rawMaterialConsumptionCostBasis.js";
+import {resolveRawMaterialCostPrice} from "../../../shared/rawMaterialCostPrice.js";
+import {resolveRawMaterialConsumptionIssue} from "../../../shared/rawMaterialConsumptionIssue.js";
 export function canGenerateRawMaterialCostDraft(item = {}) {
   const existingConsumptionIds = new Set((item.rawMaterialCostAllocationDrafts ?? []).map((record) => record.consumptionRecordId).filter(Boolean));
   return (item.rawMaterialConsumptionRecords ?? []).some((record) => {
     if (existingConsumptionIds.has(record.consumptionRecordId)) return false;
-    const issueRecord = (item.rawMaterialIssueRecords ?? []).find((issue) => issue.issueRecordId === record.issueRecordId)
-      || (item.rawMaterialIssueRecords ?? []).find((issue) => issue.rollId === record.rollId);
-    return Boolean(issueRecord?.productionTaskId && issueRecord?.productionTaskMatchStatus === "已匹配");
+    const issueRecord = resolveRawMaterialConsumptionIssue(record, item.rawMaterialIssueRecords, item.id, item.rawMaterialConsumptionRecords);
+    return Boolean(issueRecord?.productionTaskId && issueRecord?.productionTaskMatchStatus === "已匹配" && rawMaterialConsumptionCostBasis(record, resolveRawMaterialCostPrice(item, record), resolveRawMaterialCostUnit(item, record)));
   });
 }
 

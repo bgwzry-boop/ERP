@@ -1,3 +1,4 @@
+import { getRawMaterialLabelMismatchFields } from "../../shared/rawMaterialLabelVerification.js";
 import { evaluateRawMaterialOneClickInbound, isPendingStickConfirmRoll } from "./rawMaterialWholeRollPolicy.js";
 
 export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
@@ -51,6 +52,12 @@ export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
     const rollId = options.rollId ?? "";
     const matchResult = normalizeLocalLabelMatchResult(options.matchResult);
     if (!rollId || !matchResult) return item;
+    const targetRoll = (item.rolls ?? []).find(roll => roll.id === rollId);
+    if (!targetRoll || !isPendingStickConfirmRoll(targetRoll)) return item;
+    const expectedLabelVersion = Number(options.expectedLabelVersion);
+    if (!Number.isInteger(expectedLabelVersion) || expectedLabelVersion !== Math.max(1, Number(targetRoll.labelVersion) || 1)) return item;
+    const targetVerification = buildLocalLabelVerification(item, targetRoll, options, matchResult, operatorName, now);
+    if (matchResult === "matched" && getRawMaterialLabelMismatchFields(targetVerification.expected, targetVerification.checked).length) return item;
     const nextRolls = (item.rolls ?? []).map((roll) => {
       if (roll.id !== rollId || !isPendingStickConfirmRoll(roll)) return roll;
       const verification = buildLocalLabelVerification(item, roll, options, matchResult, operatorName, now);
@@ -177,8 +184,8 @@ function normalizeLocalLabelMatchResult(value) {
 }
 
 function buildLocalLabelVerification(item, roll, options, matchResult, operatorName, now) {
-  const expectedColor = String(roll.factoryColor ?? item.factoryColor ?? item.supplierColor ?? "").trim();
-  const expectedSpec = String(roll.spec ?? item.spec ?? "").trim();
+  const expectedColor = String(roll.factoryColor || item.factoryColor || item.supplierColor || "").trim();
+  const expectedSpec = String(roll.spec || item.spec || "").trim();
   const expectedWeightKg = Number(roll.weightKg) || 0;
   return {
     result: matchResult === "matched" ? "匹配" : "不匹配",

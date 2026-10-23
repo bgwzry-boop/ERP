@@ -1,3 +1,5 @@
+import { normalizeFactoryStandardColor } from "../shared/factoryStandardColors.js";
+import { normalizeRawMaterialSummaryNumbers } from "../shared/rawMaterialSummaryNumbers.js";
 import {
   normalizeRawMaterialCostAllocationConfirmations,
   normalizeRawMaterialCostAllocationDrafts,
@@ -152,16 +154,7 @@ export function normalizeRawMaterialMachineId(value) {
 }
 
 export function normalizeRawMaterialColorKey(value) {
-  const text = cleanText(value)
-    .replace(/本白/g, "白")
-    .replace(/大红/g, "红")
-    .replace(/浅黄/g, "黄")
-    .replace(/深黄/g, "黄")
-    .replace(/色/g, "")
-    .replace(/\s+/g, "");
-  if (!text) return "";
-  const colorMap = [["白", "白"], ["黑", "黑"], ["红", "红"], ["黄", "黄"], ["蓝", "蓝"], ["绿", "绿"], ["灰", "灰"], ["粉", "粉"], ["紫", "紫"], ["橙", "橙"]];
-  return colorMap.find(([token]) => text.includes(token))?.[1] ?? text;
+  return normalizeFactoryStandardColor(value) || cleanText(value).normalize("NFKC").replace(/\s+/gu, "");
 }
 
 export function buildRawMaterialProductionTaskGoodsSpec(productionTask = {}, orderLine = {}) {
@@ -206,18 +199,17 @@ export function normalizeRawMaterialInbound(input = {}) {
   item.productionTaskOrderLineId = cleanText(item.productionTaskOrderLineId);
   item.productionTaskMachineId = cleanText(item.productionTaskMachineId);
   item.productionTaskGoodsSpec = cleanText(item.productionTaskGoodsSpec);
+  normalizeRawMaterialSummaryNumbers(item);
   item.costAllocationStatus = cleanText(item.costAllocationStatus);
   item.costAllocationDraftedBy = cleanText(item.costAllocationDraftedBy);
   item.costAllocationDraftedByUserId = cleanText(item.costAllocationDraftedByUserId);
   item.costAllocationDraftedAt = cleanText(item.costAllocationDraftedAt);
   item.costAllocationDraftCount = Number(item.costAllocationDraftCount) || 0;
-  item.costAllocationDraftAmount = Number(item.costAllocationDraftAmount) || 0;
   item.costAllocationReviewStatus = cleanText(item.costAllocationReviewStatus);
   item.costAllocationConfirmedBy = cleanText(item.costAllocationConfirmedBy);
   item.costAllocationConfirmedByUserId = cleanText(item.costAllocationConfirmedByUserId);
   item.costAllocationConfirmedAt = cleanText(item.costAllocationConfirmedAt);
   item.costAllocationConfirmedCount = Number(item.costAllocationConfirmedCount) || 0;
-  item.costAllocationConfirmedAmount = Number(item.costAllocationConfirmedAmount) || 0;
   item.costAllocationConfirmationId = cleanText(item.costAllocationConfirmationId);
   item.lossCalibrationStatus = cleanText(item.lossCalibrationStatus);
   item.lossCalibratedBy = cleanText(item.lossCalibratedBy);
@@ -225,27 +217,15 @@ export function normalizeRawMaterialInbound(input = {}) {
   item.lossCalibratedAt = cleanText(item.lossCalibratedAt);
   item.lossCalibrationCount = Number(item.lossCalibrationCount) || 0;
   item.lossCalibrationId = cleanText(item.lossCalibrationId);
-  item.lossCalibrationRatePercent = Number(item.lossCalibrationRatePercent) || 0;
-  item.lossCalibrationActualOutputQuantity = Number(item.lossCalibrationActualOutputQuantity) || 0;
-  item.lossCalibrationExpectedOutputQuantity = Number(item.lossCalibrationExpectedOutputQuantity) || 0;
-  item.lossCalibrationAmount = Number(item.lossCalibrationAmount) || 0;
   item.marginSnapshotStatus = cleanText(item.marginSnapshotStatus);
   item.marginSnapshotCount = Number(item.marginSnapshotCount) || 0;
   item.marginSnapshotId = cleanText(item.marginSnapshotId);
-  item.marginSnapshotTotalSalesAmount = Number(item.marginSnapshotTotalSalesAmount) || 0;
-  item.marginSnapshotMaterialCostAmount = Number(item.marginSnapshotMaterialCostAmount) || 0;
-  item.marginSnapshotGrossProfitAmount = Number(item.marginSnapshotGrossProfitAmount) || 0;
-  item.marginSnapshotGrossMarginRatePercent = Number(item.marginSnapshotGrossMarginRatePercent) || 0;
   item.marginSnapshotGeneratedBy = cleanText(item.marginSnapshotGeneratedBy);
   item.marginSnapshotGeneratedByUserId = cleanText(item.marginSnapshotGeneratedByUserId);
   item.marginSnapshotGeneratedAt = cleanText(item.marginSnapshotGeneratedAt);
   item.marginReportStatus = cleanText(item.marginReportStatus);
   item.marginReportCount = Number(item.marginReportCount) || 0;
   item.marginReportId = cleanText(item.marginReportId);
-  item.marginReportTotalSalesAmount = Number(item.marginReportTotalSalesAmount) || 0;
-  item.marginReportMaterialCostAmount = Number(item.marginReportMaterialCostAmount) || 0;
-  item.marginReportGrossProfitAmount = Number(item.marginReportGrossProfitAmount) || 0;
-  item.marginReportGrossMarginRatePercent = Number(item.marginReportGrossMarginRatePercent) || 0;
   item.marginReviewedBy = cleanText(item.marginReviewedBy);
   item.marginReviewedByUserId = cleanText(item.marginReviewedByUserId);
   item.marginReviewedAt = cleanText(item.marginReviewedAt);
@@ -279,7 +259,7 @@ export function normalizeRawMaterialInbound(input = {}) {
     productionTaskGoodsSpec: cleanText(roll.productionTaskGoodsSpec), issuePurpose: cleanText(roll.issuePurpose),
     consumptionStatus: cleanText(roll.consumptionStatus), consumptionRecordId: cleanText(roll.consumptionRecordId),
     consumedAt: cleanText(roll.consumedAt), consumedBy: cleanText(roll.consumedBy), consumedByUserId: cleanText(roll.consumedByUserId),
-    lastConsumedWeightKg: Number(roll.lastConsumedWeightKg) || 0, remainingMachineSideWeightKg: Number(roll.remainingMachineSideWeightKg) || 0,
+    lastConsumedWeightKg: Number(roll.lastConsumedWeightKg) || 0, lastConsumedQuantity: Number(roll.lastConsumedQuantity) || 0, remainingMachineSideWeightKg: Number(roll.remainingMachineSideWeightKg) || 0,
     leftoverReturnRecordId: cleanText(roll.leftoverReturnRecordId), leftoverWeightKg: Number(roll.leftoverWeightKg) || 0,
     leftoverQuantity: Number(roll.leftoverQuantity) || 0, returnedAt: cleanText(roll.returnedAt), returnedBy: cleanText(roll.returnedBy),
     returnedByUserId: cleanText(roll.returnedByUserId), leftoverReviewRecordId: cleanText(roll.leftoverReviewRecordId),

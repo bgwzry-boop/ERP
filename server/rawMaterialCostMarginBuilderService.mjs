@@ -1,7 +1,15 @@
-import { rawMaterialRollFacts } from "../shared/rawMaterialRollFacts.js";
+import {rawMaterialRecordIdentitySuffix} from "../shared/rawMaterialRecordIdentity.js";
+import {rawMaterialRollFacts} from "../shared/rawMaterialRollFacts.js";
+import {resolveRawMaterialCostUnit, formatRawMaterialAllocationBasis} from "../shared/rawMaterialCostUnit.js";
 import { resolveRawMaterialCostPrice } from "../shared/rawMaterialCostPrice.js";
-import { resolveRawMaterialCostUnit, formatRawMaterialAllocationBasis } from "../shared/rawMaterialCostUnit.js";
+import { resolveRawMaterialConsumptionIssue } from "../shared/rawMaterialConsumptionIssue.js";
+import { assertRawMaterialCostDraftScope } from "../shared/rawMaterialCostDraftScope.js";
+import { assertRawMaterialConfirmationSources } from "../shared/rawMaterialConfirmationSources.js";
+import { sumRawMaterialCostAmounts } from "../shared/rawMaterialCostAmounts.js";
+import { buildRawMaterialMarginReportLines } from "../shared/rawMaterialMarginReportLines.js";
 import { rawMaterialConsumptionCostBasis } from "../shared/rawMaterialConsumptionCostBasis.js";
+import { assertRawMaterialMarginCostCoverage, rawMaterialDraftCostAmount } from "../shared/rawMaterialMarginCostCoverage.js";
+import { readRawMaterialLossMeasurement } from "../shared/rawMaterialMeasurements.js";
 import {
   normalizeRawMaterialCostAllocationConfirmations,
   normalizeRawMaterialCostAllocationDrafts,
@@ -28,21 +36,19 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
       const existingConsumptionIds = new Set(existingCostDrafts.map((record) => record.consumptionRecordId).filter(Boolean));
       const warnings = [];
       const skipped = [];
-      const baseId = `RMCA-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
+      const baseId = `RMCA-${input.now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
       const drafts = [];
       for (const record of consumptionRecords) {
         if (existingConsumptionIds.has(record.consumptionRecordId)) {
           skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "已生成成本草稿" });
           continue;
         }
-        const issueRecord =
-          issueRecords.find((item) => item.issueRecordId === record.issueRecordId) ??
-          issueRecords.find((item) => item.rollId === record.rollId);
+        const issueRecord = resolveRawMaterialConsumptionIssue(record, issueRecords, inbound.id, consumptionRecords);
         if (!issueRecord) {
-          skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "缺少领料记录" });
+          skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "领料来源缺失、重复或与消耗归属不符" });
           continue;
         }
-        const productionTaskId = cleanText(record.productionTaskId || issueRecord.productionTaskId);
+        const productionTaskId = cleanText(issueRecord.productionTaskId);
         const matchStatus = cleanText(issueRecord.productionTaskMatchStatus);
         if (!productionTaskId || matchStatus !== "已匹配") {
           skipped.push({
@@ -55,13 +61,17 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
         const productionTask = findProductionTask(input.workspace, productionTaskId);
         const orderLine = findOrderLine(input.workspace, orderLineId);
         const unitPrice = resolveRawMaterialCostPrice(inbound, record);
+        if (unitPrice === null) {
+          skipped.push({consumptionRecordId: record.consumptionRecordId, code: "RAW_MATERIAL_COST_DRAFT_REQUIRES_UNIT_PRICE", reason: "缺少该卷可用单价，请核对原始明细价格"});
+          continue;
+        }
         const unit = resolveRawMaterialCostUnit(inbound, record);
         const basis = rawMaterialConsumptionCostBasis(record, unitPrice, unit);
         if (!basis) {
-          skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "该卷缺少有效单价、计价单位或消耗实测数量" });
+          skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "计价单位与消耗计量不符，或缺少有效重量/件数及金额" });
           continue;
         }
-        const { allocatedWeightKg, allocatedQuantity, allocatedCostAmount } = basis;
+        const {allocatedWeightKg, allocatedQuantity, allocatedCostAmount} = basis;
         const goodsSpec = cleanText(issueRecord.productionTaskGoodsSpec) || buildGoodsSpec(productionTask ?? {}, orderLine ?? {});
         const draftIndex = drafts.length + 1;
         drafts.push({
@@ -74,7 +84,7 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
           splitRecordId: issueRecord.splitRecordId,
           supplierName: inbound.supplierName,
           deliveryNoteNo: inbound.deliveryNoteNo,
-          ...rawMaterialRollFacts(inbound, (inbound.rolls ?? []).find((roll) => roll.id === record.rollId)),
+          ...rawMaterialRollFacts(inbound, (inbound.rolls ?? []).find(roll => roll.id === record.rollId)),
           unit,
           unitPrice,
           allocatedWeightKg,
@@ -101,11 +111,15 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
       return {
         drafts,
         warnings,
-        blockedCode: consumptionRecords.length
+        blockedCode: skipped.length && skipped.every(row => row.code === "RAW_MATERIAL_COST_DRAFT_REQUIRES_UNIT_PRICE")
+          ? "RAW_MATERIAL_COST_DRAFT_REQUIRES_UNIT_PRICE"
+          : consumptionRecords.length
           ? "RAW_MATERIAL_COST_DRAFT_NO_ELIGIBLE_CONSUMPTION"
           : "RAW_MATERIAL_COST_DRAFT_REQUIRES_CONSUMPTION",
-        blockedReason: consumptionRecords.length
-          ? "No matched raw-material consumption records are eligible for cost allocation draft"
+        blockedReason: skipped.length
+          ? skipped.slice(0, 3).map(row => `${row.consumptionRecordId}：${row.reason}`).join("；")
+          : consumptionRecords.length
+          ? "没有可生成成本的已匹配消耗记录"
           : "Raw-material consumption confirmation is required before generating a cost allocation draft",
       };
     },
@@ -113,11 +127,12 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
     buildCostAllocationConfirmation(input = {}) {
       const inbound = input.inbound ?? {};
       const drafts = normalizeRawMaterialCostAllocationDrafts(input.drafts);
-      const confirmedAmount = roundMoney(drafts.reduce((sum, record) => sum + Number(record.allocatedCostAmount || 0), 0));
+      const confirmedAmount = sumRawMaterialCostAmounts(drafts, "allocatedCostAmount");
+      assertRawMaterialCostDraftScope({inboundId: inbound.id, drafts, priorDrafts: inbound.rawMaterialCostAllocationDrafts ?? []});
       const confirmedWeightKg = roundWeight(drafts.reduce((sum, record) => sum + Number(record.allocatedWeightKg || 0), 0));
       const confirmedQuantity = drafts.reduce((sum, record) => sum + Number(record.allocatedQuantity || 0), 0);
       return {
-        costConfirmationId: `RMCC-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
+        costConfirmationId: `RMCC-${input.now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`,
         inboundId: inbound.id,
         supplierName: inbound.supplierName,
         deliveryNoteNo: inbound.deliveryNoteNo,
@@ -144,28 +159,14 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
     buildCostLossCalibration(input = {}) {
       const inbound = input.inbound ?? {};
       const confirmations = normalizeRawMaterialCostAllocationConfirmations(input.confirmations);
-      const draftIds = new Set(confirmations.flatMap((record) => record.costAllocationDraftIds ?? []));
-      const drafts = normalizeRawMaterialCostAllocationDrafts(input.drafts).filter((record) =>
-        draftIds.has(record.costAllocationDraftId),
-      );
-      const confirmedAmount = roundMoney(confirmations.reduce((sum, record) => sum + Number(record.confirmedCostAmount || 0), 0));
+      const confirmedAmount = sumRawMaterialCostAmounts(confirmations, "confirmedCostAmount");
       const confirmedWeightKg = roundWeight(confirmations.reduce((sum, record) => sum + Number(record.confirmedWeightKg || 0), 0));
       const confirmedQuantity = confirmations.reduce((sum, record) => sum + Number(record.confirmedQuantity || 0), 0);
       const body = input.body ?? {};
-      const actualQualifiedOutputQuantity =
-        Number(body.actualQualifiedOutputQuantity ?? body.actualOutputQuantity ?? body.qualifiedOutputQuantity ?? 0) || 0;
-      const expectedOutputQuantity =
-        Number(body.expectedOutputQuantity ?? body.plannedOutputQuantity ?? body.estimatedOutputQuantity ?? 0) || 0;
-      const explicitLossQuantity = Number(body.lossQuantity ?? body.lossOutputQuantity ?? 0) || 0;
-      const lossQuantity =
-        explicitLossQuantity > 0
-          ? explicitLossQuantity
-          : expectedOutputQuantity > 0 && actualQualifiedOutputQuantity >= 0
-            ? Math.max(0, expectedOutputQuantity - actualQualifiedOutputQuantity)
-            : 0;
-      const lossRatePercent = expectedOutputQuantity > 0 ? Math.round((lossQuantity / expectedOutputQuantity) * 10000) / 100 : 0;
+      const {expectedOutputQuantity, actualQualifiedOutputQuantity, lossQuantity, lossRatePercent} = readRawMaterialLossMeasurement(body);
+      assertRawMaterialConfirmationSources({inboundId: inbound.id, confirmations, drafts: normalizeRawMaterialCostAllocationDrafts(input.drafts)});
       return {
-        lossCalibrationId: `RMCL-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
+        lossCalibrationId: `RMCL-${input.now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`,
         inboundId: inbound.id,
         supplierName: inbound.supplierName,
         deliveryNoteNo: inbound.deliveryNoteNo,
@@ -179,9 +180,7 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
         confirmedCount: confirmations.reduce((sum, record) => sum + Number(record.confirmedCount || 0), 0),
         confirmedWeightKg,
         confirmedQuantity,
-        confirmedCostAmount:
-          confirmedAmount ||
-          roundMoney(drafts.reduce((sum, record) => sum + Number(record.confirmedCostAmount || record.allocatedCostAmount || 0), 0)),
+        confirmedCostAmount: confirmedAmount,
         expectedOutputQuantity,
         actualQualifiedOutputQuantity,
         lossQuantity,
@@ -218,25 +217,13 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
           ),
         ),
       ];
-      const totalCalibratedCostAmount = roundMoney(
-        calibrations.reduce((sum, record) => sum + Number(record.confirmedCostAmount || 0), 0) ||
-          drafts.reduce(
-            (sum, record) => sum + Number(record.calibratedCostAmount || record.confirmedCostAmount || record.allocatedCostAmount || 0),
-            0,
-          ),
-      );
+      assertRawMaterialMarginCostCoverage({calibrations, drafts, orderLineIds});
       const warnings = [];
       const lineItems = orderLineIds.map((orderLineId) => {
         const orderLine = findOrderLine(input.workspace, orderLineId) ?? {};
         const customer = findCustomer(input.workspace, orderLine.customerId ?? orderLine.customer_id);
         const lineDrafts = drafts.filter((record) => record.orderLineId === orderLineId);
-        const lineMaterialCostAmount = roundMoney(
-          lineDrafts.reduce(
-            (sum, record) =>
-              sum + Number(record.calibratedCostAmount || record.confirmedCostAmount || record.allocatedCostAmount || 0),
-            0,
-          ) || (orderLineIds.length ? totalCalibratedCostAmount / orderLineIds.length : totalCalibratedCostAmount),
-        );
+        const lineMaterialCostAmount = roundMoney(lineDrafts.reduce((sum, record) => sum + rawMaterialDraftCostAmount(record), 0));
         const salesAmount = roundMoney(
           Number(
             orderLine.amount ??
@@ -272,7 +259,7 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
       const grossProfitAmount = totalSalesAmount > 0 ? roundMoney(totalSalesAmount - totalMaterialCostAmount) : 0;
       const grossMarginRatePercent = totalSalesAmount > 0 ? Math.round((grossProfitAmount / totalSalesAmount) * 10000) / 100 : 0;
       return {
-        marginSnapshotId: `RMMG-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
+        marginSnapshotId: `RMMG-${input.now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`,
         inboundId: inbound.id,
         supplierName: inbound.supplierName,
         deliveryNoteNo: inbound.deliveryNoteNo,
@@ -302,19 +289,13 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
     buildOrderMarginReport(input = {}) {
       const inbound = input.inbound ?? {};
       const snapshots = normalizeRawMaterialOrderMarginSnapshots(input.snapshots);
-      const lineItems = snapshots.flatMap((snapshot) =>
-        (snapshot.lineItems ?? []).map((line) => ({
-          ...line,
-          marginSnapshotId: snapshot.marginSnapshotId,
-          marginStatus: "已财务复核/报表可用",
-        })),
-      );
+      const lineItems = buildRawMaterialMarginReportLines(snapshots);
       const totalSalesAmount = roundMoney(lineItems.reduce((sum, record) => sum + Number(record.salesAmount || 0), 0));
       const totalMaterialCostAmount = roundMoney(lineItems.reduce((sum, record) => sum + Number(record.materialCostAmount || 0), 0));
       const grossProfitAmount = roundMoney(totalSalesAmount - totalMaterialCostAmount);
       const grossMarginRatePercent = totalSalesAmount > 0 ? Math.round((grossProfitAmount / totalSalesAmount) * 10000) / 100 : 0;
       return {
-        marginReportId: `RMMR-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
+        marginReportId: `RMMR-${input.now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`,
         inboundId: inbound.id,
         supplierName: inbound.supplierName,
         deliveryNoteNo: inbound.deliveryNoteNo,

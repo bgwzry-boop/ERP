@@ -1,3 +1,4 @@
+import { canReadRawMaterialInboundEvidence, projectRawMaterialStockInbound } from "../services/rawMaterialStockAccessProjectionService.mjs";
 import { createRawMaterialInboundOrchestrator } from "../services/rawMaterialInboundOrchestrator.mjs";
 
 export async function handleRawMaterialWriteRoutes({
@@ -72,7 +73,10 @@ export async function handleRawMaterialWriteRoutes({
     const result = ["reparse-ocr", "reparse_ocr"].includes(actionSlug)
       ? await rawMaterialCommandService.recordInboundAction(input)
       : await createRawMaterialInboundOrchestrator(workspace.rawMaterialInboundRepository).recordInboundAction(input);
-    sendCommandResult({ response, result, sendJson, sendBusinessError });
+    const projectedResult = result?.inbound && !result.error && !canReadRawMaterialInboundEvidence(permissionContext)
+      ? { inbound: projectRawMaterialStockInbound(result.inbound), operationLogId: result.operationLogId }
+      : result;
+    sendCommandResult({ response, result: projectedResult, sendJson, sendBusinessError });
     return true;
   }
 

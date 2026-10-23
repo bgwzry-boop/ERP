@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   confirmOfficeInventoryCorrectionDraft,
   createOfficeTemporaryInventoryHold,
@@ -57,6 +57,8 @@ function hasProjectionRefreshFailure(results) {
 
 export function createOfficeInventoryWriteActions({
   api = {},
+  holdPendingRef = { current: new Set() },
+  isHoldOwnerCurrent = () => true,
   authState,
   currentUserDisplayName,
   currentUserId,
@@ -307,11 +309,22 @@ export function createOfficeInventoryWriteActions({
     );
   }
 
-  async function createTemporaryInventoryHold({ intent, candidateIndex, inventoryItemId, qty, expiresAt, reason }) {
+  async function requestTemporaryHold(request) {
+    try { return await request(); }
+    catch {
+      return { source: "api_error", blocked: true, error: {
+        code: "TEMPORARY_HOLD_SAVE_UNCONFIRMED",
+        message: "留货操作结果未确认，请刷新核对；重试时请保留原请求内容。",
+      } };
+    }
+  }
+
+  async function createTemporaryInventoryHold({ intent, candidateIndex, inventoryItemId, qty, expiresAt, reason, idempotencyKey }) {
     const intentId = String(intent?.intentId ?? intent?.id ?? "").trim();
     setInventoryIntentState((current) => ({ ...current, mutatingId: intentId, error: "" }));
     const result = normalizeWriteResultForRuntime(
-      await inventoryApi.createOfficeTemporaryInventoryHold({
+      await requestTemporaryHold(() => inventoryApi.createOfficeTemporaryInventoryHold({
+        idempotencyKey,
         authState,
         operatorId: currentUserId,
         intentId,
@@ -321,57 +334,65 @@ export function createOfficeInventoryWriteActions({
         qty,
         expiresAt,
         reason,
-      }),
+      })),
       { label: "临时留货创建", serverRequired },
     );
     return finalizeTemporaryHoldMutation(result, "临时留货已创建");
   }
 
-  async function releaseTemporaryInventoryHold({ hold, reason }) {
+  async function releaseTemporaryInventoryHold({ hold, reason, idempotencyKey }) {
     const holdId = String(hold?.reservationId ?? hold?.id ?? "").trim();
     const intent = hold?.intent;
     setInventoryIntentState((current) => ({ ...current, mutatingId: holdId, error: "" }));
     const result = normalizeWriteResultForRuntime(
-      await inventoryApi.releaseOfficeTemporaryInventoryHold({
+      await requestTemporaryHold(() => inventoryApi.releaseOfficeTemporaryInventoryHold({
+        idempotencyKey,
         authState,
         operatorId: currentUserId,
         holdId,
         expectedRevision: intent?.revision,
         reason,
-      }),
+      })),
       { label: "临时留货释放", serverRequired },
     );
     return finalizeTemporaryHoldMutation(result, "临时留货已释放");
   }
 
-  async function extendTemporaryInventoryHold({ hold, expiresAt, reason }) {
+  async function extendTemporaryInventoryHold({ hold, expiresAt, reason, idempotencyKey }) {
     const holdId = String(hold?.reservationId ?? hold?.id ?? "").trim();
     const intent = hold?.intent;
     setInventoryIntentState((current) => ({ ...current, mutatingId: holdId, error: "" }));
     const result = normalizeWriteResultForRuntime(
-      await inventoryApi.extendOfficeTemporaryInventoryHold({
+      await requestTemporaryHold(() => inventoryApi.extendOfficeTemporaryInventoryHold({
+        idempotencyKey,
         authState,
         operatorId: currentUserId,
         holdId,
         expectedRevision: intent?.revision,
         expiresAt,
         reason,
-      }),
+      })),
       { label: "临时留货延长", serverRequired },
     );
     return finalizeTemporaryHoldMutation(result, "临时留货到期时间已延长");
   }
 
   async function finalizeTemporaryHoldMutation(result, successMessage) {
+    if (!isHoldOwnerCurrent()) return { ...result, stale: true, feedback: "" };
     if (result.blocked || result.source !== "api") {
-      const feedback = formatBlockedFeedback("后端拒绝库存留货操作", result);
+      const feedback = result.error?.code === "TEMPORARY_HOLD_SAVE_UNCONFIRMED"
+        ? result.error.message
+        : formatBlockedFeedback("后端拒绝库存留货操作", result);
       setInventoryIntentState((current) => ({ ...current, mutatingId: "", error: feedback }));
       return withFeedback({ ...result, blocked: true }, feedback);
     }
     const inventoryItemId = result.inventoryItem?.inventoryItemId ?? result.hold?.inventoryItemId;
-    const refreshes = [refreshInventoryIntents({ showToast: false }), refreshInventoryRecords({ showToast: false })];
-    if (inventoryItemId) refreshes.push(refreshInventoryLedgerEntries({ stockId: inventoryItemId, showToast: false }));
-    const refreshResults = await Promise.all(refreshes);
+    const refreshes = [() => refreshInventoryIntents({ showToast: false }), () => refreshInventoryRecords({ showToast: false })];
+    if (inventoryItemId) refreshes.push(() => refreshInventoryLedgerEntries({ stockId: inventoryItemId, showToast: false }));
+    const settled = await Promise.allSettled(refreshes.map(async (refresh) => refresh()));
+    if (!isHoldOwnerCurrent()) return { ...result, stale: true, feedback: "" };
+    const refreshResults = settled.map((entry) => entry.status === "fulfilled"
+      ? entry.value : { source: "api_error", blocked: true });
     const projectionRefreshFailed = hasProjectionRefreshFailure(refreshResults);
     setInventoryIntentState((current) => ({ ...current, mutatingId: "" }));
     return withFeedback(
@@ -381,18 +402,39 @@ export function createOfficeInventoryWriteActions({
     );
   }
 
+  function guardHoldWrite(action) {
+    return async (input) => {
+      if (!isHoldOwnerCurrent()) return { source: "client_validation", blocked: true, stale: true, feedback: "" };
+      const owner = JSON.stringify([currentUserId, authState?.session?.accessToken]);
+      if (holdPendingRef.current.has(owner)) {
+        const feedback = "正在提交留货操作，请等待结果后再操作。";
+        return { source: "client_validation", blocked: true, feedback, error: { code: "TEMPORARY_HOLD_WRITE_PENDING", message: feedback } };
+      }
+      holdPendingRef.current.add(owner);
+      try { return await action(input); }
+      finally { holdPendingRef.current.delete(owner); }
+    };
+  }
+
   return {
     confirmInventoryCorrectionDraft,
     createInventoryCorrectionDraft,
     linkInventoryCorrectionAttachment,
-    createTemporaryInventoryHold,
-    releaseTemporaryInventoryHold,
-    extendTemporaryInventoryHold,
+    createTemporaryInventoryHold: guardHoldWrite(createTemporaryInventoryHold),
+    releaseTemporaryInventoryHold: guardHoldWrite(releaseTemporaryInventoryHold),
+    extendTemporaryInventoryHold: guardHoldWrite(extendTemporaryInventoryHold),
   };
 }
 
 export function useOfficeInventoryWrites(options) {
-  const actions = createOfficeInventoryWriteActions(options);
+  const holdPendingRef = useRef(new Set());
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  const ownerKey = JSON.stringify([options.currentUserId, options.authState?.session?.accessToken]);
+  const ownerRef = useRef({ key: ownerKey });
+  if (ownerRef.current.key !== ownerKey) ownerRef.current = { key: ownerKey };
+  const owner = ownerRef.current;
+  const actions = createOfficeInventoryWriteActions({ ...options, holdPendingRef, isHoldOwnerCurrent: () => mountedRef.current && ownerRef.current === owner });
   const dependencies = [
     options.authState,
     options.currentUserDisplayName,

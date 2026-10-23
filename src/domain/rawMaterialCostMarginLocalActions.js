@@ -1,7 +1,16 @@
-import { rawMaterialRollFacts } from "../../shared/rawMaterialRollFacts.js";
+import {rawMaterialRecordIdentitySuffix} from "../../shared/rawMaterialRecordIdentity.js";
+import {rawMaterialRollFacts} from "../../shared/rawMaterialRollFacts.js";
+import {resolveRawMaterialCostUnit, formatRawMaterialAllocationBasis} from "../../shared/rawMaterialCostUnit.js";
 import { resolveRawMaterialCostPrice } from "../../shared/rawMaterialCostPrice.js";
-import { resolveRawMaterialCostUnit, formatRawMaterialAllocationBasis } from "../../shared/rawMaterialCostUnit.js";
+import { resolveRawMaterialConsumptionIssue } from "../../shared/rawMaterialConsumptionIssue.js";
+import { assertRawMaterialCostDraftScope } from "../../shared/rawMaterialCostDraftScope.js";
+import { assertRawMaterialConfirmationSources } from "../../shared/rawMaterialConfirmationSources.js";
+import { sumRawMaterialCostAmounts } from "../../shared/rawMaterialCostAmounts.js";
+import { buildRawMaterialMarginReportLines } from "../../shared/rawMaterialMarginReportLines.js";
 import { rawMaterialConsumptionCostBasis } from "../../shared/rawMaterialConsumptionCostBasis.js";
+import { assertRawMaterialMarginCostCoverage, rawMaterialDraftCostAmount } from "../../shared/rawMaterialMarginCostCoverage.js";
+import { selectUncalibratedRawMaterialConfirmations } from "../../shared/rawMaterialLossScope.js";
+import { readRawMaterialLossMeasurement } from "../../shared/rawMaterialMeasurements.js";
 import { roundLocalRawMaterialMoney, roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
 
 export function buildRawMaterialCostMarginToastText(action, reference, options = {}) {
@@ -31,21 +40,21 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
   if (action === "生成成本草稿") {
     const existingDrafts = item.rawMaterialCostAllocationDrafts ?? [];
     const existingConsumptionIds = new Set(existingDrafts.map((record) => record.consumptionRecordId).filter(Boolean));
-    const draftPrefix = `RMCA-LOCAL-${Date.now().toString(36).toUpperCase()}`;
+    const draftPrefix = `RMCA-LOCAL-${rawMaterialRecordIdentitySuffix()}`;
     const warnings = [];
     let localDraftIndex = existingDrafts.length;
     const drafts = (item.rawMaterialConsumptionRecords ?? []).flatMap((record) => {
       if (existingConsumptionIds.has(record.consumptionRecordId)) return [];
+      const issueRecord = resolveRawMaterialConsumptionIssue(record, item.rawMaterialIssueRecords, item.id, item.rawMaterialConsumptionRecords);
       const unitPrice = resolveRawMaterialCostPrice(item, record);
-      const unit = resolveRawMaterialCostUnit(item, record);
-      const basis = rawMaterialConsumptionCostBasis(record, unitPrice, unit);
-      const issueRecord = (item.rawMaterialIssueRecords ?? []).find((issue) => issue.issueRecordId === record.issueRecordId)
-        || (item.rawMaterialIssueRecords ?? []).find((issue) => issue.rollId === record.rollId);
-      if (!issueRecord || issueRecord.productionTaskMatchStatus !== "已匹配" || !issueRecord.productionTaskId || !basis) {
-        warnings.push(`${record.consumptionRecordId || "消耗记录"}：未匹配生产任务或缺少单价，未生成成本草稿`);
+      if (!issueRecord || issueRecord.productionTaskMatchStatus !== "已匹配" || !issueRecord.productionTaskId || unitPrice === null) {
+        warnings.push(`${record.consumptionRecordId || "消耗记录"}：领料来源不符、重复消耗、未匹配任务或缺少单价，未生成成本草稿`);
         return [];
       }
-      const { allocatedWeightKg, allocatedQuantity, allocatedCostAmount: amount } = basis;
+      const unit = resolveRawMaterialCostUnit(item, record);
+      const basis = rawMaterialConsumptionCostBasis(record, unitPrice, unit);
+      if (!basis) { warnings.push(`${record.consumptionRecordId || "消耗记录"}：计价单位与消耗计量不符，或缺少有效重量/件数及金额`); return []; }
+      const {allocatedWeightKg, allocatedQuantity, allocatedCostAmount: amount} = basis;
       localDraftIndex += 1;
       return [{
         costAllocationDraftId: `${draftPrefix}-${String(localDraftIndex).padStart(2, "0")}`,
@@ -57,7 +66,7 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
         splitRecordId: issueRecord.splitRecordId || "",
         supplierName: item.supplierName,
         deliveryNoteNo: item.deliveryNoteNo,
-        ...rawMaterialRollFacts(item, (item.rolls ?? []).find((roll) => roll.id === record.rollId)),
+        ...rawMaterialRollFacts(item, (item.rolls ?? []).find(roll => roll.id === record.rollId)),
         unit,
         unitPrice,
         allocatedWeightKg,
@@ -125,8 +134,11 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
     const existingDrafts = item.rawMaterialCostAllocationDrafts ?? [];
     const confirmableDrafts = existingDrafts.filter((record) => !record.costConfirmationId && record.allocationStatus !== "已复核/待损耗校准");
     if (!confirmableDrafts.length) return null;
+    let confirmedCostAmount;
+    try { confirmedCostAmount = sumRawMaterialCostAmounts(confirmableDrafts, "allocatedCostAmount"); } catch { return null; }
+    try { assertRawMaterialCostDraftScope({inboundId: item.id, drafts: confirmableDrafts, priorDrafts: existingDrafts}); } catch { return null; }
     const confirmation = {
-      costConfirmationId: `RMCC-LOCAL-${Date.now().toString(36).toUpperCase()}`,
+      costConfirmationId: `RMCC-LOCAL-${rawMaterialRecordIdentitySuffix()}`,
       inboundId: item.id,
       supplierName: item.supplierName,
       deliveryNoteNo: item.deliveryNoteNo,
@@ -138,7 +150,7 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
       confirmedCount: confirmableDrafts.length,
       confirmedWeightKg: roundLocalRawMaterialWeight(confirmableDrafts.reduce((sum, record) => sum + Number(record.allocatedWeightKg || 0), 0)),
       confirmedQuantity: confirmableDrafts.reduce((sum, record) => sum + Number(record.allocatedQuantity || 0), 0),
-      confirmedCostAmount: roundLocalRawMaterialMoney(confirmableDrafts.reduce((sum, record) => sum + Number(record.allocatedCostAmount || 0), 0)),
+      confirmedCostAmount,
       reviewStatus: "已复核/待损耗校准",
       costEffect: "confirmed_material_cost_snapshot",
       marginEffect: "none",
@@ -199,7 +211,7 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
       costAllocationConfirmedAt: now,
       costAllocationConfirmedCount: allConfirmedDrafts.length,
       costAllocationConfirmedAmount: roundLocalRawMaterialMoney(
-        allConfirmedDrafts.reduce((sum, record) => sum + Number(record.confirmedCostAmount || record.allocatedCostAmount || 0), 0),
+        allConfirmedDrafts.reduce((sum, record) => sum + Number(record.confirmedCostAmount ?? 0), 0),
       ),
       costAllocationConfirmationId: confirmation.costConfirmationId,
       nextStep: "成本草稿已复核为原材料成本快照；仍需损耗校准和订单毛利报表确认。",
@@ -214,33 +226,17 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
     const existingConfirmations = item.rawMaterialCostAllocationConfirmations ?? [];
     if (!existingConfirmations.length) return null;
     const existingCalibrations = item.rawMaterialCostLossCalibrations ?? [];
-    const calibratedConfirmationIds = new Set(
-      existingCalibrations
-        .flatMap((record) => [record.costConfirmationId, ...(record.costConfirmationIds ?? [])])
-        .filter(Boolean),
-    );
-    const calibratableConfirmations = existingConfirmations.filter(
-      (record) => !calibratedConfirmationIds.has(record.costConfirmationId) && record.lossCalibrationStatus !== "已校准/待毛利确认",
-    );
+    const calibratableConfirmations = selectUncalibratedRawMaterialConfirmations(existingConfirmations, existingCalibrations);
     if (!calibratableConfirmations.length) return null;
     const relatedDraftIds = new Set(calibratableConfirmations.flatMap((record) => record.costAllocationDraftIds ?? []).filter(Boolean));
-    const relatedDrafts = (item.rawMaterialCostAllocationDrafts ?? []).filter((record) => relatedDraftIds.has(record.costAllocationDraftId));
-    const expectedOutputQuantity = Number(options.expectedOutputQuantity ?? options.plannedOutputQuantity ?? options.estimatedOutputQuantity ?? 0) || 0;
-    const actualQualifiedOutputQuantity =
-      Number(options.actualQualifiedOutputQuantity ?? options.actualOutputQuantity ?? options.qualifiedOutputQuantity ?? 0) || 0;
-    const explicitLossQuantity = Number(options.lossQuantity ?? options.lossOutputQuantity ?? 0) || 0;
-    const lossQuantity = explicitLossQuantity > 0
-      ? explicitLossQuantity
-      : expectedOutputQuantity > 0
-        ? Math.max(0, expectedOutputQuantity - actualQualifiedOutputQuantity)
-        : 0;
-    const lossRatePercent = expectedOutputQuantity > 0 ? Math.round((lossQuantity / expectedOutputQuantity) * 10000) / 100 : 0;
-    const confirmedCostAmount = roundLocalRawMaterialMoney(
-      calibratableConfirmations.reduce((sum, record) => sum + Number(record.confirmedCostAmount || 0), 0)
-        || relatedDrafts.reduce((sum, record) => sum + Number(record.confirmedCostAmount || record.allocatedCostAmount || 0), 0),
-    );
+    let measurement;
+    try { measurement = readRawMaterialLossMeasurement(options); } catch { return null; }
+    const {expectedOutputQuantity, actualQualifiedOutputQuantity, lossQuantity, lossRatePercent} = measurement;
+    let confirmedCostAmount;
+    try { confirmedCostAmount = sumRawMaterialCostAmounts(calibratableConfirmations, "confirmedCostAmount"); } catch { return null; }
+    try { assertRawMaterialConfirmationSources({inboundId: item.id, confirmations: calibratableConfirmations, drafts: item.rawMaterialCostAllocationDrafts ?? []}); } catch { return null; }
     const calibration = {
-      lossCalibrationId: `RMCL-LOCAL-${Date.now().toString(36).toUpperCase()}`,
+      lossCalibrationId: `RMCL-LOCAL-${rawMaterialRecordIdentitySuffix()}`,
       inboundId: item.id,
       supplierName: item.supplierName,
       deliveryNoteNo: item.deliveryNoteNo,
@@ -283,7 +279,7 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
             lossCalibrationStatus: "已校准/待毛利确认",
             lossCalibrationId: calibration.lossCalibrationId,
             lossRatePercent,
-            calibratedCostAmount: record.confirmedCostAmount || record.allocatedCostAmount,
+            calibratedCostAmount: record.confirmedCostAmount,
             calibratedBy: operatorName,
             calibratedAt: now,
           }
@@ -371,20 +367,14 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
       ].filter(Boolean)),
     ];
     if (!orderLineIds.length) return null;
-    const totalCalibratedCostAmount = roundLocalRawMaterialMoney(
-      eligibleCalibrations.reduce((sum, record) => sum + Number(record.confirmedCostAmount || 0), 0)
-        || relatedDrafts.reduce((sum, record) => sum + Number(record.calibratedCostAmount || record.confirmedCostAmount || record.allocatedCostAmount || 0), 0),
-    );
+    try { assertRawMaterialMarginCostCoverage({calibrations: eligibleCalibrations, drafts: relatedDrafts, orderLineIds}); } catch { return null; }
     const warnings = [];
     const lineItems = orderLineIds.map((orderLineId) => {
       const orderLine = orderLines.find((line) => line.id === orderLineId || line.orderLineId === orderLineId) ?? {};
       const customer = customers.find((record) => record.id === orderLine.customerId) ?? {};
       const lineDrafts = relatedDrafts.filter((record) => record.orderLineId === orderLineId);
-      const materialCostAmount = roundLocalRawMaterialMoney(
-        lineDrafts.reduce((sum, record) => sum + Number(record.calibratedCostAmount || record.confirmedCostAmount || record.allocatedCostAmount || 0), 0)
-          || (orderLineIds.length ? totalCalibratedCostAmount / orderLineIds.length : totalCalibratedCostAmount),
-      );
-      const salesAmount = roundLocalRawMaterialMoney(Number(orderLine.amount || orderLine.finalAmount || orderLine.totalAmount || 0) || 0);
+      const materialCostAmount = roundLocalRawMaterialMoney(lineDrafts.reduce((sum, record) => sum + rawMaterialDraftCostAmount(record), 0));
+      const salesAmount = roundLocalRawMaterialMoney(Number(orderLine.amount ?? orderLine.finalAmount ?? orderLine.totalAmount ?? orderLine.priceSnapshot?.finalAmount ?? orderLine.priceSnapshot?.amount ?? 0) || 0);
       const grossProfitAmount = salesAmount > 0 ? roundLocalRawMaterialMoney(salesAmount - materialCostAmount) : 0;
       const grossMarginRatePercent = salesAmount > 0 ? Math.round((grossProfitAmount / salesAmount) * 10000) / 100 : 0;
       if (!salesAmount) warnings.push(`${orderLineId}：缺少订单销售金额，毛利率待补订单收入后复核`);
@@ -410,7 +400,7 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
     const grossProfitAmount = totalSalesAmount > 0 ? roundLocalRawMaterialMoney(totalSalesAmount - totalMaterialCostAmount) : 0;
     const grossMarginRatePercent = totalSalesAmount > 0 ? Math.round((grossProfitAmount / totalSalesAmount) * 10000) / 100 : 0;
     const snapshot = {
-      marginSnapshotId: `RMMG-LOCAL-${Date.now().toString(36).toUpperCase()}`,
+      marginSnapshotId: `RMMG-LOCAL-${rawMaterialRecordIdentitySuffix()}`,
       inboundId: item.id,
       supplierName: item.supplierName,
       deliveryNoteNo: item.deliveryNoteNo,
@@ -543,19 +533,14 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
         (record.warnings ?? []).some((warning) => String(warning).includes("缺少订单销售金额")),
     );
     if (missingRevenue) return null;
-    const lineItems = reviewableSnapshots.flatMap((snapshot) =>
-      (snapshot.lineItems ?? []).map((line) => ({
-        ...line,
-        marginSnapshotId: snapshot.marginSnapshotId,
-        marginStatus: "已财务复核/报表可用",
-      })),
-    );
+    let lineItems;
+    try { lineItems = buildRawMaterialMarginReportLines(reviewableSnapshots); } catch { return null; }
     const totalSalesAmount = roundLocalRawMaterialMoney(lineItems.reduce((sum, record) => sum + Number(record.salesAmount || 0), 0));
     const totalMaterialCostAmount = roundLocalRawMaterialMoney(lineItems.reduce((sum, record) => sum + Number(record.materialCostAmount || 0), 0));
     const grossProfitAmount = roundLocalRawMaterialMoney(totalSalesAmount - totalMaterialCostAmount);
     const grossMarginRatePercent = totalSalesAmount > 0 ? Math.round((grossProfitAmount / totalSalesAmount) * 10000) / 100 : 0;
     const report = {
-      marginReportId: `RMMR-LOCAL-${Date.now().toString(36).toUpperCase()}`,
+      marginReportId: `RMMR-LOCAL-${rawMaterialRecordIdentitySuffix()}`,
       inboundId: item.id,
       supplierName: item.supplierName,
       deliveryNoteNo: item.deliveryNoteNo,

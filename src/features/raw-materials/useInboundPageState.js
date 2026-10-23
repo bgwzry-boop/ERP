@@ -1,3 +1,5 @@
+import { useRawMaterialMeasurement } from "./RawMaterialMeasurementDialog.jsx";
+import { canApplySupplierColorToReview } from "./supplierColorReviewScope.js";
 import { submitInboundAction } from "./submitInbound.js";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -23,7 +25,7 @@ export function useInboundPageState({
   statementReviewMeta = {},
   selectedId,
   setSelectedId,
-  onAction,
+  onAction: serverAction,
   onDeliveryNoteRecognize,
   onStatementReviewDraftCreate,
   onStatementReviewConfirm,
@@ -82,6 +84,10 @@ export function useInboundPageState({
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);
   const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
+  const { handleMeasuredAction: onAction, measurementDialog } = useRawMaterialMeasurement({
+    inbounds, selectedId: selected?.id, scope: JSON.stringify([currentUser?.userId, authState?.session?.accessToken, authState?.permissions?.actionPermissions]),
+    getUiActionState, onAction: serverAction,
+  });
   const selectedStock = selected ? buildRawMaterialStockLookup(inbounds, {
     color: selected.factoryColor || selected.supplierColor,
     widthCm: selected.widthCm,
@@ -130,7 +136,7 @@ export function useInboundPageState({
   }
 
   function openSupplierColorMapping(context = null) {
-    setColorMappingContext(context);
+    setColorMappingContext(context ? { ...context, inboundId: selected?.id } : null);
     setColorMappingOpen(true);
   }
 
@@ -142,7 +148,7 @@ export function useInboundPageState({
   function applySavedSupplierColorMapping(mapping = {}) {
     const factoryColor = String(mapping.factoryColor || "").trim();
     const supplierColor = normalizeRawMaterialSupplierColor(colorMappingContext?.supplierColor);
-    if (!factoryColor || !supplierColor) {
+    if (!canApplySupplierColorToReview(mapping, colorMappingContext, selected) || !factoryColor || !supplierColor) {
       closeSupplierColorMapping();
       return;
     }
@@ -707,6 +713,7 @@ export function useInboundPageState({
     openSupplierColorMapping,
     closeSupplierColorMapping,
     applySavedSupplierColorMapping,
+    measurementDialog,
     handleSelectInbound,
     handleOpenRollSource,
     handleMobileStageChange,
