@@ -1,3 +1,4 @@
+import { deliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
 import { completePhysicalPackingFixture } from "./helpers/physicalPackingFixture.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { checkAuthSkeleton } from "./api-skeleton/auth.mjs";
@@ -839,6 +840,7 @@ try {
     baseUrl,
     `/api/inventory/reservations/${confirm.reservations[0].reservationId}/release`,
     {
+      idempotencyKey: "api-release-four-original",
       releaseQty: 4,
       reason: "manual_release",
       operatorId: "U-FINANCE-A",
@@ -1711,6 +1713,7 @@ try {
   ) {
     throw new Error("/api/production-tasks/{id}/finished-goods-photo-review did not deny the warehouse seed user");
   }
+  const reviewedProductionTask = await getJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01");
   const finishedGoodsPhotoReview = await postJson(
     baseUrl,
     "/api/production-tasks/PT-ORD-0629-003-01/finished-goods-photo-review",
@@ -1718,6 +1721,8 @@ try {
       orderLineId: "ORD-0629-003-01",
       reviewStatus: "已接受",
       reason: "API skeleton finished goods photo accepted",
+      expectedAttachmentId: reviewedProductionTask.finishedGoodsPhoto.attachmentId,
+      expectedRevision: reviewedProductionTask.productionTask.revision,
       operatorId: "U-SPOOFED",
       reviewedAt: new Date().toISOString(),
     },
@@ -3450,9 +3455,11 @@ try {
     throw new Error("/api/fulfillments/{id}/delivery-evidence-review should not allow driver review permission");
   }
 
+  const evidenceSource = await getJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}`);
   const deliveryEvidenceReview = await postJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}/delivery-evidence-review`, {
     fulfillmentId: driverPendingTask.fulfillmentId,
     reviewStatus: "approved",
+    expectedEvidence: deliveryEvidenceSnapshot(evidenceSource),
     operatorId: "U-SPOOFED",
     reviewerName: "办公室A",
     remark: "API skeleton delivery evidence review check",
@@ -3460,6 +3467,7 @@ try {
   if (
     deliveryEvidenceReview.reviewStatus !== "已复核" ||
     deliveryEvidenceReview.reviewedBy !== "办公室A" ||
+    deliveryEvidenceReview.reviewedByUserId !== "U-OFFICE-A" ||
     deliveryEvidenceReview.task?.deliveryEvidenceReviewStatus !== "已复核" ||
     deliveryEvidenceReview.task?.watermarkedPhotoAttachmentId !== driverWatermarkAttachment.attachmentId ||
     !deliveryEvidenceReview.operationLogId
@@ -3467,9 +3475,11 @@ try {
     throw new Error("/api/fulfillments/{id}/delivery-evidence-review did not approve delivery evidence");
   }
 
+  const approvedEvidenceSource = await getJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}`);
   const deliveryEvidenceRetake = await postJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}/delivery-evidence-review`, {
     fulfillmentId: driverPendingTask.fulfillmentId,
     reviewStatus: "retake_required",
+    expectedEvidence: deliveryEvidenceSnapshot(approvedEvidenceSource),
     operatorId: "U-OFFICE-A",
     reviewerName: "办公室A",
     reason: "水印定位不清晰",

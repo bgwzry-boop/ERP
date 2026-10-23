@@ -202,7 +202,7 @@ SELECT json_build_object(
       artworkFileId: null,
       artwork: null,
       specification: {},
-      quoteSnapshot: {},
+      quoteSnapshot: {amount:170,quantity:500,unitPrice:0.34,priceVersion:"PT-MINIAPP-LIVE-v4",priceLocked:true},
       inventorySnapshot: { status: "available" },
       estimatedAmount: 170,
     }],

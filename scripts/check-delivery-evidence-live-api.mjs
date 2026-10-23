@@ -1,3 +1,4 @@
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 import { deliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
 import {createServer as reservePort} from 'node:net';
 import {build} from 'esbuild';
@@ -18,7 +19,7 @@ const authorization='Bearer '+createRuntimeSession('TEST-evidence-office',{authS
 const seed=loadSeedWorkspace({runtimeMode:'test',source:'synthetic'});
 const record={...seed.fulfillments.find(row=>row.id==='F008'),status:'已交付',deliveryEvidenceReviewStatus:'待复核'};
 const probe=reservePort();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const testPort=probe.address().port;await new Promise(resolve=>probe.close(resolve));
-const server=createApiServer({runtimeMode:'test',applyProductionEnvFile:false,strictAuth:true,authSecret,corsAllowedOrigins:[`http://127.0.0.1:${testPort}`],runtimeIdentityRepository:{kind:'test_memory',loadState:async()=>({users,revokedSeedSessions:[]}),saveState:async()=>({})},coreWorkspaceReadRepository:{kind:'test_memory',loadState:async()=>({fulfillments:[record]})}});
+const server=createApiServer(withLocalRepositoryFixture({runtimeMode:'test',applyProductionEnvFile:false,strictAuth:true,authSecret,corsAllowedOrigins:[`http://127.0.0.1:${testPort}`],runtimeIdentityRepository:{kind:'test_memory',loadState:async()=>({users,revokedSeedSessions:[]}),saveState:async()=>({})},coreWorkspaceReadRepository:{kind:'test_memory',loadState:async()=>({fulfillments:[record]})}}));
 try{
  await new Promise(resolve=>server.listen(testPort,'127.0.0.1',resolve));const base=`http://127.0.0.1:${server.address().port}`;
  async function request(path,body){const response=await fetch(base+path,{method:body?'POST':'GET',headers:{'content-type':'application/json',authorization},body:body?JSON.stringify(body):undefined});const data=await response.json();assert.equal(response.status,200,JSON.stringify(data));return data;}
