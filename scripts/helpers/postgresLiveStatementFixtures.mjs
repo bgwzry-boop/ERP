@@ -47,7 +47,7 @@ export function buildAccessLog({ logId, attachmentId, operatorId, operationLogId
   };
 }
 
-export function buildPaymentRecord({ paymentRecordId, statementId, customerId, operatorId, amount = 273 }) {
+export function buildPaymentRecord({ paymentRecordId, statementId, customerId, operatorId, amount = 273, attachmentIds = ["ATT-PAY-LIVE-001"] }) {
   return {
     paymentRecordId,
     bizNo: paymentRecordId,
@@ -57,7 +57,7 @@ export function buildPaymentRecord({ paymentRecordId, statementId, customerId, o
     paidAt: "2026-07-01T10:30:00.000Z",
     method: "wechat",
     status: "recorded",
-    attachmentIds: ["ATT-PAY-LIVE-001"],
+    attachmentIds,
     operatorId,
     remark: "postgres live payment repository",
   };

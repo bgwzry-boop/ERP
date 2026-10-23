@@ -283,13 +283,14 @@ export async function checkPostgresRepositories(runtime) {
     workspace: paymentWorkspace,
     paymentRecord: buildPaymentRecord({
       paymentRecordId: "PAY-LIVE-REPO-001",
+      attachmentIds:["ATT-LIVE-REPO-001"],
       statementId: "ST-LIVE-REPO-001",
       customerId: "C-LIVE-REPO",
       operatorId: "U-FINANCE-A",
     }),
   });
   assert.equal(paymentRecord.paymentRecordId, "PAY-LIVE-REPO-001");
-  assert.equal(paymentRecord.attachmentIds[0], "ATT-PAY-LIVE-001");
+  assert.equal(paymentRecord.attachmentIds[0], "ATT-LIVE-REPO-001");
   const paymentRecords = await paymentRepository.listPaymentRecords({ filters: { statementId: "ST-LIVE-REPO-001" } });
   assert.equal(paymentRecords.length, 1);
   assert.equal(paymentRecords[0].customerId, "C-LIVE-REPO");
@@ -376,6 +377,7 @@ export async function checkPostgresRepositories(runtime) {
     statement: statementAfter,
     paymentRecord: buildPaymentRecord({
       paymentRecordId: "PAY-LIVE-TXN-001",
+      attachmentIds:["ATT-LIVE-REPO-001"],
       statementId: "ST-LIVE-REPO-001",
       customerId: "C-LIVE-REPO",
       operatorId: "U-FINANCE-A",
