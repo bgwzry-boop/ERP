@@ -205,17 +205,29 @@ export function createInventoryCorrectionCommandService({
       if (body.correctionDraftId && cleanText(body.correctionDraftId) !== correctionDraftId) {
         return businessError(422, "VALIDATION_ERROR", "correctionDraftId in path and body must match");
       }
+      const replayInput = { idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: sanitizeIdempotencyPayload(body, { correctionDraftId, operatorId }) };
+      const readReplay = () => workspace.inventoryCorrectionTransactionRepository.readConfirmationReplay?.(replayInput);
+      const replay = await readReplay();
+      if (replay) return replay;
       const beforeDraft = await workspace.inventoryCorrectionTransactionRepository.getCorrectionDraft({
         workspace,
         correctionDraftId,
       });
       if (!beforeDraft) return notFound("INVENTORY_CORRECTION_DRAFT_NOT_FOUND");
-      if (!['待确认生效', '已确认生效'].includes(beforeDraft.status)) {
+      if (beforeDraft.status !== "待确认生效") {
+        // The original request may have committed between the first receipt read
+        // and this authoritative draft read. Preserve its exact success receipt.
+        const committedReplay = await readReplay();
+        if (committedReplay) return committedReplay;
         return businessError(
           409,
           "INVENTORY_CORRECTION_DRAFT_NOT_OPEN",
           "Only open correction drafts can be confirmed.",
         );
+      }
+      if (!Array.isArray(beforeDraft.attachmentIds) || beforeDraft.attachmentIds.length === 0) {
+        return businessError(409, "INVENTORY_CORRECTION_ATTACHMENT_REQUIRED", "请先上传并关联盘点凭证，再确认库存修正生效。");
       }
       const attachmentValidation = validateCorrectionAttachments({
         workspace,

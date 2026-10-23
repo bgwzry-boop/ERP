@@ -7,7 +7,9 @@ import {
   buildIdempotencyConflictError,
   buildPostgresIdempotencyRequest,
   resolveRepositoryIdempotencyKey,
+  readPostgresIdempotencyReplay,
 } from "./idempotency.mjs";
+import { validateBusinessAttachment } from "./services/businessAttachmentValidationService.mjs";
 
 export function createInventoryCorrectionTransactionRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -25,6 +27,9 @@ export function createLocalInventoryCorrectionTransactionRepository() {
   const idempotencyResults = new Map();
   return {
     kind: "local_memory",
+    readConfirmationReplay(input) {
+      return input.idempotencyKey ? readLocalIdempotencyResult(idempotencyResults, "inventory.correction.confirm", input) : null;
+    },
     async getCorrectionDraft({ workspace, correctionDraftId }) {
       return findById(workspace.inventoryCorrectionDrafts, correctionDraftId, "correctionDraftId");
     },
@@ -56,6 +61,7 @@ export function createLocalInventoryCorrectionTransactionRepository() {
     async confirmCorrectionDraft(input = {}) {
       const replay = readLocalIdempotencyResult(idempotencyResults, "inventory.correction.confirm", input);
       if (replay) return replay;
+      assertLocalCorrectionConfirmation(input);
       applyConfirmMutation(input);
       const result = {
         correctionDraft: input.correctionDraft,
@@ -69,6 +75,34 @@ export function createLocalInventoryCorrectionTransactionRepository() {
       return result;
     },
   };
+}
+
+function assertLocalCorrectionConfirmation({ workspace, correctionDraft: next, inventoryItem: nextItem, inventoryLedger: ledger, todo }) {
+  const draft = findById(workspace.inventoryCorrectionDrafts, next?.correctionDraftId ?? next?.id, "correctionDraftId");
+  const item = findById(workspace.inventories, nextItem?.id, "id");
+  const evidence = textList(draft?.attachmentIds);
+  if (!draft || !item || draft.status !== "待确认生效"
+    || Number(draft.revision ?? 1) !== Number(next.revision) - 1
+    || Number(item.revision ?? 1) !== Number(nextItem.revision) - 1
+    || draft.inventoryItemId !== item.id || draft.todoId !== todo?.id
+    || !findById(workspace.todos, todo?.id, "id")
+    || Number(draft.expectedQty) !== Number(ledger?.qtyBefore)
+    || Number(item.onHandQty ?? item.inStock) !== Number(ledger?.qtyBefore)
+    || Number(draft.actualQty) !== Number(ledger?.qtyAfter)
+    || evidence.length < 1 || evidence.length > 10) throw correctionConflict();
+  for (const attachmentId of evidence) {
+    const checked = validateBusinessAttachment({ workspace, attachmentId,
+      findAttachment: (state, id) => (state.attachments ?? []).find(row => (row.attachmentId ?? row.id) === id),
+      expectedOwnerType: "inventory_correction", expectedOwnerId: draft.correctionDraftId ?? draft.id,
+      expectedPurpose: "inventory_correction_evidence", requireUploader: true,
+      allowedFileTypes: ["image", "pdf"], allowedMimePrefixes: ["image/"], allowedMimeTypes: ["application/pdf"],
+    });
+    if (!checked.ok) throw correctionConflict();
+  }
+}
+
+function correctionConflict() {
+  return Object.assign(new Error("库存、盘点草稿或凭证已变化，请刷新后重新核对。"), { statusCode: 409, code: "BUSINESS_WRITE_CONFLICT" });
 }
 
 function readLocalIdempotencyResult(store, scope, input) {
@@ -98,6 +132,11 @@ export function createPostgresInventoryCorrectionTransactionRepository(options =
 
   return {
     kind: "postgres",
+    async readConfirmationReplay(input) {
+      const saved = await readPostgresIdempotencyReplay({ queryJson, scope: "inventory.correction.confirm",
+        idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
+      return saved ? normalizeConfirmResult(saved, {}) : null;
+    },
     async getCorrectionDraft({ correctionDraftId }) {
       const query = buildGetInventoryCorrectionDraftQuery(correctionDraftId);
       return normalizeCorrectionDraft(await queryJson(query.text, query.values));
@@ -367,10 +406,30 @@ export function buildConfirmInventoryCorrectionDraftTransactionQuery(input = {})
     text: `
 BEGIN;
 WITH locked_draft AS MATERIALIZED (
-  SELECT id, status, revision, expected_qty, actual_qty, todo_id
+  SELECT id, status, revision, inventory_item_id, expected_qty, actual_qty, todo_id, attachment_ids
   FROM inventory_correction_drafts
   WHERE id = ${parameters.text(draft.id)}
   FOR UPDATE
+),
+locked_evidence AS MATERIALIZED (
+  SELECT attachment.id, attachment.status, attachment.purpose, attachment.has_content,
+    attachment.uploaded_by, attachment.file_type, attachment.mime_type,
+    link.owner_type, link.owner_id, link.purpose AS link_purpose
+  FROM locked_draft AS draft
+  CROSS JOIN LATERAL jsonb_array_elements_text(draft.attachment_ids) AS requested(id)
+  JOIN attachments AS attachment ON attachment.id = requested.id
+  JOIN attachment_links AS link ON link.attachment_id = attachment.id
+  ORDER BY attachment.id
+  FOR UPDATE OF attachment, link
+),
+valid_evidence AS MATERIALIZED (
+  SELECT id FROM locked_evidence
+  WHERE status = 'uploaded' AND purpose = 'inventory_correction_evidence'
+    AND has_content = true AND uploaded_by IS NOT NULL
+    AND file_type IN ('image', 'pdf')
+    AND (mime_type LIKE 'image/%' OR mime_type = 'application/pdf')
+    AND owner_type = 'inventory_correction' AND owner_id = ${parameters.text(draft.id)}
+    AND link_purpose = 'inventory_correction_evidence'
 ),
 locked_inventory AS MATERIALIZED (
   SELECT id, on_hand_qty, revision
@@ -387,12 +446,17 @@ write_guard AS MATERIALIZED (
       SELECT 1 FROM locked_draft
       WHERE status = '待确认生效' AND revision = ${parameters.integer(expectedDraftRevision)}
         AND expected_qty = ${parameters.integer(ledger.qtyBefore)}
+        AND actual_qty = ${parameters.integer(ledger.qtyAfter)}
+        AND inventory_item_id = ${parameters.text(inventoryItem.id)}
+        AND todo_id = ${parameters.text(todo.id)}
     )
     AND EXISTS (
       SELECT 1 FROM locked_inventory
       WHERE on_hand_qty = ${parameters.integer(ledger.qtyBefore)}
         AND revision = ${parameters.integer(expectedInventoryRevision)}
     )
+    AND (SELECT jsonb_array_length(attachment_ids) FROM locked_draft) BETWEEN 1 AND 10
+    AND (SELECT COUNT(DISTINCT id) FROM valid_evidence) = (SELECT jsonb_array_length(attachment_ids) FROM locked_draft)
     AND (SELECT COUNT(*) FROM locked_todo) = 1,
     'ERP_INVENTORY_CORRECTION_CONFIRM_CONCURRENCY_CONFLICT'
   ) AS ok
@@ -668,24 +732,29 @@ function todoJsonExpression(alias) {
 }
 
 function applyCreateMutation({ workspace, correctionDraft, todo, todoEvent, operationLog }) {
-  workspace.inventoryCorrectionDrafts = upsert(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
+  workspace.inventoryCorrectionDrafts = upsertVersioned(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
   workspace.todos = upsert(workspace.todos, todo, "id");
   if (todoEvent) workspace.todoEvents = upsert(workspace.todoEvents, todoEvent, "eventId");
   if (operationLog) workspace.operationLogs = upsert(workspace.operationLogs, operationLog, "id");
 }
 
 function applyLinkMutation({ workspace, correctionDraft, operationLog }) {
-  workspace.inventoryCorrectionDrafts = upsert(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
+  workspace.inventoryCorrectionDrafts = upsertVersioned(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
   if (operationLog) workspace.operationLogs = upsert(workspace.operationLogs, operationLog, "id");
 }
 
 function applyConfirmMutation({ workspace, correctionDraft, inventoryItem, inventoryLedger, todo, todoEvent, operationLog }) {
-  workspace.inventoryCorrectionDrafts = upsert(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
-  workspace.inventories = upsert(workspace.inventories, inventoryItem, "id");
+  workspace.inventoryCorrectionDrafts = upsertVersioned(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
+  workspace.inventories = upsertVersioned(workspace.inventories, inventoryItem, "id");
   workspace.inventoryLedgers = upsert(workspace.inventoryLedgers, inventoryLedger, "ledgerId");
   if (todo) workspace.todos = upsert(workspace.todos, todo, "id");
   if (todoEvent) workspace.todoEvents = upsert(workspace.todoEvents, todoEvent, "eventId");
   if (operationLog) workspace.operationLogs = upsert(workspace.operationLogs, operationLog, "id");
+}
+
+function upsertVersioned(rows, record, key) {
+  const current = findById(rows, record?.[key] ?? record?.id, key);
+  return current && Number(current.revision ?? 1) > Number(record?.revision ?? 1) ? rows : upsert(rows, record, key);
 }
 
 function upsert(rows = [], record, key) {

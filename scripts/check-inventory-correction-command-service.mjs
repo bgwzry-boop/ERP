@@ -100,6 +100,11 @@ assert.equal(workspace.inventories[0].inStock, 500, "draft creation must not cha
 assert.equal(workspace.todos.length, 1);
 assert.equal(workspace.todoEvents[0].eventType, "todo_source:inventory_correction_created");
 assert.equal(workspace.operationLogs[0].operatorId, "U-AUTH");
+const emptyEvidence = await service.confirmCorrectionDraft({ workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId,
+  body: { idempotencyKey: "empty-evidence-confirm" }, operatorId: "U-MANAGER" });
+assert.equal(emptyEvidence.code, "INVENTORY_CORRECTION_ATTACHMENT_REQUIRED");
+assert.equal(workspace.inventories[0].inStock, 500);
 
 workspace.attachments.push(
   correctionAttachment("ATT-VALID", created.correctionDraft.correctionDraftId),
@@ -151,6 +156,14 @@ const confirmBody = {
   operatorId: "U-SPOOFED",
   idempotencyKey: "inventory-confirm-0001",
 };
+const originalInventory = structuredClone(workspace.inventories[0]);
+workspace.inventories[0] = { ...originalInventory, inStock: 520, onHandQty: 520, revision: 4 };
+const staleSnapshot = JSON.stringify(workspace);
+await assert.rejects(service.confirmCorrectionDraft({ workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId, body: confirmBody, operatorId: "U-MANAGER" }),
+{ code: "BUSINESS_WRITE_CONFLICT", statusCode: 409 });
+assert.equal(JSON.stringify(workspace), staleSnapshot);
+workspace.inventories[0] = originalInventory;
 const confirmed = await service.confirmCorrectionDraft({
   workspace,
   correctionDraftId: created.correctionDraft.correctionDraftId,
@@ -179,6 +192,18 @@ const replayedConfirm = await service.confirmCorrectionDraft({
 assert.equal(replayedConfirm.inventoryLedger.ledgerId, confirmed.inventoryLedger.ledgerId);
 assert.equal(workspace.inventoryLedgers.length, 1);
 assert.equal(workspace.inventories[0].revision, 4);
+const completedSnapshot = JSON.stringify(workspace);
+const repeated = await service.confirmCorrectionDraft({ workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId,
+  body: { ...confirmBody, idempotencyKey: "different-confirm-key" }, operatorId: "U-MANAGER" });
+assert.equal(repeated.code, "INVENTORY_CORRECTION_DRAFT_NOT_OPEN");
+assert.equal(JSON.stringify(workspace), completedSnapshot);
+workspace.inventories[0] = { ...workspace.inventories[0], inStock: 460, onHandQty: 460, revision: 5 };
+const laterSnapshot = JSON.stringify(workspace);
+const historical = await service.confirmCorrectionDraft({ workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId, body: confirmBody, operatorId: "U-MANAGER" });
+assert.deepEqual(historical, replayedConfirm);
+assert.equal(JSON.stringify(workspace), laterSnapshot, "old receipt must not overwrite subsequent stock changes");
 
 const blockedClosedDraftLink = await service.linkCorrectionAttachments({
   workspace,

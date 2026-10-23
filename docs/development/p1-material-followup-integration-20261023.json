@@ -1,0 +1,25 @@
+{
+  "schema": "erp-p1-material-followup-v1",
+  "baseCommit": "09acbd9908c9610ebc59dfe6d1febb6d4aa070f9",
+  "branch": "codex/p1-material-followup-20261023",
+  "status": "locally_verified_not_deployed",
+  "databaseMigrations": [],
+  "fixes": [
+    {
+      "id": "INV-FOLLOWUP-01",
+      "problem": "本地仓储允许已确认盘点换新键再次确认、过期盘点覆盖现库；确认未要求凭证，PG锁后未核实盘点实际数量/归属及凭证现状。",
+      "reproduction": "隔离真实HTTP：2480→无凭证A确认2470→B确认2460→旧A换新键再次200并覆盖回2470。该重复确认现象仅在local_memory复现；原PG已具状态/revision/expectedQty保护。",
+      "change": "确认必须有有效关联凭证；已确认只允许原同键回执；本地仓储原子核对状态、revision、现库、实际数量、归属和当前凭证；PG行锁后再核actualQty/库存归属/todo归属及每个凭证状态/归属/内容；历史回执不回写当前缓存，收货式revision单调合并避免旧回执覆盖新状态。",
+      "oldCommits": ["832043e6f81e", "aea70e278ccc", "35f79bcd50c4", "4df8ef534923"],
+      "additionalProtection": "在旧修复之上增加确认前幂等回执读取、首轮读取与原提交交错后的二次回执读取、create/link/confirm缓存revision单调合并。",
+      "validation": [
+        "npm run inventory-api:check：7项通过。",
+        "node scripts/check-p1-inventory-correction-postgres.mjs：独立临时PostgreSQL容器迁移后验证真实行锁等待中实际数量/库存归属/凭证状态/凭证归属变化全部409回滚；独立实例不同键争用只一条流水；同键并发完整回执相同且一条流水；历史回执不恢复后来库存。",
+        "本地服务回归：空凭证阻断、入库后旧盘点阻断、已确认换键阻断、原键回执保留且不改现库。"
+      ],
+      "boundaries": ["保留当前新盘点UI、创建草稿不直接改库存、创建后再上传关联凭证的合同。", "库存数量实际变化后的旧盘点须重新盘点创建新草稿；测试不代表现场盘点或部署验收。", "PG锁等待中的无revision数量/归属变动为防御性数据库边界验收；不宣称当前已有公开接口可任意改写盘点实际数量。"]
+    }
+  ],
+  "registration": ["请整合者将 scripts/check-p1-inventory-correction-postgres.mjs 接到资源敏感 PostgreSQL 检查组；本分支未改公共manifest/package。"],
+  "preservation": "主工作树、旧目录59个未提交文件、拒绝恢复的余料/分卷规则均未改动。"
+}
