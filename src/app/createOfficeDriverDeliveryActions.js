@@ -1,3 +1,4 @@
+import {findDriverDeliveryExceptionReason} from "../../shared/driverDeliveryExceptionReasons.js";
 import { createDeliveryEvidenceAttachmentInput as createDeliveryEvidenceAttachmentInputDefault } from "../services/officeAttachmentInputs.js";
 import { createOfficeAttachment as createOfficeAttachmentDefault } from "../services/officeAttachmentLazyApi.js";
 import {
@@ -418,7 +419,9 @@ export function createOfficeDriverDeliveryActions({
     }
 
     if (action === "装车异常" || action === "送货异常") {
-      const reason = payload.reason || (action === "装车异常" ? "装车少货" : "其他");
+      const selectedReason=findDriverDeliveryExceptionReason(payload.reason);
+      if(!selectedReason){const message="请先选择实际的送货异常原因。";setToast(message);return {source:"ui_error",blocked:true,error:{code:"DRIVER_EXCEPTION_REASON_REQUIRED",message}};}
+      const reason=selectedReason.label;
       const apiResult = await reportDriverDeliveryException({
         authState,
         task,

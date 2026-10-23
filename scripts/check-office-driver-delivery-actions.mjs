@@ -320,3 +320,5 @@ console.log("Office driver delivery action checks passed: device QA, package loa
 {let writes=0;const h=createHarness({api:{createOfficeAttachment:async()=>{writes++;return {source:"api"};}}});
  const wrong=await h.actions.handleDriverDeliveryAction("提交送达",{fulfillmentId:"MISSING",deliveryCompletionConfirmed:true});assert.equal(wrong.error.code,"DRIVER_TASK_NOT_FOUND");
  const mismatch=await h.actions.handleDriverDeliveryAction("提交送达",{fulfillmentId:"F-DRIVER-1",actualQty:998,deliveryCompletionConfirmed:true,watermarkedPhotoFile:{name:"x.png"}});assert.equal(mismatch.error.code,"DRIVER_DELIVERY_QUANTITY_MISMATCH");assert.equal(writes,0);}
+
+{let writes=0;const h=createHarness({api:{reportDriverDeliveryException:async()=>{writes++;return {source:"api"};}}});for(const reason of [undefined,"","未核实原因"]){const r=await h.actions.handleDriverDeliveryAction("装车异常",{fulfillmentId:"F-DRIVER-1",reason});assert.equal(r.error.code,"DRIVER_EXCEPTION_REASON_REQUIRED");}assert.equal(writes,0);}
