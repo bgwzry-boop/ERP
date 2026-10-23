@@ -96,8 +96,8 @@ export function createPostgresProductionFinishedGoodsPhotoTransactionRepository(
 
 async function persist(input, scope, buildQuery, execute) {
   const query = buildQuery(input);
-  const value = await execute(
-    buildPostgresIdempotencyRequest({
+  const receipt = await execute({
+    ...buildPostgresIdempotencyRequest({
       scope,
       idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
       payload: input.idempotencyPayload ?? {},
@@ -109,12 +109,14 @@ async function persist(input, scope, buildQuery, execute) {
         ...(input.todos ?? []).map((todo) => `todo:${todo.id}`),
       ],
       query,
-    }),
-  );
-  const result = normalizeResult(value, input);
+    }), includeReplayMetadata: true,
+  });
+  if (typeof receipt?.replayed !== "boolean" || !receipt.value) throw new Error("Production photo transaction must identify replay receipts");
+  const result = normalizeResult(receipt.value, input);
   if (!result.productionTask || !result.operationLogId) {
     throw new Error("PostgreSQL production photo transaction returned invalid data");
   }
+  if (receipt.replayed) return result;
   applyMutation({
     ...input,
     productionTask: result.productionTask,

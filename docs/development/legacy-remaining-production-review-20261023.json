@@ -1,0 +1,4738 @@
+{
+  "schema": "erp-legacy-semantic-review-v1",
+  "date": "2026-10-23",
+  "domain": "production-platform",
+  "base": "2af7a9aa42a85c3c4124a5bac4c9c6926ca0043d",
+  "legacyHead": "1ed23b2b86314feff63cb62d8c7deb9375552345",
+  "scope": "116条已逐条核对实际diff，并按当前业务合同选择移植；保留生产阶段、特殊尺寸、实包、auth store mode和多异常阻断等上轮修复。",
+  "integrationCommits": [
+    "4ed656236a91e449a5ad97790fcd0f49cdd504e9",
+    "7da9536f50964dc8f228b0b2f692627e933ea142"
+  ],
+  "summary": {
+    "reviewed": 116,
+    "partialSemantics": 107,
+    "productGapsP2": 5,
+    "crossDomainReviewed": 4,
+    "wholeCommitsIntegrated": 0
+  },
+  "records": [
+    {
+      "commit": "e2d880f0370ba07eb01349abcaffb327cd2781c0",
+      "subject": "fix(auth): enforce business reads and worker machine scope",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "全局业务GET权限和工人机台范围确实缺失；与父共享门禁一起接入，生产接口强制服务器机台并精简金额字段。",
+      "currentEvidence": [
+        {
+          "path": "server/routes/productionReadRoutes.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/app/useOfficeProductionReads.js",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "src/app/useOfficeCoreReads.js",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "src/app/navigation.js",
+          "present": true,
+          "anchor": 3
+        }
+      ],
+      "validation": [
+        "scripts/check-office-production-reads.mjs",
+        "scripts/check-production-machine-queue-read-service.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的businessReadAccessService/readPermissions/API接入",
+      "legacyPatchSha256": "cc5c95cede0a10a0967ee54e61c0e398ed5b97c5d5925389fe564cf6138e754f",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "a775de9891993865673c5da27dc60a29644c8ca3",
+      "subject": "fix(payroll-ui): isolate month employee and evidence async state",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "工资UI原来跨月份、员工及凭证异步结果可能串用；按账号会话/月重建状态并隔离所选员工和上传归属。",
+      "currentEvidence": [
+        {
+          "path": "src/features/payroll/PayrollAttendancePage.jsx",
+          "present": true,
+          "anchor": 49
+        },
+        {
+          "path": "src/features/payroll/EmployeeAttendanceMobilePage.jsx",
+          "present": true,
+          "anchor": 6
+        }
+      ],
+      "validation": [
+        "scripts/check-payroll-ui-async-state.mjs",
+        "scripts/check-payroll-attendance-page.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "d5c4e18ebf8e19b343539dea0b903752e3570fa7937ffb67085e07f830012e03",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "e910b07176ef2fbde570d3516b638f2bef7de2bf",
+      "subject": "test: include optimization regressions and align role fixtures",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧提交是测试注册及岗位fixture，保留测试意图；使用当前版本入口与父统一check组，不迁入旧package清单。",
+      "currentEvidence": [
+        {
+          "path": "server/routes/productionReadRoutes.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/app/useOfficeProductionReads.js",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "src/app/useOfficeCoreReads.js",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "src/app/navigation.js",
+          "present": true,
+          "anchor": 3
+        }
+      ],
+      "validation": [
+        "scripts/check-office-production-reads.mjs",
+        "scripts/check-production-machine-queue-read-service.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的businessReadAccessService/readPermissions/API接入",
+      "legacyPatchSha256": "539c2e90676280212cd7ca547e90dadfe266022f49ceb585dc506f5638aa6fea",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "0d87f493824f89b75ce0b71d003fadfc4ad404c9",
+      "subject": "fix: revalidate decision maker eligibility across authorization use",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "授权创建后员工离职或作废仍可能被使用；提取统一正式员工策略，读、写和授权使用重新核对。",
+      "currentEvidence": [
+        {
+          "path": "server/services/businessDecisionEmployeePolicy.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "server/services/businessDecisionPolicyService.mjs",
+          "present": true,
+          "anchor": 21
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-schedule-decision-ui.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的useDecisionEvidenceGate/DelegatedBusinessDecisionFields",
+      "legacyPatchSha256": "9d9fd4822d2b73ebfe9e32f5311e3139bd0b82d31920f1f2e7bff9bba011bfe6",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "68699a25070bb92fa570be0fd5ca8e2d581f5622",
+      "subject": "fix(ui): consolidate schedule decisions and preserve failed submissions",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "排产两处委托证据编辑和失败即清空有风险；父提供同步ready门控，本组保留单一编辑处、冻结确认和失败原请求。",
+      "currentEvidence": [
+        {
+          "path": "server/services/businessDecisionEmployeePolicy.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "server/services/businessDecisionPolicyService.mjs",
+          "present": true,
+          "anchor": 21
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-schedule-decision-ui.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的useDecisionEvidenceGate/DelegatedBusinessDecisionFields",
+      "legacyPatchSha256": "9b09a13ff10ae697b7ede56d8f32174dc5f2d12c0aaddaf1d347963e43aac831",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "e90f8b58a058c79189899ae519ce6d720c55520f",
+      "subject": "fix(production): read complete machine queues with exact schedule ownership",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "机台队列原来只取前200条且同排程号可错取另任务记录；完整分页并按任务身份核对排程来源。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionMachineQueueReadService.mjs",
+          "present": true,
+          "anchor": 1
+        }
+      ],
+      "validation": [
+        "scripts/check-production-machine-queue-read-service.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "2e528e842d16571547a4154ad98d95664e53faa3c820f0598dada0462b17c398",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "dbe6eb2d7d4f0d1cae3326f455ddce8236b419ff",
+      "subject": "fix(auth): separate production and packing read scopes from writes",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "读生产/打包与提交权限原来混用；父提供明确read能力，本组按当前角色读取并对拒绝结果清缓存。",
+      "currentEvidence": [
+        {
+          "path": "server/routes/productionReadRoutes.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/app/useOfficeProductionReads.js",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "src/app/useOfficeCoreReads.js",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "src/app/navigation.js",
+          "present": true,
+          "anchor": 3
+        }
+      ],
+      "validation": [
+        "scripts/check-office-production-reads.mjs",
+        "scripts/check-production-machine-queue-read-service.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的businessReadAccessService/readPermissions/API接入",
+      "legacyPatchSha256": "66ad5a95ba961db5bea84ce6309de7769f0abfcfc5159ed1756eda64dd65a900",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "a2f0c457eb9710ed3bd715e906f75e2389d6c444",
+      "subject": "fix(review): align read-only menus and payroll access with API permissions",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "电脑菜单原来以写权限代替读权限且普通办公室能看工资入口；改用具体read与payroll.preview。",
+      "currentEvidence": [
+        {
+          "path": "server/routes/productionReadRoutes.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/app/useOfficeProductionReads.js",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "src/app/useOfficeCoreReads.js",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "src/app/navigation.js",
+          "present": true,
+          "anchor": 3
+        }
+      ],
+      "validation": [
+        "scripts/check-office-production-reads.mjs",
+        "scripts/check-production-machine-queue-read-service.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的businessReadAccessService/readPermissions/API接入",
+      "legacyPatchSha256": "a630fe1e540ae7e7a953fba0d037a988b242de5b2d1c542fa8eca2f0e7ef8dc7",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "b8ee2608cb6370f09ee05c28f23a293f3ed4fb45",
+      "subject": "fix(todos): validate unique references and guard desktop workspace links",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "待办历史别名会取第一个命中；改为唯一目标，电脑跳转先核实引用和权限，不再默认打开可疑编号。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "b0fec4ed9fa241f7ff38d4be87de99166648a76aa835d4a7d0833f8dca999849",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "e4be07ef480c9cdb4db64886bae495e4c1342d58",
+      "subject": "fix(todos): reject known customer ownership conflicts before reference repair",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "待办和目标已知客户冲突时原来仍能修复；服务和候选列表均拒绝跨客户归属。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "9bf1ea80eb4996023cab1b5c5d4fa2c43e8f4f44cb56c3fa109cc7934438860e",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "7961eb85e33e9bd90cb220019cd72902a25b80e4",
+      "subject": "fix(todos): replay committed repair receipts before current state guards",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "重复修复会被当前已修好/已处理状态挡住；原请求查不可变回执先于动态校验，内容改变仍冲突。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "80003054e030d25a1f1be587497a5455801710eddc5bc90e1e4ccb963b29d228",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "611ec111bf8a3eabf46a7efd140dbd92e890bd23",
+      "subject": "fix(todos): calculate tomorrow reminders on China factory calendar",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "凌晨的明早提醒原来按UTC日历；按中国工厂日期加一天后九点，覆盖年末和闰日。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "59375ae36c5e2b40ad417d5e9e8c410641af5f552367858ae398ce215b15f9c4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "fe4c0136ab71a60dbb859c41dd2d902da3969dd4",
+      "subject": "feat(todos): add desktop reminder scheduling with validated retry receipts",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "电脑提醒原来只有本地文案且指定时间固定；共享表单提交带时区实际时间，核对回执归属与重试键。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "dcaeec3694cd3640877e37b60b4578bfa7b595d6e616b728760272a03d0238fd",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "cc24c4df064f5336c122c35eaf1aded48c5213ea",
+      "subject": "fix(todos): restore pending reminder commands after page reload",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "提醒发送后刷新会丢未知结果；按账号和待办保留冻结命令，恢复后不自动重发，成功才清除。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "fb2905c9c9f61bfc932ece362aaf3ad6e00518c9589820c2ae017d418e4590ee",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "ed57c5261de53df8f9220bc9335c5952f2e728ad",
+      "subject": "refactor(todos): share reminder workflow and remove legacy local snooze state",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧本地snooze状态可冒充保存；当前TodoPage和认可电脑入口复用服务器表单，旧未使用工具函数不影响正式路径。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "30356a83d8a8c592b4f6171fd11e6e0a95b9c7fe99a04ac5cf772beb56abf0bc",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "acf8a5647c1ee62fcf20c7303afa4c1551bee3c5",
+      "subject": "fix(todos): enforce state transitions and advance concurrent write versions",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "已处理待办可再次关闭/提醒且同毫秒版本不变；限制状态迁移并单调推进乐观版本，原回执仍可重放。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "939c4dc109b874055634ce8de63dd4759ba4df965f3f18e6d61db0c0a91c6511",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "e4c514d7103206e9940b3acae51c45c26535682c",
+      "subject": "fix(todos): preserve current state and immutable audits on postgres replay",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "PostgreSQL待办回放原来覆盖当前状态或重新拼审计；回读当前状态、保留原事件和日志，并验证冲突回滚。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "023ba076b5578b54571f7a018153ca446bb314fafe2985e9ef438a93cde18fbf",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "34800d716cc99a8518d094cf3f0319c61bf6b346",
+      "subject": "test(postgres): create production task before recording completion",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "历史PG报工fixture先创建生产任务才完成是正确前提；当前生产/打包真实PG专项已创建任务并校验工序交接。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "1a08dc6f54ba9f639f84871926bb8e2379d7aea6233f2891f744d3340871335c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "db83c8e147a4624773eb372c38406dafa3236197",
+      "subject": "test(postgres): align photo scenario with worker task scope",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "历史成品图测试须匹配工人机台；当前正式接口机台范围交父全局门禁，专项明确真实任务与订单。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "8020d9e62c5c66f5a055b18f9cdfc14016c112abd1040285372bf45062f5f3b4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "2bfc81836d1716bb10c96525175fc9325d84e22c",
+      "subject": "test(production): seed daily reporting task before API lifecycle checks",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "历史日报API fixture缺任务；保留任务先存在的规则，当前日报真实PG用显式PT-APPEND，不靠启动补种。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "94449803c5afce64d0dca0dbf933e8fccec3c74cb39781ca1df1369c12bf78fd",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "b37e5ba6bf32e05e00577eab2e1b0edfd70fa38c",
+      "subject": "fix(print): reject label trust after delivery method changes",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "快运改成其他交付方式后旧标签仍可获信；标签投影显式返回delivery_method_changed，不推进当前交付。",
+      "currentEvidence": [
+        {
+          "path": "server/services/printJobBusinessProjectionService.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "server/fulfillmentPrintTodoCompletion.mjs",
+          "present": true,
+          "anchor": 4
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "576ed9fbe0ef2e3af13b2c8889f35e62df22f6da206877a06f92f1448d08bfa4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "887084c722e1ead281cfccb35e7a9b87769d2725",
+      "subject": "test(finance): settle authoritative outstanding balance in live suite",
+      "decision": "cross-domain-reviewed-handoff",
+      "priority": "cross-domain-followup",
+      "reason": "历史财务测试按实际欠款结清是有效fixture修正；该财务范围交订单/财务组核对，不把旧金额常量复制进业务。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "3a7d92cc7bcc0e4fe5d0067db20bfebca84f15950537da0825cf542a764f2aa7",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "具体跨域实现与总体验证由父/订单/材料组台账负责；本条不单独声明该域完成。"
+    },
+    {
+      "commit": "1bb88a69b5699c0356c5313b4b729df2d6974507",
+      "subject": "test(delivery): verify photo cleanup and review success refresh",
+      "decision": "cross-domain-reviewed-handoff",
+      "priority": "cross-domain-followup",
+      "reason": "送达照片清理和审核后刷新测试属于跨域历史回归；具体交付证据UI由父/订单组核对，本组不声称已验真机。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "9afa7ee44a1089b1f66dc32de7f76f06ebdef33b90394274b3711484b0c46386",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "具体跨域实现与总体验证由父/订单/材料组台账负责；本条不单独声明该域完成。"
+    },
+    {
+      "commit": "6054c7884ff6146ef443fd3152d4266d6defc908",
+      "subject": "test(print): enforce preview-only callback and retry boundaries",
+      "decision": "cross-domain-reviewed-handoff",
+      "priority": "cross-domain-followup",
+      "reason": "预览不能实体回写且重试边界的测试意图保留；本组保留当前preview_only防线和严格打印回执，父统一验证。",
+      "currentEvidence": [
+        {
+          "path": "server/services/printJobBusinessProjectionService.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "server/fulfillmentPrintTodoCompletion.mjs",
+          "present": true,
+          "anchor": 4
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "153b298c5a565a930fe671a8283fa967f5916ed7ea191b1c0c70f9543d64c3f7",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "具体跨域实现与总体验证由父/订单/材料组台账负责；本条不单独声明该域完成。"
+    },
+    {
+      "commit": "0cf2602846a03aea2e9a48b2bd638d3b3065794c",
+      "subject": "docs: cover supplier colour maintenance API contract",
+      "decision": "cross-domain-reviewed-handoff",
+      "priority": "cross-domain-followup",
+      "reason": "供应商颜色维护OpenAPI文档为历史合同证据；颜色实现由材料组核对，不改生产代码或增设静默学习规则。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "da4eba6f89c681275f7e1cf4446498ccb3e2ca63ddcdb2a9d3402047e7bf0f63",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "具体跨域实现与总体验证由父/订单/材料组台账负责；本条不单独声明该域完成。"
+    },
+    {
+      "commit": "1f756af36ee691b3fa1dc0f0e19440a7c48c2650",
+      "subject": "fix: require explicit printer selection for field acceptance",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "验收设备原来默认第一台；必须显式选设备，无可用目标时清空旧设备和验收资料并阻断。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "e5a81888666717fbc5734e86a71ee5f11a0c8e4b338f8ed8f78857a7bb89c74f",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "a0927ee14854acf974f9cd06027c2f77ca73b7cc",
+      "subject": "fix: ignore stale printer acceptance reads across selection and session changes",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧设备读取在换设备/换账号后会回写；请求序号和会话卸载使旧结果失效。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "28722a61a23ab2dcc452c30bd7c8bc36dfe96d00246c7b81cfdd9ce3094fc115",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "5d907da33a8195f99d6e51592f0bb61ed347a280",
+      "subject": "fix: keep printer save responses on their originating device",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "模式保存回执会落到新选设备；同时核对设备号、选择修订及会话，旧结果不提示成功。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "89295376de622fc39aed78979ddb42224bcf69df06d30c2a4db622870a4de3f1",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "44a354c4edf88bc27eaabd4271dadd665ccab5fb",
+      "subject": "fix: separate printer editing sessions after reselection",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "重新选同一设备也须是新的编辑会话；selectionRevision隔离之前保存的回执。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "bb6da6d60bf5586173777357a8413c228d43b4c8da34b7fabce6d167cac7e2e0",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "6f587f6eb15e51b44a25dc303d6b35ca29990c41",
+      "subject": "fix: validate printer mode save receipt before reporting success",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "模式保存只看HTTP成功不够；客户端验证模式、设备身份和审计回执后才宣告保存。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "c7327bef776afea9999e3721af454a9ef77f21f599d5277039aedbc0900a8ce6",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "6ae41803baabc28c4050790d049e503d32ef371f",
+      "subject": "fix: require server evidence for printer field-test saves",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "验收保存必须为服务端证据；缺审计或目标不匹配的回执保持失败，不能由本地结果补造。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "def5d910f259aef70de0e56c6d818f59e70c26b7b45451e72614cba89f29bade",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "904ac95e71d5ce933fb5a12ab733bde4c85bebf6",
+      "subject": "fix: avoid same-second printer acceptance record collisions",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "同秒两次验收记录ID可碰撞；服务器UUID避免碰撞，显式重复身份不可覆盖。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "018f6135159b5e258403027c2adcf2adfac049930ce06f67cd1dfb1e1d01e482",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "b842a1cb1690be31f29f7557c9637595fdcc5f98",
+      "subject": "fix: reject local printer acceptance record overwrites",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "本地验收同ID旧记录原来被覆盖；保存前同时检查内存与持久历史，重复返回409。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "7dda92eb00501ae0a79877b523516efec6a85787947d83b02a46b0d8e72ef150",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "d1642f4efbd3633bbbe5c1e8811f89174f9c6688",
+      "subject": "fix: preserve local printer acceptance history on file writes",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "稀疏工作区会覆盖文件内旧验收，损坏文件被当空；合并持久历史、损坏阻断，并用原子文件替换。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "1e785127b3f9467d1f956a873feef021fb2e69f0de65a7ed97f1e06a2f9fbf69",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "33f5cf0cd8bfd23f0fe32184c6ad7de7da643e02",
+      "subject": "fix: prevent postgres printer acceptance evidence overwrites",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "PostgreSQL验收原来ON CONFLICT改写旧证据；改为只插入并要求确有一条落库，冲突回滚。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "99f43febe498e090a389aae82afc73127482ed182ce597e438ecd6097b9af234",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "7f49e5f5bbab7febdac598bcca1e48e265b427e2",
+      "subject": "test: verify one winner for concurrent printer acceptance records",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "并发同ID验收一胜一败的旧测试有效；本轮真实PostgreSQL验证只有一条记录和审计，失败键回滚，原key重放全部证据保真。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "64a3bf195bd416a9953e4b247fb4c2692013b496279b970eff25a17240db2606",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "186c0a1fb392f88c16a5a5fa650d1ea13daca2ec",
+      "subject": "fix: avoid projecting unsaved audit on printer QA replay",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "重放旧验收结果不能投影本次未保存审计；仅返回的原日志身份匹配才投影。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "a9792edee1702d3c7958c8cb6df33d9ea6239b9095a6dcbde56a621b14d07341",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "aaaf82b0a8f09c2bde09b06bffcb660e2667b493",
+      "subject": "fix: preserve latest printer acceptance summary during replay",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧验收回放不应覆盖设备最新摘要；按真实checkedAt和稳定ID从历史选择最近记录。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "7afc8d55f47d82f40976f29941324cca091b7afdaef243f4ff2055fd5e33f7eb",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "58d5b2cf9754f2861b32ceb1e378d338ee28b665",
+      "subject": "fix: use server time and identity for printer acceptance evidence",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "验收检查时间与姓名曾信客户端；改为服务器时间和已登录用户姓名。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "20304d4e90dca1f2e3eeee39c15440e977602d9e3af72c5d8ceafd3bd6527395",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "d0df2125cf29e77f4940b7f16c34df844c0906ed",
+      "subject": "fix: preserve prepared printer QA request keys on retry",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "结果丢失重试要沿用已准备的QA请求ID；客户端保留预备recordId，重复身份不会写成第二次。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "6269a61b8f6df0ead5cd4f1aab27f9a6b5ba4b38895d37a426cfe3d5a4aeb967",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1ca5552cdd5a23f9a27a53e1f8b85a166261cb39",
+      "subject": "fix: guard concurrent printer QA submissions and recover errors",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "同一QA会话重复保存和请求异常会卡住；同步pending锁、finally恢复及不确定结果提示已覆盖。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "ea3e78a499448faf970ac04854695b62ff80ae8f20458b850e49d0745c67d52c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "973c47b0ac18f4546c84a01c0fb0a6501bf22a59",
+      "subject": "fix: protect printer QA form inputs during submission",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "QA保存期间输入仍可改，导致内容与回执不符；所有相关输入和动作冻结，浏览器组件测试验证44px可达操作。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "292cb3390b825eb7999a3e6f53903f40555248b403a1bc9eaf77beec9a083462",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "39333edfdf08f96e84eee4aba8ab37466caa1a82",
+      "subject": "fix: require explicit printer QA job association",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "验收原来自动关联第一条已打印作业；必须显式选，保存前再核对当前设备的真实作业。",
+      "currentEvidence": [
+        {
+          "path": "server/printerDeviceFieldTestRepository.mjs",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "server/services/printDeviceCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "present": true,
+          "anchor": 27
+        },
+        {
+          "path": "src/app/useOfficePrintReads.js",
+          "present": true,
+          "anchor": 23
+        }
+      ],
+      "validation": [
+        "scripts/check-printer-qa-record-identity.mjs",
+        "scripts/check-printer-qa-input-lock.mjs",
+        "scripts/check-printer-qa-session-boundary.mjs",
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "0b0a5cecd4238fe540235239a8c1487b2433a532b81dcb6217931cc3c7a0c673",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "c70c91e6d8ace7622647f96212dd26b2a47c3674",
+      "subject": "test: verify explicit payroll navigation access boundaries",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "工资入口原来任意payroll前缀可打开；只接受payroll.preview且财务/管理岗位，员工本人考勤入口保留。",
+      "currentEvidence": [
+        {
+          "path": "server/routes/productionReadRoutes.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/app/useOfficeProductionReads.js",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "src/app/useOfficeCoreReads.js",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "src/app/navigation.js",
+          "present": true,
+          "anchor": 3
+        }
+      ],
+      "validation": [
+        "scripts/check-office-production-reads.mjs",
+        "scripts/check-production-machine-queue-read-service.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的businessReadAccessService/readPermissions/API接入",
+      "legacyPatchSha256": "f8227eb57d5569726177a6db0521610e9bfc4d9ababc3672963095a10a820014",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "f231716ccc34d343be3632da3b0c79ee4e437479",
+      "subject": "test: follow current print actions and wait for required workspace tab",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧核心浏览器改为当前打印按钮及等待真实工作台；父负责统一跨岗位E2E，不迁回旧浏览器布局。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "b7ecefd1a019824b23ebdd6a5f00b3285bdb8bde1b8f35d5065ce28d717b8838",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "248370c2adb6843fde66087400e2c33dd190c49c",
+      "subject": "test: expose missing downstream bag task in production handoff flow",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧E2E暴露丝印后无制袋任务；上轮已补真实下游任务，本组再保留其服务器身份和当前制袋排单新功能。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "2d47757e69e4b42661cc24e309b9e3532e1504da6046c92ba2fcadc437d771ea",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "13ef88a064f849dd38ec444422b350e18a8fac18",
+      "subject": "fix: preserve authoritative downstream production task identity",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "客户端曾按订单推算PT-ID，抹掉下游制袋真实编号；优先持久productionTaskId，继续使用上轮分阶段事务。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "01147b21c817652c99e4d111de91e99c27c66aaf1b63b4ab47bc141b5815bd3a",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "370ee9c4b30692f8dea0a33e13f890605395fb1f",
+      "subject": "fix: scope background list refreshes to role read permissions",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "后台无差别刷所有列表会触发拒绝并泄露缓存；核心/生产读取按read权限排除，已提交写回执不因合法排除冒称失败。",
+      "currentEvidence": [
+        {
+          "path": "server/routes/productionReadRoutes.mjs",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/app/useOfficeProductionReads.js",
+          "present": true,
+          "anchor": 14
+        },
+        {
+          "path": "src/app/useOfficeCoreReads.js",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "src/app/navigation.js",
+          "present": true,
+          "anchor": 3
+        }
+      ],
+      "validation": [
+        "scripts/check-office-production-reads.mjs",
+        "scripts/check-production-machine-queue-read-service.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的businessReadAccessService/readPermissions/API接入",
+      "legacyPatchSha256": "d404cb2a0b1a3c53c7af03351a1aee9afc617a420d275b8ca6d511edd3988140",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "f4febd73699c160ebfdb0ecd3f096f31f3762fb8",
+      "subject": "fix: isolate production stages in selection drafts and task updates",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "同订单多工序共用选中值/表单和upsert；以精确任务ID隔离列表选择、输入和回写。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "7a919f2fdc443579d6247b34c612183d9889b89294fb4907e07e92f661b63a11",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "29c9909f255ed9af450409d4759ef2b401d81ed8",
+      "subject": "fix: read production reports and ledger evidence by exact stage",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "报告和库存证据用OR order_line_id会跨工序；SQL及本地读取只按production_task_id归属。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "32ac7e4382f09ad959371eaf3aed3ecb6580698b4de29aa92554da6b4dddd2ef",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "bda3c66dfb6a82bf3e98e017c908840d8faa95b1",
+      "subject": "test: verify production stage read isolation in live postgres",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧真实PG多工序读测试有效；当前完整生产PG专项验证同订单丝印/制袋报告不串用，冷读归属保留。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "373b12fbf2f3d311a2508f750ffb47fc67d7062e3949c594448dc6f2b56ef506",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "06ed94be246101002b69841acda6ea9d6f632ff2",
+      "subject": "fix: keep finished photo projections within the selected production task",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "成品图上传/复核回执曾更新同订单所有工序；写投影仅更新精确productionTaskId。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "8a5bd62b3d2247e377806237906fdf58788eb0858644809127ecd889843b625b",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1bfad7983b26afab01645d78b0acca33e2851db0",
+      "subject": "fix: avoid resolving retake todos owned by another production stage",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "确认照片会关闭另一工序的重拍待办；利用不可变todo事件归属，只关闭该任务的重拍。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "19d88ca3518cc8da2a8e91dc3dd3d4aac7457810a401004551764c763c13dd7d",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "ffdec91acd9bf6b20f31e9f01938937cbd3684fc",
+      "subject": "fix: reuse retake todos only with matching stage evidence",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "重拍待办曾按同订单重用；必须有唯一同工序事件归属才能复用，否则建立独立待办。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "15a1a664d35e8df9d66d71d65596674b8cf86e9b1310affdb350cacd863a61c9",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "cd49ac6e1deaa0cfeb928283c6c91a2097b386a0",
+      "subject": "fix: read persisted photo todo context before review planning",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "复核依赖启动时内存待办，冷启动可能重复建；仓库读取正式todo、事件、同订单任务再规划。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "1b40a1dc0bbd4eb8d3aee7f073c69f3e325b8cf9bd70ae0c9b4d82d299bc10db",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "f72439cf7e16bda2029eb6ac32238532867662d1",
+      "subject": "test: exercise persisted two-stage retake todo selection",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧两阶段重拍冷读测试有效；生产PG专项包含task来源和todoContext读取，不宣称单工序测试覆盖所有业务。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "7a04a369596f49865794081089c78375d7910ba688a7d21520899aac4a10ddda",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "3f6df0b7e9c0c1f888a2d63244400600a9b20546",
+      "subject": "fix: resolve photo action inputs by explicit production task identity",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "照片动作曾按订单找到第一工序；findProductionLine遇显式任务时必须精确匹配，不能退回订单层。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "c32276fb805fa916730739cbf24f9012144cbb88b8992cc0a8357d8e30ec8d50",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "a1e4ded41399b0fd99791ba9fc1e8ee15002d43b",
+      "subject": "test: verify photo ownership conflicts after a held row lock",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧锁等待后改订单归属测试有效；照片SQL锁后同时比较revision与order_line_id，失败无照片/待办/审计。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "ba0826658b2a4b47b01125332e559aa384f2341033f28f4bb3697b7878b604d0",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "94b98f1a962791dec307e27ce6f04b9c402fb85e",
+      "subject": "refactor: trim repeated production view work and record full core browser checks",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "原生产视图精简仅是呈现优化；保留当前布局和已有新功能，采用身份保护，不整页恢复旧UI。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "7b71abaf2c165ba0ce5eb021fa0dd42073aa821478343aa293e229390d5a3254",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "b694e09cae0dc924aec3d207a845d0fb79520955",
+      "subject": "fix: preserve distinct authoritative production todo identities",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "新待办曾按type+order去重而丢失工序身份；显式服务器todo ID优先，两个真实任务待办分别保留。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "bec3a18052874b16e986d0e5cbb5756ba783c4dfc8a6efba8460cf70af82cb76",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "66a5530c9d6c651648f7062d5c2eb250db8d8f0d",
+      "subject": "fix: keep source-detail report fallback within its production task",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "来源详情报告fallback曾取同订单另一工序；只接受精确任务或精确报告sourceID。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "f409cc2ee02ef2034c6ca005f4043168c26903d7360a1316c9aff7af7fe0c02d",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "c7019546d27513a153aa799bb2666fd878f232b2",
+      "subject": "fix: route photo retake todos to verified production task",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "重拍待办曾打开订单的默认生产工序；投影输出唯一事件所属taskID，跳转以该ID读取。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "39ce86d8d59977feee47eaed6a94e384af21bde62a1752dc5306eb49be675420",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "634b8a638da4eba619aa8a7288a8ce50d3f34405",
+      "subject": "test: verify photo retake ownership from PostgreSQL cold snapshot",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "冷快照重拍测试有效；当前todoReadProjection验证event/task/line三个归属，缺失或多义不猜。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "5813950f013e96ccfe9b8e718411510697fbd6464b20bcb9bc26d9125c4c50b4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "4de7ae5fdc0a5b0c274f96af1e485c038fbcf24c",
+      "subject": "fix: carry retake task identity through complete review navigation",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "完整电脑入口原来丢失重拍taskID；导航携带productionTaskId并独立读取精确详情。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "41ce566cc3b5643b9f7b3ba31d77da84b02b3214fd8f535b8836004f99445224",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "4de2fa93a813969016bc01d7d9f89e3b2151f9cd",
+      "subject": "fix: load exact production detail and reject malformed identities",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "详情列表为空时无法进入，或返回了另一任务也被采纳；独立详情读取拒绝错目标/本地fallback并支持重试。",
+      "currentEvidence": [
+        {
+          "path": "server/productionPackingReadRepository.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/services/officeProductionPackingSelectors.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/state/officeProductionPackingState.js",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "src/domain/productionPackingSourceFocus.js",
+          "present": true,
+          "anchor": 3
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-read-repository.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-focus.mjs",
+        "scripts/check-office-production-packing-state.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "f9001997c80fb19f8a9c9db1fdb3615cd97d8aad89e04595c3015c15a24358ce",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1ab1ac0f9789315171f393b0a1ad8c0832e79923",
+      "subject": "fix: isolate production photo evidence and clear stale previews",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "照片附件读取在换任务/账号后串图；AbortController、objectURL释放和权限变化键隔离。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "b0a495f4366d410cfec72740b2578ddb79295ca4a03b0c6bfcb187ee3702930f",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "d4cd98b70d16571a7e25661d86851b4feae87f8b",
+      "subject": "fix: report and clear undecodable production photos",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "服务器返回破损图片仍可审核；必须实际解码图片，破损清空并显示错误，未查看原图禁审。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "2fb87050e0cc38529cf4ca7e485b7cac42e96862f512241f233f5355e8259ce7",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "49f8d84a3aed17de35310271b06b4a3f07fc320a",
+      "subject": "fix: reject stale local production photo writes",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "本地照片并发无版本保护；上传与审核均检查当前任务revision+订单归属。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "6478d2ff48497532d3abf9b6d2cf177eeb55c0c50337d925823df1b237f4d10c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1e27a373624cd9f86e8d0a67a07da04910dd3c45",
+      "subject": "fix: align production photo conflict responses across stores",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "本地照片冲突与PG响应不同；都明确409 BUSINESS_WRITE_CONFLICT，原状态与审计不变。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "d197ffb7f70e8530df4529a270ac67fb1645db5c88af1c34fe5fcd085d6e36ef",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "7143e32356d1f166744c01249a44ddb9a4265864",
+      "subject": "feat: add immutable photo review receipt lookup",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "照片审核缺不可变回执查询；local WeakMap/PG幂等存储提供原结果查询且内容变更冲突。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "375723e1b78a8dc36b2e05ce2169bbadc00ff5abd6d3a76e73d23e64fdc231a5",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "f4078de9a16899613021a286f984579955f35c00",
+      "subject": "fix: replay photo review receipts before current photo validation",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "照片被新上传替换后原成功请求无法恢复；先读原审核回执再看当前照片，并保留当前较新状态。 后续PG事务回放明确标记replayed，避免并发晚到的旧结果覆盖较新任务/待办。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "72d908f48611fe2b8742d954dc0702ba9b7800e29841aeea93dd974cac57a2f4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "52b5b57e920cb5738b0589e05e0bd08762e7c80e",
+      "subject": "fix: bind production photo review to viewed task revision",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "审核仅知道任务不知当时看过哪张；必传expectedAttachmentId+expectedRevision，过期拒绝。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "fa11a4bac08a1918596f6c2dcf1061906e9dad09b81abbf59ecd6ce815559ff0",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "3d1d3d1852aab3184630dcc12c5cf8206ac9c79a",
+      "subject": "fix: reject incomplete production photo review receipts",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "客户端曾收到残缺审核结果仍提示成功；核验任务、订单、照片、日志和revision+1。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "27ce004b1d98e0a583b4bbb7b9802101dfb0288af425fc45e0e11eb59015d25b",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "364e63781e72e77b4cc861ee43b7b976a90bab11",
+      "subject": "fix: validate photo review receipt version and outcome",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "审核回执必须对应本次状态与版本；客户端同时核验已接受/需重拍及准确目标。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "91212bb58c070e21bdaca9e5c93eed8f696fdd76cd8b4f5c4b80f21ca39c4c63",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1a63f8bc1ca594d0da69c8b8cd991fb80af2bfb3",
+      "subject": "fix: preserve explicit photo review retry identity",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "审核重试会生成新请求键；冻结原状态、照片、版本、原因与key，同请求恢复。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "d1bea319d3ad6d2c826c00ef3a30bc6a50100113b780056ec9fbec2aefb82115",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "52f0084ea981da35934305f4d851a124dc955f74",
+      "subject": "feat: connect production photo review with frozen retry and refresh recovery",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "电脑旧入口没有可信的审核流程；当前入口接入看原图、原因、冻结审核、失败重试和刷新。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "a02c7cdd1dcc82b632500b016b3f2bac92a6f0e0297a7f73fceb9884ae8f0d93",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "d4892a59b40640e23f874f8fa3ca34f9e416324a",
+      "subject": "fix: retain committed review when todo refresh fails",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "审核提交已成功而待办刷新失败时再次提交有风险；单独保留成功状态，只重读结果。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "29e99ab605b213cf2ecdb2ba3e00887030b346c2bc9ff618bb9bf9364708fc33",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "ef1e37c2ad35ac59995375834afc34533c891529",
+      "subject": "fix(production): prevent generic completion of photo retake todos",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "成品图重拍可被generic处理完成假关闭；服务拒绝且UI移除该动作，须来源审核接受才关闭。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "0dda1fe3537826c49957208e3aaaa5d466cb5f66a394c060b8ccc42f1f8f873c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1ecc27129f3c779fbec5f422c4d03a67c6bcf5b6",
+      "subject": "test(production): verify retake closure through HTTP review lifecycle",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "HTTP重拍生命周期历史测试要求真实审核关闭；当前服务+PG验证来源闭环，父全API适配版本字段。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "860cf16f527024e78a43f66e848da3fa429b789364b2687f47987ea42db49412",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "67414f9a720bcf1523e8a231b46b87e3f40bf812",
+      "subject": "fix(production): require retake reason and server-owned review time",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "退回照片缺说明且可伪造reviewedAt；需具体原因，审核时钟为服务器。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "5bb8ab0a5086af735fe0a6ada0f27ee7b4c169d18dfcf2fc96ab8b6510c014c9",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "d0ed98b84bc4e990de05404f43df254d62f8b435",
+      "subject": "fix(review): guard photo result refresh and report pending reads accurately",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "照片结果刷新可能重入或把pending读当成功；同一次刷新互斥，并明确刷新失败不重发审核。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "555efcc4087dd079afc10cd17b6d77621ea4c28d4082acc34d67e38241b512ae",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "40553853e99eeba31a7eea61662a200f32c3d800",
+      "subject": "test(production): select authoritative task identity in schedule decision regression",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "排产决定测试要选真实task身份；当前schedule UI和PG专项都明确productionTaskId。",
+      "currentEvidence": [
+        {
+          "path": "server/services/businessDecisionEmployeePolicy.mjs",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "server/services/businessDecisionPolicyService.mjs",
+          "present": true,
+          "anchor": 21
+        },
+        {
+          "path": "src/features/production/ProductionPackingPage.jsx",
+          "present": true,
+          "anchor": 63
+        }
+      ],
+      "validation": [
+        "scripts/check-production-schedule-decision-ui.mjs"
+      ],
+      "sharedEvidence": "父1c42952d的useDecisionEvidenceGate/DelegatedBusinessDecisionFields",
+      "legacyPatchSha256": "116dd13b933f8e9090dc41f33773b7fbf66cba1e8f83acc82abff05eaf7e0812",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "dffc6a3ca12f398304e513b8b15085561fb6308c",
+      "subject": "fix: clarify production quality follow-up does not create after-sales tasks",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "质量跟进原文案误称已创建售后业务；改为仅记录方向，库存、对账、工资和售后任务均无隐式动作。",
+      "currentEvidence": [
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "present": true,
+          "anchor": 4
+        },
+        {
+          "path": "server/productionFinishedGoodsPhotoTransactionRepository.mjs",
+          "present": true,
+          "anchor": 7
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoProjectionService.mjs",
+          "present": true,
+          "anchor": 8
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/ProductionPhotoReview.jsx",
+          "present": true,
+          "anchor": 5
+        },
+        {
+          "path": "src/app/useOfficeProductionWrites.js",
+          "present": true,
+          "anchor": 54
+        }
+      ],
+      "validation": [
+        "scripts/check-production-finished-goods-photo-command-service.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-photo-evidence.mjs",
+        "scripts/check-production-photo-review-ui.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "7b0fd845e1958391a24a056191c1e1757c74e26c2f8e1e423e596ab0ce642f0e",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "34867c6eee4b3f878047d3d23a1ce7aaf1818234",
+      "subject": "fix: require production exception decisions to close source todos",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "生产异常待办可generic关闭；必须走对应异常终态决定，质量方向仍保留待跟进。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "7ca66516c005cd584951a6cb712be33e7ec75912f5742bde9139e544493d62bc",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "f6057a41d1dca0c974115718b59a339582353f84",
+      "subject": "fix: navigate production exception todos using resolved task identity",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "生产异常待办按最新任务/异常跳转可能选错；投影输出唯一来源exception ID并按该ID选择。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "b60f9868f063cdcc551f1d3df101b9268d6df96faac1feadbae2506c9f514c6e",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "669f00d459c2c841b84b11531c85a72635aa8ec8",
+      "subject": "fix: bind production exception follow-up to the exact source record",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "异常跟进需要精确源记录；UI缺少来源则不选最新异常替代，服务/事件仍绑定task及exception。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "6fca2bff696a9203b7863d5ac18a814e4d5623d3c042681be48ced75f411c648",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "f8d88b50250a6b0e1066e6e697955bece6fd7451",
+      "subject": "fix: align local production exception resolution guards with persisted task state",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "本地异常解决需与持久任务状态一致；保留上轮多阻断异常保护，记录当前终态/版本防线而不回退。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "09f557c34404d7c87c1a0ffbc6e6b731538162432ff1fbeb2642295f9a98a2ec",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "f835e8b642bb96b5cc57df761915b5d11c9334aa",
+      "subject": "fix: preserve urgent production todo priority in read and sort projections",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "紧急待办的priority经过投影被降为普通；显式紧急/urgent归一及排序保持高优先级。",
+      "currentEvidence": [
+        {
+          "path": "server/services/todoCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/services/todoReferenceService.mjs",
+          "present": true,
+          "anchor": 1
+        },
+        {
+          "path": "server/todoActionRepository.mjs",
+          "present": true,
+          "anchor": 15
+        },
+        {
+          "path": "src/features/todos/TodoReminderForm.jsx",
+          "present": true,
+          "anchor": 9
+        },
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/todo-workspace-link.js",
+          "present": true,
+          "anchor": 12
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-reference-identity.mjs",
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/check-desktop-todo-link.mjs",
+        "scripts/check-desktop-todo-reminder.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "b73e97a790bce3a22a3efac3d48aba46500b511cb7e27acc09d084c048f04e5b",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "b0938acaf66eb8e0bff4eae1e51d7ebf196199de",
+      "subject": "fix: reject malformed maintenance revisions and document workflow gaps",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修expectedRevision会截断或强制转换非法值；只接受正整数，避免false/空串/小数被当有效版本。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "eebe24d031531f75118dd425369b734c232a3daedf2014c76164811ecd20726e",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "d651a1c806d076cb73002347e8d7af1f65a51cbc",
+      "subject": "fix: preserve valid persisted maintenance photos across technician handoff",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "机修接班后已有他人照片被要求本人重传；已持久合法照片保留，新增照片仍须本人上传归属本任务。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "1c9a9c272b791955ae605bbb88f0c858d5b3033b7d80cc926ac4d72abd52434c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "abc334026b092d5e102901d4d87fb569744ff0e0",
+      "subject": "fix: replay maintenance updates before mutable completion guards",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修完工后原成功请求被terminal门禁挡住；先查原update回执，payload改变仍冲突。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "f45fd24089d637f2d749fa86fc94dee6775ea8fb22b9c448f53ef7358cb5d5b8",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "99667a0a5409a8192a5816f0c4c6834304ce9de5",
+      "subject": "fix: keep maintenance transaction replays from reverting workspace state",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修PG幂等回放会恢复旧task/todo；请求返回replayed标记，不再把历史回执写回当前工作区。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "68edda91d55ef71ca6b88e153301f5b2b8059fb775c345b0ba4ff4863f1e88cf",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "afba8e702184fde85df7aaa216c01158def4ec2a",
+      "subject": "test: verify maintenance concurrency and receipt recovery on real postgres",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "真实PG维修并发和回执恢复测试有效；当前专项验证创建同key、版本争用、完工后冷重放和身份冲突。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "5f128e45e2b3d0edf054dd4bd37fb948aab3de6dde82031148ea0798c7e55b9f",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "d1ac98f038dc64ba2d81cb197473f36af2bae723",
+      "subject": "fix: verify maintenance save receipts and preserve explicit retry keys",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修client缺完整回执核验；校验task、revision、状态及原请求身份，明确未确认结果。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "0f44074ba420c9d08ce6f8b48642a57d19190b519cfaf25fe373c528cf3bad33",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "9ac0ba4a7a37ff9e8efdd1c70968886be5bbab84",
+      "subject": "fix: freeze maintenance mobile requests for safe retry and session isolation",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "手机维修重试读到新的输入会发第二请求；冻结请求及附件，锁定重复点击并隔离会话。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "627aa78d73d676a1d60ec34bc1dea63e99eb58e54a62c61b6847292315c084e4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1fe92383cc91e255182df25eb8e0caf5882ab11b",
+      "subject": "fix: show one retry action for uncertain maintenance submissions",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "未知结果出现两个重试入口；只显示一个原请求重试动作，表单保持冻结。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "8f1b5200a0871f84195b0c0f3f90cb99fdbf1d88bae92d22d92efb435720079b",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "c3072698d1caeceb2c5e7b009f52e850e2edaf06",
+      "subject": "fix: retain maintenance retry requests after uncertain server errors",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "暂时服务异常不能释放原请求身份；仅明确拒绝才允许修改，不确定错误继续沿用原key。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "a6dc8a0ee12d6d277c7afe619c38f1318bf7a870d75f71ae3f9260b1c521b496",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "6de402cf7ef1965123fcf9cdf525af6e09f4c28c",
+      "subject": "fix: persist scoped maintenance retry drafts before sending",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "手机刷新会丢维修冻结命令；会话范围持久草稿，发送前保存且不保存token。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "1f09ad1e6560af50715ac053b70855f81f923ae21c9bb8c6f8436d515c20350d",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "a5599eda2c3b764f401a69f62002ce242e284a82",
+      "subject": "test: verify maintenance retry survives native browser reload",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "旧真浏览器reload重试测试有效；已验证刷新后不自动提交、原key原附件重用和成功清理。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "07260985e60fbbc125705de863fd791b1fd9a9a7988c954c26a2e2dd24274208",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "c6b290b1f1158970731c609bc537823575877665",
+      "subject": "fix: reject incomplete maintenance task lists before enabling writes",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修列表残缺会被当完整队列并允许写；client核对数组/记录身份与完整性，异常阻断。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "400f90432fb9f33086dedf7f5b11acf19b0e301071d0b76a22509478a0cf2b0e",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "5f67e8e83f844e98959621e1cabb4fae52236687",
+      "subject": "fix: reject inactive employee profiles in maintenance commands",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "已离职/无效员工仍可能提交维修；正式员工策略拒绝inactive/void/merged等状态。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "5d2b37bd600fd7ef9ece042b7e12fb8c777408b59aadd84dcb1bdefd43e924b1",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "1b5b4da204dbcaa596821fd9820bdc44792981e7",
+      "subject": "fix: recover original maintenance creation receipts before live guards",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修创建完成后同key重试会因机台或员工变化失败；先读原创建回执，不重新做动态授权决定。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "37b4c5b0a275fb9583fe83f1d92c40ad56ad4029ee767f04270d5716f733baea",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "fa2a5d03b405e91226114e04e617e48da7e6bec9",
+      "subject": "test: verify maintenance creation replay in real postgres",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修创建PG冷重放历史测试有效；当前维修PG专项单任务单待办单审计并核对身份冲突。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "91abc8f5551f85a2f303162df1dd1661e8c9f8ecfdd62dc89cc7260c51c61d61",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "779234882cf917e82ec01f66c23b265171040fb2",
+      "subject": "fix: verify maintenance creation receipt against submitted fields",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修创建回执可能是另一机台/操作人；校验提交事实和服务器记录后才显示成功。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "5b904f8b5b2cf8e1e9df21f2151d2c960daed2d85be00051c039ea7a2ef18b29",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "45400f82d06c3944cde7e5eee9910e7d88769425",
+      "subject": "feat: add desktop maintenance creation and progress workbench",
+      "decision": "reviewed-product-gap-P2",
+      "priority": "P2",
+      "reason": "旧桌面维修创建/进度工作台是有效新增入口，但当前PC根页面尚未接受该完整路由；作为P2功能迁移保留，不加空菜单。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "ff4e050a24e57c66489f254a98157d46b7fae0d6a521fb866cfde38fff878ba8",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "所列桌面新工作台功能尚未迁入；服务和手机保护已移植，禁止将本条报告为功能上线。"
+    },
+    {
+      "commit": "31ad99b99aa426975f13743a0989f889010a18b2",
+      "subject": "fix: retain unsent maintenance forms across page reloads",
+      "decision": "reviewed-product-gap-P2",
+      "priority": "P2",
+      "reason": "旧未发送桌面维修表单刷新保留依赖尚未迁入工作台；手机冻结命令已完成，此桌面草稿功能单独列P2。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "a641af01a5f49c1771fbc67da18b7613bca23a452440edcc4a7db9101dafa305",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "所列桌面新工作台功能尚未迁入；服务和手机保护已移植，禁止将本条报告为功能上线。"
+    },
+    {
+      "commit": "62f5d677a4efd5045a14f85cbeee151ec6251f5c",
+      "subject": "feat: link maintenance todos to exact desktop task records",
+      "decision": "reviewed-product-gap-P2",
+      "priority": "P2",
+      "reason": "维修待办精确桌面任务跳转依赖尚未迁入工作台；当前明确禁跳未实现路由，不能进入错误默认页面。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "5bfa742e09eda69a33956bb76e10242fac4c8b92279cba853ddd219bacebf85c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "所列桌面新工作台功能尚未迁入；服务和手机保护已移植，禁止将本条报告为功能上线。"
+    },
+    {
+      "commit": "4a247feb269a8b91e60369e041a65bb6ea6e8fe0",
+      "subject": "fix: require maintenance source result to complete its todo",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修待办generic处理完成会与维修源记录不一致；服务拒绝，UI不暴露关闭，机修本人完工同步处理。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "90a22585e801b5ce37e458a7d683b05422d1fb7ab065883daf211bc5cb84ec0d",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "b9ad68727d66c250e7f91003e6a9a9f8bd8b4597",
+      "subject": "fix: prevent reopening maintenance reminders without source transition",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "已完工维修待办重开不应重开源任务；服务明确要求新建关联报修，保留原维修结果。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "1b9e1ca16a6dff1e3533507588f062a486e0bcb8e342d9549266a46cf0503531",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "b17f2784152f7fa2ff86db625ccaf16ca9829eae",
+      "subject": "feat: capture maintenance deadlines in factory timezone",
+      "decision": "reviewed-product-gap-P2",
+      "priority": "P2",
+      "reason": "桌面维修期限输入按中国工厂时间的功能依赖未迁入工作台；服务时区校验已完成，桌面录入列P2。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "72c090c1eab366065600a5ef4b8c8910559dc6cde7ffb2cd473d3478c5887de4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "所列桌面新工作台功能尚未迁入；服务和手机保护已移植，禁止将本条报告为功能上线。"
+    },
+    {
+      "commit": "f5245d0bec6fa19201acbc8c155dc208b0d6f697",
+      "subject": "feat: show authenticated maintenance evidence from desktop task detail",
+      "decision": "reviewed-product-gap-P2",
+      "priority": "P2",
+      "reason": "桌面维修附件按权限查看是有效新增功能，依赖未迁入工作台；当前无空详情入口，列P2继续实现。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "09977740a2f91aac47a3a804d5c8ec96cbb0e3c91bcc7ea4dca81dd3fe124131",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "所列桌面新工作台功能尚未迁入；服务和手机保护已移植，禁止将本条报告为功能上线。"
+    },
+    {
+      "commit": "2e70db40563e1b548de62d7a285e49462f938839",
+      "subject": "fix: reject invalid or timezone-ambiguous maintenance deadlines",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修期限无时区/无效日期原来可入库；要求合法带时区ISO，拒绝不存在的日期和归一化伪值。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "4c54d1e3a7bc164262a6e0a4a28fb26b1b3aef8765ccc765165466c3810febef",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "5c54351187bcfddf348fb6473d19f8adfb226ad5",
+      "subject": "fix: keep newer maintenance state when fresh responses arrive late",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "延迟到达的新维修回执仍可能旧于当前状态；按revision保护工作区，原日志存在时保持不可变。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "745d6a4f856383786ff0c6a40ada28690f68b737fa8fc6150856a4b88ffc1170",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "5584079dc350f74767fda6f394c6f65f14a46540",
+      "subject": "fix: include maintenance in standard checks and deduplicate todo actions",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "维修纳入标准检查及待办动作去重是有效治理意图；父统一注册已验证的手机/服务/PG专项，不重引旧整套manifest。",
+      "currentEvidence": [
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "present": true,
+          "anchor": 10
+        },
+        {
+          "path": "server/maintenanceTaskRepository.mjs",
+          "present": true,
+          "anchor": 12
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "present": true,
+          "anchor": 40
+        },
+        {
+          "path": "src/features/maintenance/maintenance-command-draft.js",
+          "present": true,
+          "anchor": 2
+        }
+      ],
+      "validation": [
+        "scripts/check-maintenance-task-command-service.mjs",
+        "scripts/check-maintenance-mobile-retry.mjs",
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "1bbccbbc2cc138a3fdf704edcd55e6196fcf1379de7eb6bd1acefa92addeccdf",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "2c7c103f53afc65e467d29e84e68ed298b40054a",
+      "subject": "fix: preserve delivered batches and replay packing receipts",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "打包曾重开已交付批次或在多批次中选第一条；只用明确的未实出目标，锁后再次核对，并保留上轮通货实包新功能。",
+      "currentEvidence": [
+        {
+          "path": "server/services/packingCommandService.mjs",
+          "present": true,
+          "anchor": 6
+        },
+        {
+          "path": "server/productionPackingTransactionRepository.mjs",
+          "present": true,
+          "anchor": 66
+        },
+        {
+          "path": "server/productionPackingTaskSqlFragments.mjs",
+          "present": true,
+          "anchor": 1
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-packing-transaction-repository.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "e77aa906e021a277b142cb2884d337a29cb70042f56961bcc76121283dc5442b",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    },
+    {
+      "commit": "8cfb85cb578593caf5f3dc5e5a5f8dfbfcc23728",
+      "subject": "fix: retain immutable production report segments",
+      "decision": "semantics-transplanted-or-current-contract-retained",
+      "priority": "P1 protection or validation",
+      "reason": "已保存日报段曾ON CONFLICT改写数量；local与PG只新增段，新请求复用报告ID拒绝且回滚，原请求回放保持旧段。",
+      "currentEvidence": [
+        {
+          "path": "server/services/packingCommandService.mjs",
+          "present": true,
+          "anchor": 6
+        },
+        {
+          "path": "server/productionPackingTransactionRepository.mjs",
+          "present": true,
+          "anchor": 66
+        },
+        {
+          "path": "server/productionPackingTaskSqlFragments.mjs",
+          "present": true,
+          "anchor": 1
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-integrity-postgres.mjs",
+        "scripts/check-production-packing-transaction-repository.mjs"
+      ],
+      "sharedEvidence": null,
+      "legacyPatchSha256": "c367cdd9c5b45d9bba929c7b28482b251d84cbf010b591e6a714e150db1f138f",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "只对本条列明规则适配与验证；旧文档、重复脚本及其余视觉细节不做整提交搬运。"
+    }
+  ],
+  "validationBoundary": [
+    "本地独立分支；未部署、未push、未写服务器数据。",
+    "真实PG是一次性隔离容器，浏览器专项使用合成数据/接口，不等于实物验收。",
+    "共享read与证据ready依赖父提交1c42952d，已在本树临时拼接后验证；不在子提交重复写共享文件。",
+    "完整项目检查由父整合后统一执行；本记录不把逐提交审核等同每条旧commit的全部改动已迁入。"
+  ],
+  "validationSummary": {
+    "passed": [
+      "照片服务/投影/仓库",
+      "生产stage读取/机台全量队列/精确source",
+      "QA客户端/读写/选择/会话/输入锁",
+      "机修服务/客户端/手机原请求刷新恢复",
+      "工资跨月/员工/附件异步归属",
+      "待办命令/引用/状态机/提醒/UI精确跳转",
+      "真实PG：工序交接、照片锁后归属、打包终态、日报追加、照片旧回执不回退、QA并发、维修并发及冷回放",
+      "真实PG：待办同毫秒竞争、修复引用回放、审计冲突回滚、可信打印自动关闭来源待办"
+    ],
+    "requiresParentIntegration": [
+      "完整API入口已由父共享read gate接入，统一fixture和完整项目检查由父最终执行",
+      "实体打印/手机现场岗位验收未执行"
+    ]
+  }
+}

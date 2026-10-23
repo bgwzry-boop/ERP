@@ -1,3 +1,4 @@
+import {createPostgresPrinterDeviceFieldTestRepository} from "../server/printerDeviceFieldTestRepository.mjs";
 import {checkPostgresLiveMaintenanceScenario} from "./helpers/postgresLiveMaintenanceScenario.mjs";
 import { createPostgresCoreWorkspaceReadRepository } from '../server/coreWorkspaceReadRepository.mjs';
 import { createTodoReadProjectionService } from '../server/services/todoReadProjectionService.mjs';
@@ -331,6 +332,36 @@ try {
   assert.deepEqual(dailyReplay, dailySaved);
   console.log('PostgreSQL daily append-only passed: duplicate rejected, report/task/log rollback, identical replay');
 
+  {
+  await pool.query("INSERT INTO production_tasks(id,biz_no,order_line_id,task_type,planned_qty,task_status) VALUES ('PT-PHOTO-REPLAY','PT-PHOTO-REPLAY','ORD-0629-001-01','制袋',10,'待排产')");
+  const photoRepository=createPostgresProductionFinishedGoodsPhotoTransactionRepository({postgresClient:client});
+  const photoWorkspace={productionTasks:[{productionTaskId:'PT-PHOTO-REPLAY',orderLineId:'ORD-0629-001-01',revision:1}],todos:[],todoEvents:[],operationLogs:[]};
+  const photoInput={workspace:photoWorkspace,productionTask:{productionTaskId:'PT-PHOTO-REPLAY',orderLineId:'ORD-0629-001-01',revision:2,finishedGoodsPhoto:{attachmentId:'ATT-ORIGINAL'},updatedAt:'2026-09-01T00:00:00Z'},operationLog:{id:'LOG-PHOTO-REPLAY',targetType:'production_task',targetId:'PT-PHOTO-REPLAY',action:'upload_finished_goods_photo',operatorId:'U-OFFICE-A',occurredAt:'2026-09-01T00:00:00Z',createdAt:'2026-09-01T00:00:00Z'},idempotencyKey:'photo-immutable-replay',idempotencyPayload:{productionTaskId:'PT-PHOTO-REPLAY',attachmentId:'ATT-ORIGINAL'}};
+  const photoSaved=await photoRepository.uploadPhoto(photoInput);
+  await pool.query("UPDATE production_tasks SET revision=3,finished_goods_photo=$1 WHERE id='PT-PHOTO-REPLAY'",[JSON.stringify({attachmentId:'ATT-NEWER'})]);
+  photoWorkspace.productionTasks[0]={...photoWorkspace.productionTasks[0],revision:3,finishedGoodsPhoto:{attachmentId:'ATT-NEWER'}};
+  const beforeReplay=structuredClone(photoWorkspace);
+  assert.deepEqual(await photoRepository.uploadPhoto(photoInput),photoSaved);
+  assert.deepEqual(photoWorkspace,beforeReplay,'Historic photo receipt must not overwrite newer task/todo/audit projections');
+  assert.equal((await pool.query("SELECT count(*)::int n FROM operation_logs WHERE id='LOG-PHOTO-REPLAY'")).rows[0].n,1);
+  console.log('PASS photo PostgreSQL immutable receipt: exact replay returns original result without restoring older workspace state.');
+  }
+  {
+    await pool.query("INSERT INTO printer_devices(id,biz_no,name,device_type) VALUES ('PD-QA-RACE','PD-QA-RACE','Synthetic QA device','label')");
+    const qaRepository=createPostgresPrinterDeviceFieldTestRepository({postgresClient:client});
+    const qaRecord={recordId:'QA-SAME-IDENTITY',printDeviceId:'PD-QA-RACE',operatorId:'U-OFFICE-A',checkedAt:'2026-09-08T00:00:00Z',checks:[],summary:{status:'pending'},note:'Original QA evidence'};
+    const qaInputs=[0,1].map(index=>({workspace:{printerDeviceFieldTests:[],printDevices:[],operationLogs:[]},record:qaRecord,operationLog:{id:'LOG-QA-RACE-'+index,targetType:'print_device',targetId:'PD-QA-RACE',action:'record_printer_device_field_test',operatorId:'U-OFFICE-A',occurredAt:'2026-09-08T00:00:00Z',createdAt:'2026-09-08T00:00:00Z'},idempotencyKey:'qa-race-'+index,idempotencyPayload:{recordId:qaRecord.recordId,note:qaRecord.note}}));
+    const qaResults=await Promise.allSettled(qaInputs.map(input=>qaRepository.recordPrinterDeviceFieldTest(input)));
+    assert.equal(qaResults.filter(result=>result.status==='fulfilled').length,1);
+    assert.equal(qaResults.find(result=>result.status==='rejected').reason.statusCode,409);
+    assert.equal((await pool.query("SELECT count(*)::int n FROM printer_device_field_tests WHERE id='QA-SAME-IDENTITY'")).rows[0].n,1);
+    assert.equal((await pool.query("SELECT count(*)::int n FROM operation_logs WHERE id IN ('LOG-QA-RACE-0','LOG-QA-RACE-1')")).rows[0].n,1,'Rejected collision cannot retain a phantom audit');
+    const immutableQa=(await pool.query("SELECT to_jsonb(t) AS row FROM printer_device_field_tests t WHERE id='QA-SAME-IDENTITY'")).rows;
+    const firstInput=qaInputs[qaResults.findIndex(result=>result.status==='fulfilled')];
+    await qaRepository.recordPrinterDeviceFieldTest(firstInput);
+    assert.deepEqual((await pool.query("SELECT to_jsonb(t) AS row FROM printer_device_field_tests t WHERE id='QA-SAME-IDENTITY'")).rows,immutableQa);
+    console.log('PASS printer QA real PostgreSQL: same record identity has one concurrent winner, rejected collision rolls back audit, identical replay preserves all stored evidence.');
+  }
   await checkPostgresLiveMaintenanceScenario({postgresClient:client,pool});
   console.log(`PostgreSQL production/packing integrity passed: ${migrations.length} real migrations, concurrent handoff replay, no stock/packing at silk completion, persisted ownership rollback, package conservation, packing terminal guards and append-only daily report segments. Temporary container cleaned in finally.`);
 } finally {
