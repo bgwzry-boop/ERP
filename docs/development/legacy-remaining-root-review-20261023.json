@@ -176,7 +176,12 @@
       "subject": "test(pickup): separate insufficient reservation and full delivery scenarios",
       "decision": "current-contract-retained",
       "reason": "自提与快递必须区分库存不足失败和已具足量占用后的合法执行，遵循当前实物出库单据契约，不能恢复旧的无单直接扣库。",
-      "currentEvidence": [],
+      "currentEvidence": [
+        {
+          "path": "server/services/fulfillmentActionCommandService.mjs",
+          "present": true
+        }
+      ],
       "validation": [
         "scripts/check-p1-order-delivery-integration.mjs"
       ],

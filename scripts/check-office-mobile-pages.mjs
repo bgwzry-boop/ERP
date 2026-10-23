@@ -114,7 +114,7 @@ for (const contract of ["设备任务", "设备报修", "日常巡检", "预防�
 }
 assert.doesNotMatch(maintenanceMobilePageSource, /尚未写入服务器/);
 assert.match(employeeAttendanceMobilePageSource, /export function EmployeeAttendanceMobilePage/);
-for (const contract of ["当日已打", "当日确认工时", "本月暂估工资", "每日打卡与工时", "原始打卡记录不能由员工修改", "工资只采用确认后的工时"]) {
+for (const contract of ["今日已打", "今日确认工时", "所选月份暂估工资", "每日打卡与工时", "原始打卡记录不能由员工修改", "工资只采用确认后的工时"]) {
   assert.equal(employeeAttendanceMobilePageSource.includes(contract), true, `employee attendance mobile page should retain ${contract}`);
 }
 assert.match(employeeAttendanceMobilePageSource, /getMyOfficeAttendance/);

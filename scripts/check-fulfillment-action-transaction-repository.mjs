@@ -454,11 +454,11 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   assert.match(sql, /UPDATE fulfillment_records/);
   assert.match(sql, /watermarked_photo_attachment_id = \$\d+::text/);
   assert.match(sql, /watermark_geo_point = \$\d+::text/);
-  assert.match(sql, /loaded_at = COALESCE\(\$\d+::timestamptz, loaded_at\)/);
-  assert.match(sql, /loaded_by = COALESCE\(\$\d+::text, loaded_by\)/);
-  assert.match(sql, /driver_remark = COALESCE\(NULLIF\(\$\d+::text, ''\), driver_remark\)/);
-  assert.match(sql, /receiver_name = COALESCE\(NULLIF\(\$\d+::text, ''\), receiver_name\)/);
-  assert.match(sql, /paper_note_status = COALESCE\(NULLIF\(\$\d+::text, ''\), paper_note_status\)/);
+  assert.match(sql, /loaded_at = COALESCE\(\$\d+::timestamptz, fulfillment_records\.loaded_at\)/);
+  assert.match(sql, /loaded_by = COALESCE\(\$\d+::text, fulfillment_records\.loaded_by\)/);
+  assert.match(sql, /driver_remark = COALESCE\(NULLIF\(\$\d+::text, ''\), fulfillment_records\.driver_remark\)/);
+  assert.match(sql, /receiver_name = COALESCE\(NULLIF\(\$\d+::text, ''\), fulfillment_records\.receiver_name\)/);
+  assert.match(sql, /paper_note_status = COALESCE\(NULLIF\(\$\d+::text, ''\), fulfillment_records\.paper_note_status\)/);
   assert.match(sql, /delivery_evidence_review_status = \$\d+::text/);
   assert.match(sql, /delivery_evidence_issue_reason = \$\d+::text/);
   assert.match(sql, /INSERT INTO print_records/);

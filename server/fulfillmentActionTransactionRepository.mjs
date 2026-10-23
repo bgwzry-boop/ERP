@@ -1,5 +1,4 @@
-import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,mergePrintTodoCompletion,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
-import {buildGetTodoActionStateQuery,normalizeTodoLookupResult} from "./todoActionRepository.mjs";
+import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
 import { buildPrintTodoRecoveryCtes, recoverLocalPrintTodo, printTodoRecoveryResultSql } from "./fulfillmentPrintTodoRecovery.mjs";
 import { isFulfillmentPrintAction, readFulfillmentPrintCurrentState, mergeFulfillmentPrintCurrentState } from "./fulfillmentPrintCurrentState.mjs";
@@ -391,10 +390,6 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       const key=normalizeIdempotencyKey(body.idempotencyKey);if(!key)return null;
       const existing=await queryJson("SELECT json_build_object('requestHash',request_hash,'response',response_json) AS result FROM operation_idempotency_keys WHERE scope='fulfillment.resolve_driver_delivery_exception' AND idempotency_key=$1",[key]);
       return resolveDriverResolutionReplay(existing,body,operatorId);
-    },
-    async findPrintReplay(input) {
-      const saved = await readPostgresIdempotencyReplay({ queryJson, scope: "fulfillment.print_fulfillment", idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
-      return saved ? normalizeFulfillmentActionTransactionResult(saved) : null;
     },
     recordFulfillmentAction,
     recordFulfillmentPrint: recordFulfillmentAction,
