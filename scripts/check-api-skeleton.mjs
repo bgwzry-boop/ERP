@@ -2631,8 +2631,21 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/pickup-confirm bypassed the paper-led outbound boundary");
   }
 
-  const deliveryFulfillmentList = await getJson(baseUrl, "/api/fulfillments?method=送货&pageSize=1");
-  const deliveryFulfillment = deliveryFulfillmentList.items?.[0];
+  const historicalDeliveryPrint = await postJson(baseUrl, "/api/fulfillments/F002/print", {
+    templateId: "tpl-p0-delivery-note", documentType: "delivery_note", printAction: "preview",
+  }, { expectedStatus: 409 });
+  if (historicalDeliveryPrint.code !== "FULFILLMENT_PRINT_PRICE_REQUIRED") {
+    throw new Error("A historical delivery without per-shipment accounting must not invent a print amount");
+  }
+  const deliveryPrintDraft = await postJson(baseUrl, "/api/order-drafts/recognize", {
+    sourceText: "王五包装 30*38红10个 明天送货",
+  });
+  const deliveryPrintOrder = await postJson(baseUrl, `/api/order-drafts/${deliveryPrintDraft.draft.draftId}/confirm`, {
+    draftId: deliveryPrintDraft.draft.draftId, sourceText: "王五包装 30*38红10个 明天送货", customerId: "C003",
+    confirmMode: "confirm_now", clientRevision: deliveryPrintDraft.draft.clientRevision,
+    lines: [{ ...draftLineInput, draftLineId: "API-DELIVERY-PRINT-LINE", fulfillmentMethod: "送货" }],
+  });
+  const deliveryFulfillment = await getJson(baseUrl, `/api/fulfillments/${deliveryPrintOrder.fulfillmentTasks[0].fulfillmentId}`);
   if (!deliveryFulfillment?.fulfillmentId) {
     throw new Error("/api/fulfillments did not return a delivery fulfillment for completion checks");
   }
@@ -2839,7 +2852,7 @@ try {
     throw new Error("/api/driver/delivery-tasks allowed query driverId to override authenticated driver scope");
   }
   const driverGoodsTask = driverTaskList.items?.find(
-    (item) => item.status === "待送货" && item.fulfillmentId !== deliveryFulfillment.fulfillmentId,
+    (item) => item.status === "待送货" && item.orderLineId === "ORD-0629-022-01",
   );
   if (!driverTaskList.items?.some(item => item.status === "送货异常")) throw new Error("Driver task list should retain the seeded exception state");
   if (driverGoodsTask?.packageChecklist?.length !== 0) throw new Error("An unpacked delivery must not invent a physical package checklist");

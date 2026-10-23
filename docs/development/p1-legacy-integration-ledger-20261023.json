@@ -36,10 +36,10 @@
   "summary": {
     "entries": 611,
     "statusCounts": {
-      "deferred-semantic-review": 505,
-      "p1-semantics-transplanted-partial": 42,
+      "deferred-semantic-review": 500,
+      "p1-semantics-transplanted-partial": 46,
       "retained-historical-evidence": 61,
-      "current-rule-replaces-legacy-scope": 3
+      "current-rule-replaces-legacy-scope": 4
     },
     "ancestorOfBaseline": 0,
     "ancestorOfComparedCommit": 0,
@@ -4525,8 +4525,8 @@
         "src/state/officeModalActions.js",
         "src/state/officeStatementActions.js"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: accumulate partial receipts and preserve overpayment blockers”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 6 项、内容不同 2 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "current-rule-replaces-legacy-scope",
+      "note": "旧单笔金额累加与当前累计实收冲突，明确不移植",
       "mechanical": {
         "parents": [
           "22044c5c9e122e35fab4a04dd0478cfb73bfbe25"
@@ -4564,10 +4564,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-cumulative-receipt-contract-review",
+        "scope": [
+          "旧单笔金额累加与当前累计实收冲突，明确不移植"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "722632a97212dd8c8bd82cb163722b2028eae8bb",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: accumulate partial receipts and preserve overpayment blockers”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 6 项、内容不同 2 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅以上规则或防线有明确判定，旧提交其他变更不自动视为已整合或不适用。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -4588,8 +4592,8 @@
         "server/services/statementFinancialCommandService.mjs",
         "server/statementPaymentTransactionRepository.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: preserve payment identity and replay transactions safely”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 4 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "移植不可覆盖收款身份/幂等回放，保留当前持久化配置与累计金额",
       "mechanical": {
         "parents": [
           "71129362cf14319e62b0aece0384384786e56a14"
@@ -4624,10 +4628,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-cumulative-receipt-contract-review",
+        "scope": [
+          "移植不可覆盖收款身份/幂等回放，保留当前持久化配置与累计金额"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "722632a97212dd8c8bd82cb163722b2028eae8bb",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: preserve payment identity and replay transactions safely”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 4 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅以上规则或防线有明确判定，旧提交其他变更不自动视为已整合或不适用。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -4647,8 +4655,8 @@
         "server/paymentRecordRepository.mjs",
         "server/statementPaymentTransactionRepository.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: persist all receipt attachments and guard their validity”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 2 项、当前缺失 3 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "移植全部凭证保存，新增0051并纳入迁移/恢复字段核验",
       "mechanical": {
         "parents": [
           "33a1d76c2de52115b5c9246c718c9203d1adcfe3"
@@ -4683,10 +4691,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-cumulative-receipt-contract-review",
+        "scope": [
+          "移植全部凭证保存，新增0051并纳入迁移/恢复字段核验"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "722632a97212dd8c8bd82cb163722b2028eae8bb",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: persist all receipt attachments and guard their validity”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 2 项、当前缺失 3 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅以上规则或防线有明确判定，旧提交其他变更不自动视为已整合或不适用。"
       },
       "followupDomains": [
         "对账付款与成本",
@@ -5684,8 +5696,8 @@
         "shared/statementPaymentPolicy.js",
         "src/state/officeStatementActions.js"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: prevent receipts and communications from reopening settled periods”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 4 项、内容不同 9 项、当前缺失 5 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "移植关闭账期保护并适配当前累计实收/沟通状态合同",
       "mechanical": {
         "parents": [
           "229a2eec7f5d7637b525b546646513f9a07750c9"
@@ -5731,10 +5743,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-cumulative-receipt-contract-review",
+        "scope": [
+          "移植关闭账期保护并适配当前累计实收/沟通状态合同"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "722632a97212dd8c8bd82cb163722b2028eae8bb",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: prevent receipts and communications from reopening settled periods”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 4 项、内容不同 9 项、当前缺失 5 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅以上规则或防线有明确判定，旧提交其他变更不自动视为已整合或不适用。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -10733,8 +10749,8 @@
         "src/domain/printTemplates.js",
         "src/features/printing/PrintTemplatePreview.jsx"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix(print): allocate partial shipment amounts from guarded billing snapshots”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 9 项、内容不同 9 项、当前缺失 5 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "选择性移植分批金额分摊和账务快照，当前服务与数据库事务适配",
       "mechanical": {
         "parents": [
           "4fe25304a7c3ff68698e10d7eeaca7b7b68169de"
@@ -10785,10 +10801,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-cumulative-receipt-contract-review",
+        "scope": [
+          "选择性移植分批金额分摊和账务快照，当前服务与数据库事务适配"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "722632a97212dd8c8bd82cb163722b2028eae8bb",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix(print): allocate partial shipment amounts from guarded billing snapshots”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 9 项、内容不同 9 项、当前缺失 5 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅以上规则或防线有明确判定，旧提交其他变更不自动视为已整合或不适用。"
       },
       "followupDomains": [
         "历史文档与证据",
