@@ -91,7 +91,7 @@ export function createPostgresBusinessDecisionEvidenceRepository(options = {}) {
     },
     async writeDecisionDirective(input = {}) {
       const query = buildWriteDecisionDirectiveTransactionQuery(input);
-      const result = await idempotentTransactionJson(buildPostgresIdempotencyRequest({
+      const request = buildPostgresIdempotencyRequest({
         scope: input.idempotencyScope || "business_decision.directive.create",
         idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
         payload: input.idempotencyPayload ?? { decisionRecord: input.decisionRecord, todo: input.todo },
@@ -104,12 +104,15 @@ export function createPostgresBusinessDecisionEvidenceRepository(options = {}) {
           ...(input.decisionRecord?.businessType === "statement" ? [`statement:${input.decisionRecord.businessId}`] : []),
         ],
         query,
-      }));
-      const normalized = normalizeDecisionDirectiveResult(result, input);
+      });
+      const result = await idempotentTransactionJson({ ...request, includeReplayMetadata: true });
+      const metadata = result && typeof result.replayed === "boolean" && Object.hasOwn(result, "value") ? result : null;
+      const normalized = normalizeDecisionDirectiveResult(metadata ? metadata.value : result, input);
+      if (metadata) normalized.replayed = metadata.replayed;
       if (!normalized.businessDecision || !normalized.todo) {
         throw new Error("PostgreSQL business decision directive returned invalid data");
       }
-      applyDecisionDirectiveWorkspaceMutation(input.workspace, normalized, input.operationLog);
+      if (!normalized.replayed) applyDecisionDirectiveWorkspaceMutation(input.workspace, normalized, input.operationLog);
       return normalized;
     },
   });

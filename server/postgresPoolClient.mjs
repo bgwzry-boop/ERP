@@ -72,7 +72,8 @@ FOR UPDATE;`,
         if (existingRow) {
           if (existingRow.request_hash !== request.requestHash) throw buildIdempotencyConflictError();
           await client.query("COMMIT");
-          return normalizeStoredJson(existingRow.response_json);
+          const value = normalizeStoredJson(existingRow.response_json);
+          return request.includeReplayMetadata === true ? { value, replayed: true } : value;
         }
 
         const result = await client.query({
@@ -103,7 +104,7 @@ FOR UPDATE;`,
           ],
         });
         await client.query("COMMIT");
-        return responseValue;
+        return request.includeReplayMetadata === true ? { value: responseValue, replayed: false } : responseValue;
       } catch (error) {
         try {
           await client.query("ROLLBACK");

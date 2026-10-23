@@ -70,7 +70,8 @@ test("4174 keeps desktop browsers on the accepted shell regardless of narrow win
   assert.match(entrySource, /本地修改稿 · 未部署/, "the local review must never masquerade as a deployed release");
   assert.match(entrySource, /handsetRuntime && phoneViewportQuery\.matches/, "only a real handset at phone width may enter the formal phone shell");
   assert.match(entrySource, /phoneViewportQuery\.addEventListener\("change", reloadForViewportFamily\)/, "crossing viewport families must reload the canonical entry");
-  assert.match(entrySource, /handsetRuntime && event\.matches \? "mobile" : "desktop"/, "a widened phone must return to the complete desktop shell");
+  assert.match(entrySource, /const nextFamily = handsetRuntime && phoneViewportQuery\.matches \? "mobile" : "desktop"/, "viewport recovery must use the current width after its timer");
+  assert.match(entrySource, /if \(nextFamily === expectedViewportFamily\) return/, "returning to the mounted family must cancel a stale redirect");
   assert.match(runtimeFamilySource, /userAgentData\?\.mobile/, "modern browser client hints should be the primary runtime-family signal");
   assert.match(runtimeFamilySource, /Android\.\+Mobile\|iPhone/, "real handset user agents should retain the approved formal phone flow");
 });
