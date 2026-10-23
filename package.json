@@ -48,7 +48,7 @@
     "test": "npm run test:checks && npm run e2e",
     "check-group-runner:check": "node scripts/check-check-group-runner.mjs",
     "current-project-docs:check": "node scripts/check-current-project-docs.mjs",
-    "git-baseline-scope:check": "node scripts/check-git-baseline-scope-audit.mjs",
+    "git-baseline-scope:check": "node scripts/check-git-baseline-scope-audit.mjs && node scripts/check-legacy-review-coverage.mjs",
     "e2e:core": "npm run order-parser:check && playwright test e2e/core-business-flow.spec.mjs e2e/v1-d49-layout.spec.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "api:dev": "node server/apiServer.mjs --mode demo",
