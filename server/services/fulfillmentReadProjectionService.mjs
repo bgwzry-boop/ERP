@@ -1,3 +1,4 @@
+import { buildFulfillmentShipmentProgress } from "./fulfillmentShipmentProgressService.mjs";
 import {
   buildDriverGoodsSummary,
   findActiveDriverDeliveryDispatch,
@@ -93,6 +94,7 @@ function projectFulfillment(workspace, value) {
   const status = cleanText(item.status) || "待处理";
   return {
     fulfillmentId,
+    shipmentProgress: buildFulfillmentShipmentProgress(workspace, item, orderLine),
     customerId,
     orderLineId,
     orderType: cleanText(orderLine.orderType ?? orderLine.order_type),

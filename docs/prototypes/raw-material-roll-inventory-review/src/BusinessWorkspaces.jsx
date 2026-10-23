@@ -279,34 +279,22 @@ function InventoryAllocation({ stock, variant = "compact" }) {
   </div>;
 }
 
-function buildFulfillmentRows(items = [], orderLines = [], statements = []) {
+function buildFulfillmentRows(items = [], orderLines = []) {
   const orderLineById = new Map(orderLines.map((line) => [line.id || line.orderLineId, line]));
-  const statementByCustomerId = new Map(statements.map((statement) => [statement.customerId, statement]));
 
   return items.map((item) => {
     const id = item.id || item.fulfillmentId;
     const orderLineId = item.lineId || item.orderLineId;
     const orderLine = orderLineById.get(orderLineId) || {};
     const customerId = item.customerId || orderLine.customerId;
-    const customerStatement = statementByCustomerId.get(customerId);
     const status = item.status || "待确认";
     const goods = item.goods || item.goodsSpec || orderLine.productName || orderLine.product || "货品待确认";
-    const orderedQty = optionalNumber(item.orderedQty ?? item.orderQty ?? orderLine.originalQty ?? orderLine.qty ?? item.expectedQty ?? item.qty);
-    const currentQty = optionalNumber(item.currentShipmentQty ?? item.actualQty ?? item.qty ?? item.expectedQty);
-    const deliveredTotal = optionalNumber(item.deliveredQty ?? orderLine.deliveredQty);
-    const explicitShippedBefore = optionalNumber(item.shippedBeforeQty ?? item.priorDeliveredQty);
-    const shippedBeforeQty = explicitShippedBefore ?? Math.max(0, (deliveredTotal ?? 0) - (/已出库|已交付|已完成/.test(status) ? (currentQty ?? 0) : 0));
-    const remainingQty = optionalNumber(item.remainingQty) ?? (orderedQty === null || currentQty === null
-      ? null
-      : Math.max(0, orderedQty - shippedBeforeQty - currentQty));
-    const orderAmount = optionalNumber(orderLine.finalAmount ?? orderLine.amount ?? item.orderAmount);
-    const currentReceivable = orderAmount === null
-      ? null
-      : orderedQty && currentQty !== null
-        ? Math.round(orderAmount * currentQty / orderedQty * 100) / 100
-        : orderAmount;
-    const historicalDebt = customerStatement ? optionalNumber(customerStatement.debtAmount) : null;
-    const cumulativeReceivable = historicalDebt === null || currentReceivable === null ? null : historicalDebt + currentReceivable;
+    const progress = item.shipmentProgress;
+    const orderedQty = optionalNumber(progress?.orderedQty);
+    const currentQty = optionalNumber(progress?.currentQty);
+    const currentQtyLabel = progress?.currentQtyLabel || "本次数量待核实";
+    const shippedBeforeQty = optionalNumber(progress?.totalIssuedQty);
+    const remainingQty = optionalNumber(progress?.remainingQty);
     const packageLabel = item.packages || item.package || (item.packageCount ? `${item.packageCount}包` : "待打包");
 
     return {
@@ -324,9 +312,7 @@ function buildFulfillmentRows(items = [], orderLines = [], statements = []) {
       shippedBeforeQty,
       currentQty,
       remainingQty,
-      historicalDebt,
-      currentReceivable,
-      cumulativeReceivable,
+      currentQtyLabel,
       searchValues: [id, orderLineId, item.orderNo, customerId],
     };
   });
@@ -607,10 +593,10 @@ function PeopleMachinesWorkspace({ formal, onNavigate }) {
   </div>;
 }
 
-function FulfillmentWorkspace({ formal }) {
+function FulfillmentWorkspace({ formal, onNavigate }) {
   const records = useMemo(
-    () => buildFulfillmentRows(formal.data.fulfillments, formal.data.orderLines, formal.data.statements),
-    [formal.data.fulfillments, formal.data.orderLines, formal.data.statements],
+    () => buildFulfillmentRows(formal.data.fulfillments, formal.data.orderLines),
+    [formal.data.fulfillments, formal.data.orderLines],
   );
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("全部状态");
@@ -641,9 +627,9 @@ function FulfillmentWorkspace({ formal }) {
     <aside className="business-detail-panel fulfillment-detail">
       <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.goods || "暂无交付任务"}</h2>{selected ? <StateText>{selected.status}</StateText> : null}</header>
       <div className="business-detail-scroll">{selected ? <>
-        <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>已发数量</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>本次发货</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未发</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
+        <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
         <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
-        <section className="business-detail-section"><h3>收款关联（只读）</h3><dl className="fulfillment-receivable-facts"><div><dt>历史欠款</dt><dd>{moneyText(selected.historicalDebt)}</dd></div><div><dt>本单应收</dt><dd>{moneyText(selected.currentReceivable)}</dd></div><div><dt>累计待收</dt><dd>{moneyText(selected.cumulativeReceivable)}</dd></div></dl><div className="business-boundary"><InfoCircleOutlined /><div><strong>出库与收款保持分离</strong><p>这里仅提示对账关联；交付完成不会在本页直接核销客户欠款。</p></div></div></section>
+        <section className="business-detail-section"><h3>对账关联</h3><div className="business-boundary"><InfoCircleOutlined /><div><strong>金额以正式对账记录为准</strong><p>分批出货、赠送数量和差异处理都会影响计费，本页不按数量估算应收或欠款。</p></div></div>{formal.permissionContext?.actionPermissions?.includes("statement.preview") ? <button type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</section>
         <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </> : <div className="business-empty"><FileTextOutlined /><strong>暂无交付任务</strong></div>}</div>
@@ -1004,7 +990,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate }) {
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-entry") return <OrderEntryWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-pool") return <OrderPoolWorkspace formal={formal} onNavigate={onNavigate} />;
-  if (navId === "outbound-delivery") return <FulfillmentWorkspace formal={formal} />;
+  if (navId === "outbound-delivery") return <FulfillmentWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "supplier-month-end") return <SupplierSettlementWorkspace formal={formal} />;
   if (navId === "inventory-query") return <FinishedGoodsInventoryWorkspace category="无纺布袋" formal={formal} onNavigate={onNavigate} title="无纺布袋库存" />;
   if (navId === "laminated-inventory") return <FinishedGoodsInventoryWorkspace category="覆膜无纺布袋" formal={formal} onNavigate={onNavigate} title="覆膜袋库存" />;

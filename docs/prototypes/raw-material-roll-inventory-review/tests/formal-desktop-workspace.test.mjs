@@ -152,7 +152,7 @@ test("outbound delivery and supplier month-end share the complete review list-de
   assert.match(workspacesSource, /navId === "supplier-month-end"\) return <SupplierSettlementWorkspace/, "supplier month-end should use its current-shell workspace");
   assert.match(workspacesSource, /className="business-workbench fulfillment-workbench"/, "outbound delivery should reuse the standard list-detail anatomy");
   assert.match(workspacesSource, /className="business-workbench supplier-settlement-workbench"/, "supplier month-end should reuse the standard list-detail anatomy");
-  for (const label of ["订货数量", "已发数量", "本次发货", "剩余未发", "历史欠款", "本单应收", "累计待收"]) {
+  for (const label of ["订货数量", "累计实出", "currentQtyLabel", "剩余未实出", "对账关联", "金额以正式对账记录为准", "打开对账收款"]) {
     assert.ok(workspacesSource.includes(label), `outbound detail should retain ${label}`);
   }
   for (const label of ["对账确认", "生成应付", "付款登记", "付款确认"]) {

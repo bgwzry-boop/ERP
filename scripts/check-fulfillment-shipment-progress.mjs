@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import { buildFulfillmentShipmentProgress as project } from '../server/services/fulfillmentShipmentProgressService.mjs';
+const planned={id:'F1',lineId:'L1',status:'待出库',qty:500,actualQty:500};
+const order={qty:500}; const workspace={fulfillments:[planned]};
+assert.deepEqual(project(workspace,planned,order),{orderedQty:500,totalIssuedQty:0,currentQty:500,currentQtyLabel:'本次计划',remainingQty:500,evidenceComplete:true});
+const issued={id:'F2',lineId:'L1',status:'配送中',expectedQty:200,actualQty:200,physicalOutboundAt:'2026-09-05T00:00:00Z'};
+workspace.fulfillments.push(issued,{...issued,id:'OTHER',lineId:'L2',actualQty:900});
+assert.equal(project(workspace,planned,order).remainingQty,300);
+assert.equal(project(workspace,issued,order).totalIssuedQty,200);
+assert.equal(project(workspace,issued,order).currentQtyLabel,'本次实出');
+workspace.fulfillments.push({id:'F3',lineId:'L1',status:'已交付',actualQty:100});
+assert.equal(project(workspace,planned,order).totalIssuedQty,null);
+assert.equal(project(workspace,planned,order).remainingQty,null);
+assert.equal(project({fulfillments:[{...issued,actualQty:null}]},issued,order).totalIssuedQty,null);
+assert.equal(project({fulfillments:[planned]},planned,{}).orderedQty,null);
+console.log('Fulfillment shipment progress passed: plans do not reduce unissued quantity, full same-line physical sums, unrelated lines excluded, historical unknowns remain unknown.');
+
+const { createFulfillmentReadProjectionService } = await import('../server/services/fulfillmentReadProjectionService.mjs');
+const { mapApiFulfillmentToLocal } = await import('../src/services/officeFulfillmentSelectors.js');
+const allRows=Array.from({length:205},(_,i)=>({...issued,id:`S-${i}`,actualQty:2}));
+const projected=createFulfillmentReadProjectionService().getFulfillment({workspace:{fulfillments:allRows,orderLines:[{id:'L1',qty:1000}]},fulfillmentId:'S-204'});
+assert.equal(projected.shipmentProgress.totalIssuedQty,410);
+assert.equal(projected.shipmentProgress.remainingQty,590);
+assert.deepEqual(mapApiFulfillmentToLocal(projected).shipmentProgress,projected.shipmentProgress);

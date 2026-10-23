@@ -76,6 +76,7 @@ export function mapApiFulfillmentToLocal(value = {}) {
     orderLineId: cleanText(value.orderLineId ?? value.order_line_id),
     orderType: cleanText(value.orderType),
     actualPackageCount: toNumber(value.actualPackageCount, 0),
+    shipmentProgress: value.shipmentProgress ?? null,
     packingTask: value.packingTask ?? null,
     method: getFulfillmentMethodLabel(value.method),
     goods: cleanText(value.goodsSpec ?? value.goods),

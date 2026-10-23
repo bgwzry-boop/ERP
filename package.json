@@ -119,7 +119,7 @@
     "attachment-create-service:check": "node scripts/check-attachment-create-service.mjs",
     "order-pool-api:check": "node scripts/check-order-read-routes.mjs && node scripts/check-frontend-order-pool-api-client.mjs",
     "inventory-api:check": "node scripts/check-inventory-correction-read-projection-service.mjs && node scripts/check-inventory-read-routes.mjs && node scripts/check-inventory-write-routes.mjs && node scripts/check-inventory-intent-routes.mjs && node scripts/check-frontend-inventory-api-client.mjs && node scripts/check-inventory-correction-command-service.mjs && node scripts/check-inventory-correction-transaction-repository.mjs",
-    "fulfillment-api:check": "node scripts/check-fulfillment-read-projection-service.mjs && node scripts/check-fulfillment-read-routes.mjs && node scripts/check-fulfillment-write-routes.mjs && node scripts/check-fulfillment-action-command-service.mjs && node scripts/check-frontend-fulfillment-api-client.mjs",
+    "fulfillment-api:check": "node scripts/check-fulfillment-read-projection-service.mjs && node scripts/check-fulfillment-read-routes.mjs && node scripts/check-fulfillment-write-routes.mjs && node scripts/check-fulfillment-action-command-service.mjs && node scripts/check-frontend-fulfillment-api-client.mjs && node scripts/check-fulfillment-shipment-progress.mjs",
     "print-template:check": "node scripts/check-fulfillment-print-template.mjs",
     "print-job-api:check": "node scripts/check-frontend-print-job-api-client.mjs",
     "print-driver-config-api:check": "node scripts/check-frontend-print-driver-config-api-client.mjs",
@@ -310,7 +310,7 @@
     "finance-dialog-interactions:check": "node scripts/check-finance-dialog-interactions.mjs",
     "desktop-fulfillment-operations:check": "node scripts/check-desktop-fulfillment-operations.mjs",
     "fulfillment-operator-candidates:check": "node scripts/check-fulfillment-operator-candidates.mjs",
-    "p1-postgres:check": "node scripts/check-p1-material-inventory-postgres.mjs && node scripts/check-runtime-identity-concurrency-postgres.mjs && node scripts/check-miniapp-postgres-live.mjs"
+    "p1-postgres:check": "node scripts/check-p1-material-inventory-postgres.mjs && node scripts/check-runtime-identity-concurrency-postgres.mjs && node scripts/check-miniapp-postgres-live.mjs && node scripts/check-p1-inventory-correction-postgres.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
