@@ -36,8 +36,8 @@
   "summary": {
     "entries": 611,
     "statusCounts": {
-      "deferred-semantic-review": 516,
-      "p1-semantics-transplanted-partial": 31,
+      "deferred-semantic-review": 505,
+      "p1-semantics-transplanted-partial": 42,
       "retained-historical-evidence": 61,
       "current-rule-replaces-legacy-scope": 3
     },
@@ -3558,8 +3558,8 @@
         "server/services/fulfillmentShipmentProgressService.mjs",
         "src/services/officeFulfillmentSelectors.js"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: distinguish planned shipment from physical outbound totals”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 4 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "以真实physicalOutboundAt及实际数量汇总全部同订单交付，计划不冒充实出；缺历史证据显示待确认。",
       "mechanical": {
         "parents": [
           "ad02fde3ed4e19f718b08979e92c813f21aee5e2"
@@ -3595,10 +3595,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-contract-partial-semantic-review",
+        "scope": [
+          "以真实physicalOutboundAt及实际数量汇总全部同订单交付，计划不冒充实出；缺历史证据显示待确认。"
+        ],
+        "integrationCommit": "0d3230500d0330770d0758dc94d26621888c2281",
+        "sourceRecord": "docs/development/p1-remediation-closeout-20261023.json",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: distinguish planned shipment from physical outbound totals”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 4 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅明确范围完成，旧文档、完整UI实现或其他业务不自动计入。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -3623,8 +3627,8 @@
         "src/features/fulfillment/FulfillmentStatementLink.jsx",
         "src/services/officeFulfillmentApiClient.js"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: show persisted delivery statement amounts instead of estimates”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 4 项、内容不同 5 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "移除电脑出库页按数量虚估应收/累计欠款，改为有权限进入正式对账核对；没有移植旧独立statement-link端点及全部明细显示。",
       "mechanical": {
         "parents": [
           "b95282c133ccdcf2c05eba5b047eafbbc37e116d"
@@ -3663,10 +3667,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-contract-partial-semantic-review",
+        "scope": [
+          "移除电脑出库页按数量虚估应收/累计欠款，改为有权限进入正式对账核对；没有移植旧独立statement-link端点及全部明细显示。"
+        ],
+        "integrationCommit": "0d3230500d0330770d0758dc94d26621888c2281",
+        "sourceRecord": "docs/development/p1-remediation-closeout-20261023.json",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: show persisted delivery statement amounts instead of estimates”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 4 项、内容不同 5 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅明确范围完成，旧文档、完整UI实现或其他业务不自动计入。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -18063,8 +18071,8 @@
         "scripts/check-fulfillment-action-command-service.mjs",
         "server/services/fulfillmentActionCommandService.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: reject unavailable driver identities in dispatch commands”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 3 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "派车校验当前启用、允许登录、真实司机角色及唯一在岗员工绑定；新增数据库锁后再次核对。",
       "mechanical": {
         "parents": [
           "c48b48b0c8d80a6aa17be1b8a16bc5537e686e08"
@@ -18095,10 +18103,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "current-contract-partial-semantic-review",
+        "scope": [
+          "派车校验当前启用、允许登录、真实司机角色及唯一在岗员工绑定；新增数据库锁后再次核对。"
+        ],
+        "integrationCommit": "d2cd8ce32d421ac7694c4fe7f21d6805923a26fc",
+        "sourceRecord": "docs/development/p1-remediation-closeout-20261023.json",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: reject unavailable driver identities in dispatch commands”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 3 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅明确范围完成，旧文档、完整UI实现或其他业务不自动计入。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -23485,8 +23497,8 @@
         "scripts/check-inventory-correction-command-service.mjs",
         "server/services/inventoryCorrectionCommandService.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: block inventory correction confirmation without evidence”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 2 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "c085c9edb31c702c76da7c3d70eb05ecd66dacb1"
@@ -23517,10 +23529,25 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "确认前必须有关联且有效的盘点凭证；空凭证不改变库存、草稿、待办或审计。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/services/inventoryCorrectionCommandService.mjs:230",
+          "scripts/check-inventory-correction-command-service.mjs",
+          "scripts/check-p1-inventory-correction-postgres.mjs:34"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: block inventory correction confirmation without evidence”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 2 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "旧 canonical 浏览器脚本和历史说明未整体移入；这里只确认服务/仓储凭证要求，不能据此标记旧浏览器全流程验收完成。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "成品库存与留货",
@@ -23535,8 +23562,8 @@
         "scripts/check-inventory-correction-transaction-repository.mjs",
         "server/inventoryCorrectionTransactionRepository.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: bind correction confirmation to persisted quantity and owners”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 1 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "aea70e278ccc2a68af9f257861106430819ce5d3"
@@ -23567,10 +23594,24 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "PG 获取草稿锁后核对实际数量、库存归属、待办归属；验证通过才写库存及流水。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/inventoryCorrectionTransactionRepository.mjs:449",
+          "scripts/check-p1-inventory-correction-postgres.mjs:65"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: bind correction confirmation to persisted quantity and owners”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 1 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "旧 SQL 正则测试未原样复制，改用当前真实 PG 事务验收；待办归属条件已逐项核对代码，当前新 PG 测试不单独模拟 todo_id 漂移。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "成品库存与留货"
@@ -23583,8 +23624,8 @@
         "docs/development/optimization-2026-09-05/canonical-inventory-entry-gap.md",
         "scripts/check-postgres-live.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“test: reject correction quantity drift during real database lock wait”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 1 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "35f79bcd50c4752ed55f26a69a4cb5748dd9cd95"
@@ -23613,10 +23654,24 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "已读盘点确认等待真实数据库行锁期间，持久化 actual_qty 改变而 revision 不增时必须冲突回滚；库存及流水不变。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "scripts/check-p1-inventory-correction-postgres.mjs:50",
+          "scripts/check-p1-inventory-correction-postgres.mjs:65"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“test: reject correction quantity drift during real database lock wait”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 1 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "仅承接此测试场景到专用隔离 PG 脚本；旧 check-postgres-live.mjs 与历史说明不整体移植。当前测试从真实 service/repository 进入事务，非旧 HTTP harness 全面等价。无 revision 改动是防御性数据库边界，不代表公开接口允许这样改盘点。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "成品库存与留货",
@@ -23631,8 +23686,8 @@
         "scripts/check-postgres-live.mjs",
         "server/inventoryCorrectionTransactionRepository.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: lock and revalidate correction evidence in confirmation transaction”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 2 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "d38471e1e090c0ca082e99ead9cd604447294d52"
@@ -23662,10 +23717,26 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "确认事务锁定当前关联凭证与关联记录，并复核状态、用途、内容、上传人、类型、所属盘点及数量限制；已失效凭证不能令库存生效。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/inventoryCorrectionTransactionRepository.mjs:414",
+          "server/inventoryCorrectionTransactionRepository.mjs:425",
+          "server/inventoryCorrectionTransactionRepository.mjs:459",
+          "scripts/check-p1-inventory-correction-postgres.mjs:65"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: lock and revalidate correction evidence in confirmation transaction”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 2 项、当前缺失 1 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "旧 has_content=false HTTP 锁等待测试未原样复制；当前真实 PG 验证 status=deleted 和 owner_id 变化，has_content 等其他字段通过当前写入守卫核对。旧整套 PG 脚本和历史说明仍未整体移植。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "成品库存与留货",
@@ -33354,8 +33425,8 @@
         "src/domain/rawMaterialScanOutbound.js",
         "src/features/raw-materials/RawMaterialScannerPage.jsx"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: reject ambiguous raw material scan identities and record coverage”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 4 项、当前缺失 4 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "2a416bcfab034512b1ec134898eac2ced39f7284"
@@ -33390,10 +33461,26 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "系统正式卷码优先唯一匹配；仅无正式匹配时尝试厂家号，重复厂家号/重复正式码都阻断；唯一厂家别名固定回正式卷码并保留实际库存状态校验。"
+        ],
+        "integrationCommit": "32ba0e702ee347ac3511e62ac68b2bd384e36c1c",
+        "sourceImplementationCommit": "112d90c650a87b140d2fe8d39df22e4a8ad229d2",
+        "currentEvidence": [
+          "src/domain/rawMaterialScanOutbound.js:18",
+          "src/features/raw-materials/RawMaterialScannerPage.jsx:123",
+          "scripts/check-raw-material-scan-identity.mjs"
+        ],
+        "validation": [
+          "node scripts/check-raw-material-scan-identity.mjs 已通过",
+          "node scripts/check-raw-material-first-release.mjs 已通过",
+          "npm run build 及前端分包预算已通过"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: reject ambiguous raw material scan identities and record coverage”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 4 项、当前缺失 4 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "当前加入明确多义提示；旧 selectedTask 等扫码页面完整布局/任务前置流程未迁回，旧 first-release 碰撞断言改由独立新脚本覆盖；同提交旧审计文档不宣称已整合。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -34353,8 +34440,8 @@
         "scripts/check-raw-material-ocr-line-review.mjs",
         "shared/rawMaterialOcrLineReview.js"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: reject inconsistent OCR review monetary totals”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 1 项、当前缺失 4 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "50a8b24dfcf1b0822a572bec045924b6a243ea2e"
@@ -34389,10 +34476,25 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "整单声明金额与逐行金额按现有0.05元货币容差核对，不再用重量百分比容差或因零额跳过；原参考金额例外保留。"
+        ],
+        "integrationCommit": "96551d5aa5eef05585409f53425e71f0ab2e82c5",
+        "sourceImplementationCommit": "350f78c2735c6a2c87b25a07222586a0062a7ebb",
+        "currentEvidence": [
+          "shared/rawMaterialOcrLineReview.js:161",
+          "scripts/check-raw-material-ocr-command-service.mjs",
+          "scripts/check-raw-material-ocr-line-review.mjs"
+        ],
+        "validation": [
+          "npm run raw-material-inbound-api:check（当时24项）已通过",
+          "node scripts/check-raw-material-exclusion-summary.mjs 已通过实际组件回调与服务器 review 合同验收"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: reject inconsistent OCR review monetary totals”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 1 项、当前缺失 4 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "只承接服务合同和金额回归；同提交历史问题清单、覆盖表、旧文件登记不作为当前事实或整体复制。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -34585,8 +34687,8 @@
         "scripts/check-inventory-correction-command-service.mjs",
         "server/inventoryCorrectionTransactionRepository.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: reject stale and repeated local inventory corrections”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 2 项、当前缺失 0 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "8cfb85cb578593caf5f3dc5e5a5f8dfbfcc23728"
@@ -34614,10 +34716,24 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "本地仓储确认原子核对草稿状态、revision、库存现值、expectedQty/actualQty、库存和待办归属；拒绝过期盘点及换新键重复确认。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/inventoryCorrectionTransactionRepository.mjs:80",
+          "scripts/check-inventory-correction-command-service.mjs"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: reject stale and repeated local inventory corrections”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 0 项、内容不同 2 项、当前缺失 0 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "旧脚本针对该行为的回归已在当前脚本扩展；不将整个旧补丁称为机械相等。重复确认覆盖仅在 local_memory 路径复现，原 PG 已有状态/revision/expectedQty 防线。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "成品库存与留货"
@@ -34738,8 +34854,8 @@
         "scripts/check-raw-material-exclusion-summary.mjs",
         "src/features/raw-materials/RawMaterialMobileOcrReview.jsx"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: preserve receipt totals when excluding OCR rolls”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 0 项、当前缺失 0 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "仅承接所列P1业务防线；保留原机械快照与未覆盖范围，非整个提交等价。",
       "mechanical": {
         "parents": [
           "245ec111be1fa4de280d2d1292c1944a9fd1107b"
@@ -34767,10 +34883,24 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "手机排除或撤销误识别卷只更新实际卷数，不自动改写原票总重/总金额；差异经服务器阻断，显式改正保留原声明和排除审计。"
+        ],
+        "integrationCommit": "96551d5aa5eef05585409f53425e71f0ab2e82c5",
+        "sourceImplementationCommit": "350f78c2735c6a2c87b25a07222586a0062a7ebb",
+        "currentEvidence": [
+          "src/features/raw-materials/RawMaterialMobileOcrReview.jsx:317",
+          "scripts/check-raw-material-exclusion-summary.mjs"
+        ],
+        "validation": [
+          "npm run raw-material-inbound-api:check（当时24项）已通过",
+          "node scripts/check-raw-material-exclusion-summary.mjs 已通过实际组件回调与服务器 review 合同验收"
+        ],
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: preserve receipt totals when excluding OCR rolls”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 2 项、内容不同 0 项、当前缺失 0 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "wholePatchEquivalent": false,
+        "remainder": "当前组件其他新多页/厂家颜色规则继续保留；仅该回调及对应合同被核对，不将整个旧组件和整个提交判为已等价。",
+        "sourceRecord": "docs/development/p1-legacy-followup-review-20261023.json"
       },
       "followupDomains": [
         "原料收货与卷料"
@@ -35352,5 +35482,14 @@
         "仓库出库与配送"
       ]
     }
-  ]
+  ],
+  "followupSummary": {
+    "date": "2026-10-23",
+    "scope": "追加已核对的原料盘点/OCR/扫码及出库事实/司机资格保护；保留92060c76原机械比较快照。",
+    "sourceRecords": [
+      "docs/development/p1-legacy-followup-review-20261023.json",
+      "docs/development/p1-remediation-closeout-20261023.json"
+    ],
+    "wholeCommitsDeclaredIntegrated": 0
+  }
 }

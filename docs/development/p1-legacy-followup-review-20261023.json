@@ -1,0 +1,1011 @@
+{
+  "schema": "erp-legacy-material-inventory-followup-review-v1",
+  "reviewedAt": "2026-10-23T04:29:35.827Z",
+  "reviewedIntegrationCommit": "d2cd8ce32d421ac7694c4fe7f21d6805923a26fc",
+  "requestedIntegrationCommit": "c4a77d1fabc6e570ee639d64589c27bb3f998956",
+  "status": "read-only-evidence-complete-not-deployment",
+  "scope": "本次只读复核原料/库存8条旧提交的指定P1语义及59项旧目录保全；不改大清单，不宣称其余同提交内容或全部611条已完成业务审核。",
+  "ledgerReference": {
+    "path": "docs/development/p1-legacy-integration-ledger-20261023.json",
+    "sha256": "e2bde1fdb514a602578b70d6fe1d69b3a3e6242a14bb2a8ce664ca2ce410d682",
+    "baseline": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
+    "legacyHead": "1ed23b2b86314feff63cb62d8c7deb9375552345",
+    "originalMechanicalComparedCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+    "mechanicalSnapshotPreserved": true,
+    "existingSummary": {
+      "entries": 611,
+      "statusCounts": {
+        "deferred-semantic-review": 516,
+        "p1-semantics-transplanted-partial": 31,
+        "retained-historical-evidence": 61,
+        "current-rule-replaces-legacy-scope": 3
+      },
+      "ancestorOfBaseline": 0,
+      "ancestorOfComparedCommit": 0,
+      "wholePatchEquivalent": 0,
+      "mergeCommits": 1,
+      "wholeCommitIntegrated": 0,
+      "fileOccurrences": 3816,
+      "fileTotals": {
+        "sameAfter": 273,
+        "sameBefore": 696,
+        "different": 1532,
+        "absent": 1315
+      },
+      "correctedQuotedPathOccurrences": 126,
+      "legacyUncommittedEntries": 59,
+      "legacyUncommittedTracked": 21,
+      "legacyUntracked": 38
+    }
+  },
+  "preservationVerification": {
+    "oldWorktree": "/Users/xu/Documents/ERP-optimization-20260905",
+    "method": "逐项读取原文件字节计算SHA-256/长度；git status --porcelain=v1 -z --untracked-files=all 原始NUL字节计算状态SHA-256；逐项比较路径及两列Git状态。",
+    "expectedStatusSha256": "b07d44e9161bfba4257a85bbcd2d4a5b1dc72d873d9f4e2e6c9b11dbc54c97ee",
+    "actualStatusSha256": "b07d44e9161bfba4257a85bbcd2d4a5b1dc72d873d9f4e2e6c9b11dbc54c97ee",
+    "statusSha256Matches": true,
+    "expectedEntries": 59,
+    "actualEntries": 59,
+    "trackedEntries": 21,
+    "untrackedEntries": 38,
+    "matchedFiles": 59,
+    "missingOrChangedFiles": [],
+    "extraPaths": [],
+    "actions": "未编辑、stash、reset、清理、归档或删除旧目录任何内容。",
+    "files": [
+      {
+        "path": "01_当前状态与下一步.md",
+        "gitStatus": " M",
+        "bytes": 22311,
+        "sha256": "8e6c241a30afe6c288610253ec3fcd101e680e218f3d8fc60839f0dec0cf29df",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "02_问题或报错日志.md",
+        "gitStatus": " M",
+        "bytes": 21468,
+        "sha256": "066d5fa43cebe64a2e37ccf8b198d6e1bd31934f0a8e81ae6647dc6bfc6a718f",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "PROJECT_STATUS.md",
+        "gitStatus": " M",
+        "bytes": 7680,
+        "sha256": "295c9eabf1493750841d5999af427f3e5f54d0038ce5472107aed01cdcfcc2a2",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/erp-api-openapi-draft.yaml",
+        "gitStatus": " M",
+        "bytes": 927068,
+        "sha256": "e31db331d2781b7c4d0a231a0f3c5973189f91d3085ab8ad61feaf20adab0726",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/baseline-and-integration.md",
+        "gitStatus": " M",
+        "bytes": 4557,
+        "sha256": "6b79dbada05cc9a20be0a5307061c6887f5b751881abf425b93bb0e5f77271ea",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/business-page-coverage-current.md",
+        "gitStatus": " M",
+        "bytes": 27689,
+        "sha256": "de864d31b1dda4c45354118fc55a4dff9516dd9e31649577a662d108fb1fcfdf",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/cleanup-and-threads.md",
+        "gitStatus": " M",
+        "bytes": 9546,
+        "sha256": "7b7eb49747224211fa6b2d387b6ca8361d00d2a7b4a5c7e2cb9d038ab15527dd",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/current-issue-ledger.md",
+        "gitStatus": " M",
+        "bytes": 24220,
+        "sha256": "327d669ecaa30ff6fbf6011d41fbbb8740c0623af208d603ba64a1342b4598c3",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/file-register-current-reconciliation.json",
+        "gitStatus": " M",
+        "bytes": 72772,
+        "sha256": "4b48faa92f1995e67ef090441a957c3b4fa8bf970ccbb8e674230805320180bb",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/file-register.json",
+        "gitStatus": " M",
+        "bytes": 671106,
+        "sha256": "731d37535b59579678f3707949d8bc7e597691bfdf357c7cfada8b2ee79ea315",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/finance-aftersales-payroll-coverage-current.md",
+        "gitStatus": " M",
+        "bytes": 33642,
+        "sha256": "117d237f519d9d98c1dcf0e89c4fd9ce8f4c38f56bf9048a804c840222db6dfe",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/miniapp-order-coverage-current.md",
+        "gitStatus": " M",
+        "bytes": 32218,
+        "sha256": "5536d008ea28a906a8019551520c9666217e6beb3707670e55d2746a662e40a4",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/production-delivery-coverage-current.md",
+        "gitStatus": " M",
+        "bytes": 64658,
+        "sha256": "c203aacbff383cbca69f1a167981d4ca512d4f692e9f7a8d3b5b9d4505ea8dee",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/raw-material-coverage-current.md",
+        "gitStatus": " M",
+        "bytes": 46531,
+        "sha256": "a876595cac622c12a2a3b15aa7340ed471e86449faf847607851c74080c65de8",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/screenshots/fulfillment-focus/outside-page-800.png",
+        "gitStatus": " M",
+        "bytes": 91253,
+        "sha256": "28bc7532f334dd3e22eb12187dfe25d8da0f47d0d8592ad4e155d0055551b33c",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/screenshots/maintenance/desktop-create-800.png",
+        "gitStatus": " M",
+        "bytes": 91383,
+        "sha256": "794db3e75d3293d594ca8e029e16170fd25b42095ed454b0b2e6de7d36e992c9",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/screenshots/maintenance/retry-390.png",
+        "gitStatus": " M",
+        "bytes": 98569,
+        "sha256": "f042ffd62e9006d3f7c70ab45b6230c0dc66dc823638acb6615062ab118edd22",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/screenshots/todo-link/valid-800.png",
+        "gitStatus": " M",
+        "bytes": 96444,
+        "sha256": "f99d7be946de4ed8f90dae6d808ea6952b96a432837e297dc3e0b7611aaf65f9",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/version-sources-current.json",
+        "gitStatus": " M",
+        "bytes": 9114,
+        "sha256": "9e592769b0ea6dadada0b90002ac29dee93dddece64257313abb3b7ab56590b1",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "scripts/check-miniapp-artwork-transfer.mjs",
+        "gitStatus": " M",
+        "bytes": 8113,
+        "sha256": "c513fdb8f1143e340789b4801a5b6f6effb15cd60e5b7ba6a98eaff948b0cfe9",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "scripts/check-miniapp-erp-dual-database.mjs",
+        "gitStatus": " M",
+        "bytes": 42444,
+        "sha256": "64ce7b7e78f0d116d012d38dabb6bbd3bb4f4047bcf33422cbdff760f8e2ea3e",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/customer-address-precheck-observation.json",
+        "gitStatus": "??",
+        "bytes": 808,
+        "sha256": "f8a910fc74f5e04ea03b1caf814c0c6b7edcf633ecbbe4536fac7a5017972606",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/customer-directory-source-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 1830,
+        "sha256": "0d010100d25cae8d98250974129520a3fe4873e3776ef34d2288e2620f6eb192",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/customer-import-local-write-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 823,
+        "sha256": "6b6820fd12e5f5b87764bb1d27870dd69007e04517b94704d0166fb9dd9208f0",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/customer-import-precheck-bypass-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 532,
+        "sha256": "b891ad4048aae797e316fae0eed4ce3fdf91e4e19f2b4e6eb7c5a3b0ee4b635e",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/customer-settled-receivable-observation.json",
+        "gitStatus": "??",
+        "bytes": 281,
+        "sha256": "3d13081b0cc02c059b43e33fd716fce81802ff7da57f94307970baf340dd8b78",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/customer-settlement-transform-observation.json",
+        "gitStatus": "??",
+        "bytes": 514,
+        "sha256": "883d2c9f3545d6acb030ae3a8ffbce5036f7b66c6649a3ddcb38c030615bf986",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/delivery-handoff-acceptance-current.md",
+        "gitStatus": "??",
+        "bytes": 4083,
+        "sha256": "939f48851b69eec32508ecaadd0216429df805423a2c87d373f6b87bf6f1e17e",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/driver-duplicate-dispatch-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 440,
+        "sha256": "066656eadb87e10a071fdab4adfee44bb10fda0ccb46717e8ebabbec7e064fee",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/driver-inferred-package-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 825,
+        "sha256": "8b3c95d62c1da89c775d827ee1e8b9c87d8c2f8862bf41ab4486ff3ed39a8802",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/driver-inferred-package-reproduction.txt",
+        "gitStatus": "??",
+        "bytes": 741,
+        "sha256": "d562a2b591cc254eb4291c3035a03654c3821a8a0cdb120d3c8cea1b21057b9f",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/entry-presentation-boundary-observation.json",
+        "gitStatus": "??",
+        "bytes": 253,
+        "sha256": "046af6694b1a140a823e7110c8704ed4ca43dc819b90b47bee52cc528df9481c",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/import-correction-validation-observation.json",
+        "gitStatus": "??",
+        "bytes": 3037,
+        "sha256": "26c7492ef207a3310993372be80e6a311550a31fb6036f5eb514fd7c8ed55123",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/import-postcommit-false-rollback-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 6824,
+        "sha256": "2edb5e09684aae948010cb8c49f7b062aa549c74b6e9fe7a226bc0a201614dbd",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/inventory-correction-local-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 309,
+        "sha256": "2f9b955e32f1c452bd7e36bd34cb98970645e98b478aaa0b51751da1056a08da",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/inventory-correction-service-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 429,
+        "sha256": "8be8a6532c85434022c93abd15eeb42e49b05cbdc0ef644eba3b27de0c9fe358",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/inventory-ledger-date-boundary-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 489,
+        "sha256": "98a6465409834c0dd6da163c6111420399880284cef1a52a7079e363cda62adc",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/machine-command-replay-observation.json",
+        "gitStatus": "??",
+        "bytes": 298,
+        "sha256": "43d655badc8d347d9888782e07ca222ce149d7e8f7fe2ecc7455db0ca0fb12b8",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/miniapp-print-enum-verification.json",
+        "gitStatus": "??",
+        "bytes": 2591,
+        "sha256": "63d83022ed8e65ae4877d4b6dc87494903c0800bdbfbbfb9364c9e87ebd15dca",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/ocr-exclusion-summary-observation.json",
+        "gitStatus": "??",
+        "bytes": 1243,
+        "sha256": "f8929f07071d7f8c2e37151154d089f01baa83de5411a678ac63521469f0b846",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/order-void-loaded-delivery-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 2003,
+        "sha256": "bd3da02082f9895c4211df23ff6df4aea3a483cef69fdf066be80e7df5e63ac3",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/page-implementation-boundaries-current.md",
+        "gitStatus": "??",
+        "bytes": 3859,
+        "sha256": "0c1bd33b7c3be4765f1ed0171099b0e11fa666589178f120001a7aa9e9013943",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/payroll-history-export-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 1283,
+        "sha256": "c521f0e8f38dc290c9f52f918bd9bdb1f5096a185663bce15a862758d8f51cc6",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/production-detail-stale-response.json",
+        "gitStatus": "??",
+        "bytes": 715,
+        "sha256": "e5dae231a18018e130c2245a48415af82845cfd4f9b5b50d3f0c2f090bc2d521",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/raw-material-inbound-pagination-observation.json",
+        "gitStatus": "??",
+        "bytes": 590,
+        "sha256": "2e50692e8cd781bb167c2d86b2d68762021f7235ca9367c31e2d9b5b586447fb",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/raw-material-legacy-issue-defaults.json",
+        "gitStatus": "??",
+        "bytes": 816,
+        "sha256": "27fbd49abfb691096d26cf2e4f9cdd29ed774bb528dc1b3eb1bd88be32a82504",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/reproduce-subaccount-local-concurrency.mjs",
+        "gitStatus": "??",
+        "bytes": 1674,
+        "sha256": "2b06328b2a8cf4799f87d8c8a3347dc3891df82daeebc7cdfc7357727de9f5ce",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/reproduce-subaccount-postgres-concurrency.mjs",
+        "gitStatus": "??",
+        "bytes": 4019,
+        "sha256": "5384a34d6004eb21fc07309c4b6e31c05f1ef0747e23f5f9df193b9fd3047f5f",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/split-price-response-observation.json",
+        "gitStatus": "??",
+        "bytes": 565,
+        "sha256": "da0338ed15295259eccd302d00dea40eb6f486c72b65c4a8ff238586cbaeebe5",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/staging-version-observation-2026-09-25.json",
+        "gitStatus": "??",
+        "bytes": 783,
+        "sha256": "afb51b202e2cc0820598fbfdcdec67f76e9b4ea22fcf37f4ce6b31fe8d19ebdf",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/staging-version-observation-current.json",
+        "gitStatus": "??",
+        "bytes": 1053,
+        "sha256": "f5355054a51393b416852a0f32f94760bc504bd9d69443108f3b885faed546b9",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/subaccount-concurrent-create-observation.json",
+        "gitStatus": "??",
+        "bytes": 315,
+        "sha256": "dfd3b198d1065dd422fd1aa8b6802b6d37aa5b0e50c652fe9244090ab36dbe30",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/subaccount-local-concurrent-create-observation.json",
+        "gitStatus": "??",
+        "bytes": 322,
+        "sha256": "b66226e9f9102e8acff3cd00a7aa1d507cd872fdad2d9dfc54dae15730b90850",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/subaccount-postgres-concurrency-observation.json",
+        "gitStatus": "??",
+        "bytes": 916,
+        "sha256": "f6b1bf9eaf31169519e39ba309f5d70e91a5c3749990b7ef8ff765966ab48aa6",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/supplier-statement-empty-roll-match.json",
+        "gitStatus": "??",
+        "bytes": 1569,
+        "sha256": "9613e224e8978b7276f38053478082788b3383fbe2d418edb79706450a97ed7f",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/supplier-statement-match-draft-observation.json",
+        "gitStatus": "??",
+        "bytes": 4940,
+        "sha256": "9dea23aa1b0645df76d5e91e3af788c729c74739e325e0182e8df3c9a3c9f265",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/supplier-statement-negative-decision-observation.json",
+        "gitStatus": "??",
+        "bytes": 1007,
+        "sha256": "9924022272f3abd10e7ab38ec4a50a81b2a29428acb51cb1bfa25d59ad0e103b",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/warehouse-cancelled-task-observation.json",
+        "gitStatus": "??",
+        "bytes": 396,
+        "sha256": "32de07eb2a09f26bd55c266c77f0964f748f70f27b8981031e12fe8b9d41169a",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      },
+      {
+        "path": "docs/development/optimization-2026-09-05/warehouse-missing-quantity-reproduction.json",
+        "gitStatus": "??",
+        "bytes": 5377,
+        "sha256": "2477d8620ea1e57fb96b34c7c0d0f967a20ba8aebf8bc0b0eeb9a73a281d111d",
+        "statusMatches": true,
+        "bytesMatch": true,
+        "sha256Matches": true
+      }
+    ]
+  },
+  "verifiedIntegration": {
+    "inventory": {
+      "source": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+      "integrated": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+      "files": [
+        "server/services/inventoryCorrectionCommandService.mjs",
+        "server/inventoryCorrectionTransactionRepository.mjs",
+        "scripts/check-inventory-correction-command-service.mjs",
+        "scripts/check-p1-inventory-correction-postgres.mjs"
+      ],
+      "validation": [
+        "npm run inventory-api:check（7项）已在自有修复树通过",
+        "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+      ],
+      "identicalToValidatedSourceFiles": [
+        {
+          "path": "server/services/inventoryCorrectionCommandService.mjs",
+          "blob": "3eb36699336c43586f73f2b62a089b634e8f8280",
+          "sourceBlob": "3eb36699336c43586f73f2b62a089b634e8f8280",
+          "equal": true
+        },
+        {
+          "path": "server/inventoryCorrectionTransactionRepository.mjs",
+          "blob": "e05755a3aabcbb5d6bb4a84c7965c8232d9a0ded",
+          "sourceBlob": "e05755a3aabcbb5d6bb4a84c7965c8232d9a0ded",
+          "equal": true
+        },
+        {
+          "path": "scripts/check-inventory-correction-command-service.mjs",
+          "blob": "d516e918136ee28d0f4f5090f53d9cf1dc6d742f",
+          "sourceBlob": "d516e918136ee28d0f4f5090f53d9cf1dc6d742f",
+          "equal": true
+        },
+        {
+          "path": "scripts/check-p1-inventory-correction-postgres.mjs",
+          "blob": "5dba92c965f91f975de8ffa8d5c47c12fc3b3836",
+          "sourceBlob": "5dba92c965f91f975de8ffa8d5c47c12fc3b3836",
+          "equal": true
+        }
+      ]
+    },
+    "ocr": {
+      "source": "350f78c2735c6a2c87b25a07222586a0062a7ebb",
+      "integrated": "96551d5aa5eef05585409f53425e71f0ab2e82c5",
+      "files": [
+        "shared/rawMaterialOcrLineReview.js",
+        "src/features/raw-materials/RawMaterialMobileOcrReview.jsx",
+        "scripts/check-raw-material-ocr-command-service.mjs",
+        "scripts/check-raw-material-ocr-line-review.mjs",
+        "scripts/check-raw-material-exclusion-summary.mjs"
+      ],
+      "validation": [
+        "npm run raw-material-inbound-api:check（当时24项）已通过",
+        "node scripts/check-raw-material-exclusion-summary.mjs 已通过实际组件回调与服务器 review 合同验收"
+      ],
+      "identicalToValidatedSourceFiles": [
+        {
+          "path": "shared/rawMaterialOcrLineReview.js",
+          "blob": "eb290e31b69b4e03369bd4a84e2baf4905d7ff2d",
+          "sourceBlob": "eb290e31b69b4e03369bd4a84e2baf4905d7ff2d",
+          "equal": true
+        },
+        {
+          "path": "src/features/raw-materials/RawMaterialMobileOcrReview.jsx",
+          "blob": "53c04890fcfc1fe0619ad595d80aa734d2ebaed2",
+          "sourceBlob": "53c04890fcfc1fe0619ad595d80aa734d2ebaed2",
+          "equal": true
+        },
+        {
+          "path": "scripts/check-raw-material-ocr-command-service.mjs",
+          "blob": "dd7565dc0a605449c0719893cbe6bd6c3ef73d91",
+          "sourceBlob": "dd7565dc0a605449c0719893cbe6bd6c3ef73d91",
+          "equal": true
+        },
+        {
+          "path": "scripts/check-raw-material-ocr-line-review.mjs",
+          "blob": "4ad4dd80f5640c3c7c4777921c7aa2bb86fb44b3",
+          "sourceBlob": "4ad4dd80f5640c3c7c4777921c7aa2bb86fb44b3",
+          "equal": true
+        },
+        {
+          "path": "scripts/check-raw-material-exclusion-summary.mjs",
+          "blob": "d5082d769dc096ce500692b76858c18c306b09f7",
+          "sourceBlob": "d5082d769dc096ce500692b76858c18c306b09f7",
+          "equal": true
+        }
+      ]
+    },
+    "scan": {
+      "source": "112d90c650a87b140d2fe8d39df22e4a8ad229d2",
+      "integrated": "32ba0e702ee347ac3511e62ac68b2bd384e36c1c",
+      "files": [
+        "src/domain/rawMaterialScanOutbound.js",
+        "src/features/raw-materials/RawMaterialScannerPage.jsx",
+        "scripts/check-raw-material-scan-identity.mjs"
+      ],
+      "validation": [
+        "node scripts/check-raw-material-scan-identity.mjs 已通过",
+        "node scripts/check-raw-material-first-release.mjs 已通过",
+        "npm run build 及前端分包预算已通过"
+      ],
+      "identicalToValidatedSourceFiles": [
+        {
+          "path": "src/domain/rawMaterialScanOutbound.js",
+          "blob": "061f757a4e86f9f8f5f7973523af73f1db8e4ce7",
+          "sourceBlob": "061f757a4e86f9f8f5f7973523af73f1db8e4ce7",
+          "equal": true
+        },
+        {
+          "path": "src/features/raw-materials/RawMaterialScannerPage.jsx",
+          "blob": "ee33570185ef92e1d79932379fe7c1ada6f2c3b7",
+          "sourceBlob": "ee33570185ef92e1d79932379fe7c1ada6f2c3b7",
+          "equal": true
+        },
+        {
+          "path": "scripts/check-raw-material-scan-identity.mjs",
+          "blob": "eeb5a793ef03b03117ca0dc9100b81ce2db26aac",
+          "sourceBlob": "eeb5a793ef03b03117ca0dc9100b81ce2db26aac",
+          "equal": true
+        }
+      ]
+    }
+  },
+  "ledgerUpdateSuggestions": [
+    {
+      "legacyCommit": "832043e6f81e765efba1145a6802ba14360e982f",
+      "subject": "fix: reject stale and repeated local inventory corrections",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "本地仓储确认原子核对草稿状态、revision、库存现值、expectedQty/actualQty、库存和待办归属；拒绝过期盘点及换新键重复确认。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/inventoryCorrectionTransactionRepository.mjs:80",
+          "scripts/check-inventory-correction-command-service.mjs"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "旧脚本针对该行为的回归已在当前脚本扩展；不将整个旧补丁称为机械相等。重复确认覆盖仅在 local_memory 路径复现，原 PG 已有状态/revision/expectedQty 防线。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "73d4cb989934e4c69f4e73b5d823894c656bc4d1b5b99fdd3f144ebbba19759d",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": []
+    },
+    {
+      "legacyCommit": "aea70e278ccc2a68af9f257861106430819ce5d3",
+      "subject": "fix: block inventory correction confirmation without evidence",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "确认前必须有关联且有效的盘点凭证；空凭证不改变库存、草稿、待办或审计。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/services/inventoryCorrectionCommandService.mjs:230",
+          "scripts/check-inventory-correction-command-service.mjs",
+          "scripts/check-p1-inventory-correction-postgres.mjs:34"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "旧 canonical 浏览器脚本和历史说明未整体移入；这里只确认服务/仓储凭证要求，不能据此标记旧浏览器全流程验收完成。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "86e84953d184726ebd659995a81e0d356311aa19a060b498e145598c7cde2be9",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": [
+        "docs/development/optimization-2026-09-05/canonical-inventory-entry-gap.md"
+      ]
+    },
+    {
+      "legacyCommit": "35f79bcd50c4752ed55f26a69a4cb5748dd9cd95",
+      "subject": "fix: bind correction confirmation to persisted quantity and owners",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "PG 获取草稿锁后核对实际数量、库存归属、待办归属；验证通过才写库存及流水。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/inventoryCorrectionTransactionRepository.mjs:449",
+          "scripts/check-p1-inventory-correction-postgres.mjs:65"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "旧 SQL 正则测试未原样复制，改用当前真实 PG 事务验收；待办归属条件已逐项核对代码，当前新 PG 测试不单独模拟 todo_id 漂移。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "9a9fdd362c70fca6de8555f087c53f670525b0b57fd44b7ca1933f5864848651",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": [
+        "docs/development/optimization-2026-09-05/canonical-inventory-entry-gap.md"
+      ]
+    },
+    {
+      "legacyCommit": "d38471e1e090c0ca082e99ead9cd604447294d52",
+      "subject": "test: reject correction quantity drift during real database lock wait",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "已读盘点确认等待真实数据库行锁期间，持久化 actual_qty 改变而 revision 不增时必须冲突回滚；库存及流水不变。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "scripts/check-p1-inventory-correction-postgres.mjs:50",
+          "scripts/check-p1-inventory-correction-postgres.mjs:65"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "仅承接此测试场景到专用隔离 PG 脚本；旧 check-postgres-live.mjs 与历史说明不整体移植。当前测试从真实 service/repository 进入事务，非旧 HTTP harness 全面等价。无 revision 改动是防御性数据库边界，不代表公开接口允许这样改盘点。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "de7c337fb5d47366e43a0192c03bb006db413295d4416671df0a1dcb4a605d1f",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": [
+        "docs/development/optimization-2026-09-05/canonical-inventory-entry-gap.md"
+      ]
+    },
+    {
+      "legacyCommit": "4df8ef53492301a4cea148947ba15bd8623a1d13",
+      "subject": "fix: lock and revalidate correction evidence in confirmation transaction",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "确认事务锁定当前关联凭证与关联记录，并复核状态、用途、内容、上传人、类型、所属盘点及数量限制；已失效凭证不能令库存生效。"
+        ],
+        "integrationCommit": "33467f9aa9b41be35d882125cd97dcba3ae18e5d",
+        "sourceImplementationCommit": "e0f1c70a840a47bf668b04840d0f12f85878a4d0",
+        "currentEvidence": [
+          "server/inventoryCorrectionTransactionRepository.mjs:414",
+          "server/inventoryCorrectionTransactionRepository.mjs:425",
+          "server/inventoryCorrectionTransactionRepository.mjs:459",
+          "scripts/check-p1-inventory-correction-postgres.mjs:65"
+        ],
+        "validation": [
+          "npm run inventory-api:check（7项）已在自有修复树通过",
+          "node scripts/check-p1-inventory-correction-postgres.mjs 已在独立迁移后 PostgreSQL 容器通过真实行锁等待、独立 repository 并发、幂等回执验收"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "旧 has_content=false HTTP 锁等待测试未原样复制；当前真实 PG 验证 status=deleted 和 owner_id 变化，has_content 等其他字段通过当前写入守卫核对。旧整套 PG 脚本和历史说明仍未整体移植。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "c9ab6f0592be9cf3a4ccbd513d9641656efb032b5e94b154e674ae2d3f257878",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": [
+        "docs/development/optimization-2026-09-05/canonical-inventory-entry-gap.md"
+      ]
+    },
+    {
+      "legacyCommit": "2b5e57f3bff55cd84741df263f4163d220e21648",
+      "subject": "fix: reject inconsistent OCR review monetary totals",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "整单声明金额与逐行金额按现有0.05元货币容差核对，不再用重量百分比容差或因零额跳过；原参考金额例外保留。"
+        ],
+        "integrationCommit": "96551d5aa5eef05585409f53425e71f0ab2e82c5",
+        "sourceImplementationCommit": "350f78c2735c6a2c87b25a07222586a0062a7ebb",
+        "currentEvidence": [
+          "shared/rawMaterialOcrLineReview.js:161",
+          "scripts/check-raw-material-ocr-command-service.mjs",
+          "scripts/check-raw-material-ocr-line-review.mjs"
+        ],
+        "validation": [
+          "npm run raw-material-inbound-api:check（当时24项）已通过",
+          "node scripts/check-raw-material-exclusion-summary.mjs 已通过实际组件回调与服务器 review 合同验收"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "只承接服务合同和金额回归；同提交历史问题清单、覆盖表、旧文件登记不作为当前事实或整体复制。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "a59432b17a7482386f6c92e2a3f77dc4d802cda77f1cd9578ab8ef5eb54f28f3",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": [
+        "docs/development/optimization-2026-09-05/current-issue-ledger.md",
+        "docs/development/optimization-2026-09-05/file-register-current-reconciliation.json",
+        "docs/development/optimization-2026-09-05/file-register.json",
+        "docs/development/optimization-2026-09-05/raw-material-coverage-current.md"
+      ]
+    },
+    {
+      "legacyCommit": "3c259dfd4ec57f29a1c7a8e9e8872b26f4de1a78",
+      "subject": "fix: preserve receipt totals when excluding OCR rolls",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "手机排除或撤销误识别卷只更新实际卷数，不自动改写原票总重/总金额；差异经服务器阻断，显式改正保留原声明和排除审计。"
+        ],
+        "integrationCommit": "96551d5aa5eef05585409f53425e71f0ab2e82c5",
+        "sourceImplementationCommit": "350f78c2735c6a2c87b25a07222586a0062a7ebb",
+        "currentEvidence": [
+          "src/features/raw-materials/RawMaterialMobileOcrReview.jsx:317",
+          "scripts/check-raw-material-exclusion-summary.mjs"
+        ],
+        "validation": [
+          "npm run raw-material-inbound-api:check（当时24项）已通过",
+          "node scripts/check-raw-material-exclusion-summary.mjs 已通过实际组件回调与服务器 review 合同验收"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "当前组件其他新多页/厂家颜色规则继续保留；仅该回调及对应合同被核对，不将整个旧组件和整个提交判为已等价。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "a71a386ed24407201832a885542fbfeb64b8198640bc5ecc9cbc12a782ef5e0a",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": []
+    },
+    {
+      "legacyCommit": "1149e8721b12034505b88f5b70f00249f41032e0",
+      "subject": "fix: reject ambiguous raw material scan identities and record coverage",
+      "existingLedgerStatus": "deferred-semantic-review",
+      "suggestedStatus": "p1-semantics-transplanted-partial",
+      "businessReview": {
+        "kind": "manual-file-diff-and-current-contract-review",
+        "scope": [
+          "系统正式卷码优先唯一匹配；仅无正式匹配时尝试厂家号，重复厂家号/重复正式码都阻断；唯一厂家别名固定回正式卷码并保留实际库存状态校验。"
+        ],
+        "integrationCommit": "32ba0e702ee347ac3511e62ac68b2bd384e36c1c",
+        "sourceImplementationCommit": "112d90c650a87b140d2fe8d39df22e4a8ad229d2",
+        "currentEvidence": [
+          "src/domain/rawMaterialScanOutbound.js:18",
+          "src/features/raw-materials/RawMaterialScannerPage.jsx:123",
+          "scripts/check-raw-material-scan-identity.mjs"
+        ],
+        "validation": [
+          "node scripts/check-raw-material-scan-identity.mjs 已通过",
+          "node scripts/check-raw-material-first-release.mjs 已通过",
+          "npm run build 及前端分包预算已通过"
+        ],
+        "wholeCommitIntegrated": false,
+        "wholePatchEquivalent": false,
+        "remainder": "当前加入明确多义提示；旧 selectedTask 等扫码页面完整布局/任务前置流程未迁回，旧 first-release 碰撞断言改由独立新脚本覆盖；同提交旧审计文档不宣称已整合。"
+      },
+      "mechanicalSnapshot": {
+        "comparisonCommit": "92060c76526bab415f1c9ebb172adea5fd45ae01",
+        "sha256OfExistingMechanicalObject": "481be03cb4142147954193874e463e9286ab460dfcfdda78f37f49b40190f1b0",
+        "instruction": "保留大清单现有 mechanical 原文不变；本记录仅追加当前部分业务语义证据。"
+      },
+      "legacyFilesOutsideVerifiedScope": [
+        "02_问题或报错日志.md",
+        "docs/development/optimization-2026-09-05/current-issue-ledger.md",
+        "docs/development/optimization-2026-09-05/file-register-current-reconciliation.json",
+        "docs/development/optimization-2026-09-05/file-register.json",
+        "docs/development/optimization-2026-09-05/raw-material-coverage-current.md"
+      ]
+    }
+  ],
+  "summary": {
+    "suggestedPartialScopeUpdates": 8,
+    "wholeCommitsDeclaredIntegrated": 0,
+    "oldFilesVerifiedUnchanged": 59,
+    "note": "大清单汇总由主整合任务更新；本文件不擅自改写原机械比较统计，8条建议不等于8个旧提交完整移植。"
+  },
+  "furtherProtectionInCurrentImplementation": [
+    "确认前读取原幂等回执，若首次读取与原提交交错，在关闭状态下再查一次原回执。",
+    "create/link/confirm按revision单调合并，旧确认回执不会把后来库存回滚。",
+    "两个独立PG repository同键并发得到相同回执，不同键只允许一条库存流水。"
+  ],
+  "remainingBoundaries": [
+    "此前针对原料/库存相关116条deferred条目优先查看最新实质差异，并非逐条完成116条或全部516条业务语义审核；剩余优先级未重新确认，不能自动降级为P2。",
+    "供应商颜色映射明确ID/期望快照更新、过期编辑及并发合同尚未完成复现定级；本轮不宣称这些旧提交已整合。",
+    "normalizeRawMaterialColorKey广义色族匹配曾在原审核单独列为P2，本轮未扩大修复。",
+    "成本分配/确认、部分库存读模型与历史UI会话隔离未完成本轮语义核对。",
+    "已批准临时入库/待补标、当前多页原图与sourcePageIndex、供应商专属颜色映射和整卷策略继续保留；未恢复拒绝的分卷/余料规则。",
+    "没有进行正式数据写入、服务器部署、实体标签打印/贴标/真机扫码验收。"
+  ],
+  "verificationExecutionNote": "本次为文件/提交/保全证据核对，没有重复业务测试。以上通过结果来自此前自有修复树；本次逐文件比较确认纳入集成的全部所列代码/测试blob与已通过版本相同。",
+  "registrationVerified": {
+    "rawMaterialCommand": "package.json raw-material-inbound-api:check 包含 exclusion-summary 与 scan-identity",
+    "postgresCommand": "package.json p1-postgres:check 包含 check-p1-inventory-correction-postgres.mjs"
+  }
+}
