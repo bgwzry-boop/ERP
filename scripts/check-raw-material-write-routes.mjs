@@ -13,7 +13,7 @@ const dependencies = {
     },
   },
   body: { operatorId: "U-REQUESTED", expectedRevision: 1 },
-  permissionContext: { actionPermissions: [] },
+  permissionContext: { actionPermissions: ["raw_material.inbound.read"] },
   authContext: { userId: "U-AUTH" },
   writeActionPermissions: {
     reviewRawMaterialInbound: "raw_material.inbound.review",

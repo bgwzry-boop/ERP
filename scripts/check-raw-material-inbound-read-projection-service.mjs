@@ -45,6 +45,7 @@ const inbounds = [
 assert.deepEqual(normalizeRawMaterialInboundListQuery(new URLSearchParams({ keyword: "白侯", page: "2", pageSize: "10" })), {
   keyword: "白侯",
   status: "",
+  receiptStage: "",
   page: 2,
   pageSize: 10,
 });
