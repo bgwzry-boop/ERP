@@ -1,3 +1,4 @@
+import { acceptsWorkspaceRecordVersion } from "./workspaceRecordVersion.mjs";
 import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
 import { buildPrintTodoRecoveryCtes, recoverLocalPrintTodo, printTodoRecoveryResultSql } from "./fulfillmentPrintTodoRecovery.mjs";
@@ -308,7 +309,9 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       ],
       query,
     });
-    const saved = normalizeFulfillmentActionTransactionResult(await idempotentTransactionJson(idempotencyRequest));
+    const result = await idempotentTransactionJson({ ...idempotencyRequest, includeReplayMetadata: true });
+    const hasReplayMetadata = typeof result?.replayed === "boolean" && Object.hasOwn(result, "value");
+    const saved = normalizeFulfillmentActionTransactionResult(hasReplayMetadata ? result.value : result);
     if (!saved.fulfillment) {
       throw new Error("PostgreSQL fulfillment action transaction returned an invalid result");
     }
@@ -318,8 +321,17 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       mergeFulfillmentPrintCurrentState(input.workspace, current);
       return saved;
     }
+    // A receipt is immutable history, not a current workspace snapshot. Two
+    // callers can both miss the pre-read and the second can replay inside the
+    // pool after a later command has already advanced this shared workspace.
+    if (hasReplayMetadata && result.replayed) return saved;
+    const current = (input.workspace?.fulfillments ?? []).find(
+      (record) => (record.fulfillmentId ?? record.id) === saved.fulfillment.fulfillmentId,
+    );
+    if (!acceptsWorkspaceRecordVersion(current, saved.fulfillment)) return saved;
     applyFulfillmentActionWorkspaceMutation({
       workspace: input.workspace,
+      preserveNewerRecords: true,
       fulfillment: { ...input.fulfillment, ...saved.fulfillment },
       printRecord: saved.printRecord ? { ...input.printRecord, ...saved.printRecord } : null,
       printJob: saved.printJob ? { ...input.printJob, ...saved.printJob } : null,
@@ -910,65 +922,72 @@ function applyFulfillmentDecisionWorkspaceMutation(workspace, businessDecision, 
 function applyFulfillmentActionWorkspaceMutation(input) {
   const workspace = input.workspace;
   if (!workspace) return;
-  workspace.fulfillments = upsertById(workspace.fulfillments ?? [], toWorkspaceFulfillment(input.fulfillment));
+  const upsert = input.preserveNewerRecords ? upsertCurrentById : upsertById;
+  workspace.fulfillments = upsert(workspace.fulfillments ?? [], toWorkspaceFulfillment(input.fulfillment));
   if (input.printRecord) {
-    workspace.printRecords = upsertById(workspace.printRecords ?? [], input.printRecord, getPrintRecordId);
+    workspace.printRecords = upsert(workspace.printRecords ?? [], input.printRecord, getPrintRecordId);
   }
   if (input.printJob) {
-    workspace.printJobs = upsertById(workspace.printJobs ?? [], input.printJob, getPrintJobId);
+    workspace.printJobs = upsert(workspace.printJobs ?? [], input.printJob, getPrintJobId);
   }
   if (input.paperOutboundDocument) {
-    workspace.paperOutboundDocuments = upsertById(
+    workspace.paperOutboundDocuments = upsert(
       workspace.paperOutboundDocuments ?? [],
       toWorkspacePaperOutboundDocument(input.paperOutboundDocument),
       getPaperOutboundDocumentId,
     );
   }
   if (input.warehouseOutboundExecution) {
-    workspace.warehouseOutboundExecutions = upsertById(
+    workspace.warehouseOutboundExecutions = upsert(
       workspace.warehouseOutboundExecutions ?? [],
       toWorkspaceWarehouseOutboundExecution(input.warehouseOutboundExecution),
       getWarehouseOutboundExecutionId,
     );
   }
   for (const packageRecord of normalizePackages(input.packages ?? [])) {
-    workspace.packages = upsertById(workspace.packages ?? [], toWorkspacePackage(packageRecord), getPackageId);
+    workspace.packages = upsert(workspace.packages ?? [], toWorkspacePackage(packageRecord), getPackageId);
   }
   if (input.fulfillmentException) {
-    workspace.fulfillmentExceptions = upsertById(
+    workspace.fulfillmentExceptions = upsert(
       workspace.fulfillmentExceptions ?? [],
       toWorkspaceFulfillmentException(input.fulfillmentException),
     );
   }
   if (Array.isArray(input.inventoryItems)) {
-    applyWorkspaceInventoryItems(workspace, input.inventoryItems);
+    applyWorkspaceInventoryItems(workspace, input.inventoryItems, input.preserveNewerRecords);
   } else {
     applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
   }
   for (const reservation of normalizeInventoryReservations(input.inventoryReservations ?? [])) {
-    workspace.inventoryReservations = upsertById(
+    workspace.inventoryReservations = upsert(
       workspace.inventoryReservations ?? [],
       toWorkspaceInventoryReservation(reservation),
     );
   }
   for (const ledgerEntry of normalizeInventoryLedgerEntries(input.inventoryLedgerEntries ?? [])) {
-    workspace.inventoryLedgers = upsertById(workspace.inventoryLedgers ?? [], toWorkspaceInventoryLedgerEntry(ledgerEntry));
+    workspace.inventoryLedgers = upsert(workspace.inventoryLedgers ?? [], toWorkspaceInventoryLedgerEntry(ledgerEntry));
   }
   if (input.statement) {
-    workspace.statements = upsertById(workspace.statements ?? [], input.statement);
+    workspace.statements = upsert(workspace.statements ?? [], input.statement);
   }
   if (input.statementLine) {
-    workspace.statementLines = upsertById(workspace.statementLines ?? [], input.statementLine);
+    workspace.statementLines = upsert(workspace.statementLines ?? [], input.statementLine);
   }
   if (input.todo) {
-    workspace.todos = upsertById(workspace.todos ?? [], input.todo);
+    workspace.todos = upsert(workspace.todos ?? [], input.todo);
   }
   if (input.operationLog) {
-    workspace.operationLogs = upsertById(workspace.operationLogs ?? [], input.operationLog);
+    workspace.operationLogs = upsert(workspace.operationLogs ?? [], input.operationLog);
   }
   if (input.printJobOperationLog) {
-    workspace.operationLogs = upsertById(workspace.operationLogs ?? [], input.printJobOperationLog);
+    workspace.operationLogs = upsert(workspace.operationLogs ?? [], input.printJobOperationLog);
   }
+}
+
+function upsertCurrentById(rows, row, getId = (value) => value?.id) {
+  if (!row) return rows;
+  const previous = rows.find((item) => getId(item) === getId(row));
+  return acceptsWorkspaceRecordVersion(previous, row) ? upsertById(rows, row, getId) : rows;
 }
 
 function upsertById(rows, row, getId = (value) => value?.id) {
@@ -1138,12 +1157,12 @@ function applyWorkspaceInventoryAdjustments(workspace, inventoryAdjustments) {
   });
 }
 
-function applyWorkspaceInventoryItems(workspace, inventoryItems) {
+function applyWorkspaceInventoryItems(workspace, inventoryItems, preserveNewerRecords = false) {
   const committedItems = new Map(normalizeInventoryItems(inventoryItems).map((item) => [item.inventoryItemId, item]));
   if (!Array.isArray(workspace.inventories) || committedItems.size === 0) return;
   workspace.inventories = workspace.inventories.map((inventory) => {
     const committed = committedItems.get(inventory.id ?? inventory.inventoryItemId);
-    if (!committed) return inventory;
+    if (!committed || (preserveNewerRecords && !acceptsWorkspaceRecordVersion(inventory, committed))) return inventory;
     return {
       ...inventory,
       inStock: committed.onHandQty,

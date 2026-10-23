@@ -70,7 +70,73 @@ try {
   assert.equal(await driverReader.getDriverDeliveryTask({ fulfillmentId:'F002', operatorId:'U-OFFICE-B' }),null);
   const replay=await repository.findDriverExceptionResolutionReplay({workspace,body,operatorId:'U-OFFICE-A'}); assert.equal(replay.replayed,true); assert.equal(replay.fulfillment.status,'配送中');
   assert.equal((await pool.query("SELECT count(*)::int AS count FROM operation_logs WHERE id='LOG-RESOLVE'")).rows[0].count,1);
-  console.log(`Driver resolution PostgreSQL passed: ${migrations.length} migrations, actual concurrent todo lock wait, atomic rollback, refreshed recovery, original handler and exception preservation, exact replay.`);
+  // Both callers miss the service pre-read before either can enter the pool's
+  // business lock. Deliver their actual database receipts only after a later
+  // persisted version has reached the shared workspace.
+  await pool.query(`UPDATE fulfillment_records SET status='送货异常',revision=10 WHERE id='F002';
+    INSERT INTO todos(id,biz_no,type,ref_type,ref_id,priority,status,summary) VALUES ('TODO-POOL-REPLAY','TODO-POOL-REPLAY','送货异常待处理','fulfillment','F002','normal','未处理','第二次联系客户');
+    INSERT INTO fulfillment_exceptions(id,fulfillment_id,exception_type,expected_qty,actual_qty,reason_code,reason,todo_id,reported_by) VALUES ('EX-POOL-REPLAY','F002','delivery_exception',1200,0,'customer_unavailable','客户稍后接货','TODO-POOL-REPLAY','U-DRIVER-A');`);
+  const raceWorkspace = await coldReader();
+  const raceBody = { ...body, exceptionId:'EX-POOL-REPLAY', expectedRevision:10, idempotencyKey:'resolve-pool-race' };
+  const poolReceipts = [];
+  let signalBothReceipts, releaseReceipts;
+  const bothReceipts = new Promise(resolve => { signalBothReceipts=resolve; });
+  const receiptDelivery = new Promise(resolve => { releaseReceipts=resolve; });
+  const actualClient = createPostgresPoolClient({pool});
+  const raceRepository = createPostgresFulfillmentActionTransactionRepository({postgresClient:{
+    ...actualClient,
+    async idempotentTransactionJson(request) {
+      // Always observe pool metadata in the test, but return the exact interface
+      // the repository requested. No SQL, receipt or replay decision is mocked.
+      const result=await actualClient.idempotentTransactionJson({...request,includeReplayMetadata:true});
+      poolReceipts.push(result);if(poolReceipts.length===2)signalBothReceipts();
+      await receiptDelivery;
+      return request.includeReplayMetadata===true?result:result.value;
+    },
+  }});
+  const raceInput = () => {
+    const prepared=prepareDriverDeliveryExceptionResolution({workspace:raceWorkspace,fulfillmentId:'F002',body:raceBody,operatorId:'U-OFFICE-A'});
+    assert.equal(prepared.ok,true,JSON.stringify(prepared));
+    return {workspace:raceWorkspace,idempotencyKey:raceBody.idempotencyKey,idempotencyPayload:{...raceBody,operatorId:'U-OFFICE-A'},fulfillment:prepared.after,fulfillmentException:prepared.updatedException,driverExceptionBefore:prepared.exception,driverExceptionTodoBefore:prepared.currentTodo,todo:prepared.todo,operationLog:{id:'LOG-POOL-REPLAY',targetType:'fulfillment',targetId:'F002',action:'resolve_driver_delivery_exception',operatorId:'U-OFFICE-A',before:{fulfillment:prepared.before,exception:prepared.exception,todo:prepared.currentTodo},after:{fulfillment:prepared.after,exception:prepared.updatedException,todo:prepared.todo},reason:prepared.reason}};
+  };
+  const firstRaceInput=raceInput(),secondRaceInput=raceInput();
+  for(let call=0;call<2;call++)assert.equal(await raceRepository.findDriverExceptionResolutionReplay({workspace:raceWorkspace,body:raceBody,operatorId:'U-OFFICE-A'}),null,'both pre-reads must miss');
+  const raceLocker=await pool.connect();
+  try {
+    await raceLocker.query("SELECT pg_advisory_lock(hashtextextended($1::text,0))",['fulfillment:F002']);
+    const firstRace=raceRepository.recordFulfillmentAction(firstRaceInput);
+    const secondRace=raceRepository.recordFulfillmentAction(secondRaceInput);
+    let bothWaiting=false;
+    for(let attempt=0;attempt<200;attempt++){
+      const {rows}=await pool.query("SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory' AND query LIKE '%pg_advisory_xact_lock%'");
+      if(rows[0].count>=2){bothWaiting=true;break;}
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    assert.equal(bothWaiting,true,'both actual pool calls must wait before the statement snapshot');
+    await raceLocker.query('SELECT pg_advisory_unlock_all()');
+    let receiptTimeout;
+    try { await Promise.race([bothReceipts,new Promise((_,reject)=>{receiptTimeout=setTimeout(()=>reject(new Error('Both pool receipts did not return')),10000);})]); }
+    finally { clearTimeout(receiptTimeout); }
+    assert.deepEqual(poolReceipts.map(result=>result.replayed).sort(),[false,true],'one committed SQL write and one internal pool replay');
+    await pool.query(`UPDATE fulfillment_records SET status='已交付',revision=revision+1,delivered_at='2026-10-23T04:00:00Z',final_delivery_at='2026-10-23T04:00:00Z' WHERE id='F002';
+      UPDATE todos SET handled_by='U-OFFICE-B',handling_result='后续交付已复核',updated_at=now() WHERE id='TODO-POOL-REPLAY';`);
+    Object.assign(raceWorkspace,await coldReader());
+    const currentWorkspace=JSON.stringify(raceWorkspace);
+    releaseReceipts();
+    const outcomes=await Promise.all([firstRace,secondRace]);
+    assert.deepEqual(outcomes[0],outcomes[1],'original same-key business receipt stays identical');
+    assert.equal(outcomes[0].fulfillment.status,'配送中');assert.equal(outcomes[0].fulfillment.revision,11);
+    assert.equal(Object.hasOwn(outcomes[0],'value'),false,'pool metadata must not leak into business receipts');
+    assert.equal(JSON.stringify(raceWorkspace),currentWorkspace,'neither delayed new-write nor pool replay may restore older cache rows');
+    const latest=(await pool.query("SELECT status,revision FROM fulfillment_records WHERE id='F002'")).rows[0];
+    assert.deepEqual(latest,{status:'已交付',revision:12});
+    assert.equal((await pool.query("SELECT count(*)::int AS count FROM operation_logs WHERE id='LOG-POOL-REPLAY'")).rows[0].count,1);
+    assert.equal((await pool.query("SELECT count(*)::int AS count FROM operation_idempotency_keys WHERE scope='fulfillment.resolve_driver_delivery_exception' AND idempotency_key='resolve-pool-race'")).rows[0].count,1);
+    assert.equal(raceWorkspace.todos.find(item=>item.id==='TODO-POOL-REPLAY').handlingResult,'后续交付已复核');
+  } finally {
+    releaseReceipts();await raceLocker.query('SELECT pg_advisory_unlock_all()');raceLocker.release();
+  }
+  console.log(`Driver resolution PostgreSQL passed: ${migrations.length} migrations, actual todo lock rollback/recovery, immutable evidence; two pre-read misses plus observed pool wait produce one new receipt and one replay, both retain later persisted/cache revision.`);
 } finally {
   if(blocker){await blocker.query('ROLLBACK');blocker.release();}
   await pool?.end();
