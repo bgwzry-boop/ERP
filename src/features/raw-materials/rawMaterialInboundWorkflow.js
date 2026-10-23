@@ -1,3 +1,5 @@
+import { readRecordNumber, formatRecordQuantity, formatRecordWeight, formatRecordMoney, formatRecordRate, formatRecordOrderLines } from "./rawMaterialRecordValues.js";
+import { selectUncalibratedRawMaterialConfirmations } from "../../../shared/rawMaterialLossScope.js";
 import {resolveRawMaterialCostUnit} from "../../../shared/rawMaterialCostUnit.js";
 import {rawMaterialConsumptionCostBasis} from "../../../shared/rawMaterialConsumptionCostBasis.js";
 import {resolveRawMaterialCostPrice} from "../../../shared/rawMaterialCostPrice.js";
@@ -16,14 +18,7 @@ export function canConfirmRawMaterialCostDraft(item = {}) {
 }
 
 export function canCalibrateRawMaterialLoss(item = {}) {
-  const calibratedConfirmationIds = new Set(
-    (item.rawMaterialCostLossCalibrations ?? [])
-      .flatMap((record) => [record.costConfirmationId, ...(record.costConfirmationIds ?? [])])
-      .filter(Boolean),
-  );
-  return (item.rawMaterialCostAllocationConfirmations ?? []).some(
-    (record) => !calibratedConfirmationIds.has(record.costConfirmationId) && record.lossCalibrationStatus !== "已校准/待毛利确认",
-  );
+  return selectUncalibratedRawMaterialConfirmations(item.rawMaterialCostAllocationConfirmations, item.rawMaterialCostLossCalibrations).length > 0;
 }
 
 export function canGenerateRawMaterialMarginSnapshot(item = {}) {
@@ -239,10 +234,18 @@ export function buildRawMaterialLabelVerificationDraft(item = {}, roll = {}) {
 export function formatRawMaterialLabelVerification(roll = {}) {
   const verification = roll.labelVerification;
   if (!verification) return roll.labelStatus === "已打印待贴标" ? "待逐卷人工核对" : "未记录核对";
-  const result = verification.matchResult === "mismatched" ? "实物不符，已隔离" : "实物一致";
-  const version = verification.labelVersion || roll.labelVersion;
-  const verifier = verification.verifiedByUserId || roll.labelVerifiedByUserId || "操作人待补";
-  return `${result} · 标签V${version || "?"} · ${verifier}`;
+  const resultCode = String(verification.resultCode || verification.matchResult || verification.result || "").trim().toLowerCase();
+  const matched = ["matched", "match", "匹配", "一致"].includes(resultCode);
+  const mismatched = ["mismatched", "mismatch", "不匹配", "不一致"].includes(resultCode);
+  const result = mismatched ? "实物不符" : matched ? "实物一致" : "核对结果待核实";
+  const version = Number(verification.labelVersion);
+  const hasVersion = Number.isInteger(version) && version > 0;
+  const currentVersion = Number(roll.labelVersion);
+  const stale = hasVersion && Number.isInteger(currentVersion) && currentVersion > 0 && version !== currentVersion;
+  const verifier = verification.verifiedByUserId || verification.verifiedBy || "操作人待补";
+  const summary = `${result} · 标签V${hasVersion ? version : "?"} · ${verifier}`;
+  // Audit evidence belongs to its recorded label, never to a newer printed label.
+  return stale ? `历史核对：${summary}；与当前标签V${currentVersion}不同，请重新核实` : summary;
 }
 
 export function formatRawMaterialOptionalAttachment(value) {
@@ -256,7 +259,7 @@ export function formatRawMaterialCost(item = {}, money) {
   const unitPrice = Number(item.unitPrice || 0);
   const amount = Number(item.amount || 0);
   const unit = item.unit || "单位";
-  return `${money(unitPrice)}/${unit} / ${money(amount)}`;
+  return `${money(unitPrice)}/${unit} / ${formatRecordMoney(amount, money)}`;
 }
 
 export function buildRawMaterialInboundTimeline(item = {}) {
@@ -289,8 +292,8 @@ export function buildRawMaterialInboundTimeline(item = {}) {
 }
 
 export function formatRawMaterialIssueRecord(record = {}) {
-  const quantity = Number(record.issuedWeightKg) > 0 ? `${record.issuedWeightKg}kg` : `${record.issuedQuantity || 1}${record.unit || "件"}`;
-  const splitText = record.splitRecordId ? ` / 源卷 ${record.sourceRollId || "待补"} / 剩余 ${record.remainingWeightKg || 0}kg` : "";
+  const quantity = formatRecordQuantity(record.issuedWeightKg, record.issuedQuantity, record.unit || "件");
+  const splitText = record.splitRecordId ? ` / 源卷 ${record.sourceRollId || "待补"} / 剩余 ${formatRecordWeight(record.remainingWeightKg)}` : "";
   const machineSideRemaining = Number(record.remainingMachineSideWeightKg || 0) > 0 ? ` / 机边余 ${record.remainingMachineSideWeightKg}kg` : "";
   const taskMatch = record.productionTaskMatchStatus ? ` / ${record.productionTaskMatchStatus}${record.productionTaskId ? ` ${record.productionTaskId}` : ""}` : "";
   return `${record.issueRecordId || "领料记录"}：${record.rollId || "卷号待补"} / ${quantity}${splitText}${machineSideRemaining} / ${record.machineId || "机边待分配"}${taskMatch} / ${record.consumptionStatus || "待生产消耗确认"}`;
@@ -298,7 +301,7 @@ export function formatRawMaterialIssueRecord(record = {}) {
 
 export function formatRawMaterialSplitRecord(record = {}) {
   const taskMatch = record.productionTaskMatchStatus ? ` / ${record.productionTaskMatchStatus}${record.productionTaskId ? ` ${record.productionTaskId}` : ""}` : "";
-  return `${record.splitRecordId || "拆卷记录"}：${record.sourceRollId || "源卷待补"} -> ${record.issuedRollId || "机边卷待补"} / 领 ${record.issuedWeightKg || 0}kg / 余 ${record.remainingWeightKg || 0}kg / ${record.machineId || "机边待分配"}${taskMatch}`;
+  return `${record.splitRecordId || "拆卷记录"}：${record.sourceRollId || "源卷待补"} -> ${record.issuedRollId || "机边卷待补"} / 领 ${formatRecordWeight(record.issuedWeightKg)} / 余 ${formatRecordWeight(record.remainingWeightKg)} / ${record.machineId || "机边待分配"}${taskMatch}`;
 }
 
 export function formatRawMaterialTaskMatch(item = {}) {
@@ -311,19 +314,19 @@ export function formatRawMaterialTaskMatch(item = {}) {
 }
 
 export function formatRawMaterialConsumptionRecord(record = {}) {
-  const quantity = Number(record.consumedWeightKg) > 0 ? `${record.consumedWeightKg}kg` : `${record.consumedQuantity || 1}${record.unit || "件"}`;
+  const quantity = formatRecordQuantity(record.consumedWeightKg, record.consumedQuantity, record.unit || "件");
   const remaining = Number(record.remainingMachineSideWeightKg || 0) > 0 ? ` / 机边余 ${record.remainingMachineSideWeightKg}kg` : "";
   return `${record.consumptionRecordId || "消耗记录"}：${record.rollId || "卷号待补"} / ${quantity}${remaining} / ${record.machineId || "机边待分配"} / ${record.consumptionStatus || "已确认消耗"}`;
 }
 
 export function formatRawMaterialLeftoverReturnRecord(record = {}) {
-  const quantity = Number(record.leftoverWeightKg) > 0 ? `${record.leftoverWeightKg}kg` : `${record.leftoverQuantity || 1}${record.unit || "件"}`;
+  const quantity = formatRecordQuantity(record.leftoverWeightKg, record.leftoverQuantity, record.unit || "件");
   const status = record.reviewStatus || record.consumptionStatus || "待复核";
   return `${record.leftoverReturnRecordId || "余料记录"}：${record.rollId || "卷号待补"} / ${quantity} / ${record.returnLocation || "余料区"} / ${status}`;
 }
 
 export function formatRawMaterialLeftoverReviewRecord(record = {}) {
-  const quantity = Number(record.reviewedWeightKg) > 0 ? `${record.reviewedWeightKg}kg` : `${record.reviewedQuantity || 1}${record.unit || "件"}`;
+  const quantity = formatRecordQuantity(record.reviewedWeightKg, record.reviewedQuantity, record.unit || "件");
   return `${record.leftoverReviewRecordId || "余料复核"}：${record.rollId || "卷号待补"} / ${quantity} / ${record.reviewLocation || "原料库-余料可用区"} / 可用`;
 }
 
@@ -331,95 +334,91 @@ export function formatRawMaterialCostDraftSummary(item = {}, canViewCost = false
   const count = item.rawMaterialCostAllocationDrafts?.length || item.costAllocationDraftCount || 0;
   if (!count) return "未生成";
   const status = item.costAllocationStatus || "成本草稿待复核";
-  const amount = Number(item.costAllocationDraftAmount || 0);
-  return canViewCost && amount > 0 ? `${status} / ${count} 条 / ${money(amount)}` : `${status} / ${count} 条`;
+  const amount = item.costAllocationDraftAmount;
+  return canViewCost ? `${status} / ${count} 条 / ${formatRecordMoney(amount, money)}` : `${status} / ${count} 条`;
 }
 
 export function formatRawMaterialCostConfirmationSummary(item = {}, canViewCost = false, money = (value) => `¥${value}`) {
   const count = item.rawMaterialCostAllocationConfirmations?.length || item.costAllocationConfirmedCount || 0;
   if (!count) return "未确认";
   const status = item.costAllocationReviewStatus || item.costAllocationStatus || "已复核/待损耗校准";
-  const amount = Number(item.costAllocationConfirmedAmount || 0);
-  return canViewCost && amount > 0 ? `${status} / ${count} 次 / ${money(amount)}` : `${status} / ${count} 次`;
+  const amount = item.costAllocationConfirmedAmount;
+  return canViewCost ? `${status} / ${count} 次 / ${formatRecordMoney(amount, money)}` : `${status} / ${count} 次`;
 }
 
 export function formatRawMaterialLossCalibrationSummary(item = {}, canViewCost = false, money = (value) => `¥${value}`) {
   const count = item.rawMaterialCostLossCalibrations?.length || item.lossCalibrationCount || 0;
   if (!count) return "待校准";
   const status = item.lossCalibrationStatus || item.costAllocationReviewStatus || "已校准/待毛利确认";
-  const amount = Number(item.lossCalibrationAmount || 0);
-  const rate = Number(item.lossCalibrationRatePercent || 0);
-  const rateText = rate > 0 ? ` / 损耗 ${rate}%` : "";
-  return canViewCost && amount > 0 ? `${status} / ${count} 次${rateText} / ${money(amount)}` : `${status} / ${count} 次${rateText}`;
+  const amount = item.lossCalibrationAmount;
+  const rate = item.lossCalibrationRatePercent;
+  const rateText = formatRecordRate(rate, "损耗 ");
+  return canViewCost ? `${status} / ${count} 次${rateText} / ${formatRecordMoney(amount, money)}` : `${status} / ${count} 次${rateText}`;
 }
 
 export function formatRawMaterialMarginSnapshotSummary(item = {}, canViewCost = false, money = (value) => `¥${value}`) {
   const count = item.rawMaterialOrderMarginSnapshots?.length || item.marginSnapshotCount || 0;
   if (!count) return "待生成";
   const status = item.marginSnapshotStatus || item.costAllocationReviewStatus || "已生成/待财务复核";
-  const grossProfit = Number(item.marginSnapshotGrossProfitAmount || 0);
-  const rate = Number(item.marginSnapshotGrossMarginRatePercent || 0);
-  const rateText = rate ? ` / ${rate}%` : "";
-  return canViewCost ? `${status} / ${count} 次 / 毛利 ${money(grossProfit)}${rateText}` : `${status} / ${count} 次`;
+  const grossProfit = item.marginSnapshotGrossProfitAmount;
+  const rate = item.marginSnapshotGrossMarginRatePercent;
+  const rateText = formatRecordRate(rate);
+  return canViewCost ? `${status} / ${count} 次 / 毛利 ${formatRecordMoney(grossProfit, money)}${rateText}` : `${status} / ${count} 次`;
 }
 
 export function formatRawMaterialMarginReportSummary(item = {}, canViewCost = false, money = (value) => `¥${value}`) {
   const count = item.rawMaterialOrderMarginReports?.length || item.marginReportCount || 0;
   if (!count) return "待复核";
   const status = item.marginReportStatus || item.costAllocationReviewStatus || "已生成内部毛利报表";
-  const grossProfit = Number(item.marginReportGrossProfitAmount || item.marginSnapshotGrossProfitAmount || 0);
-  const rate = Number(item.marginReportGrossMarginRatePercent || item.marginSnapshotGrossMarginRatePercent || 0);
-  const rateText = rate ? ` / ${rate}%` : "";
-  return canViewCost ? `${status} / ${count} 次 / 毛利 ${money(grossProfit)}${rateText}` : `${status} / ${count} 次`;
+  const grossProfit = item.marginReportGrossProfitAmount;
+  const rate = item.marginReportGrossMarginRatePercent;
+  const rateText = formatRecordRate(rate);
+  return canViewCost ? `${status} / ${count} 次 / 毛利 ${formatRecordMoney(grossProfit, money)}${rateText}` : `${status} / ${count} 次`;
 }
 
 export function formatRawMaterialCostAllocationDraft(record = {}, canViewCost = false, money = (value) => `¥${value}`) {
-  const quantity = Number(record.allocatedWeightKg) > 0
-    ? `${record.allocatedWeightKg}kg`
-    : `${record.allocatedQuantity || 1}${record.unit || "件"}`;
-  const amount = canViewCost ? ` / ${money(record.allocatedCostAmount || 0)}` : "";
+  const quantity = formatRecordQuantity(record.allocatedWeightKg, record.allocatedQuantity, record.unit || "件");
+  const amount = canViewCost ? ` / ${formatRecordMoney(record.allocatedCostAmount, money)}` : "";
   const task = record.productionTaskId ? ` / ${record.productionTaskId}` : "";
   const goods = record.productionTaskGoodsSpec ? ` / ${record.productionTaskGoodsSpec}` : "";
   return `${record.costAllocationDraftId || "成本草稿"}：${record.rollId || "卷号待补"} / ${quantity}${amount}${task}${goods} / ${record.allocationStatus || "草稿/待成本复核"}`;
 }
 
 export function formatRawMaterialCostAllocationConfirmation(record = {}, canViewCost = false, money = (value) => `¥${value}`) {
-  const quantity = Number(record.confirmedWeightKg) > 0
-    ? `${record.confirmedWeightKg}kg`
-    : `${record.confirmedQuantity || record.confirmedCount || 1}项`;
-  const amount = canViewCost ? ` / ${money(record.confirmedCostAmount || 0)}` : "";
+  const quantity = formatRecordQuantity(record.confirmedWeightKg, record.confirmedQuantity ?? record.confirmedCount, "项");
+  const amount = canViewCost ? ` / ${formatRecordMoney(record.confirmedCostAmount, money)}` : "";
   const tasks = record.productionTaskIds?.length ? ` / ${record.productionTaskIds.join(",")}` : "";
   return `${record.costConfirmationId || "成本确认"}：${quantity}${amount}${tasks} / ${record.reviewStatus || "已复核/待损耗校准"}`;
 }
 
 export function formatRawMaterialCostLossCalibration(record = {}, canViewCost = false, money = (value) => `¥${value}`) {
-  const quantity = Number(record.actualQualifiedOutputQuantity || 0) > 0 && Number(record.expectedOutputQuantity || 0) > 0
-    ? `${record.actualQualifiedOutputQuantity}/${record.expectedOutputQuantity} 合格`
-    : `${record.confirmedWeightKg || record.confirmedCount || 1}项`;
-  const amount = canViewCost ? ` / ${money(record.confirmedCostAmount || 0)}` : "";
-  const rate = Number(record.lossRatePercent || 0) > 0 ? ` / 损耗 ${record.lossRatePercent}%` : "";
+  const actual = readRecordNumber(record.actualQualifiedOutputQuantity);
+  const expected = readRecordNumber(record.expectedOutputQuantity);
+  const quantity = actual !== null && actual >= 0 && expected !== null && expected > 0
+    ? `${actual}/${expected} 合格`
+    : `产量待核实 / ${formatRecordQuantity(record.confirmedWeightKg, record.confirmedCount, "项")}`;
+  const amount = canViewCost ? ` / ${formatRecordMoney(record.confirmedCostAmount, money)}` : "";
+  const rate = formatRecordRate(record.lossRatePercent, "损耗 ");
   const tasks = record.productionTaskIds?.length ? ` / ${record.productionTaskIds.join(",")}` : "";
   return `${record.lossCalibrationId || "损耗校准"}：${quantity}${amount}${rate}${tasks} / ${record.calibrationStatus || "已校准/待毛利确认"}`;
 }
 
 export function formatRawMaterialOrderMarginSnapshot(record = {}, canViewCost = false, money = (value) => `¥${value}`) {
-  const lineCount = record.lineItems?.length || record.orderLineIds?.length || 0;
   const amount = canViewCost
-    ? ` / 收 ${money(record.totalSalesAmount || 0)} / 料 ${money(record.totalMaterialCostAmount || 0)} / 毛利 ${money(record.grossProfitAmount || 0)}`
+    ? ` / 收 ${formatRecordMoney(record.totalSalesAmount, money)} / 料 ${formatRecordMoney(record.totalMaterialCostAmount, money)} / 毛利 ${formatRecordMoney(record.grossProfitAmount, money)}`
     : "";
-  const rate = canViewCost && Number(record.grossMarginRatePercent || 0) ? ` / ${record.grossMarginRatePercent}%` : "";
+  const rate = canViewCost ? formatRecordRate(record.grossMarginRatePercent) : "";
   const lines = record.orderLineIds?.length ? ` / ${record.orderLineIds.join(",")}` : "";
-  return `${record.marginSnapshotId || "毛利快照"}：${lineCount || 1} 单${amount}${rate}${lines} / ${record.reviewStatus || "已生成/待财务复核"}`;
+  return `${record.marginSnapshotId || "毛利快照"}：${formatRecordOrderLines(record)}${amount}${rate}${lines} / ${record.reviewStatus || "已生成/待财务复核"}`;
 }
 
 export function formatRawMaterialOrderMarginReport(record = {}, canViewCost = false, money = (value) => `¥${value}`) {
-  const lineCount = record.lineItems?.length || record.orderLineIds?.length || 0;
   const amount = canViewCost
-    ? ` / 收 ${money(record.totalSalesAmount || 0)} / 料 ${money(record.totalMaterialCostAmount || 0)} / 毛利 ${money(record.grossProfitAmount || 0)}`
+    ? ` / 收 ${formatRecordMoney(record.totalSalesAmount, money)} / 料 ${formatRecordMoney(record.totalMaterialCostAmount, money)} / 毛利 ${formatRecordMoney(record.grossProfitAmount, money)}`
     : "";
-  const rate = canViewCost && Number(record.grossMarginRatePercent || 0) ? ` / ${record.grossMarginRatePercent}%` : "";
+  const rate = canViewCost ? formatRecordRate(record.grossMarginRatePercent) : "";
   const snapshots = record.marginSnapshotIds?.length ? ` / 快照 ${record.marginSnapshotIds.join(",")}` : "";
-  return `${record.marginReportId || "毛利报表"}：${lineCount || 1} 单${amount}${rate}${snapshots} / ${record.reviewStatus || "已财务复核/报表可用"}`;
+  return `${record.marginReportId || "毛利报表"}：${formatRecordOrderLines(record)}${amount}${rate}${snapshots} / ${record.reviewStatus || "已财务复核/报表可用"}`;
 }
 
 export function formatRawMaterialTimelineTime(value) {

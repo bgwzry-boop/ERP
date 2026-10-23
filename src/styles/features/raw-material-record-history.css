@@ -1,0 +1,10 @@
+.raw-material-record-history { display: grid; gap: 16px; min-width: 0; }
+.raw-material-record-history .record-history-order { margin: 4px 0 0; color: var(--erp-muted, #536373); font-size: 13px; }
+.raw-material-record-history section { border-top: 1px solid var(--erp-border, #dce2e8); padding-top: 12px; min-width: 0; }
+.raw-material-record-history h4 { display: flex; align-items: baseline; gap: 12px; margin: 0 0 8px; font-size: 14px; }
+.raw-material-record-history h4 span { font-size: 12px; font-weight: 400; color: var(--erp-muted, #536373); }
+.raw-material-record-history ol { margin: 0; padding: 0; list-style: none; }
+.raw-material-record-history li { padding: 8px 0; line-height: 1.6; font-size: 13px; overflow-wrap: anywhere; }
+.raw-material-record-history li + li { border-top: 1px solid var(--erp-border, #e8edf1); }
+.raw-material-record-history summary { box-sizing: border-box; min-height: 44px; padding: 12px 0; font-size: 13px; color: var(--erp-accent, #2563c5); cursor: pointer; }
+.raw-material-record-history summary:focus-visible { outline: 2px solid var(--erp-accent, #2563c5); outline-offset: 2px; }

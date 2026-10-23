@@ -546,7 +546,7 @@ function MobilePrinterFacts({ printer }) {
       <div>
         <small>型号</small>
         <strong>{printer.name}</strong>
-        <span className={printer.ready ? "is-ready" : ""}>{printer.connection}</span>
+        <span>{printer.connection}</span>
       </div>
       <button type="button">更换</button>
     </section>
@@ -812,29 +812,26 @@ function MobileActionMessage({ message }) {
 }
 
 function getMobilePrinter(printerDeviceQa = {}) {
-  const selectedDevice = (printerDeviceQa.devices ?? []).find((item) => item.printDeviceId === printerDeviceQa.selectedDeviceId)
-    ?? printerDeviceQa.devices?.[0]
-    ?? null;
-  const accepted = selectedDevice?.latestFieldTestRecord?.summary?.acceptance?.ready === true
-    || printerDeviceQa.latestRecord?.summary?.acceptance?.ready === true;
-  const mobilePrinterReady = Boolean(selectedDevice && accepted);
-  const connectionType = selectedDevice?.connectionType || printerDeviceQa.driverLabel || "";
-  const connection = mobilePrinterReady
-    ? `${connectionType || "设备"}${String(connectionType).includes("已连接") ? "" : "已连接"}`
-    : connectionType || "待读取";
+  const devices = printerDeviceQa.devices ?? [];
+  const selectedDevice = devices.find((item) => item.printDeviceId === printerDeviceQa.selectedDeviceId) ?? null;
+  const record = selectedDevice && printerDeviceQa.latestRecord?.printDeviceId === selectedDevice.printDeviceId
+    ? printerDeviceQa.latestRecord : selectedDevice?.latestFieldTestRecord;
+  const accepted = Boolean(selectedDevice
+    && record?.printDeviceId === selectedDevice.printDeviceId
+    && record?.summary?.acceptance?.ready === true);
+  const mobilePrinterReady = Boolean(selectedDevice?.status === "active" && accepted
+    && !printerDeviceQa.loading && !printerDeviceQa.error);
+  // The device projection contains a connection method, not a live connection probe.
+  const connection = printerDeviceQa.loading ? "正在读取设备"
+    : printerDeviceQa.error ? "设备读取失败"
+    : !selectedDevice ? "未选择有效设备"
+    : selectedDevice.status !== "active" ? "设备已停用"
+    : "连接状态待确认";
   return {
     connection,
-    name: selectedDevice?.name || printerDeviceQa.deviceLabel || "未选择打印机",
+    name: selectedDevice?.name || "未选择打印机",
     ready: mobilePrinterReady,
-    status: printerDeviceQa.loading
-      ? "读取中"
-      : printerDeviceQa.error
-        ? "读取失败"
-        : selectedDevice && accepted
-          ? "已连接 · 已验收"
-          : selectedDevice
-            ? "待现场验收"
-            : "未选择设备",
+    status: !selectedDevice ? "未选择设备" : accepted ? "已有现场验收记录" : "待现场验收",
   };
 }
 
@@ -850,8 +847,18 @@ function getRollSpec(roll = {}, selected = {}) {
 function formatCompletionTime(record = {}) {
   const value = String(record.completedAt || record.updatedAt || record.receivedAt || "").trim();
   if (!value) return "已完成";
-  const time = value.match(/(?:今天\s*)?(\d{1,2}:\d{2})/u)?.[1];
-  return time ? `今天 ${time}` : value.slice(0, 10);
+  // Stored relative text and time-only values cannot establish the completion day.
+  if (!/^\d{4}-\d{2}-\d{2}(?:$|[T\s])/u.test(value)) return "完成时间待核实";
+  const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/iu.test(value);
+  if (zoned) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "完成时间待核实";
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).format(date);
+  }
+  return value.slice(0, 16).replace("T", " ");
 }
 
 function countResolvedRolls(selected = {}) {

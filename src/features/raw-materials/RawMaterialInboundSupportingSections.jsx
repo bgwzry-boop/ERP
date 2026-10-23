@@ -1,3 +1,4 @@
+import { RawMaterialRecordHistory } from "./RawMaterialRecordHistory.jsx";
 import { InfoGrid, Timeline } from "../../shared/ui/operational.jsx";
 import {
   SupplierStatementImportPreview,
@@ -13,21 +14,11 @@ import {
   canGenerateRawMaterialCostDraft,
   canGenerateRawMaterialMarginSnapshot,
   canReviewRawMaterialMarginSnapshot,
-  formatRawMaterialConsumptionRecord,
-  formatRawMaterialCostAllocationConfirmation,
-  formatRawMaterialCostAllocationDraft,
   formatRawMaterialCostConfirmationSummary,
   formatRawMaterialCostDraftSummary,
-  formatRawMaterialCostLossCalibration,
-  formatRawMaterialIssueRecord,
-  formatRawMaterialLeftoverReturnRecord,
-  formatRawMaterialLeftoverReviewRecord,
   formatRawMaterialLossCalibrationSummary,
   formatRawMaterialMarginReportSummary,
   formatRawMaterialMarginSnapshotSummary,
-  formatRawMaterialOrderMarginReport,
-  formatRawMaterialOrderMarginSnapshot,
-  formatRawMaterialSplitRecord,
   formatRawMaterialTaskMatch,
 } from "./rawMaterialInboundWorkflow.js";
 
@@ -123,42 +114,7 @@ export function RawMaterialInboundSupportingSections({
             ["毛利报表", formatRawMaterialMarginReportSummary(selected, canViewCost, money)],
           ]}
         />
-        <div className="supplier-statement-note-list">
-          {(selected.rawMaterialIssueRecords ?? []).slice(0, 4).map((record) => (
-            <span key={record.issueRecordId}>{formatRawMaterialIssueRecord(record)}</span>
-          ))}
-          {(selected.rawMaterialSplitRecords ?? []).slice(0, 4).map((record) => (
-            <span key={record.splitRecordId}>{formatRawMaterialSplitRecord(record)}</span>
-          ))}
-          {(selected.rawMaterialConsumptionRecords ?? []).slice(0, 4).map((record) => (
-            <span key={record.consumptionRecordId}>{formatRawMaterialConsumptionRecord(record)}</span>
-          ))}
-          {(selected.rawMaterialLeftoverReturnRecords ?? []).slice(0, 4).map((record) => (
-            <span key={record.leftoverReturnRecordId}>{formatRawMaterialLeftoverReturnRecord(record)}</span>
-          ))}
-          {(selected.rawMaterialLeftoverReviewRecords ?? []).slice(0, 4).map((record) => (
-            <span key={record.leftoverReviewRecordId}>{formatRawMaterialLeftoverReviewRecord(record)}</span>
-          ))}
-          {(selected.rawMaterialCostAllocationDrafts ?? []).slice(0, 4).map((record) => (
-            <span key={record.costAllocationDraftId}>{formatRawMaterialCostAllocationDraft(record, canViewCost, money)}</span>
-          ))}
-          {(selected.rawMaterialCostAllocationConfirmations ?? []).slice(0, 3).map((record) => (
-            <span key={record.costConfirmationId}>{formatRawMaterialCostAllocationConfirmation(record, canViewCost, money)}</span>
-          ))}
-          {(selected.rawMaterialCostLossCalibrations ?? []).slice(0, 3).map((record) => (
-            <span key={record.lossCalibrationId}>{formatRawMaterialCostLossCalibration(record, canViewCost, money)}</span>
-          ))}
-          {(selected.rawMaterialOrderMarginSnapshots ?? []).slice(0, 3).map((record) => (
-            <span key={record.marginSnapshotId}>{formatRawMaterialOrderMarginSnapshot(record, canViewCost, money)}</span>
-          ))}
-          {(selected.rawMaterialOrderMarginReports ?? []).slice(0, 3).map((record) => (
-            <span key={record.marginReportId}>{formatRawMaterialOrderMarginReport(record, canViewCost, money)}</span>
-          ))}
-          {(selected.rawMaterialCostAllocationWarnings ?? []).slice(0, 3).map((warning) => (
-            <span key={warning}>成本草稿提示：{warning}</span>
-          ))}
-          {!hasTraceabilityRecords(selected) ? <span>暂无机边领料 / 消耗 / 余料记录。</span> : null}
-        </div>
+        <RawMaterialRecordHistory selected={selected} canViewCost={canViewCost} money={money} />
       </section>
       <section className="detail-section operational-detail-section-first" hidden={detailTab !== "供应商账"}>
         <h3>供应商对账</h3>
@@ -204,20 +160,5 @@ export function RawMaterialInboundSupportingSections({
         <Timeline items={buildRawMaterialInboundTimeline(selected)} />
       </section>
     </>
-  );
-}
-
-function hasTraceabilityRecords(selected) {
-  return Boolean(
-    (selected.rawMaterialIssueRecords ?? []).length
-      || (selected.rawMaterialSplitRecords ?? []).length
-      || (selected.rawMaterialConsumptionRecords ?? []).length
-      || (selected.rawMaterialLeftoverReturnRecords ?? []).length
-      || (selected.rawMaterialLeftoverReviewRecords ?? []).length
-      || (selected.rawMaterialCostAllocationDrafts ?? []).length
-      || (selected.rawMaterialCostAllocationConfirmations ?? []).length
-      || (selected.rawMaterialCostLossCalibrations ?? []).length
-      || (selected.rawMaterialOrderMarginSnapshots ?? []).length
-      || (selected.rawMaterialOrderMarginReports ?? []).length,
   );
 }
