@@ -1387,16 +1387,24 @@ try {
   if (!dailyProgressMachineId) {
     throw new Error("/api/production-tasks/{id} did not expose the assigned machine before daily progress");
   }
-  const dailyProgress = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/daily-progress", {
+  const dailyProgressBody = {
     orderLineId: "ORD-0629-003-01",
     dailyQualifiedQty: 420,
     exceptionQty: 3,
     machineCount: 820,
-    machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
+    machineId: dailyProgressMachineId,
     operatorId: "U-SPOOFED",
     reportedAt: new Date().toISOString(),
     remark: "API skeleton production daily progress check",
-  });
+  };
+  const invalidDailyBinding = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/daily-progress", {
+    ...dailyProgressBody,
+    machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
+  }, { expectedStatus: 409 });
+  if (invalidDailyBinding.code !== "PRODUCTION_TASK_BINDING_MISMATCH") {
+    throw new Error("Daily report must reject a changed machine binding before recording quantities");
+  }
+  const dailyProgress = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/daily-progress", dailyProgressBody);
   if (
     dailyProgress.status !== "跨日继续" ||
     dailyProgress.dailyQualifiedQty !== 420 ||
@@ -1796,17 +1804,25 @@ try {
   ) {
     throw new Error("/api/production-tasks workshop_mobile visibility did not return the same-machine carry-over task");
   }
-  const productionReport = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/report-complete", {
+  const productionReportBody = {
     orderLineId: "ORD-0629-003-01",
     qualifiedQty: 1000,
     exceptionQty: 0,
     machineCount: 1888,
-    machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
+    machineId: dailyProgressMachineId,
     inventoryItemId: productionInventoryItemId,
     operatorId: "U-SPOOFED",
     completedAt: new Date().toISOString(),
     remark: "API skeleton production report check",
-  });
+  };
+  const invalidCompletionBinding = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/report-complete", {
+    ...productionReportBody,
+    machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
+  }, { expectedStatus: 409 });
+  if (invalidCompletionBinding.code !== "PRODUCTION_TASK_BINDING_MISMATCH") {
+    throw new Error("Completion must reject a changed machine binding before producing inventory");
+  }
+  const productionReport = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/report-complete", productionReportBody);
   if (
     productionReport.status !== "已完成" ||
     productionReport.orderLineStatus !== "待打包" ||

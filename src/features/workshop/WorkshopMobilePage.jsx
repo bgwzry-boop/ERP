@@ -488,7 +488,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                       <input type="number" min="0" placeholder="只作凭证" value={reportMachineCount} onChange={(event) => updateReportInput("machineCount", event.target.value)} />
                     </label>
                   </div>
-                  <p>报当日数量只记录跨日进度；丝印完成交给制袋，制袋完成才进入库存和后续打包。</p>
+                  <p>报当日数量只记录跨日进度，不入库；丝印完成交给制袋，制袋完成才进入库存和后续打包。</p>
                 </section>
                 <section className="detail-section production-exception-report">
                   <div className="section-title-row">
@@ -568,7 +568,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                         <span id="workshop-production-report-confirmation-summary">
                           {productionReportConfirmation.kind === "daily"
                             ? "确认后才会写入当日进度；按 Esc 可返回修改。"
-                            : productionReportConfirmation.summary.isSilkScreenCompletion ? "确认后结束丝印任务并交给制袋；按 Esc 可返回修改。" : "确认后才会完成生产、入库、占用并创建待打包任务；按 Esc 可返回修改。"}
+                            : "确认后按当前工序提交报工，后续处理见下方核对说明；按 Esc 可返回修改。"}
                         </span>
                       </div>
                       <StatusPill tone="warning">{productionReportConfirmation.summary.isSilkScreenCompletion ? "丝印完工确认" : "高风险写入"}</StatusPill>

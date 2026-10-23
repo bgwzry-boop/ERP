@@ -128,7 +128,7 @@ assert.match(masterDataStyles, /\.master-data-detail-scroll\s*\{[^}]*overflow:\s
 assert.doesNotMatch(masterDataSource, /records\.find\(\(item\) => item\.id === selectedId\)/);
 
 assert.match(workshopSource, /机器计数\/动作次数/);
-assert.match(workshopSource, /报当日数量只记录跨日进度；丝印完成交给制袋，制袋完成才进入库存和后续打包/);
+assert.match(workshopSource, /报当日数量只记录跨日进度，不入库；丝印完成交给制袋，制袋完成才进入库存和后续打包/);
 assert.match(workshopSource, /ariaLabel="车间任务详情"/);
 assert.match(workshopSource, /mobile-role-stage-actions/);
 assert.match(driverPageSource, /visibleTasks\[0\] \?\?\s*null/);

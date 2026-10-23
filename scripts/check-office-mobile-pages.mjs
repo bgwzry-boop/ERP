@@ -59,7 +59,7 @@ assert.match(workshopPageSource, /handlePackingCompletionConfirmationKeyDown/);
 assert.match(workshopPageSource, /aria-live="assertive"/);
 assert.match(workshopPageSource, /!packingCompletionConfirmation \? \(/);
 assert.match(workshopPageSource, /buildProductionReportSummary/);
-assert.match(workshopPageSource, /确认完成生产报工/);
+assert.match(workshopPageSource, /productionReportConfirmation\.summary\.confirmLabel/);
 assert.match(workshopPageSource, /productionReportConfirmed: true/);
 assert.match(workshopPageSource, /restoreProductionReportTriggerKindRef/);
 assert.match(workshopPageSource, /handleProductionReportConfirmationKeyDown/);

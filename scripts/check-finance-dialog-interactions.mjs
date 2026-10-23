@@ -20,7 +20,12 @@ try {
     window.show=(mode='statement',permissions=['statement.preview','statement.payment.record','statement.send','attachment.view','attachment.create','fulfillment.print'])=>{
       const props={authState:{source:'runtime',session:{accessToken:'synthetic-ui-token'},permissions:{user:{userId:'UI-CHECK'},actionPermissions:permissions}},onClose:()=>root.render(null),onUpdated:()=>{window.saved=(window.saved||0)+1;}};
       root.render(mode==='statement'?<StatementDetailDialog statementId="ST-UI" {...props}/>:<PrintJobDetailDialog printJobId="PJ-UI" {...props}/>);
-    }; window.show();`, resolveDir: process.cwd(), loader: "jsx" }, outfile: join(directory, "harness.js"), bundle: true, format: "esm", jsx: "automatic", logLevel: "silent" });
+    }; window.show();`, resolveDir: process.cwd(), loader: "jsx" }, outfile: join(directory, "harness.js"), bundle: true, format: "esm", jsx: "automatic", logLevel: "silent",
+    // The review app has its own installed dependencies. Components and the
+    // harness renderer must share one React instance, as Vite's dedupe does.
+    alias: { react: join(process.cwd(), "node_modules/react"), "react-dom": join(process.cwd(), "node_modules/react-dom") },
+    define: { "import.meta.env": JSON.stringify({ VITE_ERP_API_BASE_URL: "/api", VITE_ERP_RUNTIME_MODE: "strict" }) },
+  });
   server = createServer(async (request, response) => {
     if (request.url === "/harness.js" || request.url === "/harness.css") {
       response.setHeader("content-type", request.url.endsWith(".js") ? "application/javascript" : "text/css");
@@ -31,6 +36,7 @@ try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   const errors = []; page.on("pageerror", error => errors.push(error.message));
+  const failedRequests = []; page.on("requestfailed", request => failedRequests.push({ path: new URL(request.url()).pathname, failure: request.failure()?.errorText }));
   let received = 200;
   let revision = 3;
   let payments = [];
@@ -67,7 +73,11 @@ try {
     return route.fulfill({ status: 404, body: JSON.stringify({ message: `Unexpected ${url.pathname}` }) });
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.getByText("组件验收客户 · 2026-09").waitFor();
+  try {
+    await page.getByText("组件验收客户 · 2026-09").waitFor();
+  } catch (cause) {
+    throw new Error(`Statement dialog did not load: ${JSON.stringify({ errors, failedRequests, body: await page.locator("body").innerText() })}`, { cause });
+  }
   await page.getByLabel("本期累计实收（元）").fill("500.25");
   await page.getByLabel("到账及调整依据").fill("核对两次到账合计，测试记录");
   assert.equal(await page.locator('input[type="file"]').getAttribute("accept"), "image/*");
