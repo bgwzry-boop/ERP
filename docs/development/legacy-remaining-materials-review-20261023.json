@@ -11,7 +11,7 @@
     "canonicalBase": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
     "integrationStart": "2af7a9aa42a85c3c4124a5bac4c9c6926ca0043d",
     "reviewBranch": "codex/legacy-materials-r2-20261023",
-    "localCodeHead": "6713bb4a7cd5673f115839c987998c6a5efd3c62",
+    "localCodeHead": "d6c5b8d85eb642e87139b388d089e7ee2a04fe28",
     "notDeployed": true
   },
   "reviewRules": [
@@ -47,7 +47,8 @@
     "ffdf81bac1f745c4243cf04c0e15cad52c8ee4ef",
     "68498fd4eadb49015bbe20bb9539c02181617804",
     "c9eb74203caac6d8079aa1f7e7ac278902e9d6fe",
-    "6713bb4a7cd5673f115839c987998c6a5efd3c62"
+    "6713bb4a7cd5673f115839c987998c6a5efd3c62",
+    "d6c5b8d85eb642e87139b388d089e7ee2a04fe28"
   ],
   "globalValidationLimitations": [
     "本分支未含父readPermissions表，单独运行raw-material-inbound-api:check在first-release的manager full receipt断言失败；父集成角色读权限后重跑全组。本分支自该断点后原料read-projection/query/read+write routes/trace/whole-roll/exclusion/scan专项通过。",
@@ -2836,15 +2837,17 @@
       "reviewStatus": "reviewed",
       "currentEvidence": [
         "server/masterDataImportTransactionRepository.mjs#loadSupplierColourState：本地供应商映射、标准色与对应日志采用持久快照。server/services/persistentWorkspaceHydrationService.mjs只在local恢复，PG从数据库重建。",
-        "server/masterDataImportTransactionRepository.mjs#createLocalMasterDataImportTransactionRepository：写前再次比较原映射，原子落盘失败回滚；日志使用唯一身份。"
+        "server/masterDataImportTransactionRepository.mjs#createLocalMasterDataImportTransactionRepository：写前再次比较原映射，原子落盘失败回滚；日志使用唯一身份。",
+        "server/masterDataImportTransactionRepository.mjs#createMasterDataImportTransactionRepository/createLocalMasterDataImportTransactionRepository：完整透传并消费options.storageRoot，使API已注入的runtime数据目录优先于全局fallback，测试/演示分区不串规则。"
       ],
       "validation": {
         "checks": [
           "scripts/check-supplier-color-live-api.mjs",
-          "scripts/check-master-data-import-transaction-repository.mjs"
+          "scripts/check-master-data-import-transaction-repository.mjs",
+          "scripts/check-supplier-color-storage-partition.mjs"
         ],
         "result": "scoped_current_evidence",
-        "limitations": "签名真实HTTP、权限否决、重启恢复、磁盘失败回滚及过期编辑(--stale-edit)通过；隔离本地测试数据。"
+        "limitations": "签名真实HTTP、权限否决、重启恢复、磁盘失败回滚及过期编辑(--stale-edit)通过；隔离本地测试数据。 独立根集成复核发现并补runtime分区遗漏：真实API双数据根相同规则分白/黑、各自审计和重启仍隔离，未写全局fallback。"
       },
       "diffReviewProvenance": {
         "method": "review actual diff and follow related historical corrections, then compare current business contracts/functions and scoped tests",
@@ -2869,15 +2872,17 @@
       "reviewStatus": "reviewed",
       "currentEvidence": [
         "server/masterDataImportTransactionRepository.mjs#loadSupplierColourState：本地供应商映射、标准色与对应日志采用持久快照。server/services/persistentWorkspaceHydrationService.mjs只在local恢复，PG从数据库重建。",
-        "server/masterDataImportTransactionRepository.mjs#createLocalMasterDataImportTransactionRepository：写前再次比较原映射，原子落盘失败回滚；日志使用唯一身份。"
+        "server/masterDataImportTransactionRepository.mjs#createLocalMasterDataImportTransactionRepository：写前再次比较原映射，原子落盘失败回滚；日志使用唯一身份。",
+        "server/masterDataImportTransactionRepository.mjs#createMasterDataImportTransactionRepository/createLocalMasterDataImportTransactionRepository：完整透传并消费options.storageRoot，使API已注入的runtime数据目录优先于全局fallback，测试/演示分区不串规则。"
       ],
       "validation": {
         "checks": [
           "scripts/check-supplier-color-live-api.mjs",
-          "scripts/check-master-data-import-transaction-repository.mjs"
+          "scripts/check-master-data-import-transaction-repository.mjs",
+          "scripts/check-supplier-color-storage-partition.mjs"
         ],
         "result": "scoped_current_evidence",
-        "limitations": "签名真实HTTP、权限否决、重启恢复、磁盘失败回滚及过期编辑(--stale-edit)通过；隔离本地测试数据。"
+        "limitations": "签名真实HTTP、权限否决、重启恢复、磁盘失败回滚及过期编辑(--stale-edit)通过；隔离本地测试数据。 独立根集成复核发现并补runtime分区遗漏：真实API双数据根相同规则分白/黑、各自审计和重启仍隔离，未写全局fallback。"
       },
       "diffReviewProvenance": {
         "method": "review actual diff and follow related historical corrections, then compare current business contracts/functions and scoped tests",
@@ -6668,5 +6673,28 @@
       "codeCompleteForClaimedScope": true,
       "sequence": 180
     }
-  ]
+  ],
+  "readOnlyIntegrationAudit": {
+    "root": "/Users/xu/.codex/worktrees/p1-integration-20261023/ERP",
+    "inspectedHead": "cba548726308173a077687e0f9ce07cdf67b0fa4",
+    "rootCodeNotModified": true,
+    "mergeComparison": "label版本/stock-only白名单+完整授权回执/whole-roll/原子one-click/颜色PG微秒保护与材料分支无丢失；pool只有父新增resourceLocks/replay元数据，transactionStatementsJson保留；core新增履约财务字段未回退颜色精度。",
+    "passedAtRoot": [
+      "check-p1-material-inventory-regressions.mjs",
+      "check-raw-material-stock-access.mjs",
+      "check-raw-material-whole-roll-policy.mjs",
+      "check-supplier-color-api-response.mjs",
+      "check-core-workspace-read-repository.mjs",
+      "check-frontend-inventory-api-client.mjs",
+      "check-inventory-hold-presentation.mjs",
+      "check-raw-material-write-routes.mjs",
+      "check-raw-material-roll-read.mjs",
+      "check-raw-material-inbound-read-projection-service.mjs",
+      "check-legacy-materials-postgres-r2.mjs",
+      "check-legacy-supplier-credit-postgres-r2.mjs"
+    ],
+    "newFinding": "first-release重复测试暴露local颜色快照未消费runtimeStorageRoot；不同API数据根会共读全局颜色文件。已在自己工作树d6c5b8d85eb642e87139b388d089e7ee2a04fe28最小修复，未删除/修改根遗留业务文件。",
+    "newFindingValidation": "自己的check-supplier-color-storage-partition.mjs实际双API分区/独立审计/重启恢复和global目录未写通过；signed HTTP --stale-edit与master-data-import-transaction专项再过。父拣选后须重跑first-release组。",
+    "pending155": "等待父重启当前4174 API后，按旧check-canonical-colour-conflict.mjs拦截映射维护请求，只做合成409/刷新恢复交互，不触碰真实业务写。"
+  }
 }
