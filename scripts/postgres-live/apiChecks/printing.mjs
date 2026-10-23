@@ -65,13 +65,13 @@ export async function checkPrintApi(runtime, { baseUrl, headers, warehouseHeader
   const apiTrustedPrintFulfillment = await getJson(baseUrl, `/api/fulfillments/${packedFulfillment.fulfillmentId}`, { headers });
   const apiTrustedPrintInitialStatus = apiTrustedPrintFulfillment.status;
   const apiTrustedPrintMethod =
-    apiTrustedPrintFulfillment.method === "express" || apiTrustedPrintFulfillment.method === "快递快运"
+    ["express", "express_ltl", "快递快运"].includes(apiTrustedPrintFulfillment.method)
       ? "express"
       : apiTrustedPrintFulfillment.method === "delivery" || apiTrustedPrintFulfillment.method === "送货"
         ? "delivery"
         : "pickup";
   const apiTrustedPrintExpectedStatus =
-    apiTrustedPrintMethod === "express" ? "待确认拉走" : apiTrustedPrintInitialStatus;
+    apiTrustedPrintMethod === "express" ? "待打印出库单" : apiTrustedPrintInitialStatus;
   const apiTrustedPrintRequest = await postJson(
     baseUrl,
     `/api/fulfillments/${apiTrustedPrintFulfillment.fulfillmentId}/print`,

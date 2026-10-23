@@ -471,6 +471,7 @@ export async function checkPostgresRepositories(runtime) {
     },
   });
   assert.equal(writeOffTransaction.statement.status, "已确认欠款");
+  assert.deepEqual(queryJson("SELECT json_build_object('writeOffAmount',write_off_amount,'handlingResult',handling_result) AS result FROM statement_write_off_records WHERE id='SWO-LIVE-WRITEOFF-001'"), { writeOffAmount: 0, handlingResult: "本期确认并转欠款" });
   assert.equal(queryJson("SELECT json_build_object('status', status, 'variance', variance_amount) AS result FROM statements WHERE id = 'ST-LIVE-VAR-001';").status, "已确认欠款");
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-WRITE-TXN-001';", { capture: true }).trim()), 1);
 
