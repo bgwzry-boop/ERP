@@ -1,3 +1,4 @@
+import { orderTypeAliasesFor } from "../shared/orderRouting.js";
 import { acceptsWorkspaceRecordVersion } from "./workspaceRecordVersion.mjs";
 import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
@@ -291,6 +292,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       targetId: fulfillmentId,
       resourceLocks: [
         `fulfillment:${fulfillmentId}`,
+        ...(checksOutboundInventory(input) ? [`order-line:${input.fulfillment?.orderLineId ?? input.fulfillment?.lineId ?? ""}`] : []),
         ...((input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot) ? [`order-line:${(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot).orderLineId}`] : []),
         ...(input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id
           ? [`paper-outbound:${input.paperOutboundDocument.paperOutboundDocumentId ?? input.paperOutboundDocument.id}`]
@@ -494,6 +496,12 @@ WITH locked_fulfillment AS MATERIALIZED (
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
   FOR UPDATE
 ),
+locked_inventory_order_line AS MATERIALIZED (
+  SELECT line.id, line.order_type FROM order_lines AS line
+  WHERE line.id = (SELECT order_line_id FROM locked_fulfillment)
+    AND ${checksOutboundInventory(input) ? "TRUE" : "FALSE"}
+  FOR UPDATE OF line
+),
 locked_driver_exceptions AS MATERIALIZED (
   SELECT id, status FROM fulfillment_exceptions
   WHERE fulfillment_id = ${parameters.text(fulfillment.fulfillmentId)} AND exception_type = 'delivery_exception'
@@ -526,7 +534,7 @@ reservation_updates AS MATERIALIZED (
   ${buildInventoryReservationUpdatesSql(inventoryReservations, parameters)}
 ),
 locked_inventory_reservations AS MATERIALIZED (
-  SELECT reservation.id
+  SELECT reservation.id, reservation.order_line_id, reservation.inventory_item_id, reservation.reserved_qty, reservation.status
   FROM inventory_reservations AS reservation
   JOIN reservation_updates AS updates ON updates.id = reservation.id
   ORDER BY reservation.id
@@ -534,6 +542,9 @@ locked_inventory_reservations AS MATERIALIZED (
 ),
 inventory_deltas AS MATERIALIZED (
   ${buildInventoryAdjustmentDeltasSql(inventoryAdjustments, parameters)}
+),
+inventory_ledger_deltas AS MATERIALIZED (
+  ${buildOutboundLedgerDeltasSql(inventoryLedgerEntries, fulfillment.fulfillmentId, parameters)}
 ),
 locked_inventory_items AS MATERIALIZED (
   SELECT
@@ -572,7 +583,14 @@ package_write_guard AS MATERIALIZED (
 ),
 reservation_write_guard AS MATERIALIZED (
   SELECT erp_require(
-    (SELECT COUNT(*) FROM locked_inventory_reservations) = (SELECT COUNT(*) FROM reservation_updates),
+    (SELECT COUNT(*) FROM locked_inventory_reservations) = (SELECT COUNT(*) FROM reservation_updates)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_inventory_reservations AS locked
+        JOIN reservation_updates AS updates ON updates.id = locked.id
+        WHERE locked.order_line_id <> ${parameters.text(fulfillment.orderLineId)}
+           OR locked.order_line_id <> updates.order_line_id
+           OR locked.inventory_item_id <> updates.inventory_item_id
+      ),
     'ERP_RESERVATION_CONCURRENCY_CONFLICT'
   ) AS ok
 ),
@@ -586,6 +604,9 @@ inventory_write_guard AS MATERIALIZED (
            OR reserved_qty + reserved_qty_change < 0
       ),
     'ERP_INVENTORY_CONCURRENCY_CONFLICT'
+  ) AND erp_require(
+    ${buildOutboundInventoryConservationSql(input, fulfillment, parameters)},
+    'ERP_FULFILLMENT_INVENTORY_CONSERVATION_CONFLICT'
   ) AS ok
 ),
 updated_fulfillment AS (
@@ -1684,17 +1705,17 @@ RETURNING json_build_object(
 
 function buildInventoryReservationUpdatesSql(records, parameters) {
   if (records.length === 0) {
-    return "SELECT NULL::text AS id, 0::integer AS reserved_qty, NULL::text AS status WHERE false";
+    return "SELECT NULL::text AS id, 0::integer AS reserved_qty, NULL::text AS status, NULL::text AS order_line_id, NULL::text AS inventory_item_id WHERE false";
   }
   const values = records
     .map(
-      (record) => `(${parameters.text(record.reservationId)}, ${parameters.integer(record.reservedQty)}, ${parameters.text(record.status)})`,
+      (record) => `(${parameters.text(record.reservationId)}, ${parameters.integer(record.reservedQty)}, ${parameters.text(record.status)}, ${parameters.text(record.orderLineId)}, ${parameters.text(record.inventoryItemId)})`,
     )
     .join(",\n");
-  return `SELECT id, reserved_qty, status
+  return `SELECT id, reserved_qty, status, order_line_id, inventory_item_id
 FROM (VALUES
 ${values}
-) AS updates(id, reserved_qty, status)`;
+) AS updates(id, reserved_qty, status, order_line_id, inventory_item_id)`;
 }
 
 function buildInventoryAdjustmentDeltasSql(records, parameters) {
@@ -2620,4 +2641,53 @@ function assertDriverResolutionInput(input) {
  if(input.operationLog?.action !== "resolve_driver_delivery_exception")return;
  if(!input.driverExceptionTodoBefore || input.driverExceptionTodoBefore.id !== input.todo?.id || input.driverExceptionBefore?.todoId !== input.todo?.id || !input.driverExceptionBefore || (input.driverExceptionBefore.exceptionId ?? input.driverExceptionBefore.id)!==(input.fulfillmentException?.exceptionId ?? input.fulfillmentException?.id) || input.driverExceptionBefore.fulfillmentId !== (input.fulfillment?.fulfillmentId ?? input.fulfillment?.id) || input.driverExceptionBefore.exceptionType !== "delivery_exception" || ["已解决","已作废"].includes(input.driverExceptionBefore.status) || input.fulfillmentException?.status !== "已解决" || [input.inventoryReservations,input.inventoryAdjustments,input.inventoryLedgerEntries,input.packages].some(items=>items?.length) || input.statementCandidate || input.paperOutboundDocument || input.warehouseOutboundExecution || input.printRecord || input.printJob)throw new Error("Driver exception resolution must preserve inventory, accounting, packages and outbound evidence.");
  if((input.workspace?.operationLogs ?? []).some(log=>log.id===input.operationLog.id))throw fulfillmentConflict(input.fulfillment.revision);
+}
+
+
+function checksOutboundInventory(input) {
+  return input.operationLog?.action === "driver_complete_delivery"
+    || (input.operationLog?.action === "record_warehouse_outbound_execution"
+      && input.warehouseOutboundExecution?.result === "实物已出库");
+}
+
+function buildOutboundLedgerDeltasSql(records, fulfillmentId, parameters) {
+  if (!records.length) return "SELECT NULL::text AS inventory_item_id, 0::bigint AS qty_change, 0::integer AS qty_before, 0::integer AS qty_after, TRUE AS valid_rows WHERE false";
+  const values = records.map(record => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.qtyChange)}, ${parameters.integer(record.qtyBefore)}, ${parameters.integer(record.qtyAfter)}, ${parameters.text(record.sourceId)})`).join(",\n");
+  return `SELECT inventory_item_id, SUM(qty_change)::bigint AS qty_change,
+    MAX(qty_before) AS qty_before, MIN(qty_after) AS qty_after,
+    bool_and(qty_change <= 0 AND qty_after = qty_before + qty_change AND source_id = ${parameters.text(fulfillmentId)}) AS valid_rows
+  FROM (VALUES ${values}) AS entries(inventory_item_id,qty_change,qty_before,qty_after,source_id)
+  GROUP BY inventory_item_id`;
+}
+
+function buildOutboundInventoryConservationSql(input, fulfillment, parameters) {
+  if (!checksOutboundInventory(input)) return "TRUE";
+  const noMovements = "NOT EXISTS (SELECT 1 FROM inventory_deltas) AND NOT EXISTS (SELECT 1 FROM reservation_updates) AND NOT EXISTS (SELECT 1 FROM inventory_ledger_deltas)";
+  const noStockTypes = [...orderTypeAliasesFor("custom_special"), ...orderTypeAliasesFor("external_print")];
+  const required = parameters.integer(fulfillment.actualQty);
+  return `CASE WHEN ${input.operationLog?.action === "driver_complete_delivery" ? "EXISTS (SELECT 1 FROM locked_fulfillment WHERE physical_outbound_at IS NOT NULL)" : "FALSE"}
+    THEN (${noMovements})
+    ELSE EXISTS (SELECT 1 FROM locked_inventory_order_line)
+      AND (${required} > 0)
+      AND (((${noMovements}) AND EXISTS (SELECT 1 FROM locked_inventory_order_line WHERE order_type = ANY(${parameters.textArray(noStockTypes)})))
+        OR ((SELECT COALESCE(-SUM(on_hand_qty_change),0) FROM inventory_deltas) = ${required}
+          AND NOT EXISTS (SELECT 1 FROM inventory_deltas WHERE on_hand_qty_change > 0 OR reserved_qty_change > 0)
+          AND NOT EXISTS (
+            SELECT 1 FROM locked_inventory_reservations AS locked JOIN reservation_updates AS updates ON updates.id=locked.id
+            WHERE locked.status NOT IN ('生效','active','reserved','部分释放','partially_released')
+               OR locked.reserved_qty <= 0 OR locked.reserved_qty <> updates.reserved_qty OR updates.status <> '已出库'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM inventory_deltas AS delta
+            LEFT JOIN inventory_ledger_deltas AS ledger ON ledger.inventory_item_id=delta.inventory_item_id
+            JOIN locked_inventory_items AS item ON item.id=delta.inventory_item_id
+            WHERE delta.on_hand_qty_change <> COALESCE(ledger.qty_change,0)
+               OR (delta.on_hand_qty_change < 0 AND (ledger.valid_rows IS NOT TRUE OR ledger.qty_before <> item.on_hand_qty OR ledger.qty_after <> item.on_hand_qty + delta.on_hand_qty_change))
+               OR (EXISTS (SELECT 1 FROM reservation_updates) AND delta.reserved_qty_change <> -(SELECT COALESCE(SUM(reserved_qty),0) FROM locked_inventory_reservations WHERE inventory_item_id=delta.inventory_item_id))
+               OR (EXISTS (SELECT 1 FROM reservation_updates) AND -delta.on_hand_qty_change > (SELECT COALESCE(SUM(reserved_qty),0) FROM locked_inventory_reservations WHERE inventory_item_id=delta.inventory_item_id))
+               OR (NOT EXISTS (SELECT 1 FROM reservation_updates) AND delta.reserved_qty_change < delta.on_hand_qty_change)
+          )
+          AND NOT EXISTS (SELECT 1 FROM locked_inventory_reservations WHERE inventory_item_id NOT IN (SELECT inventory_item_id FROM inventory_deltas))
+          AND NOT EXISTS (SELECT 1 FROM inventory_ledger_deltas WHERE inventory_item_id NOT IN (SELECT inventory_item_id FROM inventory_deltas))
+        )) END`;
 }

@@ -65,3 +65,10 @@ export function inferOrderType(row = {}, { standardSize = false } = {}) {
   if (row.print === "是" || row.printFlag === true) return "custom_print";
   return standardSize ? "stock" : "";
 }
+
+// Database guards reuse the exact accepted aliases instead of inventing a
+// second order-type classifier in SQL.
+export function orderTypeAliasesFor(value) {
+  const type = normalizeOrderType(value);
+  return type ? [...ORDER_TYPE_ALIASES].filter(([, canonical]) => canonical === type).map(([alias]) => alias) : [];
+}
