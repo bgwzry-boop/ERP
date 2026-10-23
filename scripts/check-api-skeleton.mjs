@@ -1,3 +1,4 @@
+import { completePhysicalPackingFixture } from "./helpers/physicalPackingFixture.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { checkAuthSkeleton } from "./api-skeleton/auth.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
@@ -2821,18 +2822,25 @@ try {
   ) {
     throw new Error("/api/driver/delivery-tasks allowed query driverId to override authenticated driver scope");
   }
-  const driverPendingTask = driverTaskList.items?.find(
+  const driverGoodsTask = driverTaskList.items?.find(
     (item) => item.status === "待送货" && item.fulfillmentId !== deliveryFulfillment.fulfillmentId,
   );
-  const driverExceptionTask = driverTaskList.items?.find((item) => item.status === "送货异常");
+  if (!driverTaskList.items?.some(item => item.status === "送货异常")) throw new Error("Driver task list should retain the seeded exception state");
+  if (driverGoodsTask?.packageChecklist?.length !== 0) throw new Error("An unpacked delivery must not invent a physical package checklist");
+  const driverPacking = await completePhysicalPackingFixture(baseUrl);
+  const packedDriverTaskList = await getJson(baseUrl, "/api/driver/delivery-tasks", { headers: { "x-erp-user-id": "U-DRIVER-A" } });
+  const driverPendingTask = packedDriverTaskList.items?.find(item => item.fulfillmentId === driverPacking.fulfillmentId);
+  // Keep a different, still-open delivery for the wrong-owner evidence and exception scenarios.
+  const driverExceptionTask = driverGoodsTask;
   if (
     driverTaskList.total < 2 ||
     driverTaskList.metrics?.pendingCount < 1 ||
     !driverPendingTask?.fulfillmentId ||
-    !driverPendingTask.goodsSummary?.includes("黄印黑") ||
-    !driverPendingTask.goodsSummary?.includes("黄袋红提") ||
+    !driverGoodsTask.goodsSummary?.includes("黄印黑") ||
+    !driverGoodsTask.goodsSummary?.includes("黄袋红提") ||
     !Array.isArray(driverPendingTask.packageChecklist) ||
-    driverPendingTask.packageChecklist.length < 1 ||
+    driverPendingTask.packageChecklist.length !== driverPacking.packageIds.length ||
+    driverPendingTask.packageChecklist.some(item => !driverPacking.packageIds.includes(item.packageId)) ||
     !driverExceptionTask?.fulfillmentId
   ) {
     throw new Error("/api/driver/delivery-tasks did not return driver-facing delivery task fields");
@@ -3292,6 +3300,7 @@ try {
     {
       fulfillmentId: driverPendingTask.fulfillmentId,
       watermarkedPhotoAttachmentId: wrongOwnerWatermarkAttachment.attachmentId,
+      signatureStatus: "unsigned", unsignedReason: "测试只校验附件归属，未采集签字", paperNoteStatus: "未带回",
     },
     {
       expectedStatus: 422,
@@ -3361,6 +3370,7 @@ try {
       watermarkAddress: "厚街仓库 A 区",
       watermarkOperatorId: "U-SPOOFED",
       watermarkOperatorName: "司机A",
+      signatureStatus: "signed",
       signaturePhotoAttached: true,
       signaturePhotoAttachmentId: driverSignatureAttachment.attachmentId,
       receiverName: "API 客户签收",
@@ -3475,6 +3485,8 @@ try {
       actualQty: driverPendingTask.qty,
       operatorId: "U-DRIVER-A",
       watermarkedPhotoAttachmentId: driverRetakeAttachment.attachmentId,
+      signatureStatus: "signed", signaturePhotoAttachmentId: driverSignatureAttachment.attachmentId,
+      paperNoteStatus: "已交回", receiverName: "API 客户签收",
       watermarkId: "WM-DRIVER-RETAKE-1",
       watermarkText: "补拍水印 WM-DRIVER-RETAKE-1",
       watermarkCapturedAt: "2026-07-02T10:45:00.000Z",
