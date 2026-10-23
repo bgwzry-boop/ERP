@@ -317,13 +317,8 @@ export function RawMaterialMobileOcrReview({
   function syncDocumentSummary(nextExcludedRolls) {
     const excludedIds = new Set(nextExcludedRolls.map((entry) => entry.reviewId));
     const activeRolls = reviewRolls.filter((roll) => !excludedIds.has(roll.reviewId));
-    const activeLineIds = new Set(activeRolls.map((roll) => roll.lineId));
-    const activeLines = lines.filter((line) => activeLineIds.has(line.lineId));
-    const totalWeight = activeLines.reduce((total, line) => total + (Number(lineDrafts[line.lineId]?.totalWeightKg ?? line.values?.totalWeightKg) || 0), 0);
-    const totalAmount = activeLines.reduce((total, line) => total + (Number(lineDrafts[line.lineId]?.amount ?? line.values?.amount) || 0), 0);
+    // 排除误识别只改变卷数；票面重量与金额仍须独立对照原单复核。
     onDocumentFieldChange?.("rollCount", activeRolls.length);
-    if (Math.abs(Number(documentDraft.totalWeightKg)) > 0) onDocumentFieldChange?.("totalWeightKg", roundReviewNumber(totalWeight, 3));
-    if (Math.abs(Number(documentDraft.amount)) > 0) onDocumentFieldChange?.("amount", roundReviewNumber(totalAmount, 2));
   }
 
   function excludePendingRoll() {
@@ -863,11 +858,6 @@ function formatDeliveryNoteMeta(selected = {}) {
   const supplier = String(selected.supplierName || "供应商待确认").trim();
   const date = String(selected.receivedAt || "").trim().slice(0, 10);
   return [supplier, date].filter(Boolean).join(" · ");
-}
-
-function roundReviewNumber(value, precision) {
-  const scale = 10 ** precision;
-  return Math.round((Number(value) || 0) * scale) / scale;
 }
 
 function getRollBlockerStatus(blockers = []) {

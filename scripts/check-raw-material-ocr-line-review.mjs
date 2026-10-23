@@ -370,3 +370,13 @@ assert.throws(
 );
 
 console.log("Raw-material OCR line-review checks passed: all lines are explicit, original values are preserved, summaries reconcile, and rolls stay unavailable.");
+
+// Monetary totals must not inherit the percentage tolerance used for weights.
+for (const direction of ["supplier_delivery", "supplier_return"]) {
+  const summaryLines = [{ values: { rollCount: 1, totalWeightKg: 10, amount: 100 } }];
+  for (const amount of [101, 0]) {
+    assert.throws(() => validateRawMaterialOcrLineReviewSummary({ lines: summaryLines, reviewValues: { rollCount: 1, totalWeightKg: 10, amount }, documentDirection: direction }), error => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_MISMATCH");
+  }
+  assert.doesNotThrow(() => validateRawMaterialOcrLineReviewSummary({ lines: summaryLines, reviewValues: { rollCount: 1, totalWeightKg: 10, amount: 100 }, documentDirection: direction }));
+  assert.doesNotThrow(() => validateRawMaterialOcrLineReviewSummary({ lines: summaryLines, reviewValues: { rollCount: 1, totalWeightKg: 10, amount: 101 }, documentDirection: direction, amountReferenceOnly: true }));
+}

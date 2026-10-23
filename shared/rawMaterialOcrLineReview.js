@@ -158,7 +158,7 @@ export function validateRawMaterialOcrLineReviewSummary({
   }
   const expectedAmount = directionalNumber(reviewValues.amount, documentDirection, 0);
   const actualAmount = roundNumber(activeLines.reduce((total, line) => total + directionalNumber(line?.values?.amount, documentDirection, 0), 0), 2);
-  if (!amountReferenceOnly && Math.abs(expectedAmount) > 0 && Math.abs(actualAmount) > 0 && !approximatelyEqual(expectedAmount, actualAmount)) {
+  if (!amountReferenceOnly && !approximatelyEqualMoney(expectedAmount, actualAmount)) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_MISMATCH",
       `单据金额与逐行复核不一致：汇总 ${expectedAmount}，明细 ${actualAmount}。`,

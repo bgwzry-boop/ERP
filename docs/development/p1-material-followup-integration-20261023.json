@@ -18,8 +18,17 @@
         "本地服务回归：空凭证阻断、入库后旧盘点阻断、已确认换键阻断、原键回执保留且不改现库。"
       ],
       "boundaries": ["保留当前新盘点UI、创建草稿不直接改库存、创建后再上传关联凭证的合同。", "库存数量实际变化后的旧盘点须重新盘点创建新草稿；测试不代表现场盘点或部署验收。", "PG锁等待中的无revision数量/归属变动为防御性数据库边界验收；不宣称当前已有公开接口可任意改写盘点实际数量。"]
+    },
+    {
+      "id": "MAT-FOLLOWUP-01",
+      "problem": "OCR逐行100元而整单101元或0元仍通过人工复核；手机排除OCR误识别行时，自动把原单总重/总金额重算为剩余明细，掩盖差异。",
+      "reproduction": "当前正式review动作输入1卷10kg×10元=100元，整单填101或0都保存为已复核待打印标签；纯函数和完整command两个层次均复现。",
+      "change": "声明金额使用既有货币容差0.05元核对，不再套用重量2%容差或跳过零额。手机删除/撤销误识别行只调整实物卷数，保持票面总重和总额供独立人工核对；差异阻断，显式人工纠正仍留存原声明与排除审计。",
+      "oldCommits": ["2b5e57f3bff5", "3c259dfd4ec5"],
+      "validation": ["npm run raw-material-inbound-api:check：24项通过。", "OCR逐行和完整command回归：101/0对明细100均阻断，准确100成功。", "check-raw-material-exclusion-summary：执行实际组件回调，删除/撤销均保留票面总重/金额；真实server review阻断差异，显式改正后保留原声明和排除人。"],
+      "boundaries": ["保留已批准的documentPriceReferenceOnly供应商参考总价例外；没有取消当前逐卷核对后临时入库/待补标规则。", "原始图像、逐页sourcePageIndex、厂家颜色映射、逐卷价格和当前整卷策略不变。"]
     }
   ],
-  "registration": ["请整合者将 scripts/check-p1-inventory-correction-postgres.mjs 接到资源敏感 PostgreSQL 检查组；本分支未改公共manifest/package。"],
+  "registration": ["请整合者将 scripts/check-p1-inventory-correction-postgres.mjs 接到资源敏感 PostgreSQL 检查组；本分支未改公共manifest/package。", "将 scripts/check-raw-material-exclusion-summary.mjs 加入原料回归组；金额回归已补入当前两个登记脚本。"],
   "preservation": "主工作树、旧目录59个未提交文件、拒绝恢复的余料/分卷规则均未改动。"
 }

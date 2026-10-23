@@ -482,6 +482,7 @@ const reviewed = applyRawMaterialInboundAction({
       spec: "90克*1.6米",
       factoryColor: "本白",
       rollCount: 2,
+      amount: 950,
       unit: "kg",
     },
     lineReviews: [{
@@ -793,4 +794,19 @@ function buildCaptureAttachment(attachmentId, contentDigest, storageKey) {
     mimeType: "image/jpeg",
     storageKey,
   };
+}
+
+// R13: exercise the actual review action, not only its summary helper.
+{
+  const values = { supplierName: "审计供应商", materialType: "无纺布", productName: "无纺布卷料", spec: "78*80*100", supplierColor: "本白", factoryColor: "本白", rollCount: 1, totalWeightKg: 10, unit: "kg", unitPrice: 10, amount: 100, rollWeightsKg: [10] };
+  const before = { ...values, id: "RMI-AUDIT-AMOUNT", revision: 1, status: "已识别待复核", ocrProvider: "tencent_cloud_table_v3", documentDirection: "supplier_delivery", amount: 101, ocrReviewFields: Object.entries({ ...values, amount: 101 }).map(([key, value]) => ({ key, value })), ocrLines: [{ lineId: "L1", values }], rolls: [] };
+  const original = structuredClone(before);
+  const review = (amount) => applyRawMaterialInboundAction({ workspace: { standardColors: ["本白"] }, inbounds: [before], inboundId: before.id, action: "review", body: { expectedRevision: 1, reviewFields: { amount }, lineReviews: [{ lineId: "L1", values: {} }] }, operatorId: "AUDIT", operatorName: "审计", serverNow: "2026-09-11T00:00:00Z" });
+  for (const amount of [101, 0]) assert.throws(() => review(amount), error => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_MISMATCH");
+  assert.deepEqual(before, original, "failed monetary review must preserve the source draft");
+  const accepted = review(100);
+  assert.equal(accepted.inbound.status, "已复核待打印标签");
+  assert.equal(accepted.inbound.amount, 100);
+  assert.equal(accepted.inbound.rolls.length, 1);
+  assert.equal(accepted.inbound.rolls[0].inventoryStatus, "不可用");
 }
