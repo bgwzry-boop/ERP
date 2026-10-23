@@ -150,6 +150,7 @@ function commitLocalFulfillmentAction(input) {
   assertDriverResolutionInput(input);
   const stagedWorkspace = stageLocalFulfillmentWorkspace(workspace);
   assertLocalFulfillmentOperationalBounds(input);
+  assertLocalOutboundInventoryConservation(input);
   assertLocalPrintPricingSnapshot(input);
   const beforeDriverResolution = input.operationLog?.action === "resolve_driver_delivery_exception" ? (workspace.fulfillments ?? []).find(item=>(item.id ?? item.fulfillmentId)===(input.fulfillment.id ?? input.fulfillment.fulfillmentId)) : null;
   const fulfillment = commitLocalFulfillmentRevision(stagedWorkspace, beforeDriverResolution ? {...beforeDriverResolution,status:input.fulfillment.status,driverStatus:input.fulfillment.status,exceptionReason:input.fulfillment.exceptionReason,exceptionReasonCode:input.fulfillment.exceptionReasonCode,exceptionOccurredAt:input.fulfillment.exceptionOccurredAt} : input.fulfillment);
@@ -2648,6 +2649,93 @@ function checksOutboundInventory(input) {
   return input.operationLog?.action === "driver_complete_delivery"
     || (input.operationLog?.action === "record_warehouse_outbound_execution"
       && input.warehouseOutboundExecution?.result === "实物已出库");
+}
+
+function assertLocalOutboundInventoryConservation(input) {
+  if (!checksOutboundInventory(input)) return;
+  const fail = () => {
+    const error = new Error("实出数量、库存扣减、占用或库存流水已变化，请刷新后核对。");
+    error.code = "ERP_FULFILLMENT_INVENTORY_CONSERVATION_CONFLICT";
+    error.statusCode = 409;
+    throw error;
+  };
+  const integer = (value) => {
+    if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "" || !Number.isSafeInteger(Number(value))) fail();
+    return Number(value);
+  };
+  const { workspace, fulfillment } = input;
+  const fulfillmentId = fulfillment.fulfillmentId ?? fulfillment.id;
+  const lineId = fulfillment.orderLineId ?? fulfillment.lineId;
+  const adjustments = input.inventoryAdjustments ?? [];
+  const reservations = input.inventoryReservations ?? [];
+  const ledgers = input.inventoryLedgerEntries ?? [];
+  const noMovements = !adjustments.length && !reservations.length && !ledgers.length;
+  const current = workspace.fulfillments.find(row => (row.fulfillmentId ?? row.id) === fulfillmentId);
+  if (input.operationLog.action === "driver_complete_delivery" && current?.physicalOutboundAt) {
+    if (!noMovements) fail();
+    return;
+  }
+  const actual = integer(fulfillment.actualQty);
+  if (actual <= 0) fail();
+  if (noMovements) {
+    const line = (workspace.orderLines ?? []).find(row => (row.orderLineId ?? row.id) === lineId);
+    if (![...orderTypeAliasesFor("custom_special"), ...orderTypeAliasesFor("external_print")].includes(line?.orderType)) fail();
+    return;
+  }
+  const deltas = new Map();
+  for (const adjustment of adjustments) {
+    const itemId = adjustment.inventoryItemId ?? adjustment.inventory_item_id;
+    if (!itemId) fail();
+    const delta = deltas.get(itemId) ?? { onHand: 0, reserved: 0 };
+    delta.onHand += integer(adjustment.onHandQtyChange ?? adjustment.on_hand_qty_change ?? 0);
+    delta.reserved += integer(adjustment.reservedQtyChange ?? adjustment.reserved_qty_change ?? 0);
+    if (!Number.isSafeInteger(delta.onHand) || !Number.isSafeInteger(delta.reserved)) fail();
+    deltas.set(itemId, delta);
+  }
+  const holds = new Map(), seenReservations = new Set();
+  for (const update of reservations) {
+    const id = update.reservationId ?? update.id;
+    const currentHold = (workspace.inventoryReservations ?? []).find(row => (row.reservationId ?? row.id) === id);
+    if (!id || seenReservations.has(id) || !currentHold) fail();
+    seenReservations.add(id);
+    const itemId = currentHold.inventoryItemId ?? currentHold.inventory_item_id;
+    const qty = integer(currentHold.reservedQty ?? currentHold.reserved_qty ?? currentHold.qty);
+    if ((currentHold.orderLineId ?? currentHold.order_line_id) !== lineId
+      || (update.orderLineId ?? update.order_line_id) !== lineId
+      || itemId !== (update.inventoryItemId ?? update.inventory_item_id)
+      || !["生效", "active", "reserved", "部分释放", "partially_released"].includes(currentHold.status)
+      || qty <= 0 || qty !== integer(update.reservedQty ?? update.reserved_qty ?? update.qty)
+      || update.status !== "已出库" || !deltas.has(itemId)) fail();
+    holds.set(itemId, (holds.get(itemId) ?? 0) + qty);
+  }
+  const ledgerByItem = new Map();
+  for (const ledger of ledgers) {
+    const itemId = ledger.inventoryItemId ?? ledger.inventory_item_id;
+    const before = integer(ledger.qtyBefore ?? ledger.qty_before);
+    const change = integer(ledger.qtyChange ?? ledger.qty_change);
+    const after = integer(ledger.qtyAfter ?? ledger.qty_after);
+    if (!deltas.has(itemId) || change > 0 || after !== before + change || (ledger.sourceId ?? ledger.source_id) !== fulfillmentId) fail();
+    const aggregate = ledgerByItem.get(itemId) ?? { change: 0, before, after };
+    aggregate.change += change;
+    aggregate.before = Math.max(aggregate.before, before);
+    aggregate.after = Math.min(aggregate.after, after);
+    ledgerByItem.set(itemId, aggregate);
+  }
+  let totalDeducted = 0;
+  for (const [itemId, delta] of deltas) {
+    const item = (workspace.inventories ?? []).find(row => (row.inventoryItemId ?? row.id) === itemId);
+    if (!item) fail();
+    const onHand = integer(item.inStock ?? item.onHandQty ?? item.on_hand_qty);
+    const reserved = integer(item.reserved ?? item.reservedQty ?? item.reserved_qty);
+    const ledger = ledgerByItem.get(itemId);
+    if (delta.onHand > 0 || delta.reserved > 0 || onHand + delta.onHand < 0 || reserved + delta.reserved < 0
+      || delta.onHand !== (ledger?.change ?? 0)
+      || (delta.onHand < 0 && (ledger?.before !== onHand || ledger?.after !== onHand + delta.onHand))
+      || (reservations.length && (delta.reserved !== -(holds.get(itemId) ?? 0) || -delta.onHand > (holds.get(itemId) ?? 0)))
+      || (!reservations.length && delta.reserved < delta.onHand)) fail();
+    totalDeducted -= delta.onHand;
+  }
+  if (!Number.isSafeInteger(totalDeducted) || totalDeducted !== actual) fail();
 }
 
 function buildOutboundLedgerDeltasSql(records, fulfillmentId, parameters) {
