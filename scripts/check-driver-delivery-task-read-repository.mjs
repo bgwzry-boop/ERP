@@ -231,6 +231,11 @@ assert.equal(localList.items[0].routeSequence, 1);
 assert.equal(localList.items[0].goodsSummary, "活动袋 35*27 白印黑 / 白袋黑提 双面 1500个 加长提");
 assert.equal(localList.items[0].deliveryNoteNo, "DN-F010");
 assert.equal(localList.items[0].packageChecklist.length, 3);
+const unrecordedPackages = localRepository.listDriverDeliveryTasks({
+  workspace: { ...workspace, packages: [] }, operatorId: "U-DRIVER-A",
+});
+assert.deepEqual(unrecordedPackages.items[0].packageChecklist, [], "a package summary cannot become a driver scan list");
+assert.deepEqual(normalizeDriverDeliveryTask({ fulfillmentId: "F-MISSING", packageCount: 2, qty: 100, packageChecklist: [] }).packageChecklist, []);
 assert.equal(localList.items[0].packageChecklist[0].packageId, "PKG-F010-1");
 assert.equal(localList.items[0].packageChecklist[0].labelText, "第 1/3 包");
 assert.equal(localList.items[0].packageChecklist[0].quantityText, "500个");
@@ -396,7 +401,7 @@ assert.match(listSql, /customer_addresses/);
 assert.match(listSql, /print_records/);
 assert.match(listSql, /packages/);
 assert.match(listSql, /package_item\.fulfillment_id = task\.fulfillment_id/);
-assert.match(listSql, /package_item\.fulfillment_id IS NULL AND package_item\.order_line_id = task\.order_line_id/);
+assert.doesNotMatch(listSql, /package_item\.fulfillment_id IS NULL AND package_item\.order_line_id = task\.order_line_id/);
 assert.match(listSql, /package_row\.packed_qty/);
 assert.match(listSql, /label_print_record_id/);
 assert.match(listSql, /driver_delivery_dispatches/);

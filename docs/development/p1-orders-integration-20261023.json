@@ -1,0 +1,153 @@
+{
+  "baseline": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
+  "date": "2026-10-23",
+  "scope": [
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-04",
+    "OD-05",
+    "OD-06",
+    "OD-07",
+    "UI-07",
+    "REM-01"
+  ],
+  "changes": [
+    "小程序价格来源对比与数据库锁定核验、金额按原锁价落账并保留不可改来源证据；缺失/变化/改规格或数量阻断",
+    "小程序草稿进入办公室队列，真实分页透传；标准通货与库存分离；缺货通货及特殊尺寸排产",
+    "特殊尺寸完工生成打包任务，不建立通货库存占用",
+    "实包数量为正整数且总数守恒，任务/订单/交付绑定，拒绝包裹码覆盖；打包重复请求幂等",
+    "司机只读真实包裹，缺包/重复/他单码拒绝，数据库提交复查；移除全部核对及勾选绕行",
+    "送达水印必传；已签需签字照片，未签需原因；纸质联按实选择，历史空状态不推断签署",
+    "多暂停异常全部处理后方能恢复生产"
+  ],
+  "oldCommits": [
+    {
+      "commit": "1ed23b2b86314feff63cb62d8c7deb9375552345",
+      "decision": "按当前架构移植分类/缺货及特殊尺寸无库存完工；旧桌面壳不覆盖"
+    },
+    {
+      "commit": "e62f3d3f",
+      "decision": "移植真实包裹投影及非法扫描拒绝；保留当前联系人/地址投影"
+    },
+    {
+      "commit": "c95623de",
+      "decision": "适配来源锁定合同；增加0048数据库来源快照与事务比较，非整体覆盖旧订单服务"
+    },
+    {
+      "commit": "d676426",
+      "decision": "移植确认前金额核对回退，结合真正的办公室确认锁价"
+    },
+    {
+      "commit": "da5c423d",
+      "decision": "仅移植包裹守恒/绑定保护，并补幂等及禁止包裹覆盖；印刷阶段重构未并入此次审核范围"
+    }
+  ],
+  "validation": {
+    "checks": [
+      {
+        "name": "order-parser",
+        "exitCode": 0
+      },
+      {
+        "name": "order-draft-command-service",
+        "exitCode": 0
+      },
+      {
+        "name": "order-draft-api",
+        "exitCode": 0
+      },
+      {
+        "name": "office-order-actions",
+        "exitCode": 0
+      },
+      {
+        "name": "office-order-pages",
+        "exitCode": 0
+      },
+      {
+        "name": "office-order-writes",
+        "exitCode": 0
+      },
+      {
+        "name": "order-confirmation-transaction-repository",
+        "exitCode": 0
+      },
+      {
+        "name": "production-reporting-command-service",
+        "exitCode": 0
+      },
+      {
+        "name": "packing-command-service",
+        "exitCode": 0
+      },
+      {
+        "name": "production-packing-transaction-repository",
+        "exitCode": 0
+      },
+      {
+        "name": "production-packing-fulfillment-inventory-sql-fragments",
+        "exitCode": 0
+      },
+      {
+        "name": "p1-order-delivery-integration",
+        "exitCode": 0
+      },
+      {
+        "name": "driver-delivery-task-projection-service",
+        "exitCode": 0
+      },
+      {
+        "name": "driver-delivery-task-read-repository",
+        "exitCode": 0
+      },
+      {
+        "name": "frontend-driver-mobile-api-client",
+        "exitCode": 0
+      },
+      {
+        "name": "fulfillment-action-command-service",
+        "exitCode": 0
+      },
+      {
+        "name": "fulfillment-action-transaction-repository",
+        "exitCode": 0
+      },
+      {
+        "name": "driver-write-routes",
+        "exitCode": 0
+      },
+      {
+        "name": "office-driver-delivery-actions",
+        "exitCode": 0
+      },
+      {
+        "name": "bagwin-erp-integration",
+        "exitCode": 0
+      }
+    ],
+    "lint": "changed files and new modules passed, no warnings",
+    "build": "npm run build passed including frontend chunk budgets",
+    "postgres": {
+      "command": "node scripts/check-miniapp-postgres-live.mjs",
+      "result": "passed",
+      "isolated": true,
+      "evidence": [
+        "495锁价确认保持495，订单进入队列且缺货排产",
+        "确认事务前intake来源revision变化，409且原单事务全回滚",
+        "价格来源JSON不可改",
+        "两个暂停异常：第一项解决仍暂停，第二项解决才复产",
+        "特殊尺寸500完工无成品库存，实际包300+200落库",
+        "打包相同幂等键重试返回原包裹",
+        "司机数据库包裹核验：正确列表通过，空列表/重复/他单拒绝",
+        "签字无照片、未签无原因被数据库拒绝"
+      ]
+    }
+  },
+  "boundaries": [
+    "未部署；根任务整合后执行全量检查、受控发布及手机/电脑浏览器验收",
+    "实体挂牌打印、纸张扫码、混装多明细与更正重印版本仍需独立业务验收；本次不宣称这类P2设计已完成",
+    "当前仓库有货通货的打包任务创建入口需与主任务出库组件一起核查，未以虚拟包放行",
+    "正式打印出库模板与内部包裹挂牌不同，未替换旧出库打印样式"
+  ]
+}

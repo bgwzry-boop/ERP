@@ -36,7 +36,7 @@ function checkPackagesAndFulfillment() {
   );
   assert.match(packagesSql, /INSERT INTO packages/);
   assert.match(packagesSql, /JOIN write_guard ON write_guard\.ok/);
-  assert.match(packagesSql, /ON CONFLICT \(id\) DO UPDATE SET/);
+  assert.doesNotMatch(packagesSql, /ON CONFLICT \(id\) DO UPDATE SET/);
   assert.ok(!packagesSql.includes("O'Brien"));
   assert.equal(parameters.values.includes("O'Brien"), true);
   assert.equal(buildInsertPackagesSql([], createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");

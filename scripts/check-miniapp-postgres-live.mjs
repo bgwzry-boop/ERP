@@ -1,3 +1,4 @@
+import { checkP1OrderConfirmationLive } from "./helpers/p1OrderConfirmationLive.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
@@ -206,6 +207,7 @@ SELECT json_build_object(
       estimatedAmount: 170,
     }],
   };
+  await seedPool.query("INSERT INTO miniapp_customer_accounts (miniapp_customer_id, customer_id) VALUES ($1,$2)", [bagwinOrder.customer.miniappCustomerId, bagwinOrder.customer.erpCustomerId]);
   const payloadSha256 = bagwinPayloadSha256(bagwinOrder);
   const bagwinCreated = await bagwinService.createOrder({
     schemaVersion: 1,
@@ -226,6 +228,8 @@ SELECT json_build_object(
   assert.equal(reconciliation.orders[0].sourceOrderNo, sourceOrderNo);
   assert.deepEqual(reconciliation.orders[0].lines, [{ skuId: "ERP-SKU-LIVE-1", quantity: 500 }]);
   assert.equal((await seedPool.query("SELECT count(*)::int AS count FROM original_orders")).rows[0].count, 0);
+
+  await checkP1OrderConfirmationLive({ databaseUrl, pool: seedPool, bagwinService, bagwinOrder });
 
   console.log(`Miniapp PostgreSQL live check passed against ${dockerImage}: migration, bound login, ERP catalog/quote/inventory projection, idempotent draft intake, Bagwin draft-only provider, complete reconciliation export, and no-formal-order boundary are verified.`);
 } finally {

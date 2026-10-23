@@ -86,7 +86,7 @@ const service = createFulfillmentActionCommandService({
       ...input.fallbackFulfillment,
       fulfillmentId: input.fulfillmentId,
       driverId: input.operatorId,
-      packageChecklist: [{ packageId: "PKG-001" }, { packageId: "PKG-002" }],
+      packageChecklist: _workspace.driverPackageChecklist ?? [{ packageId: "PKG-001" }, { packageId: "PKG-002" }],
     };
   },
   getFulfillmentSortSequence() {
@@ -273,6 +273,8 @@ async function checkWarehousePhysicalOutboundAndDriverFinalDelivery() {
     body: {
       actualQty: 100,
       watermarkedPhotoAttachmentId: "ATT-WM-001",
+      signatureStatus: "signed",
+      paperNoteStatus: "已交回",
       signaturePhotoAttachmentId: "ATT-SIGN-001",
       receiverName: "客户仓管",
     },
@@ -474,6 +476,24 @@ async function checkDriverAssignmentAndLoad() {
   });
   assert.equal(incomplete.code, "DRIVER_PACKAGE_CHECK_INCOMPLETE");
 
+  const noRealPackages = buildWorkspace({ method: "送货", status: "待司机装车", physicalOutboundAt: fixedNow.toISOString() });
+  noRealPackages.driverPackageChecklist = [];
+  const missingRecords = await service.confirmDriverDeliveryLoaded({
+    workspace: noRealPackages, fulfillmentId: "FUL-001",
+    body: { checkedPackageIds: ["FUL-001-PKG-1"] }, operatorId: "U-DRIVER-A",
+  });
+  assert.equal(missingRecords.code, "DRIVER_REAL_PACKAGES_REQUIRED");
+  const duplicateScan = await service.confirmDriverDeliveryLoaded({
+    workspace, fulfillmentId: "FUL-001",
+    body: { checkedPackageIds: ["PKG-001", "PKG-001", "PKG-002"] }, operatorId: "U-DRIVER-A",
+  });
+  assert.equal(duplicateScan.code, "DRIVER_PACKAGE_DUPLICATE_SCAN");
+  const foreignPackage = await service.confirmDriverDeliveryLoaded({
+    workspace, fulfillmentId: "FUL-001",
+    body: { checkedPackageIds: ["PKG-001", "PKG-OTHER"] }, operatorId: "U-DRIVER-A",
+  });
+  assert.equal(foreignPackage.code, "DRIVER_PACKAGE_NOT_IN_TASK");
+
   const loaded = await service.confirmDriverDeliveryLoaded({
     workspace,
     fulfillmentId: "FUL-001",
@@ -501,7 +521,7 @@ async function checkDriverCompletionAndRetake() {
   const missingAttachment = await service.completeDriverDelivery({
     workspace,
     fulfillmentId: "FUL-001",
-    body: { watermarkedPhotoAttachmentId: "ATT-NOT-FOUND" },
+    body: { signatureStatus: "unsigned", unsignedReason: "客户不在场", paperNoteStatus: "客户留存", watermarkedPhotoAttachmentId: "ATT-NOT-FOUND" },
     operatorId: "U-DRIVER-A",
   });
   assert.equal(missingAttachment.code, "DELIVERY_EVIDENCE_ATTACHMENT_NOT_FOUND");
@@ -514,7 +534,7 @@ async function checkDriverCompletionAndRetake() {
     const blocked = await service.completeDriverDelivery({
       workspace,
       fulfillmentId: "FUL-001",
-      body: { watermarkedPhotoAttachmentId: attachmentId },
+      body: { signatureStatus: "unsigned", unsignedReason: "客户不在场", paperNoteStatus: "客户留存", watermarkedPhotoAttachmentId: attachmentId },
       operatorId: "U-DRIVER-A",
     });
     assert.equal(blocked.code, expectedCode);
@@ -525,12 +545,18 @@ async function checkDriverCompletionAndRetake() {
     fulfillmentId: "FUL-001",
     body: {
       watermarkedPhotoAttachmentId: "ATT-WM-001",
+      signatureStatus: "signed",
+      paperNoteStatus: "已交回",
       signaturePhotoAttached: true,
     },
     operatorId: "U-DRIVER-A",
   });
-  assert.equal(missingSignature.code, "SIGNATURE_PHOTO_ATTACHMENT_REQUIRED");
+  assert.equal(missingSignature.code, "DELIVERY_SIGNATURE_PHOTO_REQUIRED");
 
+  for (const [body,code] of [[{},"DELIVERY_SIGNATURE_STATUS_REQUIRED"],[{signatureStatus:"unsigned"},"DELIVERY_UNSIGNED_REASON_REQUIRED"],[{signatureStatus:"signed"},"DELIVERY_SIGNATURE_PHOTO_REQUIRED"]]) {
+    const invalid = await service.completeDriverDelivery({workspace,fulfillmentId:"FUL-001",operatorId:"U-DRIVER-A",body:{watermarkedPhotoAttachmentId:"ATT-WM-001",paperNoteStatus:"客户留存",...body}});
+    assert.equal(invalid.code,code);
+  }
   const completed = await service.completeDriverDelivery({
     workspace,
     fulfillmentId: "FUL-001",
@@ -538,6 +564,8 @@ async function checkDriverCompletionAndRetake() {
       actualQty: 100,
       watermarkedPhotoAttachmentId: "ATT-WM-001",
       signaturePhotoAttached: true,
+      signatureStatus: "signed",
+      paperNoteStatus: "已交回",
       signaturePhotoAttachmentId: "ATT-SIGN-001",
       watermarkOperatorId: "U-SPOOFED",
       receiverName: "客户仓管",
@@ -556,7 +584,7 @@ async function checkDriverCompletionAndRetake() {
   const notLoaded = await service.completeDriverDelivery({
     workspace: notLoadedWorkspace,
     fulfillmentId: "FUL-001",
-    body: { watermarkedPhotoAttachmentId: "ATT-WM-002" },
+    body: { signatureStatus: "unsigned", unsignedReason: "客户不在场", paperNoteStatus: "客户留存", watermarkedPhotoAttachmentId: "ATT-WM-002" },
     operatorId: "U-DRIVER-A",
   });
   assert.equal(notLoaded.code, "DRIVER_DELIVERY_NOT_LOADED");
@@ -576,7 +604,7 @@ async function checkDriverCompletionAndRetake() {
   const retake = await service.completeDriverDelivery({
     workspace: retakeWorkspace,
     fulfillmentId: "FUL-001",
-    body: { watermarkedPhotoAttachmentId: "ATT-WM-RETAKE" },
+    body: { signatureStatus: "unsigned", unsignedReason: "客户不在场", paperNoteStatus: "客户留存", watermarkedPhotoAttachmentId: "ATT-WM-RETAKE" },
     operatorId: "U-DRIVER-A",
   });
   assert.equal(retake.response.evidenceResubmission, true);

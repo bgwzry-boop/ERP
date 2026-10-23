@@ -1,3 +1,5 @@
+import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
+import { loadMiniappDraftLockedPricing, applyMiniappDraftLockedPricing } from "../miniapp/miniappDraftLockedPricing.mjs";
 import { createHash } from "node:crypto";
 import { buildInventoryIntentsFromRecognition } from "../inventoryIntentDomain.mjs";
 import { assertOrderDraftSplitPlan, buildOrderDraftSplitPlan } from "../orderDraftSplitDomain.mjs";
@@ -555,6 +557,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
+    if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
+    const miniappPricing = await loadMiniappDraftLockedPricing(workspace.orderDraftRepository, previous, lines, workspace);
     const cancellationResolution = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellationResolution.error) return cancellationResolution.error;
     if (!cancellationResolution.activeLines.length) {
@@ -575,11 +579,13 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (holdResolution.error) return holdResolution.error;
     const confirmation = confirmDraftOrder({
       draftRows: cancellationResolution.activeLines,
+      resolveAmount: miniappPricing ? row => miniappPricing.prices.get(row.id)?.amount : undefined,
       inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
       orderLines: workspace.orderLines,
       fulfillments: workspace.fulfillments,
       customers: workspace.customers,
     });
+    applyMiniappDraftLockedPricing(confirmation, miniappPricing);
     if (confirmation.blocked) {
       const blockedDraft = buildDraftProjection(previous, {
         id: draftId,
@@ -646,6 +652,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     });
     const priceSnapshots = confirmation.newLines.map((line) => ({
       ...toPriceSnapshot(line),
+      ...line.confirmedMiniappPrice,
       priceSnapshotId: `PS-${line.id}`,
       snapshotType: "order_confirm",
       versionNo: 1,
@@ -672,6 +679,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
       orderDraft: confirmedDraft,
+      miniappPriceSource: miniappPricing?.source,
       expectedDraftRevision: expectedRevision,
       order: buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId),
       orderLines: confirmation.newLines.map((line) => ({ ...line, createdBy: operatorId })),
@@ -700,7 +708,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       orderSummaryStatus: "处理中",
       orderLines: confirmation.newLines.map(toOrderLineSummary),
       productionTasks: transaction.productionTasks,
-      priceSnapshots: confirmation.newLines.map(toPriceSnapshot),
+      priceSnapshots: priceSnapshots.map(snapshot => ({ ...snapshot, amount: snapshot.finalAmount })),
       inventoryChecks: confirmation.checkedRows.map((line, index) =>
         toInventoryCheckResult(workspace, line, confirmation.newLines[index]),
       ),
@@ -760,6 +768,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
       return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "The draft changed before split confirmation.");
     }
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
+    if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
+    const miniappPricing = await loadMiniappDraftLockedPricing(workspace.orderDraftRepository, previous, lines, workspace);
     const cancellationResolution = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellationResolution.error) return cancellationResolution.error;
     if (!cancellationResolution.activeLines.length) {
@@ -794,12 +804,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
       const groupLines = group.draftLineIds.map((lineId) => linesById.get(lineId)).filter(Boolean);
       const confirmation = confirmDraftOrder({
         draftRows: groupLines,
+        resolveAmount: miniappPricing ? row => miniappPricing.prices.get(row.id)?.amount : undefined,
         inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
         orderLines: rollingOrderNumberRows,
         fulfillments: rollingFulfillments,
         customers: workspace.customers,
       });
-      if (confirmation.blocked) {
+      applyMiniappDraftLockedPricing(confirmation, miniappPricing);
+    if (confirmation.blocked) {
         return businessError(409, "ORDER_DRAFT_SPLIT_GROUP_BLOCKED", `${group.groupId}: ${confirmation.toast}`);
       }
       confirmations.push({ group, confirmation });
@@ -844,6 +856,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId));
     const priceSnapshots = newLines.map((line) => ({
       ...toPriceSnapshot(line),
+      ...line.confirmedMiniappPrice,
       priceSnapshotId: `PS-${line.id}`,
       snapshotType: "order_confirm",
       versionNo: 1,
@@ -873,7 +886,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       splitPlan,
       orderLines: newLines.map(toOrderLineSummary),
       productionTasks,
-      priceSnapshots: newLines.map(toPriceSnapshot),
+      priceSnapshots: priceSnapshots.map(snapshot => ({ ...snapshot, amount: snapshot.finalAmount })),
       inventoryChecks: checkedRows.map((line, index) => toInventoryCheckResult(workspace, line, newLines[index])),
       reservations: inventoryReservations.map(toInventoryReservationTransactionSummary),
       convertedTemporaryHoldIds: inventoryReservations
@@ -891,6 +904,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload,
       orderDraft: confirmedDraft,
+      miniappPriceSource: miniappPricing?.source,
       expectedDraftRevision: expectedRevision,
       order: orders[0],
       orders,
@@ -1021,6 +1035,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         customerId,
         customer: line.customer ?? findCustomerName(workspace, customerId) ?? "待确认客户",
         product: line.productName ?? line.product ?? "",
+        orderType: normalizeOrderType(line.orderType ?? line.productType),
         size: line.size ?? "待确认",
         color: line.bagColor ?? line.color ?? "待确认",
         handle: line.handleType ?? line.handle ?? "普通提",
@@ -1071,7 +1086,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       customerId: row.customerId,
       customerName: row.customer,
       productName: row.product,
-      orderType: row.print === "是" ? "custom_print" : "stock",
+      orderType: row.orderType,
       size: row.size,
       bagColor: row.color,
       handleType: row.handle,
@@ -1173,7 +1188,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
   function buildInventoryReservations(workspace, checkedRows, orderLines, operatorId, holdsById = new Map()) {
     return checkedRows
       .map((row, index) => {
-        if (row.inventory !== "可用") return null;
+        if (!isStockOrderType(row.orderType) || row.inventory !== "可用") return null;
         const orderLine = orderLines[index];
         const temporaryHold = holdsById.get(row.sourceHoldId);
         const inventoryItem = temporaryHold
@@ -1219,7 +1234,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   function buildProductionTasks(orderLines, operatorId) {
     return orderLines
-      .filter((line) => line.print === "是" || /制袋|丝印|待排产|补印/.test(String(line.status ?? "")))
+      .filter((line) => requiresProductionOrderType(line.orderType, line.inventory) || /补印/.test(String(line.status ?? "")))
+      .filter((line) => normalizeOrderType(line.orderType) !== "external_print")
       .map((line) => {
         const productionTaskId = nextPlainId("PT", line.id);
         const taskType = line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
@@ -1228,9 +1244,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
           bizNo: productionTaskId,
           orderLineId: line.id,
           taskType,
-          machineId: taskType === "丝印" ? "PRINT-01" : "BAG-01",
+          machineId: "",
           plannedQty: Number(line.qty ?? 0),
-          taskStatus: line.status || "待开始",
+          taskStatus: "待排产",
           publishedScheduleId: "",
           revision: 1,
           createdBy: operatorId,

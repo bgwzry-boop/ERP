@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { orderTypeFromMiniappProductType } from "../../shared/orderRouting.js";
 
 const SOURCE_ORDER_PATTERN = /^WT\d{8}[A-F0-9]{10}$/;
 const ERP_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$/;
@@ -233,6 +234,7 @@ function toRepositoryInput(parsed, priceRelease) {
     clientLineId: line.clientLineId,
     sourceLineId: line.sourceLineId,
     productType: line.productType,
+    orderType: orderTypeFromMiniappProductType(line.productType),
     productName: line.productName,
     skuId: line.skuId,
     size: line.size,

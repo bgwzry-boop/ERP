@@ -172,8 +172,7 @@ const fallbackPackages = buildDriverPackageChecklist(
     qty: 5,
   },
 );
-assert.deepEqual(fallbackPackages.map((item) => item.packedQty), [3, 2]);
-assert.deepEqual(fallbackPackages.map((item) => item.labelText), ["第 1/2 包", "第 2/2 包"]);
+assert.deepEqual(fallbackPackages, [], "a package-count summary cannot create scannable package identities");
 
 assert.equal(getDriverColorSpecLabel({ color: "黄色", handleColor: "红色" }), "黄袋红提");
 assert.equal(mapDriverDeliveryStatus("数量差异待处理"), "送货异常");

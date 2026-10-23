@@ -1,3 +1,4 @@
+import { normalizeOrderType } from "../../shared/orderRouting.js";
 import { enrichDraftRow } from "../lib/orderParser.js";
 import { recognizeOrderConversation } from "../lib/orderConversationRecognition.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
@@ -100,7 +101,7 @@ export async function recognizeOfficeDraftQueue(input, options = {}) {
 
 export async function listOfficeDraftQueue(input = {}, options = {}) {
   try {
-    const query = new URLSearchParams({ queueOnly: "true", pageSize: String(input.pageSize ?? 100) });
+    const query = new URLSearchParams({ queueOnly: "true", page: String(input.page ?? 1), pageSize: String(input.pageSize ?? 100) });
     if (input.queueBatchId) query.set("queueBatchId", input.queueBatchId);
     if (input.queueKind) query.set("queueKind", input.queueKind);
     if (input.status) query.set("status", input.status);
@@ -122,6 +123,8 @@ export async function listOfficeDraftQueue(input = {}, options = {}) {
       source: "api",
       items: (json.items ?? []).map((draft) => mapQueuedDraftRecord(draft, input.inventories ?? [])),
       summary: json.summary ?? {},
+      page: Number(json.page ?? input.page ?? 1),
+      pageSize: Number(json.pageSize ?? input.pageSize ?? 100),
       total: Number(json.total ?? 0),
     };
   } catch (error) {
@@ -459,12 +462,13 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
   return (response?.lines ?? []).map((line, index) => {
     const print = line.printFlag ? "是" : "否";
     const note = uniqueText([line.customerNote, line.officeNote]).join("、");
-    return enrichDraftRow(
+    const row = enrichDraftRow(
       {
         id: line.draftLineId ?? `DRAFT-API-${index + 1}`,
         customer: line.customerName ?? draft.customerName ?? "待确认客户",
         customerId: line.customerId ?? draft.customerId ?? "",
         product: line.productName ?? "空白袋",
+        orderType: normalizeOrderType(line.orderType ?? line.productType),
         size: line.size ?? "待确认",
         color: line.bagColor ?? "待确认",
         handle: line.handleType ?? "普通提",
@@ -504,6 +508,9 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
       },
       inventories,
     );
+    const lockedAmount = line.recognitionEvidence?.normalizedLine?.quoteSnapshot?.amount;
+    if (["mini_program", "wechat_mini_program"].includes(draft.sourceChannel) && Number.isFinite(lockedAmount)) row.amount = lockedAmount;
+    return row;
   });
 }
 
@@ -524,6 +531,7 @@ function mapQueuedDraftRecord(draft, inventories) {
     customerId: line.customerId ?? draft.customerId,
     customerName: line.customer ?? draft.customerName,
     productName: line.product,
+    orderType: line.orderType,
     size: line.size,
     bagColor: line.color,
     handleType: line.handle,
@@ -539,6 +547,7 @@ function mapQueuedDraftRecord(draft, inventories) {
     artworkAttachment: line.artworkAttachment,
     customerNote: line.note,
     recognitionEvidence: {
+      normalizedLine: line.normalizedLine ?? line.recognitionEvidence?.normalizedLine,
       sourceText: line.source,
       sourceMessageId: line.sourceMessageId,
       sourceSender: line.sourceSender,
@@ -591,7 +600,7 @@ export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
       customerId: row.customerId,
       customer: row.customer,
       productName: row.product || "空白袋",
-      orderType: printFlag ? "custom_print" : "stock",
+      orderType: normalizeOrderType(row.orderType),
       size: row.size || "待确认",
       bagColor: row.color || "待确认",
       handleType: row.handle || "普通提",

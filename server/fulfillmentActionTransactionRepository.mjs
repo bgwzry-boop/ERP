@@ -421,7 +421,7 @@ fulfillment_write_guard AS MATERIALIZED (
   SELECT erp_require(
     (SELECT COUNT(*) FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision)}) = 1,
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
-  ) AS ok
+  ) ${operationLog.action === "driver_confirm_loaded" ? `AND erp_require_driver_packages(${parameters.text(fulfillment.fulfillmentId)}, ${parameters.text(fulfillment.orderLineId)}, ${parameters.textArray(operationLog.after?.checkedPackageIds ?? [])})` : ""} AS ok
 ),
 package_write_guard AS MATERIALIZED (
   SELECT erp_require(
@@ -493,6 +493,8 @@ updated_fulfillment AS (
     watermark_address = ${parameters.text(fulfillment.watermarkAddress)},
     watermark_operator_id = ${parameters.nullableText(fulfillment.watermarkOperatorId)},
     watermark_operator_name = ${parameters.text(fulfillment.watermarkOperatorName)},
+    signature_status = ${parameters.text(fulfillment.signatureStatus)},
+    unsigned_reason = ${parameters.text(fulfillment.unsignedReason)},
     signature_photo_attached = ${parameters.boolean(fulfillment.signaturePhotoAttached)},
     signature_photo_attachment_id = ${parameters.text(fulfillment.signaturePhotoAttachmentId)},
     delivery_evidence_review_status = ${parameters.text(fulfillment.deliveryEvidenceReviewStatus)},
@@ -879,6 +881,8 @@ function toWorkspaceFulfillment(fulfillment) {
     watermarkAddress: normalized.watermarkAddress,
     watermarkOperatorId: normalized.watermarkOperatorId,
     watermarkOperatorName: normalized.watermarkOperatorName,
+    signatureStatus: normalized.signatureStatus,
+    unsignedReason: normalized.unsignedReason,
     signaturePhotoAttached: normalized.signaturePhotoAttached,
     signaturePhotoAttachmentId: normalized.signaturePhotoAttachmentId,
     deliveryEvidenceReviewStatus: normalized.deliveryEvidenceReviewStatus,
@@ -1056,6 +1060,8 @@ function normalizeFulfillmentRecord(record) {
     watermarkAddress: String(record.watermarkAddress ?? record.watermark_address ?? "").trim(),
     watermarkOperatorId: String(record.watermarkOperatorId ?? record.watermark_operator_id ?? "").trim(),
     watermarkOperatorName: String(record.watermarkOperatorName ?? record.watermark_operator_name ?? "").trim(),
+    signatureStatus: String(record.signatureStatus ?? record.signature_status ?? "").trim(),
+    unsignedReason: String(record.unsignedReason ?? record.unsigned_reason ?? "").trim(),
     signaturePhotoAttached: record.signaturePhotoAttached === true || record.signature_photo_attached === true,
     signaturePhotoAttachmentId: String(record.signaturePhotoAttachmentId ?? record.signature_photo_attachment_id ?? "").trim(),
     deliveryEvidenceReviewStatus: String(record.deliveryEvidenceReviewStatus ?? record.delivery_evidence_review_status ?? "").trim(),
@@ -2121,6 +2127,8 @@ function fulfillmentJsonExpression(alias) {
     'watermarkAddress', ${alias}.watermark_address,
     'watermarkOperatorId', ${alias}.watermark_operator_id,
     'watermarkOperatorName', ${alias}.watermark_operator_name,
+    'signatureStatus', ${alias}.signature_status,
+    'unsignedReason', ${alias}.unsigned_reason,
     'signaturePhotoAttached', ${alias}.signature_photo_attached,
     'signaturePhotoAttachmentId', ${alias}.signature_photo_attachment_id,
     'deliveryEvidenceReviewStatus', ${alias}.delivery_evidence_review_status,

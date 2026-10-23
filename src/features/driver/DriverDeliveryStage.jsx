@@ -14,6 +14,8 @@ export function DriverDeliveryStage({
   actualQty,
   receiverName,
   paperNoteStatus,
+  signatureStatus,
+  unsignedReason,
   watermarkLocationLabel,
   watermarkGeoPoint,
   watermarkLocationStatus,
@@ -33,13 +35,14 @@ export function DriverDeliveryStage({
   onToggleDeliveryPhotoCamera,
   onCaptureDeliveryPhoto,
 }) {
+  const signatureReady = signatureStatus === "signed" ? signaturePhotoAttached : signatureStatus === "unsigned" && Boolean(unsignedReason.trim());
   return (
     <section className="detail-section mobile-role-stage driver-delivery-stage">
       <h3>送达凭证</h3>
       <div className="action-row mobile-role-stage-actions driver-stage-action-bar">
         <button
           className="primary-action"
-          disabled={completeState.disabled || task.status !== "配送中" || !watermarkedPhotoAttached || Boolean(deliveryCompletionConfirmation)}
+          disabled={completeState.disabled || task.status !== "配送中" || !watermarkedPhotoAttached || !signatureReady || !paperNoteStatus || Boolean(deliveryCompletionConfirmation)}
           ref={deliveryCompletionTriggerRef}
           title={completeState.title || (task.status !== "配送中" ? "配送中任务才能提交送达" : !watermarkedPhotoAttached ? "完成送货必须有水印照片" : "")}
           onClick={() => onSubmit("提交送达")}
@@ -90,6 +93,7 @@ export function DriverDeliveryStage({
           <label>
             <span>纸质联状态</span>
             <select value={paperNoteStatus} onChange={(event) => onUpdateInput("paperNoteStatus", event.target.value)}>
+              <option value="">请选择实际状态</option>
               <option>已交回</option>
               <option>客户留存</option>
               <option>未带回</option>
@@ -120,12 +124,21 @@ export function DriverDeliveryStage({
               </div>
             ) : null}
           </label>
-          <label className="evidence-row">
-            <span>签收照片</span>
-            <input accept="image/*" capture="environment" type="file" onChange={(event) => onUpdateInput("signaturePhotoFile", event.target.files?.[0] ?? null)} />
-            <small>{signaturePhotoFile?.name || (signaturePhotoAttached ? "已记录签收照片" : "可选")}</small>
-            {photoPreviewUrls.signature ? <div className="photo-proof-preview"><img alt="签收照片预览" src={photoPreviewUrls.signature} /></div> : null}
+          <label>
+            <span>客户签字情况</span>
+            <select value={signatureStatus} onChange={(event) => onUpdateInput("signatureStatus", event.target.value)}>
+              <option value="">请选择实际情况</option><option value="signed">客户已签字</option><option value="unsigned">客户未签字</option>
+            </select>
           </label>
+          {signatureStatus === "signed" ? <label className="evidence-row">
+            <span>签字照片（必传）</span>
+            <input accept="image/*" capture="environment" type="file" onChange={(event) => onUpdateInput("signaturePhotoFile", event.target.files?.[0] ?? null)} />
+            <small>{signaturePhotoFile?.name || (signaturePhotoAttached ? "已记录签字照片" : "请拍摄客户签字的送货单")}</small>
+            {photoPreviewUrls.signature ? <div className="photo-proof-preview"><img alt="签字照片预览" src={photoPreviewUrls.signature} /></div> : null}
+          </label> : signatureStatus === "unsigned" ? <label>
+            <span>未签字原因（必填）</span>
+            <input value={unsignedReason} onChange={(event) => onUpdateInput("unsignedReason", event.target.value)} placeholder="如客户不在场，由门岗代收" />
+          </label> : null}
           <label>
             <span>备注</span>
             <input value={remark} onChange={(event) => onUpdateInput("remark", event.target.value)} placeholder="楼层、门岗、客户补充说明" />

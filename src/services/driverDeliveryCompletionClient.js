@@ -51,9 +51,9 @@ export function buildDriverDeliveryCompletionSummary({ task = {}, payload = {} }
       { label: "实际数量", value: actualQuantityText },
       { label: "包裹", value: packageCount ? `${packageCount} 包` : cleanText(task.packageSummary) || "待确认" },
       { label: "水印照片", value: hasWatermarkedEvidence ? "已准备" : "缺少" },
-      { label: "签收照片", value: hasSignatureEvidence ? "已准备" : "未提供（可选）" },
+      { label: "客户签字", value: payload.signatureStatus === "signed" ? (hasSignatureEvidence ? "已签字，照片已准备" : "已签字，缺少照片") : payload.signatureStatus === "unsigned" ? `未签字：${cleanText(payload.unsignedReason) || "缺少原因"}` : "未选择" },
       { label: "收货人", value: cleanText(payload.receiverName) || cleanText(task.receiverName) || "未填写" },
-      { label: "纸质联", value: cleanText(payload.paperNoteStatus) || cleanText(task.paperNoteStatus) || "已交回" },
+      { label: "纸质联", value: cleanText(payload.paperNoteStatus) || cleanText(task.paperNoteStatus) || "未选择" },
     ],
     effects: [
       "任务将标记为已完成，送达凭证进入办公室复核。",

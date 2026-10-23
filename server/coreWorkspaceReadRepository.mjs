@@ -564,6 +564,7 @@ function toPriceSnapshot(row) {
   return {
     id: clean(row.id),
     priceSnapshotId: clean(row.id),
+    sourceEvidence: row.source_evidence_json ?? {},
     orderLineId: clean(row.order_line_id),
     snapshotType: clean(row.snapshot_type),
     versionNo: integer(row.version_no, 1),

@@ -268,6 +268,9 @@ const reconciliationQuery = buildBagwinReconciliationExportQuery({
 assert.match(reconciliationQuery.text, /idempotency_scope = 'bagwin:orders'/);
 assert.match(reconciliationQuery.text, /sourceOrderCount/);
 assert.match(reconciliationQuery.text, /normalized_line_json->>'skuId'/);
+assert.match(reconciliationQuery.text, /raw_payload_json #>> '\{pricing,confirmedAmount\}'/);
+assert.match(reconciliationQuery.text, /WHEN NOT EXISTS \([\s\S]*?original_orders/);
+assert.match(reconciliationQuery.text, /ELSE \([\s\S]*?sum\(latest_price\.final_amount\)/);
 assert.match(reconciliationQuery.text, /LIMIT \$3::integer/);
 
 const createQuery = buildCreateBagwinOrderTransaction({

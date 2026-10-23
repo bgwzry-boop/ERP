@@ -120,6 +120,8 @@ function projectFulfillment(workspace, value) {
     watermarkedPhotoAttachmentId: cleanText(
       item.watermarkedPhotoAttachmentId ?? item.watermarked_photo_attachment_id,
     ),
+    signatureStatus: item.signatureStatus ?? item.signature_status ?? "",
+    unsignedReason: item.unsignedReason ?? item.unsigned_reason ?? "",
     signaturePhotoAttached: item.signaturePhotoAttached === true || item.signature_photo_attached === true,
     signaturePhotoAttachmentId: cleanText(item.signaturePhotoAttachmentId ?? item.signature_photo_attachment_id),
     deliveryEvidenceReviewStatus: cleanText(

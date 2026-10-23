@@ -1,3 +1,4 @@
+import { getBlockingProductionExceptions } from "../shared/productionExceptionPolicy.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -82,6 +83,7 @@ export function createProductionPackingTransactionRepository(options = {}) {
 
 export function createLocalProductionPackingTransactionRepository() {
   const productionReportResults = new Map();
+  const packingResults = new Map();
   const productionExceptionResults = new Map();
   return {
     kind: "local_memory",
@@ -159,6 +161,9 @@ export function createLocalProductionPackingTransactionRepository() {
     resolveProductionException(input) {
       const replay = readLocalProductionTransactionReplay(productionExceptionResults, input, "production.exception.resolve");
       if (replay) return replay;
+      const currentTask = (input.workspace.productionTasks ?? []).find((task) => (task.productionTaskId ?? task.id) === input.productionTask.productionTaskId);
+      if (currentTask && Number(currentTask.revision ?? 1) !== Number(input.productionTask.revision ?? 1)) throw contractError("ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT");
+      if (input.productionException.resolutionCode === "继续生产" && input.productionTask.taskStatus !== "异常暂停" && getBlockingProductionExceptions(input.workspace.productionExceptions, input.productionTask.productionTaskId, input.productionException.productionExceptionId).length) throw contractError("PRODUCTION_EXCEPTION_STILL_BLOCKED");
       const transaction = normalizeProductionExceptionTransactionResult({
         productionTask: input.productionTask,
         productionException: input.productionException,
@@ -245,7 +250,12 @@ export function createLocalProductionPackingTransactionRepository() {
       };
     },
 
+    findPackingIdempotentReplay(input) { return readLocalProductionTransactionReplay(packingResults, input, "packing.complete"); },
+
     completePackingTask(input) {
+      const replay = readLocalProductionTransactionReplay(packingResults, input, "packing.complete");
+      if (replay) return replay;
+      assertPackingBindings(input);
       const transaction = normalizePackingCompletionTransactionResult({
         packingTask: input.packingTask,
         packages: input.packages ?? [],
@@ -268,6 +278,7 @@ export function createLocalProductionPackingTransactionRepository() {
         inventoryAdjustments: input.inventoryAdjustments ?? [],
         operationLog: input.operationLog,
       });
+      saveLocalProductionTransactionReplay(packingResults, input, transaction, "packing.complete");
       return transaction;
     },
   };
@@ -429,6 +440,11 @@ export function createPostgresProductionPackingTransactionRepository(options = {
       upsertProductionScheduleRecord(input.workspace, saved.productionScheduleRecord);
       applyBusinessDecisionWorkspaceMutation(input.workspace, saved.businessDecision, input.attachmentLinks);
       return saved;
+    },
+
+    async findPackingIdempotentReplay(input) {
+      const replay = await readPostgresIdempotencyReplay({ queryJson, scope: "packing.complete", idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
+      return replay ? normalizePackingCompletionTransactionResult(replay) : null;
     },
 
     async completePackingTask(input) {
@@ -795,6 +811,7 @@ export function buildCompletePackingTaskTransactionSql(input) {
 }
 
 export function buildCompletePackingTaskTransactionQuery(input) {
+  assertPackingBindings(input);
   const packingTask = normalizePackingTask(input.packingTask);
   const packages = normalizePackages(input.packages ?? []);
   const fulfillment = normalizeFulfillment(input.fulfillment);
@@ -953,6 +970,10 @@ write_guard AS MATERIALIZED (
         AND ref_id = ${parameters.text(productionTask.productionTaskId)}
     ),
     'ERP_TODO_CONCURRENCY_CONFLICT'
+  ) AND erp_require(
+    ${parameters.boolean(productionException.resolutionCode !== "继续生产" || productionTask.taskStatus === "异常暂停")}
+    OR NOT EXISTS (SELECT 1 FROM production_exception_records WHERE production_task_id = ${parameters.text(productionTask.productionTaskId)} AND id <> ${parameters.text(productionException.productionExceptionId)} AND continuation_mode = '暂停等确认' AND status NOT IN ('已恢复生产', '已作废')),
+    'PRODUCTION_EXCEPTION_STILL_BLOCKED'
   ) AS ok
 ),`;
 }
@@ -965,7 +986,7 @@ function buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment }, par
     ? `EXISTS (SELECT 1 FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision ?? 1)})`
     : "TRUE";
   return `locked_packing_task AS MATERIALIZED (
-  SELECT id, revision, status FROM packing_tasks
+  SELECT id, revision, status, order_line_id FROM packing_tasks
   WHERE id = ${parameters.text(packingTask.packingTaskId)}
   FOR UPDATE
 ),
@@ -984,6 +1005,7 @@ write_guard AS MATERIALIZED (
     EXISTS (
       SELECT 1 FROM locked_packing_task
       WHERE revision = ${parameters.integer(packingTask.revision ?? 1)}
+        AND order_line_id = ${parameters.text(packingTask.orderLineId)}
         AND status <> '已完成'
     ),
     'ERP_PACKING_TASK_CONCURRENCY_CONFLICT'
@@ -1037,4 +1059,20 @@ function upsertProductionScheduleRecord(workspace, value) {
         ),
     ),
   ];
+}
+
+function contractError(code) {
+  return Object.assign(new Error(code), {
+    code,
+    statusCode: 409
+  });
+}
+function assertPackingBindings(input) {
+  const task = input.packingTask;
+  const lineId = task?.orderLineId;
+  const packages = input.packages ?? [];
+  if (packages.some(p => (input.workspace?.packages ?? []).some(existing => (existing.packageId ?? existing.id) === p.packageId))) throw contractError("PACKING_PACKAGE_ID_ALREADY_EXISTS");
+  const existing = (input.workspace?.packingTasks ?? []).find(t => (t.id ?? t.packingTaskId) === task?.packingTaskId);
+  if (existing && (existing.orderLineId ?? existing.lineId) !== lineId || input.orderLine && (input.orderLine.orderLineId ?? input.orderLine.id) !== lineId || input.fulfillment && input.fulfillment.orderLineId !== lineId) throw contractError("PACKING_TASK_BINDING_MISMATCH");
+  if (!Number.isSafeInteger(task?.actualPackedQty) || task.actualPackedQty <= 0 || !packages.length || new Set(packages.map(p => p.packageId)).size !== packages.length || new Set(packages.map(p => p.packageSeq)).size !== packages.length || packages.some(p => !Number.isSafeInteger(p.packedQty) || p.packedQty <= 0 || p.orderLineId !== lineId || (p.fulfillmentId ?? "") !== (input.fulfillment?.fulfillmentId ?? input.fulfillment?.id ?? "")) || packages.reduce((sum, p) => sum + p.packedQty, 0) !== task.actualPackedQty) throw contractError("PACKING_PACKAGE_QUANTITY_MISMATCH");
 }

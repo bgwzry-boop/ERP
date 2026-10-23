@@ -101,7 +101,7 @@ export function buildCreateMiniappSubmissionTransaction(input, ids = buildBusine
     return {
       draft: `(
   ${parameters.text(draftLineId)}, ${parameters.text(ids.draftId)}, ${parameters.integer(seq)},
-  ${parameters.nullableText(line.productName || line.productType)}, ${parameters.nullableText(line.productType)},
+  ${parameters.nullableText(line.productName || line.productType)}, ${parameters.nullableText(line.orderType)},
   ${parameters.nullableText(line.size)}, ${parameters.nullableText(line.color)}, ${parameters.nullableText(line.handle || line.handleId)},
   ${parameters.nullableText(line.patternName || line.patternId)}, ${parameters.boolean(printFlag)},
   ${parameters.nullableText(line.printColor)}, ${parameters.nullableText(line.printSideMode || line.printSide)},

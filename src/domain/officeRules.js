@@ -4,6 +4,7 @@ import {
   FACTORY_STANDARD_COLORS,
   FACTORY_STANDARD_COLOR_INPUT_ALIASES,
 } from "../../shared/factoryStandardColors.js";
+import { normalizeOrderType, orderTypeLabel, requiresProductionOrderType } from "../../shared/orderRouting.js";
 
 export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 
@@ -115,13 +116,12 @@ export function findStockForDraft(row, inventoryRecords) {
 }
 
 export function getDraftOrderType(row) {
-  if (row.product.includes("同行")) return "外加工印刷";
-  if (row.print === "是") return row.product.includes("喜") || row.product.includes("福") ? "印刷通货" : "定制印刷";
-  return row.inventory.startsWith("缺货") ? "现货缺货" : "现货有货";
+  return orderTypeLabel(row?.orderType, row?.inventory);
 }
 
 export function isCustomPrintDraft(row) {
-  return getDraftOrderType(row) === "定制印刷";
+  const type = normalizeOrderType(row?.orderType);
+  return type === "custom_print" || (type === "custom_special" && row?.print === "是");
 }
 
 export function isArtworkReady(status) {
@@ -130,6 +130,7 @@ export function isArtworkReady(status) {
 
 export function getDraftMissingFields(row) {
   const missing = [];
+  if (!normalizeOrderType(row?.orderType)) missing.push("通货/定制类型");
   if (!row.customerId) missing.push("客户");
   if (!row.size || row.size === "待确认") missing.push("尺寸");
   if (!row.color || row.color === "待确认") missing.push("颜色");
@@ -153,9 +154,7 @@ export function getDraftBlockingRows(rows) {
 }
 
 export function getDraftTypeLabel(row) {
-  if (row.product.includes("同行")) return "外加工印刷";
-  if (row.print === "是" && !row.product.includes("喜") && !row.product.includes("福")) return "定制印刷";
-  return row.style;
+  return getDraftOrderType(row) || "待确认类型";
 }
 
 export function getDraftTypeTone(row) {
@@ -203,8 +202,7 @@ export function getOptionalColor(value) {
 }
 
 export function getDraftStatus(row) {
-  if (row.inventory.startsWith("缺货")) return "缺货待处理";
-  if (row.print === "是" && !row.product.includes("喜") && !row.product.includes("福")) return "待排产";
+  if (requiresProductionOrderType(row?.orderType, row?.inventory)) return "待排产";
   if (row.inventory === "需复核" || row.latest === "待确认") return "待确认";
   return "待出库";
 }

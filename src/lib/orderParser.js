@@ -1,4 +1,5 @@
-import { calculateLinePricing } from "../domain/priceTable.js";
+import { calculateLinePricing, p0BagPriceRows } from "../domain/priceTable.js";
+import { isStockOrderType, normalizeOrderType, inferOrderType } from "../../shared/orderRouting.js";
 
 const colorWords = ["米白", "浅蓝", "牛仔蓝", "大红", "红", "黑", "白", "蓝", "绿", "黄", "粉"];
 const colorPattern = colorWords.join("|");
@@ -86,6 +87,12 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
 }
 
 export function enrichDraftRow(row, inventories = []) {
+  const sizeParts = String(row.size ?? "").split(/[*×x]/).map(Number);
+  const standardSize = p0BagPriceRows.some(item => {
+    const parts = item.size.split("*").map(Number);
+    return sizeParts.length >= 2 && sizeParts.length <= 3 && sizeParts.every((value, index) => value === parts[index]);
+  });
+  row = { ...row, orderType: inferOrderType(row, { standardSize }) };
   const amount = estimateAmount(row);
   const inventory = estimateInventory(row, inventories);
   const confidence = getConfidence(row, inventory);
@@ -239,7 +246,8 @@ function detectPrintSide(chunk) {
 
 function estimateInventory(row, inventories) {
   if (!row.customerId || row.size === "待确认" || row.color === "待确认" || !row.qty) return "待确认";
-  if (row.print === "是" && !row.product.includes("喜") && !row.product.includes("福")) return "需复核";
+  const orderType = normalizeOrderType(row?.orderType);
+  if (orderType && !isStockOrderType(orderType)) return orderType === "external_print" ? "外加工，不走通货库存" : "订单生产，不走通货库存";
 
   const stock = inventories.find(
     (item) =>
@@ -247,7 +255,7 @@ function estimateInventory(row, inventories) {
       item.color === row.color &&
       item.handle === row.handle &&
       item.style === row.style &&
-      !item.state.includes("待处理"),
+      !String(item.state ?? "").includes("待处理"),
   );
 
   if (!stock) return "缺货";

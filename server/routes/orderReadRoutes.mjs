@@ -19,7 +19,7 @@ export async function handleOrderReadRoutes({ url, response, workspace, sendJson
         && (!queueBatchId || context.queueBatchId === queueBatchId)
         && (!queueKind || context.queueKind === queueKind)
         && (!customerId || draft.customerId === customerId)
-        && (!queueOnly || Boolean(context.queueItemId));
+        && (!queueOnly || Boolean(context.queueItemId) || ["mini_program", "wechat_mini_program", "manual"].includes(draft.sourceChannel));
     }).map((draft) => ({
       ...draft,
       inventoryIntents: (workspace.inventoryIntents ?? []).filter((intent) => intent.sourceDraftId === draft.id),

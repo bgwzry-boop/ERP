@@ -17,8 +17,9 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
   const printRecord = findActiveFulfillmentPrintRecord(workspace, fulfillment);
   const dispatch = findActiveDriverDeliveryDispatch(workspace, fulfillmentId);
   const status = mapDriverDeliveryStatus(fulfillment.status);
-  const packageCount = parseDriverPackageCount(fulfillment.packages ?? fulfillment.packageSummary);
   const qty = Math.max(0, Number(fulfillment.actualQty ?? fulfillment.qty ?? orderLine.qty ?? 0));
+  const packageChecklist = buildDriverPackageChecklist(workspace, { fulfillment, orderLineId });
+  const packageCount = packageChecklist.length;
   const address = firstText(customer.address, fulfillment.address) || "地址待补";
 
   return {
@@ -42,14 +43,9 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
         printRecord?.id,
       ) || "待打印/回填",
     goodsSummary: buildDriverGoodsSummary({ fulfillment, orderLine, qty }),
-    packageSummary: cleanText(fulfillment.packages ?? fulfillment.packageSummary) || `${packageCount}包`,
+    packageSummary: packageCount ? `${packageCount}包` : "无实际包裹记录",
     packageCount,
-    packageChecklist: buildDriverPackageChecklist(workspace, {
-      fulfillment,
-      orderLineId,
-      packageCount,
-      qty,
-    }),
+    packageChecklist,
     qty,
     expectedQty: Math.max(0, Number(fulfillment.qty ?? orderLine.qty ?? qty)),
     latest: cleanText(fulfillment.latest ?? orderLine.latest),
@@ -97,6 +93,8 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
     watermarkAddress: cleanText(fulfillment.watermarkAddress),
     watermarkOperatorId: cleanText(fulfillment.watermarkOperatorId),
     watermarkOperatorName: cleanText(fulfillment.watermarkOperatorName),
+    signatureStatus: cleanText(fulfillment.signatureStatus),
+    unsignedReason: cleanText(fulfillment.unsignedReason),
     signaturePhotoAttached: fulfillment.signaturePhotoAttached === true,
     signaturePhotoAttachmentId: cleanText(fulfillment.signaturePhotoAttachmentId),
     deliveryEvidenceReviewStatus: cleanText(fulfillment.deliveryEvidenceReviewStatus),
@@ -135,16 +133,16 @@ export async function getDriverDeliveryTaskResponseProjection(
 
 export function buildDriverPackageChecklist(
   workspace = {},
-  { fulfillment = {}, orderLineId = "", packageCount = 1, qty = 0 } = {},
+  { fulfillment = {}, orderLineId = "" } = {},
 ) {
   const fulfillmentId = cleanText(fulfillment.id ?? fulfillment.fulfillmentId);
   const safeOrderLineId = cleanText(orderLineId);
   const packageRows = (workspace.packages ?? [])
     .filter((item) => {
+      if (!cleanText(item.packageId ?? item.id) || ["已作废", "已失效", "voided", "invalidated"].includes(item.status)) return false;
       const itemFulfillmentId = cleanText(item.fulfillmentId);
       const itemOrderLineId = cleanText(item.orderLineId);
-      if (fulfillmentId && itemFulfillmentId === fulfillmentId) return true;
-      return !itemFulfillmentId && safeOrderLineId && itemOrderLineId === safeOrderLineId;
+      return Boolean(fulfillmentId && itemFulfillmentId === fulfillmentId && (!safeOrderLineId || itemOrderLineId === safeOrderLineId));
     })
     .sort((a, b) => finiteNumber(a.packageSeq) - finiteNumber(b.packageSeq));
 
@@ -158,20 +156,8 @@ export function buildDriverPackageChecklist(
     );
   }
 
-  const count = Math.max(
-    1,
-    Math.trunc(Number(packageCount || parseDriverPackageCount(fulfillment.packages ?? fulfillment.packageSummary) || 1)),
-  );
-  const quantities = distributeDriverPackageQty(qty, count);
-  return Array.from({ length: count }, (_, index) =>
-    toDriverPackageChecklistItem({}, {
-      index,
-      packageCount: count,
-      fulfillmentId,
-      fallbackQty: quantities[index],
-      packageSummary: fulfillment.packages ?? fulfillment.packageSummary,
-    }),
-  );
+  // A quantity or package-count summary is not evidence of physical packages.
+  return [];
 }
 
 export function buildDriverGoodsSummary({ fulfillment = {}, orderLine = {}, qty = 0 } = {}) {
@@ -304,9 +290,7 @@ export function getDriverOrderTail(orderLine = {}, orderLineId = "") {
 function toDriverPackageChecklistItem(item = {}, options = {}) {
   const packageSeq = Math.max(1, finiteNumber(item.packageSeq ?? item.sequence ?? options.index + 1, 1));
   const packageCount = Math.max(1, finiteNumber(item.packageCount ?? options.packageCount, 1));
-  const packageId =
-    cleanText(item.packageId ?? item.id) ||
-    `${cleanText(options.fulfillmentId) || "DRIVER-PKG"}-PKG-${packageSeq}`;
+  const packageId = cleanText(item.packageId ?? item.id);
   const packedQty = Math.max(0, finiteNumber(item.packedQty ?? item.qty ?? item.expectedQty ?? options.fallbackQty));
   const labelText =
     cleanText(item.labelText) ||
@@ -329,19 +313,6 @@ function toDriverPackageChecklistItem(item = {}, options = {}) {
 function findOrderLine(workspace, orderLineId) {
   const id = cleanText(orderLineId);
   return (workspace.orderLines ?? []).find((item) => cleanText(item.id ?? item.orderLineId) === id);
-}
-
-function parseDriverPackageCount(value) {
-  const match = cleanText(value).match(/\d+/);
-  return Math.max(1, match ? Number(match[0]) : 1);
-}
-
-function distributeDriverPackageQty(totalQty, packageCount) {
-  const count = Math.max(1, Math.trunc(Number(packageCount || 1)));
-  const total = Math.max(0, Math.trunc(Number(totalQty || 0)));
-  const base = Math.floor(total / count);
-  const remainder = total % count;
-  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
 }
 
 function isVoidedPrintRecord(record = {}) {

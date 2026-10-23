@@ -472,6 +472,7 @@ async function checkShortageCancellationRestore() {
     body: {
       expectedRevision: 1,
       draftLineId: "DRAFT-SERVICE-001-01",
+    orderType: "stock",
       reason: "客户确认恢复订购",
       idempotencyKey: "restore-shortage-service-001",
     },
@@ -532,6 +533,7 @@ async function checkCrossDraftShortageCancellationLink() {
       expectedRevision: 1,
       intentId: "INT-CROSS-DRAFT-001",
       draftLineId: "DRAFT-SERVICE-001-01",
+    orderType: "stock",
       reason: "办公室核对来源消息后关联",
       idempotencyKey: "cross-draft-link-service-001",
     },
@@ -709,6 +711,7 @@ function buildWorkspace() {
 function buildRequestLine() {
   return {
     draftLineId: "DRAFT-SERVICE-001-01",
+    orderType: "stock",
     customerId: "C001",
     customer: "张三服饰",
     productName: "空白袋",

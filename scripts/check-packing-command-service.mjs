@@ -49,6 +49,7 @@ workspace.productionPackingTransactionRepository = {
     return {
       packingTask: { ...input.packingTask, revision: input.packingTask.revision + 1 },
       packages: input.packages,
+      todo: input.todo,
       fulfillment: { ...input.fulfillment, revision: input.fulfillment.revision + 1 },
       orderLine: { ...input.orderLine, revision: input.orderLine.revision + 1 },
       inventoryLedgerEntries: input.inventoryLedgerEntries,

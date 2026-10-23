@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import { buildMiniappConfirmationSourceGuard, validateMiniappConfirmationSource } from "./miniapp/miniappConfirmationSource.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -49,6 +51,11 @@ export function createLocalOrderConfirmationTransactionRepository() {
       if (!currentDraft || expectedDraftRevision < 1 || currentRevision !== expectedDraftRevision) {
         throw orderDraftConcurrencyError();
       }
+      const sources = (input.workspace?.miniappConfirmationSources ?? []).filter(source => source.draftId === currentDraft.id);
+      if (sources.length || ["mini_program", "wechat_mini_program"].includes(currentDraft.sourceChannel)) {
+        const source = validateMiniappConfirmationSource(sources, { draftId: currentDraft.id, customerId: currentDraft.customerId });
+        if (!isDeepStrictEqual(source, input.miniappPriceSource)) throw Object.assign(new Error("小程序价格来源已变化"), { code: "ERP_MINIAPP_CONFIRMATION_SOURCE_CONFLICT", statusCode: 409 });
+      } else if (input.miniappPriceSource) throw new Error("Unexpected miniapp price source");
       const orderDraft = buildCommittedOrderDraft(input.orderDraft, input.expectedDraftRevision);
       const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations);
       const shortageCancellationIntents = normalizeInventoryIntents(input.shortageCancellationIntents);
@@ -240,6 +247,9 @@ order_draft_write_guard AS MATERIALIZED (
     'ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT'
   ) AS ok
 ),
+miniapp_source_write_guard AS MATERIALIZED (
+  SELECT erp_require(${buildMiniappConfirmationSourceGuard(input.miniappPriceSource, { draftId: orderDraft.id, customerId: orderDraft.customerId }, parameters)}, 'ERP_MINIAPP_CONFIRMATION_SOURCE_CONFLICT') AS ok
+),
 miniapp_artwork_write_guard AS MATERIALIZED (
   SELECT erp_require(
     NOT EXISTS (
@@ -269,8 +279,9 @@ updated_order_draft AS (
       updated_at = now()
   FROM order_draft_write_guard AS guard
   CROSS JOIN miniapp_artwork_write_guard AS artwork_guard
+  CROSS JOIN miniapp_source_write_guard AS source_guard
   WHERE draft.id = ${parameters.text(orderDraft.id)}
-    AND guard.ok AND artwork_guard.ok
+    AND guard.ok AND artwork_guard.ok AND source_guard.ok
   RETURNING draft.id, ${orderDraftJsonExpression("draft")} AS result
 ),
 deleted_order_draft_lines AS (
@@ -566,6 +577,7 @@ function normalizePriceSnapshot(snapshot, orderLines = []) {
     adjustmentAmount: toFiniteNumber(snapshot.adjustmentAmount ?? snapshot.adjustment_amount ?? 0),
     chargeableQty: toFiniteInteger(snapshot.chargeableQty ?? snapshot.chargeable_qty ?? line?.originalQty ?? 0),
     finalAmount: toFiniteNumber(snapshot.finalAmount ?? snapshot.final_amount ?? snapshot.amount ?? 0),
+    sourceEvidence: snapshot.sourceEvidence ?? snapshot.source_evidence_json ?? {},
     overrideReason: String(snapshot.overrideReason ?? snapshot.override_reason ?? "").trim(),
     createdBy: String(snapshot.createdBy ?? snapshot.created_by ?? line?.createdBy ?? "").trim(),
     createdAt: String(snapshot.createdAt ?? snapshot.created_at ?? new Date().toISOString()).trim(),
@@ -1184,7 +1196,7 @@ function buildInsertOrderDraftLinesSql(orderDraft, parameters) {
     ${parameters.text(line.id)},
     ${parameters.integer(index + 1)},
     ${parameters.nullableText(line.product)},
-    ${parameters.nullableText(line.print === "是" ? "custom_print" : "stock")},
+    ${parameters.nullableText(line.orderType)},
     ${parameters.nullableText(line.size)},
     ${parameters.nullableText(line.color)},
     ${parameters.nullableText(line.handle)},
@@ -1278,6 +1290,7 @@ function buildInsertPriceSnapshotsSql(priceSnapshots, parameters) {
     ${parameters.number(snapshot.adjustmentAmount)},
     ${parameters.integer(snapshot.chargeableQty)},
     ${parameters.number(snapshot.finalAmount)},
+    ${parameters.json(snapshot.sourceEvidence)},
     ${parameters.nullableText(snapshot.overrideReason)},
     ${parameters.nullableText(snapshot.createdBy)},
     ${parameters.timestamp(snapshot.createdAt)}
@@ -1295,6 +1308,7 @@ function buildInsertPriceSnapshotsSql(priceSnapshots, parameters) {
   adjustment_amount,
   chargeable_qty,
   final_amount,
+  source_evidence_json,
   override_reason,
   created_by,
   created_at
@@ -1757,6 +1771,7 @@ function priceSnapshotJsonExpression(alias) {
     'adjustmentAmount', ${alias}.adjustment_amount,
     'chargeableQty', ${alias}.chargeable_qty,
     'finalAmount', ${alias}.final_amount,
+    'sourceEvidence', ${alias}.source_evidence_json,
     'overrideReason', ${alias}.override_reason,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at

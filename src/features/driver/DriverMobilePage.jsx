@@ -104,7 +104,9 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
     Boolean(signaturePhotoAttachmentId) ||
     selectedTask?.signaturePhotoAttached === true;
   const receiverName = currentInput.receiverName ?? selectedTask?.receiverName ?? "";
-  const paperNoteStatus = currentInput.paperNoteStatus ?? selectedTask?.paperNoteStatus ?? "已交回";
+  const signatureStatus = currentInput.signatureStatus ?? selectedTask?.signatureStatus ?? "";
+  const unsignedReason = currentInput.unsignedReason ?? selectedTask?.unsignedReason ?? "";
+  const paperNoteStatus = currentInput.paperNoteStatus ?? selectedTask?.paperNoteStatus ?? "";
   const watermarkLocationLabel = currentInput.watermarkLocationLabel ?? selectedTask?.watermarkLocationLabel ?? selectedTask?.addressArea ?? "";
   const watermarkGeoPoint = currentInput.watermarkGeoPoint ?? selectedTask?.watermarkGeoPoint ?? "";
   const watermarkLocationStatus = currentInput.watermarkLocationStatus ?? "";
@@ -316,38 +318,6 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
         },
       };
     });
-  }
-
-  function togglePackageCheck(packageId) {
-    if (!selectedTask) return;
-    const safePackageId = String(packageId ?? "").trim();
-    if (!safePackageId) return;
-    setTaskInputs((current) => {
-      const currentTaskInput = current[selectedTask.fulfillmentId] ?? {};
-      const currentIds = Array.isArray(currentTaskInput.checkedPackageIds)
-        ? currentTaskInput.checkedPackageIds
-        : selectedTask.packageChecklist?.filter((item) => item.checked === true).map((item) => item.packageId) ?? [];
-      const exists = currentIds.includes(safePackageId);
-      const nextIds = exists ? currentIds.filter((item) => item !== safePackageId) : [...currentIds, safePackageId];
-      return {
-        ...current,
-        [selectedTask.fulfillmentId]: {
-          ...currentTaskInput,
-          checkedPackageIds: nextIds,
-        },
-      };
-    });
-  }
-
-  function setAllPackagesChecked(checked) {
-    if (!selectedTask) return;
-    setTaskInputs((current) => ({
-      ...current,
-      [selectedTask.fulfillmentId]: {
-        ...(current[selectedTask.fulfillmentId] ?? {}),
-        checkedPackageIds: checked ? packageCheckState.checklist.map((item) => item.packageId) : [],
-      },
-    }));
   }
 
   function applyPackageScan(scanTextOverride) {
@@ -910,12 +880,14 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
       actualQty,
       receiverName,
       paperNoteStatus,
+      signatureStatus,
+      unsignedReason,
       watermarkedPhotoAttached,
-      signaturePhotoAttached,
+      signaturePhotoAttached: signatureStatus === "signed" && signaturePhotoAttached,
       watermarkedPhotoFile,
-      signaturePhotoFile,
+      signaturePhotoFile: signatureStatus === "signed" ? signaturePhotoFile : null,
       watermarkedPhotoAttachmentId,
-      signaturePhotoAttachmentId,
+      signaturePhotoAttachmentId: signatureStatus === "signed" ? signaturePhotoAttachmentId : "",
       watermarkLocationLabel,
       watermarkGeoPoint,
       watermarkPreviewText: watermarkPreview?.text ?? "",
@@ -1060,13 +1032,13 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                 packageNativeScanStatusTone={currentInput.packageNativeScanStatusTone}
                 nativePackageScanSupport={nativePackageScanSupport}
                 packageCameraVideoRef={packageCameraVideoRef}
-                onSetAllChecked={setAllPackagesChecked}
+
                 onSubmit={submit}
                 onUpdateInput={updateTaskInput}
                 onApplyPackageScan={applyPackageScan}
                 onTogglePackageCamera={packageCameraScanActive ? () => stopPackageCameraScan() : startPackageCameraScan}
                 onNativePackageScan={startNativePackageScan}
-                onTogglePackageCheck={togglePackageCheck}
+
               />
             ) : null}
             {detailView === "送达" ? (
@@ -1084,6 +1056,8 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                 actualQty={actualQty}
                 receiverName={receiverName}
                 paperNoteStatus={paperNoteStatus}
+                signatureStatus={signatureStatus}
+                unsignedReason={unsignedReason}
                 watermarkLocationLabel={watermarkLocationLabel}
                 watermarkGeoPoint={watermarkGeoPoint}
                 watermarkLocationStatus={watermarkLocationStatus}

@@ -1,3 +1,4 @@
+import { buildMiniappConfirmationSourceQuery } from "./miniapp/miniappConfirmationSource.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -31,6 +32,10 @@ export function createLocalOrderDraftRepository() {
 
     loadState() {
       return { orderDrafts: [] };
+    },
+
+    getMiniappConfirmationSources({ workspace, draftId }) {
+      return (workspace?.miniappConfirmationSources ?? []).filter(source => source.draftId === draftId);
     },
 
     getOrderDraft(input) {
@@ -83,6 +88,11 @@ export function createPostgresOrderDraftRepository(options = {}) {
     async loadState() {
       const query = buildListOrderDraftsQuery();
       return { orderDrafts: normalizeOrderDrafts(await queryJson(query.text, query.values)) };
+    },
+
+    async getMiniappConfirmationSources({ draftId }) {
+      const query = buildMiniappConfirmationSourceQuery(draftId);
+      return queryJson(query.text, query.values);
     },
 
     async getOrderDraft(input) {
@@ -157,6 +167,7 @@ LEFT JOIN LATERAL (
       'draftLineId', line.id,
       'customerId', COALESCE(draft.customer_id, ''),
       'product', COALESCE(line.product_name, ''),
+      'orderType', COALESCE(line.order_type, ''),
       'size', COALESCE(line.size, ''),
       'color', COALESCE(line.bag_color, ''),
       'handle', COALESCE(line.handle_type, ''),
@@ -384,7 +395,7 @@ function buildInsertDraftLinesSql(draft, parameters) {
     ${parameters.text(line.id)},
     ${parameters.integer(index + 1)},
     ${parameters.nullableText(line.product)},
-    ${parameters.nullableText(line.print === "是" ? "custom_print" : "stock")},
+    ${parameters.nullableText(line.orderType)},
     ${parameters.nullableText(line.size)},
     ${parameters.nullableText(line.color)},
     ${parameters.nullableText(line.handle)},

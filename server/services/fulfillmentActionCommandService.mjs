@@ -998,6 +998,14 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       );
     }
 
+    const signatureStatus = String(body.signatureStatus ?? "").trim();
+    const unsignedReason = String(body.unsignedReason ?? "").trim();
+    if (!["signed", "unsigned"].includes(signatureStatus)) return businessError(422, "DELIVERY_SIGNATURE_STATUS_REQUIRED", "请如实选择客户已签字或未签字。");
+    if (signatureStatus === "signed" && !String(body.signaturePhotoAttachmentId ?? "").trim()) return businessError(422, "DELIVERY_SIGNATURE_PHOTO_REQUIRED", "客户已签字，必须上传签字照片。");
+    if (signatureStatus === "unsigned" && !unsignedReason) return businessError(422, "DELIVERY_UNSIGNED_REASON_REQUIRED", "客户未签字，必须填写原因。");
+    if (signatureStatus === "unsigned" && String(body.signaturePhotoAttachmentId ?? "").trim()) return businessError(422, "DELIVERY_SIGNATURE_STATE_CONFLICT", "未签字记录不能附带签字证明，请核对签署状态。");
+    if (!["已交回", "客户留存", "未带回"].includes(String(body.paperNoteStatus ?? ""))) return businessError(422, "DELIVERY_PAPER_NOTE_STATUS_REQUIRED", "请按实际选择纸质联状态。");
+
     const evidenceValidation = validateDriverDeliveryEvidenceAttachments({
       workspace,
       fulfillmentId,
@@ -1025,7 +1033,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       driverId: operatorId,
       actualQty,
       receiverName: String(body.receiverName ?? "").trim(),
-      paperNoteStatus: String(body.paperNoteStatus ?? "已交回").trim() || "已交回",
+      paperNoteStatus: String(body.paperNoteStatus).trim(),
+      signatureStatus,
+      unsignedReason: signatureStatus === "unsigned" ? unsignedReason : "",
       watermarkedPhotoAttached: true,
       watermarkedPhotoAttachmentId,
       watermarkedPhotoUrl: String(evidenceValidation.watermarkAttachment.url ?? "").trim(),
@@ -1727,8 +1737,19 @@ function cleanText(value) {
     const expectedPackageIds = (task?.packageChecklist ?? [])
       .map((item) => String(item?.packageId ?? item?.id ?? "").trim())
       .filter(Boolean);
-    const checked = [...new Set((Array.isArray(checkedPackageIds) ? checkedPackageIds : []).map((id) => String(id ?? "").trim()).filter(Boolean))];
+    if (!expectedPackageIds.length || new Set(expectedPackageIds).size !== expectedPackageIds.length) {
+      return { error: { code: "DRIVER_REAL_PACKAGES_REQUIRED", message: "实际包裹记录缺失或重复，请交办公室和打包岗位核对后再装车。" } };
+    }
+    const scanned = (Array.isArray(checkedPackageIds) ? checkedPackageIds : [])
+      .map((id) => String(id ?? "").trim()).filter(Boolean);
+    if (new Set(scanned).size !== scanned.length) {
+      return { error: { code: "DRIVER_PACKAGE_DUPLICATE_SCAN", message: "同一包裹重复核对，请重新扫描当前任务的实际包裹。" } };
+    }
+    const checked = scanned;
     const expectedSet = new Set(expectedPackageIds);
+    if (checked.some((id) => !expectedSet.has(id))) {
+      return { error: { code: "DRIVER_PACKAGE_NOT_IN_TASK", message: "扫描到不属于当前送货任务的包裹，请停止装车并核对。" } };
+    }
     const checkedPackageIdsInTask = checked.filter((id) => expectedSet.has(id));
     const missingPackageIds = expectedPackageIds.filter((id) => !checkedPackageIdsInTask.includes(id));
     if (missingPackageIds.length) {

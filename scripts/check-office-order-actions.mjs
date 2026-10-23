@@ -107,7 +107,7 @@ assert.equal(customPrintResult.blocked, false);
 assert.equal(customPrintResult.newLines[0].status, "待排产");
 assert.equal(customPrintResult.newLines[0].artworkAttachment.attachmentId, "ATT-ARTWORK-001");
 assert.equal(customPrintResult.newFulfillments[0].lineId, customPrintResult.newLines[0].id);
-assert.equal(customPrintResult.newFulfillments[0].status, "待排产");
+assert.equal(customPrintResult.newFulfillments[0].status, "待生产");
 
 const reviewedRows = updateDraftRowsField([{
   id: "DRAFT-REVIEW-01",

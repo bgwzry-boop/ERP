@@ -216,19 +216,25 @@ WITH targets AS MATERIALIZED (
       WHERE original.source_draft_id = target.draft_id
     ),
     'observedAt', greatest(target.updated_at, COALESCE(draft.updated_at, target.updated_at), now()),
-    'confirmedAmount', (
-      SELECT sum(latest_price.final_amount)
-      FROM original_orders AS original
-      JOIN order_lines AS line ON line.order_id = original.id
-      JOIN LATERAL (
-        SELECT snapshot.final_amount
-        FROM price_snapshots AS snapshot
-        WHERE snapshot.order_line_id = line.id
-        ORDER BY snapshot.version_no DESC, snapshot.created_at DESC, snapshot.id DESC
-        LIMIT 1
-      ) AS latest_price ON true
-      WHERE original.source_draft_id = target.draft_id
-    ),
+    'confirmedAmount', CASE
+      WHEN NOT EXISTS (
+        SELECT 1 FROM original_orders AS original
+        WHERE original.source_draft_id = target.draft_id
+      ) THEN (target.raw_payload_json #>> '{pricing,confirmedAmount}')::numeric
+      ELSE (
+        SELECT sum(latest_price.final_amount)
+        FROM original_orders AS original
+        JOIN order_lines AS line ON line.order_id = original.id
+        JOIN LATERAL (
+          SELECT snapshot.final_amount
+          FROM price_snapshots AS snapshot
+          WHERE snapshot.order_line_id = line.id
+          ORDER BY snapshot.version_no DESC, snapshot.created_at DESC, snapshot.id DESC
+          LIMIT 1
+        ) AS latest_price ON true
+        WHERE original.source_draft_id = target.draft_id
+      )
+    END,
     'lines', COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
         'skuId', NULLIF(intake_line.normalized_line_json->>'skuId', ''),

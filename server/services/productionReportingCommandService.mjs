@@ -1,3 +1,5 @@
+import { normalizeOrderType } from "../../shared/orderRouting.js";
+import { getBlockingProductionExceptions } from "../../shared/productionExceptionPolicy.js";
 export function createProductionReportingCommandService({
   buildOperationLog,
   buildProductionTaskFromBody,
@@ -43,7 +45,8 @@ export function createProductionReportingCommandService({
         return businessError(409, "PRODUCTION_TASK_EXCEPTION_PAUSED", "Paused production tasks require an explicit follow-up decision before daily progress.");
       }
 
-      const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
+      const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
+      if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
       if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
@@ -198,7 +201,8 @@ export function createProductionReportingCommandService({
         return businessError(409, "PRODUCTION_TASK_VOIDED", "Voided production tasks cannot report a new exception.");
       }
 
-      const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
+      const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
+      if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const exceptionType = normalizeProductionExceptionType(body.exceptionType);
@@ -377,7 +381,8 @@ export function createProductionReportingCommandService({
 
       const resolution = getProductionExceptionResolution(resolutionCode);
       const resolvedAt = nowIso(now);
-      const taskStatus = resolveProductionExceptionTaskStatus({ beforeTask, beforeException, resolutionCode });
+      const remainingBlockers = getBlockingProductionExceptions(workspace.productionExceptions, productionTaskId, productionExceptionId);
+      const taskStatus = remainingBlockers.length && resolutionCode === "继续生产" ? "异常暂停" : resolveProductionExceptionTaskStatus({ beforeTask, beforeException, resolutionCode });
       const resolutionEntry = {
         resolutionCode,
         resolutionLabel: resolution.label,
@@ -385,6 +390,7 @@ export function createProductionReportingCommandService({
         resolvedBy: operatorId,
         resolvedAt,
         taskStatus,
+        remainingBlockingExceptionIds: remainingBlockers.map((item) => item.productionExceptionId ?? item.id),
       };
       const previousEvidence = asObject(beforeException.evidence ?? beforeException.evidence_json);
       const resolutionHistory = [...(Array.isArray(previousEvidence.resolutionHistory) ? previousEvidence.resolutionHistory : []), resolutionEntry].slice(-10);
@@ -518,7 +524,8 @@ export function createProductionReportingCommandService({
       if (isProductionTaskExceptionPaused(beforeTask.taskStatus ?? beforeTask.status)) {
         return businessError(409, "PRODUCTION_TASK_EXCEPTION_PAUSED", "Paused production tasks require an explicit follow-up decision before completion reporting.");
       }
-      const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
+      const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
+      if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
       if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
@@ -528,14 +535,16 @@ export function createProductionReportingCommandService({
           "External-processing print service reports do not create finished-goods inventory.",
         );
       }
-      const qualifiedQty = Math.trunc(Number(body.qualifiedQty ?? 0));
-      if (!Number.isFinite(qualifiedQty) || qualifiedQty <= 0) {
+      const qualifiedQty = Number(body.qualifiedQty ?? 0);
+      if (!Number.isSafeInteger(qualifiedQty) || qualifiedQty <= 0) {
         return businessError(422, "VALIDATION_ERROR", "qualifiedQty must be greater than 0.");
       }
-      const inventoryItem = body.inventoryItemId
+      const customSpecial = normalizeOrderType(beforeOrderLine.orderType) === "custom_special";
+      if (customSpecial && cleanText(body.inventoryItemId)) return businessError(409, "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY", "特殊尺寸按订单生产，不建立通货库存。");
+      const inventoryItem = customSpecial ? null : body.inventoryItemId
         ? findInventoryItem(workspace, body.inventoryItemId)
         : findUniqueMatchingInventory(workspace, beforeOrderLine);
-      if (!inventoryItem) return notFound("INVENTORY_ITEM_NOT_FOUND");
+      if (!customSpecial && !inventoryItem) return notFound("INVENTORY_ITEM_NOT_FOUND");
 
       const completedAt = body.completedAt ?? nowIso(now);
       const machineCount =
@@ -602,9 +611,9 @@ export function createProductionReportingCommandService({
               createdBy: operatorId,
               createdAt: completedAt,
             };
-      const onHandBefore = Number(inventoryItem.inStock ?? inventoryItem.onHand ?? 0);
-      const reservedBefore = Number(inventoryItem.reserved ?? 0);
-      const reservation = {
+      const onHandBefore = Number(inventoryItem?.inStock ?? inventoryItem?.onHand ?? 0);
+      const reservedBefore = Number(inventoryItem?.reserved ?? 0);
+      const reservation = inventoryItem ? {
         reservationId: body.reservationId ?? nextPlainId("RSV", `${productionTaskId}-PROD`),
         orderLineId,
         inventoryItemId: inventoryItem.id,
@@ -613,8 +622,9 @@ export function createProductionReportingCommandService({
         status: "生效",
         createdBy: operatorId,
         createdAt: completedAt,
-      };
-      const inventoryLedgerEntries = [
+      } : null;
+      workshopReport.evidence = { ...workshopReport.evidence, inventoryCreated: Boolean(inventoryItem), reservationCreated: Boolean(reservation), packingTaskCreated: Boolean(packingTask) };
+      const inventoryLedgerEntries = inventoryItem ? [
         {
           ledgerId: body.inboundLedgerId ?? nextPlainId("LEDGER", `${reportId}-IN`),
           inventoryItemId: inventoryItem.id,
@@ -647,7 +657,7 @@ export function createProductionReportingCommandService({
           reason: "生产完成后锁定给订单明细",
           remark: `订单明细 ${orderLineId} 生产完成占用 ${qualifiedQty}`,
         },
-      ];
+      ] : [];
       const operationLog = buildOperationLog(workspace, {
         targetType: "production_task",
         targetId: productionTaskId,
@@ -659,7 +669,7 @@ export function createProductionReportingCommandService({
           workshopReport,
           orderLine: summarizeOrderLineForChange(orderLine),
           packingTaskId: packingTask?.packingTaskId ?? "",
-          inventoryItemId: inventoryItem.id,
+          inventoryItemId: inventoryItem?.id ?? "",
           qualifiedQty,
           machineCount: machineCount ?? null,
           capacityBaselineId: machineCapacityBaseline?.capacityBaselineId ?? "",
@@ -673,8 +683,8 @@ export function createProductionReportingCommandService({
         orderLine,
         packingTask,
         machineCapacityBaseline,
-        inventoryReservations: [reservation],
-        inventoryAdjustments: [
+        inventoryReservations: reservation ? [reservation] : [],
+        inventoryAdjustments: inventoryItem ? [
           {
             inventoryItemId: inventoryItem.id,
             onHandQtyChange: qualifiedQty,
@@ -683,14 +693,14 @@ export function createProductionReportingCommandService({
             expectedOnHandQty: onHandBefore,
             expectedReservedQty: reservedBefore,
           },
-        ],
+        ] : [],
         inventoryLedgerEntries,
         operationLog,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload,
       });
 
-      return success(buildProductionReportResponse(transaction, { productionTaskId, orderLineId, inventoryItemId: inventoryItem.id }));
+      return success(buildProductionReportResponse(transaction, { productionTaskId, orderLineId, inventoryItemId: inventoryItem?.id ?? "" }));
     },
   };
 }

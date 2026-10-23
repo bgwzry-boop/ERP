@@ -108,6 +108,8 @@ export function mapApiFulfillmentToLocal(value = {}) {
     noteFlags: Array.isArray(value.noteFlags) ? value.noteFlags : [],
     watermarkedPhotoAttached: value.watermarkedPhotoAttached === true,
     watermarkedPhotoAttachmentId: cleanText(value.watermarkedPhotoAttachmentId),
+    signatureStatus: value.signatureStatus ?? value.signature_status ?? "",
+    unsignedReason: value.unsignedReason ?? value.unsigned_reason ?? "",
     signaturePhotoAttached: value.signaturePhotoAttached === true,
     signaturePhotoAttachmentId: cleanText(value.signaturePhotoAttachmentId),
     deliveryEvidenceReviewStatus: cleanText(value.deliveryEvidenceReviewStatus),

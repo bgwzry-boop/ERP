@@ -16,23 +16,21 @@ export function DriverLoadStage({
   packageNativeScanStatusTone,
   nativePackageScanSupport,
   packageCameraVideoRef,
-  onSetAllChecked,
   onSubmit,
   onUpdateInput,
   onApplyPackageScan,
   onTogglePackageCamera,
   onNativePackageScan,
-  onTogglePackageCheck,
 }) {
   return (
     <section className="detail-section driver-load-check-section mobile-role-stage driver-load-stage">
       <div className="section-title-row">
         <h3>装车清单</h3>
-        <button type="button" onClick={() => onSetAllChecked(!packageCheckState.allChecked)}>{packageCheckState.allChecked ? "取消全选" : "全部核对"}</button>
+        <span>逐包扫码核对</span>
       </div>
       <div className="driver-load-check-summary">
         <strong>{packageCheckState.summary}</strong>
-        <span>{packageCheckState.allChecked ? "包裹已核对，可确认装车。" : `还有 ${packageCheckState.missingCount} 包未核对，不能确认装车。`}</span>
+        <span>{packageCheckState.totalCount === 0 ? "没有实际包裹，请联系办公室和打包岗位。" : packageCheckState.allChecked ? "包裹已核对，可确认装车。" : `还有 ${packageCheckState.missingCount} 包未核对，不能确认装车。`}</span>
       </div>
       <div className="action-row mobile-role-stage-actions driver-stage-action-bar">
         <button
@@ -65,7 +63,7 @@ export function DriverLoadStage({
               {packageNativeScanActive ? "原生扫码中" : "原生扫码"}
             </button>
           </div>
-          <small className={packageScanStatusTone === "danger" ? "scan-error" : ""}>{packageScanStatus || "扫描枪回车或手输包裹号后自动勾选。"}</small>
+          <small className={packageScanStatusTone === "danger" ? "scan-error" : ""}>{packageScanStatus || "扫描每个实际包裹的挂牌码后核对。"}</small>
           <small className={packageCameraScanStatusTone === "danger" ? "scan-error" : ""}>{packageCameraScanStatus || "相机未启动。"}</small>
           <small className={packageNativeScanStatusTone === "danger" ? "scan-error" : ""}>{packageNativeScanStatus}</small>
           <video ref={packageCameraVideoRef} className={packageCameraScanActive ? "driver-camera-scan-preview" : "driver-camera-scan-preview hidden"} muted playsInline />
@@ -76,7 +74,7 @@ export function DriverLoadStage({
           const checked = checkedPackageIds.includes(item.packageId);
           return (
             <label className={checked ? "driver-load-package checked" : "driver-load-package"} key={item.packageId}>
-              <input type="checkbox" checked={checked} onChange={() => onTogglePackageCheck(item.packageId)} />
+              <span aria-label={checked ? "已扫码" : "待扫码"}>{checked ? "✓" : "待扫"}</span>
               <strong>{item.labelText}</strong>
               <span>{item.quantityText}</span>
               <small title={item.packageId}>{[item.status, item.packageId].filter(Boolean).join(" · ")}</small>

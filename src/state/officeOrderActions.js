@@ -1,3 +1,4 @@
+import { isStockOrderType } from "../../shared/orderRouting.js";
 import { makeFulfillment, makeOrderLine } from "./officeRecordFactories.js";
 import { enrichDraftRow } from "../lib/orderParser.js";
 import {
@@ -27,8 +28,27 @@ export function getDraftSaveTodoInput(draftRows) {
   };
 }
 
-export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, fulfillments, customers = [] }) {
-  const checkedRows = draftRows.map((row) => enrichDraftRow(row, inventoryRecords));
+export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, fulfillments, customers = [], resolveAmount }) {
+  const checkedRows = draftRows.map((row) => {
+    const checked = enrichDraftRow(row, inventoryRecords);
+    if (resolveAmount) {
+      const amount = resolveAmount(row);
+      if (!Number.isFinite(amount) || amount < 0) throw new TypeError("Confirmed amount is invalid");
+      checked.amount = amount;
+    }
+    return checked;
+  });
+  const demandByStock = new Map();
+  for (const row of checkedRows.filter(item => isStockOrderType(item.orderType) && item.inventory === "可用")) {
+    const stock = findStockForDraft(row, inventoryRecords);
+    if (!stock) continue;
+    const group = demandByStock.get(stock) ?? { rows: [], qty: 0 };
+    group.rows.push(row); group.qty += row.qty; demandByStock.set(stock, group);
+  }
+  for (const [stock, { rows, qty }] of demandByStock) {
+    const available = stock.inStock - stock.reserved - stock.locked - stock.pending;
+    if (qty > available) for (const row of rows) row.inventory = `缺货：同规格合计 ${qty} 个，可用 ${Math.max(0, available)} 个，转生产排产`;
+  }
   const blockingRows = getDraftBlockingRows(checkedRows);
   if (blockingRows.length) {
     return {
@@ -70,7 +90,7 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
   );
 
   const newFulfillments = newLines
-    .filter((line) => !line.status.includes("缺货") && line.fulfillment !== "待确认")
+    .filter((line) => line.fulfillment !== "待确认")
     .map((line, index) =>
       makeFulfillment({
         id: nextId("F", fulfillments, index),
@@ -79,8 +99,8 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
         lineId: line.id,
         goods: getFulfillmentGoodsDisplay({ goods: `${line.size} ${line.color} ${line.product}`, qty: line.qty }, line),
         qty: line.qty,
-        packages: line.qty >= 1000 ? "3包" : line.qty >= 500 ? "2包" : "1件散装",
-        status: line.print === "是" ? line.status : line.fulfillment === "快递快运" ? "待打印标签" : "待出库",
+        packages: "",
+        status: line.status === "待排产" ? "待生产" : line.fulfillment === "快递快运" ? "待打印标签" : "待出库",
         latest: line.latest,
         zone: "按库存推荐",
         source: "正式订单占用",
@@ -92,21 +112,11 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
     checkedRows,
     newLines,
     newFulfillments,
-    shortageTodoInputs: checkedRows.map((row, index) => row.inventory.startsWith("缺货") ? ({
-      type: "缺货待处理",
-      customerId: row.customerId,
-      ref: newLines[index].id,
-      refType: "order_line",
-      refId: newLines[index].id,
-      summary: `${row.size} ${row.color} ${row.qty} 个缺货，需客户确认等待或改量`,
-      latest: row.latest,
-      urgency: "异常",
-      impact: "影响出库承诺",
-    }) : null).filter(Boolean),
+    shortageTodoInputs: [],
     selectedOrderId: newLines[0]?.id,
     draftStatus: "已生成正式订单",
     orderNo,
-    toast: `已重新校验库存/价格并生成正式订单 ${orderNo}，新增 ${newLines.length} 行；可用库存行已模拟占用，缺货行进入公共待办。`,
+    toast: `已重新校验库存/价格并生成正式订单 ${orderNo}，新增 ${newLines.length} 行；可用库存行已模拟占用，缺货通货进入生产待排任务。`,
   };
 }
 

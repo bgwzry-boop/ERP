@@ -28,17 +28,22 @@ export function createPackingCommandService({
       if (body.packingTaskId && body.packingTaskId !== packingTaskId) {
         return businessError(422, "VALIDATION_ERROR", "packingTaskId in path and body must match");
       }
-      const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
+      const replay = body.idempotencyKey && await workspace.productionPackingTransactionRepository.findPackingIdempotentReplay?.({ idempotencyKey: body.idempotencyKey, idempotencyPayload: { ...body, packingTaskId, operatorId } });
+      if (replay) return success(buildPackingResponse(replay, body));
+      if (beforeTask.status === "已完成") return businessError(409, "PACKING_TASK_ALREADY_COMPLETED", "打包任务已完成，请使用包裹更正流程。");
+      const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
+      if (body.orderLineId != null && body.orderLineId !== orderLineId) return businessError(409, "PACKING_TASK_BINDING_MISMATCH", "打包任务不能改绑订单。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const fulfillment = findFulfillmentByOrderLineId(workspace, orderLineId);
-      const actualPackedQty = Math.trunc(
-        Number(body.actualPackedQty ?? beforeTask.plannedQty ?? beforeOrderLine.qty ?? 0),
-      );
-      if (!Number.isFinite(actualPackedQty) || actualPackedQty <= 0) {
+      const actualPackedQty = Number(body.actualPackedQty ?? beforeTask.plannedQty ?? beforeOrderLine.qty ?? 0);
+      if (!Number.isSafeInteger(actualPackedQty) || actualPackedQty <= 0) {
         return businessError(422, "VALIDATION_ERROR", "actualPackedQty must be greater than 0.");
       }
-      const completedAt = body.completedAt ?? nowIso(now);
+      const packageError = validatePackageInput(body, actualPackedQty, orderLineId, fulfillment?.id ?? fulfillment?.fulfillmentId ?? "");
+      if (packageError) return packageError;
+      if (body.inventoryItemId && !(workspace.inventoryReservations ?? []).some((r) => r.orderLineId === orderLineId && r.inventoryItemId === body.inventoryItemId && isReleasableInventoryReservation(r))) return businessError(409, "PACKING_INVENTORY_BINDING_MISMATCH", "库存追溯必须来自该订单的有效占用。");
+      const completedAt = nowIso(now);
       const packages = buildPackageRecordsForPacking({
         body,
         packingTaskId,
@@ -51,6 +56,7 @@ export function createPackingCommandService({
         createdAt: completedAt,
         distributeIntegerQty,
       });
+      if (packages.some((p) => (workspace.packages ?? []).some((old) => (old.packageId ?? old.id) === p.packageId && old.orderLineId !== orderLineId))) return businessError(409, "PACKING_PACKAGE_BINDING_MISMATCH", "包裹编号已属于其他订单。");
       const nextStatus = getPackingCompletionStatus({
         fulfillment,
         orderLine: beforeOrderLine,
@@ -151,25 +157,23 @@ export function createPackingCommandService({
         todoEvent,
         operationLog,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { ...body, operatorId },
+        idempotencyPayload: { ...body, packingTaskId, operatorId },
       });
 
-      return success({
-        packingTaskId,
-        orderLineId,
-        status: transaction.packingTask.status,
-        actualPackedQty: transaction.packingTask.actualPackedQty,
-        packageIds: transaction.packages.map((record) => record.packageId),
-        fulfillmentId: transaction.fulfillment?.fulfillmentId ?? updatedFulfillment?.fulfillmentId ?? "",
-        fulfillmentStatus: transaction.fulfillment?.status ?? updatedFulfillment?.status ?? "",
-        orderLineStatus: transaction.orderLine?.lineStatus ?? orderLine.status,
-        inventoryDeducted: false,
-        inventoryLedgerIds: transaction.inventoryLedgerEntries.map((entry) => entry.ledgerId),
-        todoId: transaction.todo?.todoId ?? todo?.id ?? "",
-        operationLogId: transaction.operationLogId,
-        legacyLabelsPrintedIgnored: body.labelsPrinted === true,
-      });
+      return success(buildPackingResponse(transaction, body));
     },
+  };
+}
+
+function buildPackingResponse(transaction, body) {
+  return {
+    packingTaskId: transaction.packingTask.packingTaskId, orderLineId: transaction.packingTask.orderLineId,
+    status: transaction.packingTask.status, actualPackedQty: transaction.packingTask.actualPackedQty,
+    packageIds: transaction.packages.map(record => record.packageId), fulfillmentId: transaction.fulfillment?.fulfillmentId ?? "",
+    fulfillmentStatus: transaction.fulfillment?.status ?? "", orderLineStatus: transaction.orderLine?.lineStatus ?? "",
+    inventoryDeducted: false, inventoryLedgerIds: transaction.inventoryLedgerEntries.map(entry => entry.ledgerId),
+    todoId: transaction.todo?.todoId ?? transaction.todo?.id ?? "", operationLogId: transaction.operationLogId,
+    legacyLabelsPrintedIgnored: body.labelsPrinted === true,
   };
 }
 
@@ -200,17 +204,17 @@ function buildPackageRecordsForPacking(input) {
     return {
       packageId,
       bizNo: source.bizNo ?? packageId,
-      orderLineId: source.orderLineId ?? input.orderLineId,
-      fulfillmentId: source.fulfillmentId ?? input.fulfillmentId,
+      orderLineId: input.orderLineId,
+      fulfillmentId: input.fulfillmentId,
       packageSeq,
       packageCount: recordCount,
       packedQty: Math.max(0, Math.trunc(Number(source.packedQty ?? source.qty ?? normalizedQuantities[index] ?? 0))),
-      labelPrintRecordId: source.labelPrintRecordId ?? input.body.labelPrintRecordId ?? "",
+      labelPrintRecordId: "",
       // A package cannot inherit a browser-reported print status. Its label becomes trusted only
       // after the print-job lifecycle verifies a current printed/reprinted job on the server.
       status: getInitialPackageStatus({ fulfillment: input.fulfillment, orderLine: input.orderLine }),
       createdBy: input.operatorId,
-      createdAt: source.createdAt ?? input.createdAt,
+      createdAt: input.createdAt,
     };
   });
 }
@@ -302,4 +306,28 @@ function nowIso(now) {
 
 function requireFunction(value, name) {
   if (typeof value !== "function") throw new TypeError(`${name} must be a function`);
+}
+
+function validatePackageInput(body, actualPackedQty, orderLineId, fulfillmentId) {
+  const fail = (code, message) => businessError(422, code, message);
+  if (body.packages != null && !Array.isArray(body.packages)) return fail("PACKING_PACKAGES_INVALID", "packages must be an array.");
+  const packages = body.packages ?? [];
+  const count = Number(body.packageCount ?? body.packagesCount ?? (packages.length || 1));
+  if (!Number.isSafeInteger(count) || count <= 0 || count > actualPackedQty || count > 10000 || packages.length && packages.length !== count) return fail("PACKING_PACKAGE_COUNT_INVALID", "包数必须为正整数，与逐包记录一致且每包至少一个。");
+  if (body.packageCount != null && body.packagesCount != null && Number(body.packageCount) !== Number(body.packagesCount)) return fail("PACKING_PACKAGE_COUNT_INVALID", "包数声明不一致。");
+  const ids = new Set();
+  const sequences = new Set();
+  let sum = 0;
+  for (const [index, item] of packages.entries()) {
+    if (!item || typeof item !== "object") return fail("PACKING_PACKAGES_INVALID", "每包记录必须完整。");
+    const qty = Number(item.packedQty ?? item.qty);
+    const seq = Number(item.packageSeq ?? index + 1);
+    if (!Number.isSafeInteger(qty) || qty <= 0 || !Number.isSafeInteger(seq) || seq < 1 || seq > count || sequences.has(seq) || item.packageId && ids.has(item.packageId)) return fail("PACKING_PACKAGES_INVALID", "包数量必须为正整数，包号和顺序不得重复。");
+    if (item.orderLineId != null && item.orderLineId !== orderLineId || item.fulfillmentId != null && item.fulfillmentId !== fulfillmentId) return fail("PACKING_PACKAGE_BINDING_MISMATCH", "包裹必须属于当前订单和交付记录。");
+    ids.add(item.packageId);
+    sequences.add(seq);
+    sum += qty;
+  }
+  if (packages.length && sum !== actualPackedQty) return fail("PACKING_PACKAGE_QUANTITY_MISMATCH", "逐包数量合计必须等于实际打包数量。");
+  return null;
 }

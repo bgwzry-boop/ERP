@@ -238,6 +238,8 @@ SELECT
   fulfillment.watermark_address,
   fulfillment.watermark_operator_id,
   fulfillment.watermark_operator_name,
+  fulfillment.signature_status,
+  fulfillment.unsigned_reason,
   fulfillment.signature_photo_attached,
   fulfillment.signature_photo_attachment_id,
   fulfillment.delivery_evidence_review_status,
@@ -245,7 +247,7 @@ SELECT
   fulfillment.delivery_evidence_reviewed_by,
   fulfillment.delivery_evidence_reviewed_by_user_id,
   fulfillment.delivery_evidence_issue_reason,
-  COALESCE(package_stats.package_count, 1) AS package_count,
+  COALESCE(package_stats.package_count, 0) AS package_count,
   COALESCE(active_print.batch_no, active_print.id, '待打印/回填') AS delivery_note_no,
   COALESCE(inventory_source.summary, '') AS inventory_source,
   COALESCE(latest_exception.reason_code, '') AS exception_reason_code,
@@ -288,9 +290,9 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) AS active_print ON true
 LEFT JOIN LATERAL (
-  SELECT GREATEST(COALESCE(MAX(package_count), COUNT(*), 1), 1)::INTEGER AS package_count
+  SELECT COUNT(*)::INTEGER AS package_count
   FROM packages
-  WHERE fulfillment_id = fulfillment.id
+  WHERE fulfillment_id = fulfillment.id AND order_line_id = fulfillment.order_line_id AND status NOT IN ('已作废','已失效','voided','invalidated')
 ) AS package_stats ON true
 LEFT JOIN LATERAL (
   SELECT STRING_AGG(DISTINCT CONCAT_WS(' / ', item.zone, item.inventory_state), '、') AS summary
@@ -430,6 +432,8 @@ function driverDeliveryTaskJsonExpression(alias) {
     'watermarkAddress', ${alias}.watermark_address,
     'watermarkOperatorId', COALESCE(${alias}.watermark_operator_id, ''),
     'watermarkOperatorName', ${alias}.watermark_operator_name,
+    'signatureStatus', ${alias}.signature_status,
+    'unsignedReason', ${alias}.unsigned_reason,
     'signaturePhotoAttached', ${alias}.signature_photo_attached,
     'signaturePhotoAttachmentId', ${alias}.signature_photo_attachment_id,
     'deliveryEvidenceReviewStatus', ${alias}.delivery_evidence_review_status,
@@ -453,10 +457,9 @@ function driverOrderTailSql(alias) {
 }
 
 function driverPackageChecklistSql(alias) {
-  const totalQty = `GREATEST(COALESCE(${alias}.actual_qty, ${alias}.expected_qty, ${alias}.original_qty, 0), 0)::INTEGER`;
-  const packageCount = `GREATEST(COALESCE(${alias}.package_count, 1), 1)::INTEGER`;
   const packageWhere = `package_item.fulfillment_id = ${alias}.fulfillment_id
-        OR (package_item.fulfillment_id IS NULL AND package_item.order_line_id = ${alias}.order_line_id)`;
+        AND package_item.order_line_id = ${alias}.order_line_id
+        AND package_item.status NOT IN ('已作废','已失效','voided','invalidated')`;
   return `COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
         'packageId', package_row.id,
@@ -479,24 +482,6 @@ function driverPackageChecklistSql(alias) {
         FROM packages AS package_item
         WHERE ${packageWhere}
       ) AS package_row
-    ), (
-      SELECT jsonb_agg(jsonb_build_object(
-        'packageId', CONCAT(${alias}.fulfillment_id, '-PKG-', package_row.seq::TEXT),
-        'labelText', CONCAT('第 ', package_row.seq::TEXT, '/', ${packageCount}::TEXT, ' 包'),
-        'packageSeq', package_row.seq,
-        'packageCount', ${packageCount},
-        'packedQty', (
-          FLOOR(${totalQty}::NUMERIC / ${packageCount})::INTEGER +
-          CASE WHEN package_row.seq <= MOD(${totalQty}, ${packageCount}) THEN 1 ELSE 0 END
-        ),
-        'quantityText', CONCAT((
-          FLOOR(${totalQty}::NUMERIC / ${packageCount})::INTEGER +
-          CASE WHEN package_row.seq <= MOD(${totalQty}, ${packageCount}) THEN 1 ELSE 0 END
-        )::TEXT, '个'),
-        'status', '待装车核对',
-        'labelPrintRecordId', ''
-      ) ORDER BY package_row.seq)
-      FROM generate_series(1, ${packageCount}) AS package_row(seq)
     ), '[]'::jsonb)`;
 }
 
@@ -533,10 +518,10 @@ export function normalizeDriverDeliveryTask(value = {}) {
     exceptions: toArray(value.exceptionTags ?? value.exceptions),
     note: value.note ?? "",
   };
-  const packageCount = Math.max(1, toFiniteInteger(value.packageCount, parsePackageCount(value.packageSummary)));
+  const packageCount = Math.max(0, toFiniteInteger(value.packageCount, parsePackageCount(value.packageSummary)));
   const qty = Math.max(0, toFiniteInteger(value.qty ?? value.actualQty ?? value.expectedQty, 0));
   const status = mapDriverDeliveryStatus(value.status ?? value.fulfillmentStatus);
-  const packageSummary = cleanText(value.packageSummary) || `${packageCount}包`;
+  const packageSummary = packageCount ? `${packageCount}包` : "无实际包裹记录";
   return {
     driverTaskId: cleanText(value.driverTaskId ?? fulfillmentId) || fulfillmentId,
     fulfillmentId,
@@ -592,6 +577,8 @@ export function normalizeDriverDeliveryTask(value = {}) {
     watermarkAddress: cleanText(value.watermarkAddress),
     watermarkOperatorId: cleanText(value.watermarkOperatorId),
     watermarkOperatorName: cleanText(value.watermarkOperatorName),
+    signatureStatus: cleanText(value.signatureStatus),
+    unsignedReason: cleanText(value.unsignedReason),
     signaturePhotoAttached: value.signaturePhotoAttached === true,
     signaturePhotoAttachmentId: cleanText(value.signaturePhotoAttachmentId),
     deliveryEvidenceReviewStatus: cleanText(value.deliveryEvidenceReviewStatus),
@@ -696,37 +683,20 @@ function compareDriverDeliveryTasks(a, b) {
 
 function normalizeDriverPackageChecklist(value, fallback = {}) {
   const source = Array.isArray(value) ? value : [];
-  const packageSummary = cleanText(fallback.packageSummary);
-  const fallbackCount = Math.max(1, Number(fallback.packageCount || parsePackageCount(packageSummary) || source.length || 1));
-  const quantities = distributeDriverPackageQty(Number(fallback.qty ?? 0), Math.max(fallbackCount, source.length || 0));
-  const normalized = source
+  return source
+    .filter((item) => Boolean(cleanText(item?.packageId ?? item?.id)))
     .map((item, index) => normalizeDriverPackageChecklistItem(item, {
       index,
-      packageCount: Math.max(fallbackCount, source.length),
+      packageCount: source.length,
       fulfillmentId: fallback.fulfillmentId,
-      fallbackQty: quantities[index],
     }))
     .filter(Boolean);
-  if (normalized.length) return normalized;
-  const count = fallbackCount;
-  const generatedQuantities = distributeDriverPackageQty(Number(fallback.qty ?? 0), count);
-  return Array.from({ length: count }, (_, index) =>
-    normalizeDriverPackageChecklistItem({}, {
-      index,
-      packageCount: count,
-      fulfillmentId: fallback.fulfillmentId,
-      fallbackQty: generatedQuantities[index],
-      packageSummary,
-    }),
-  );
 }
 
 function normalizeDriverPackageChecklistItem(item = {}, options = {}) {
   const packageSeq = Math.max(1, Number(item.packageSeq ?? item.sequence ?? options.index + 1));
   const packageCount = Math.max(1, Number(item.packageCount ?? options.packageCount ?? 1));
-  const packageId =
-    cleanText(item.packageId ?? item.id) ||
-    [cleanText(options.fulfillmentId) || "DRIVER-PKG", packageSeq].join("-PKG-");
+  const packageId = cleanText(item.packageId ?? item.id);
   const packedQty = Math.max(0, Number(item.packedQty ?? item.qty ?? item.expectedQty ?? options.fallbackQty ?? 0));
   const labelText =
     cleanText(item.labelText) ||
@@ -742,14 +712,6 @@ function normalizeDriverPackageChecklistItem(item = {}, options = {}) {
     labelPrintRecordId: cleanText(item.labelPrintRecordId),
     checked: item.checked === true,
   };
-}
-
-function distributeDriverPackageQty(totalQty, packageCount) {
-  const count = Math.max(1, Math.trunc(Number(packageCount || 1)));
-  const total = Math.max(0, Math.trunc(Number(totalQty || 0)));
-  const base = Math.floor(total / count);
-  const remainder = total % count;
-  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
 }
 
 function parsePackageCount(value) {

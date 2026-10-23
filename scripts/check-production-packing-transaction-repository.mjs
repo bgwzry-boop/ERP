@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  buildCompletePackingTaskTransactionQuery,
   buildCompletePackingTaskTransactionSql,
   buildPublishProductionScheduleTransactionQuery,
   buildPublishProductionScheduleTransactionSql,
@@ -189,7 +188,7 @@ function checkLocalWorkspaceMutation() {
 
   const resolutionTransaction = repository.resolveProductionException({
     workspace: dailyWorkspace,
-    productionTask: buildProductionTask({ taskStatus: "制袋中", revision: 2 }),
+    productionTask: buildProductionTask({ taskStatus: "制袋中", revision: dailyWorkspace.productionTasks[0].revision }),
     productionException: {
       ...exceptionTransaction.productionException,
       status: "已恢复生产",
@@ -224,7 +223,7 @@ function checkLocalWorkspaceMutation() {
   assert.equal(dailyWorkspace.machineCapacityBaselines.length, 0);
   const replayedResolutionTransaction = repository.resolveProductionException({
     workspace: dailyWorkspace,
-    productionTask: buildProductionTask({ taskStatus: "制袋中", revision: 2 }),
+    productionTask: buildProductionTask({ taskStatus: "制袋中", revision: dailyWorkspace.productionTasks[0].revision }),
     productionException: resolutionTransaction.productionException,
     todo: resolutionTransaction.todo,
     todoEvent: resolutionTransaction.todoEvent,
@@ -645,15 +644,10 @@ async function checkPostgresSqlBoundary() {
   assert.match(directScheduleSql, /published_schedule_id/);
   assert.doesNotMatch(directScheduleSql, /INSERT INTO workshop_reports/);
   assert.doesNotMatch(directScheduleSql, /UPDATE inventory_items AS item/);
-  const directPackingSql = buildCompletePackingTaskTransactionSql({
-    packingTask: buildPackingTask(),
-    packages: [],
-    fulfillment: null,
-    orderLine: null,
-    inventoryLedgerEntries: [],
+  assert.throws(() => buildCompletePackingTaskTransactionSql({
+    packingTask: buildPackingTask(), packages: [], fulfillment: null, orderLine: null,
     operationLog: buildOperationLog({ targetType: "packing_task", targetId: "PKT-PROD-001" }),
-  });
-  assert.match(directPackingSql, /SELECT NULL::json AS result WHERE false/);
+  }), { code: "PACKING_PACKAGE_QUANTITY_MISMATCH" });
   assert.equal(buildRecordProductionReportTransactionQuery({
     productionTask: buildProductionTask(),
     workshopReport: buildWorkshopReport({ remark: "O'Brien report" }),
@@ -677,14 +671,7 @@ async function checkPostgresSqlBoundary() {
     operationLog: buildOperationLog({ action: "publish_production_schedule" }),
     decisionRecord: buildScheduleDecision("BD-SCHEDULE-QUERY", "LOG-PROD-001"),
   }).values.includes("publish_production_schedule"), true);
-  assert.equal(buildCompletePackingTaskTransactionQuery({
-    packingTask: buildPackingTask(),
-    packages: [],
-    fulfillment: null,
-    orderLine: null,
-    inventoryLedgerEntries: [],
-    operationLog: buildOperationLog({ targetType: "packing_task", targetId: "PKT-PROD-001" }),
-  }).values.includes("PKT-PROD-001"), true);
+
 }
 
 function buildScheduleDecision(id, operationLogId) {

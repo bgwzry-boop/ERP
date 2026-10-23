@@ -32,14 +32,6 @@ export function buildInsertPackagesSql(packages, parameters, dependency = "") {
   created_at,
   updated_at
 ) ${buildInsertValuesSource(values, ["id", "biz_no", "order_line_id", "fulfillment_id", "package_seq", "package_count", "packed_qty", "label_print_record_id", "status", "created_by", "created_at", "updated_at"], dependency)}
-ON CONFLICT (id) DO UPDATE SET
-  fulfillment_id = EXCLUDED.fulfillment_id,
-  package_seq = EXCLUDED.package_seq,
-  package_count = EXCLUDED.package_count,
-  packed_qty = EXCLUDED.packed_qty,
-  label_print_record_id = EXCLUDED.label_print_record_id,
-  status = EXCLUDED.status,
-  updated_at = now()
 RETURNING ${packageJsonExpression("packages")} AS result`;
 }
 

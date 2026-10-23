@@ -109,6 +109,12 @@ const fulfillments = [
     goods: "外卖活动袋 40*30 黄袋红提",
     qty: 3000,
     packages: "6包",
+    packageChecklist: Array.from({ length: 6 }, (_, index) => ({
+      packageId: `PKG-F008-${index + 1}`,
+      packageSeq: index + 1,
+      packageCount: 6,
+      packedQty: 500,
+    })),
     status: "待出库",
     latest: "明天 19:00",
     zone: "打包区",
@@ -863,11 +869,16 @@ fakePhotoSession.stop();
 assert(fakePhotoTrack.stopped === true && fakePhotoVideo.srcObject === null, "delivery photo camera should stop media stream");
 
 const localTasks = buildLocalDriverDeliveryTasks({ fulfillments, orderLines, customers, driverId: "U-DRIVER-A" });
+const noPhysicalPackageTask = buildLocalDriverDeliveryTasks({
+  fulfillments: [{ ...fulfillments[0], packageChecklist: [] }], orderLines, customers, driverId: "U-DRIVER-A",
+})[0];
+assert(noPhysicalPackageTask.packageCount === 0 && noPhysicalPackageTask.packageChecklist.length === 0, "declared package count cannot create physical packages");
+assert(getDriverLoadPackageCheckState(noPhysicalPackageTask, []).allChecked === false, "driver loading stays blocked without physical package records");
 assert(localTasks.length === 1, "local driver tasks did not include the delivery fulfillment");
 assert(localTasks[0].status === "待送货", "local task status is incorrect");
 assert(localTasks[0].goodsSummary.includes("黄印黑") && localTasks[0].goodsSummary.includes("黄袋红提"), "local task goods summary missed factory shorthand");
 assert(localTasks[0].packageCount === 6 && localTasks[0].addressArea === "厚街仓库", "local task package/address fields were not mapped");
-assert(localTasks[0].packageChecklist.length === 6, "local task package checklist was not generated");
+assert(localTasks[0].packageChecklist.length === 6, "local task must retain six recorded physical packages");
 assert(localTasks[0].packageChecklist[0].labelText === "第 1/6 包", "local task package checklist label is incorrect");
 assert(localTasks[0].routeNo === "虎门线-A" && localTasks[0].routeSequence === 2, "local task route fields were not mapped");
 assert(getDriverRouteLabel(localTasks[0]) === "2026-07-02 · 虎门线-A", "driver route label is incorrect");
