@@ -221,6 +221,9 @@ export function getRawMaterialRollTone(roll = {}) {
 
 export function buildRawMaterialLabelVerificationDraft(item = {}, roll = {}) {
   return {
+    inboundId: item.id || "",
+    expectedRevision: Number(item.revision) || 0,
+    expectedLabelVersion: Math.max(1, Number(roll.labelVersion) || 1),
     rollId: roll.id || "",
     matchResult: "",
     checkedWeightKg: roll.weightKg ?? "",

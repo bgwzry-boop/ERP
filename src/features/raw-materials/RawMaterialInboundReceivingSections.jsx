@@ -300,10 +300,11 @@ export function RawMaterialInboundReceivingSections({
     className="raw-material-label-verification"
     onSubmit={async (event) => {
       event.preventDefault();
-      if (!labelVerification.matchResult) return;
+      if (!labelVerification.matchResult || labelVerification.inboundId !== selected.id) return;
       const result = await onAction?.("确认贴标入库", selected.id, {
         rollId: labelVerification.rollId,
-        expectedLabelVersion: Math.max(1, Number(selected.rolls?.find(roll => roll.id === labelVerification.rollId)?.labelVersion) || 1),
+        expectedRevision: labelVerification.expectedRevision,
+        expectedLabelVersion: labelVerification.expectedLabelVersion,
         matchResult: labelVerification.matchResult,
         checkedWeightKg: labelVerification.checkedWeightKg,
         checkedColor: labelVerification.checkedColor,

@@ -3,6 +3,7 @@ import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInb
 import { createRawMaterialCostMarginBuilder } from "../server/rawMaterialCostMarginBuilderService.mjs";
 import { applyRawMaterialCostMarginLocalAction } from "../src/domain/rawMaterialCostMarginLocalActions.js";
 import { evaluateRawMaterialOneClickInbound } from "../src/domain/rawMaterialWholeRollPolicy.js";
+import { buildRawMaterialLabelVerificationDraft } from "../src/features/raw-materials/rawMaterialInboundWorkflow.js";
 import { mergeRawMaterialCurrentInbound } from "../shared/rawMaterialCurrentInbound.js";
 
 const now = "2026-10-23T00:00:00.000Z";
@@ -27,10 +28,15 @@ for (const labelStatus of ["待人工复核", "标签待补打", "已打印待�
     assert.throws(() => act(candidate, action, { rollId: roll.id }), (error) => error.code === (action === "void_label" ? "RAW_MATERIAL_LABEL_VOID_REQUIRES_MISMATCH" : "RAW_MATERIAL_LABEL_REPRINT_REQUIRES_VOIDED_LABEL"));
   }
 }
+const inspectedDraft = buildRawMaterialLabelVerificationDraft({ ...inbound, revision: 1 }, { ...roll, labelVersion: 1 });
 let corrected = { ...inbound, rolls: [{ ...roll, inventoryStatus: "待确认", labelStatus: "标签或实物不符/待确认", labelVersion: 1 }] };
 corrected = act(corrected, "void_label", { rollId: roll.id, reason: "重核颜色" });
 corrected = act(corrected, "reprint_label", { rollId: roll.id });
 assert.equal(corrected.rolls[0].labelVersion, 2);
+assert.equal(inspectedDraft.inboundId, inbound.id);
+assert.equal(inspectedDraft.expectedRevision, 1);
+assert.equal(inspectedDraft.expectedLabelVersion, 1, "an open physical check must not silently adopt a newly reprinted label");
+assert.throws(() => act(corrected, "attach_confirm", { ...inspectedDraft, matchResult: "matched" }), error => ["BUSINESS_WRITE_CONFLICT", "RAW_MATERIAL_LABEL_VERSION_CONFLICT"].includes(error.code));
 assert.throws(() => act(corrected, "attach_confirm", { rollId: roll.id, expectedLabelVersion: 1, matchResult: "matched" }), error => error.code === "RAW_MATERIAL_LABEL_VERSION_CONFLICT");
 assert.throws(() => act(corrected, "attach_confirm", { rollId: roll.id, expectedLabelVersion: 2, matchResult: "matched", checkedWeightKg: 99 }), error => error.code === "RAW_MATERIAL_LABEL_FACTS_MISMATCH");
 assert.throws(() => act(corrected, "attach_confirm", { rollId: roll.id, expectedLabelVersion: 2, matchResult: "matched", checkedColor: "" }), error => error.code === "RAW_MATERIAL_LABEL_FACTS_MISMATCH");
