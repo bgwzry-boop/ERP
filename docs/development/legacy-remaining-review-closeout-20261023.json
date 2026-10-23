@@ -1,0 +1,179 @@
+{
+  "schema": "erp-legacy-review-closeout-v1",
+  "date": "2026-10-23",
+  "state": "local-integration-not-deployed",
+  "branch": "codex/p1-integration-20261023",
+  "codeSnapshot": "7e1ca4fbe7bfda6036abfc432a972e12a9ce91a9",
+  "canonicalBaseline": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
+  "reviewedSourceCommits": 497,
+  "wholeLegacyCommitsDeclaredIntegrated": 0,
+  "counts": {
+    "reviewed-cross-domain-scoped": 9,
+    "reviewed-scoped-semantics": 384,
+    "reviewed-followup-required": 46,
+    "reviewed-validation-history": 29,
+    "reviewed-current-contract": 29
+  },
+  "fixes": [
+    {
+      "area": "原料、颜色与卷标",
+      "result": "厂家颜色编辑保留数据库真实版本，过期编辑明确冲突；不同数据目录不再串用颜色规则。卷标重印后，核对仍必须绑定实际看过的标签版本，不能悄悄使用新版。"
+    },
+    {
+      "area": "库存占用与订单转换",
+      "result": "留货数量、客户和有效期在取得数据库锁后再次核对。过期占用不能转订单，重复释放不会多加库存。实出10个但只有6个占用时明确拒绝，实扣库存、占用释放、流水与实出必须一致；不恢复旧的拆卷和余料直接回库行为。"
+    },
+    {
+      "area": "订单、锁价与双系统",
+      "result": "保留缺货通货进入排产、特殊尺寸走生产和现行小程序锁价草稿。改量拒绝小数、空值和假数字；已有装车或实际交付事实的订单不能直接取消改写。"
+    },
+    {
+      "area": "生产与实际打包",
+      "result": "生产按真实任务和工序交接，成品图复核绑定看过的图片及版本。打包必须明确实物数量及真实包裹，已完成的批次不能再次生包，也不能用计划数量冒充实包。"
+    },
+    {
+      "area": "打印、作废和重印",
+      "result": "原打印价格、包裹内容与审计记录不可覆盖。重新读取后仍保留真实包裹快照；旧请求重试不恢复已作废的旧状态。只有可信打印完成才能关闭对应提醒。"
+    },
+    {
+      "area": "送货证据与司机异常",
+      "result": "复核必须针对当前水印/签字照片；过时照片被替换后旧复核不能覆盖。办公室可记录原因处理司机异常，保留原数量、原异常和处理人，不改库存或账务。旧请求的成功回执不会把后来“已交付”的状态覆盖回“配送中”。"
+    },
+    {
+      "area": "派车与失败重试",
+      "result": "派车绑定编辑时读到的任务版本，从当前真实司机名单选人。提交失败保留原内容和请求；换账号或换单后，旧结果不能关掉或改写新页面。"
+    },
+    {
+      "area": "收款、差额与账务",
+      "result": "累计实收20元改为50元，最终是50元。缺失金额保持待核实；当期差额不混作历史欠款。差额处理落库，金额变化后旧批准失效；已结账期不接受新的资金改写。"
+    },
+    {
+      "area": "权限与证据审计",
+      "result": "按岗位分开控制读取与操作，工人只读取所属机台资料。附件访问历史失败不能假装零记录，审计碰撞/保存失败不能覆盖原历史，换会话后不能显示旧照片。"
+    },
+    {
+      "area": "手机、电脑与任务恢复",
+      "result": "保留当前完整新工作台、多页拍单、35个标准色、真实包裹与新排产入口；补批示、维修和照片复核的失败保留、会话隔离。手机考勤今日无卡时不借历史日期冒充今天。"
+    }
+  ],
+  "followups": [
+    {
+      "priority": "下一步优先",
+      "detail": "完整评审入口的订单改量、作废及失败后恢复；留货新建、续期、释放和转单的完整入口。当前桌面打包仍只支持单明细独立装包，多尺寸/颜色混装包的逐项实物登记尚未接入，不能算作已完成。"
+    },
+    {
+      "priority": "下一步优先",
+      "detail": "财务差额、减免、转欠款和核销专用操作入口，连同旧差额待办的正确替换。当前累计收款、发送和客户确认保留。"
+    },
+    {
+      "priority": "后续完善",
+      "detail": "部分采购、设备维护的完整管理入口；司机断网后照片换图/续传恢复；大数据量的服务器筛选与分页性能。电脑整壳仍有1180px最小宽度，800px窄窗口会横向溢出380px；新确认框自身可用，整页紧凑布局尚待统一整改。"
+    },
+    {
+      "priority": "现场验收",
+      "detail": "真实打印机出纸、贴牌与实物匹配、手机扫码、真实岗位业务闭环，以及正式考勤和工资验收。自动测试不能代替这些证据。"
+    },
+    {
+      "priority": "保留待核",
+      "detail": "旧目录59项未提交内容（21项已跟踪修改、38项未跟踪文件）不在497条历史提交内；继续原样保留，不能叫作已确认无用的缓存。"
+    }
+  ],
+  "validation": [
+    {
+      "name": "完整代码检查",
+      "status": "passed",
+      "scope": "157组常规检查；包含权限、订单、财务、原料、打印、生产和工资合同。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/checks-final.log",
+      "sha256": "99dfd9b36df57a276ace72b86502b14ac5720847f6ced2bd08153eac007015a9"
+    },
+    {
+      "name": "真实数据库重点专项",
+      "status": "passed",
+      "scope": "18个入口/分组，使用隔离PostgreSQL，包含锁等待、并发回滚、冷读和原请求重试。多数加载52份迁移，价格激活等待专项使用最小相关表结构。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/postgres-final.log",
+      "sha256": "a9fa4c80f282e1ad0f1e10028bbe5a7ed84c6ef5f3358ef887038ba20ce647a8"
+    },
+    {
+      "name": "完整数据库集成",
+      "status": "passed",
+      "scope": "仓储、真实HTTP与持久化集成；不代表正式服务器数据迁移验收。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/postgres-live-full.log",
+      "sha256": "9995bd556777626d8344e4735f15b53046cec3db72ca074ad15039b9c2914b9b"
+    },
+    {
+      "name": "核心浏览器",
+      "status": "passed",
+      "scope": "10个核心场景，含累计20→50仍为50、真实凭证、生产与出库闭环，使用隔离数据。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/core-e2e-final.log",
+      "sha256": "b96799a6b0dab332ac644287f2d888d0dbd678d5b5ecd72b5988f5e029a36762"
+    },
+    {
+      "name": "完整评审浏览器",
+      "status": "passed",
+      "scope": "完整4174入口的实际组件；真实写入均指向独立临时测试服务，另有只读合成拦截场景。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/review-e2e-final.log",
+      "sha256": "363260c8d7ee9ed21313bb3ed434ebf80d78f8abb1b49cb0b0dc41e82dd480c9"
+    },
+    {
+      "name": "本地身份与双端",
+      "status": "passed",
+      "scope": "应用身份、完整导航、API和390/767/768/1440双向切换；颜色冲突恢复使用合成请求。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/review-final.log",
+      "sha256": "9ee3c2ab40e980a37b60ebc6a7cc5fa4dabcde7af06c3e60b40229bced18378f"
+    },
+    {
+      "name": "根应用构建",
+      "status": "passed",
+      "scope": "保留原构建预算，不扩大上限来掩盖体积增加。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/build-final.log",
+      "sha256": "fc0b8d5705e230a48a5be935677313e9d299dbc84d8988f1f4227879039941fe"
+    },
+    {
+      "name": "完整评审应用构建",
+      "status": "passed",
+      "scope": "仅构建检查，不是Sites或服务器部署。",
+      "evidence": ".erp-local-storage/legacy-remaining-20261023/review-build-final.log",
+      "sha256": "b74a40095273f32b53aa96fb4445219e761ebba9e5ee315e3a839fc8a12debdc"
+    },
+    {
+      "name": "服务器、仓库与主目录一致性",
+      "status": "passed",
+      "scope": "原主目录运行只读release:check。只证明原发布线一致，不代表本分支已上线。",
+      "evidence": "/tmp/erp-main-release-audit-20261023.log"
+    }
+  ],
+  "sourceReports": [
+    {
+      "domain": "materials",
+      "path": "docs/development/legacy-remaining-materials-review-20261023.json",
+      "count": 180,
+      "sha256": "bf0fe9343715c958ce84d3fe729c65e5a9a480daa1ddc79deebec16d8f34a8ef"
+    },
+    {
+      "domain": "orders-finance",
+      "path": "docs/development/legacy-remaining-orders-finance-review-20261023.json",
+      "count": 172,
+      "sha256": "3a986fe1088be1fff6d5b255de35a606ebea7d01d55e9c52a0c0ac9252180502"
+    },
+    {
+      "domain": "production",
+      "path": "docs/development/legacy-remaining-production-review-20261023.json",
+      "count": 116,
+      "sha256": "c543f3c2a5cdf714c603cd9f44712406f14c61840610a44ca0edc950adc78acb"
+    },
+    {
+      "domain": "root",
+      "path": "docs/development/legacy-remaining-root-review-20261023.json",
+      "count": 29,
+      "sha256": "f91510eb777476d813ed92b2e12e9ffe9ff44344811d8555da672a91d7837819"
+    }
+  ],
+  "preservation": {
+    "oldWorktree": "/Users/xu/Documents/ERP-optimization-20260905",
+    "uncommitted": 59,
+    "tracked": 21,
+    "untracked": 38,
+    "policy": "不修改、删除、stash、reset或部署旧脏目录；不更改仓库可见性、不删除用户对话和原始证据。"
+  },
+  "boundary": "497条均有范围明确的差异核对结论，不等于497整提交已整合，也不等于所有旧功能与现场验收完成。本轮只在独立任务分支整合；未推移canonical、未部署。"
+}
