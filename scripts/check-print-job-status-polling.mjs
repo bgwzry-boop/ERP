@@ -1,3 +1,4 @@
+import { createPrintPackingTestFixture } from "./helpers/printPackingTestFixture.mjs";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
@@ -14,7 +15,9 @@ const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "pr
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 
+const packingFixture = createPrintPackingTestFixture();
 const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
+  seedSource: "synthetic", coreWorkspaceReadRepository: packingFixture.repository,
   printDriverAdapterOptions: {
     dryRunEnabled: true,
   },
@@ -56,6 +59,8 @@ try {
     { headers: officeHeaders },
   );
 
+  await packingFixture.complete(baseUrl, fulfillmentId);
+
   const printFulfillment = await postJson(
     baseUrl,
     `/api/fulfillments/${fulfillmentId}/print`,
@@ -72,6 +77,8 @@ try {
   if (!printJobId || printFulfillment.printJob?.jobStatus !== "queued") {
     throw new Error("System-printer fulfillment print did not create a queued print job");
   }
+
+  await packingFixture.assertLabels(baseUrl, false);
 
   const dispatchResult = await postJson(
     baseUrl,
@@ -151,6 +158,8 @@ try {
   ) {
     throw new Error("/api/print-jobs/{printJobId}/poll-status did not preserve terminal print jobs");
   }
+
+  await packingFixture.assertLabels(baseUrl, true, printFulfillment.printJob.printRecordId);
 
   console.log("print-job-status-polling check passed");
 } finally {

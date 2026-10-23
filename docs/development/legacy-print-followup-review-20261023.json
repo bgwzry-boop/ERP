@@ -1,0 +1,209 @@
+{
+  "schema": "erp-legacy-semantic-review-v1",
+  "date": "2026-10-23",
+  "domain": "production-print-followup-for-orders-ledger",
+  "count": 10,
+  "records": [
+    {
+      "commit": "c35b88486a6d3cfa1dbe20bbace260f368f5dc69",
+      "subject": "fix(todos): restore current fulfillment state on repair replay",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "补建交付回放须保留原回执、恢复当前包裹/标签/待办，避免旧请求复活旧标签。",
+      "currentEvidence": [
+        {
+          "path": "server/todoActionRepository.mjs",
+          "function": "restoreFulfillmentRepairWorkspace"
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-concurrency-postgres.mjs",
+        "scripts/helpers/checkTodoFulfillmentRepairReplay.mjs"
+      ],
+      "implementationEvidence": "4ed656236a91e449a5ad97790fcd0f49cdd504e9",
+      "patchSha256": "5d54ccc6c4a6a22b28c2a1544056ba34fc988e8d8ef98b2a71ea7b8eea686e20",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "cd5f24e33f465f6cd38e95e072df9ba285976de2",
+      "subject": "fix(print): keep fulfillment state authoritative after print requests",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "打印回执不直接推算履约状态；只有当前权威读取更新标签与纸单状态。",
+      "currentEvidence": [
+        {
+          "path": "src/app/useOfficePrintWrites.js",
+          "function": "runFulfillmentPrintCommand"
+        }
+      ],
+      "validation": [
+        "scripts/check-office-print-writes.mjs"
+      ],
+      "implementationEvidence": "4ed656236a91e449a5ad97790fcd0f49cdd504e9",
+      "patchSha256": "e83f6faa5ad4d68e592aef0b129e9890a76c817b3fb24c31a35d1a5e0e2ef008",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "2f9a321bdd0330e847606ea803415379d4ba71e1",
+      "subject": "fix(todos): require trusted label print source for completion",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "待打印不能用手工完成别名关闭；可信当前标签结果在事务内关闭同一履约待办并写事件。",
+      "currentEvidence": [
+        {
+          "path": "server/fulfillmentPrintTodoCompletion.mjs",
+          "function": "completionEvidence"
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs"
+      ],
+      "implementationEvidence": "4ed656236a91e449a5ad97790fcd0f49cdd504e9",
+      "patchSha256": "6831c3635793125ca17f5ca7e61beef6b07af42242ee0fcbd84f0587b46856df",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "9f5073288ff6c24d8f9931165a7316bc2ee5396e",
+      "subject": "fix(print): preserve void evidence and guard active reprints",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "作废审计保留释放前真实包裹，时间来自服务器；历史作废记录不能绕过现有效打印记录重印。",
+      "currentEvidence": [
+        {
+          "path": "server/services/fulfillmentPrintCommandService.mjs",
+          "function": "voidPrintRecord"
+        }
+      ],
+      "validation": [
+        "scripts/check-fulfillment-print-command-service.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs"
+      ],
+      "implementationEvidence": "5bb2ccee6a2daf8f00fb484274b4df7731d97123",
+      "patchSha256": "8b79cce2593525c4b66c453e50887e9c01a648c8b455feb551907981aff5b8e8",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "25c1f0e297d36271a57d6b54f4391745ce58ef31",
+      "subject": "fix(print): recover label todos atomically after void",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "当前标签作废后原完成待办保留历史，新建来源明确的重打待办；队列不能关闭，可信重印才能关闭。",
+      "currentEvidence": [
+        {
+          "path": "server/fulfillmentPrintTodoRecovery.mjs",
+          "function": "recoveryReceipt"
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-concurrency-postgres.mjs"
+      ],
+      "implementationEvidence": "5bb2ccee6a2daf8f00fb484274b4df7731d97123",
+      "patchSha256": "fb706d9a052bd7169b25a8eba9c28babbdea9a67492a589517c05f50b7d9e5a7",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "7b3b27cfb3c83038a5f5a446b33ec7427ec55f83",
+      "subject": "fix(print): restore current state separately from transaction receipts",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "原事务回执和当前业务状态分离；读取失败不部分合并，晚到的旧读取不覆盖较高版本，审计不可同ID覆盖。",
+      "currentEvidence": [
+        {
+          "path": "server/fulfillmentPrintCurrentState.mjs",
+          "function": "readFulfillmentPrintCurrentState/mergeFulfillmentPrintCurrentState"
+        }
+      ],
+      "validation": [
+        "scripts/check-fulfillment-action-transaction-repository.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs"
+      ],
+      "implementationEvidence": "5bb2ccee6a2daf8f00fb484274b4df7731d97123",
+      "patchSha256": "0d8438ab841a558271cfe547fc380f588e464d68a64400723433ef874310aec2",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "aef169e18cffb33127d7f2ec69567a0540da5da6",
+      "subject": "fix(print): recover void receipts before current-state gates",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "作废回放先于已作废动态门禁；精确校验打印记录、操作者和原请求内容，再恢复当前状态。",
+      "currentEvidence": [
+        {
+          "path": "server/fulfillmentActionTransactionRepository.mjs",
+          "function": "findPrintVoidReplay/resolvePrintVoidReplay"
+        }
+      ],
+      "validation": [
+        "scripts/check-todo-concurrency-postgres.mjs"
+      ],
+      "implementationEvidence": "5bb2ccee6a2daf8f00fb484274b4df7731d97123",
+      "patchSha256": "f1dad970eab49671c80c7fe6a90fa99df87c5bbf5252e0cdc45806a980049182",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "5df3f0290501e84dd18e2ebfb843790c32183391",
+      "subject": "fix(print): replay original submissions before mutable print gates",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "初次打印同key回放先于设备/标签变化校验；复用原队列/模板且不把现已打印当成原提交承诺，Local持久失败可原key恢复。",
+      "currentEvidence": [
+        {
+          "path": "server/fulfillmentPrintRequest.mjs",
+          "function": "buildFulfillmentPrintRequest/assertFulfillmentPrintReplay"
+        }
+      ],
+      "validation": [
+        "scripts/check-fulfillment-print-command-service.mjs",
+        "scripts/helpers/checkFulfillmentPrintServiceReplay.mjs",
+        "scripts/check-todo-concurrency-postgres.mjs"
+      ],
+      "implementationEvidence": "5bb2ccee6a2daf8f00fb484274b4df7731d97123",
+      "patchSha256": "202cd6715357cfc79ed839d81748ae374a2def9f1ea3f8e00922eb84a0acfe95",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "81d507144f9aeb481572c6f7d6313d8273ac824d",
+      "subject": "fix(print-ui): preserve scoped requests and authoritative state on retry",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "打印和作废弹窗持有第一次请求内容/目标/key，失败不关窗；同页重载可恢复，账号或打印记录不串用，未收到可信回执不当作成功。",
+      "currentEvidence": [
+        {
+          "path": "src/features/printing/print-command-draft.js",
+          "function": "readPrintCommandDraft/savePrintCommandDraft"
+        }
+      ],
+      "validation": [
+        "scripts/check-print-command-modal.mjs",
+        "scripts/check-print-command-modal-layout.mjs",
+        "scripts/check-office-interaction-controller.mjs",
+        "scripts/check-frontend-fulfillment-api-client.mjs"
+      ],
+      "implementationEvidence": "b3d42024cc01c3aec71addf632a318b8dc08ac3b",
+      "patchSha256": "d062a1d089624bdd5061619e66ae771815fa44f484def7cd55799436b1b1ba6f",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    },
+    {
+      "commit": "86f4b03e1d9b9f8e59735824126b4bf694b5ff38",
+      "subject": "test(print): prepare packages through packing API before driver checks",
+      "decision": "effective-semantics-adapted-current-features-retained",
+      "reason": "回调、轮询与命令桥检查均须先通过打包API建立实包；快递标签队列不等于已打印，确认可信结果后关联准确打印记录。",
+      "currentEvidence": [
+        {
+          "path": "scripts/helpers/printPackingTestFixture.mjs",
+          "function": "createPrintPackingTestFixture/complete/assertLabels"
+        }
+      ],
+      "validation": [
+        "scripts/check-print-job-driver-status.mjs",
+        "scripts/check-print-job-status-polling.mjs",
+        "scripts/check-print-job-command-bridge-status-readback.mjs"
+      ],
+      "implementationEvidence": "current-physicalPackingFixture-plus-this-followup",
+      "patchSha256": "c6564b35d3a1eba907b6d1e57d5cf49cf9c3d4743e8d314fc5d92cd36345351c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "保留新编排/严格存储模式/preview_only/已交付保护等当前规则；不搬旧版布局和过程文档。专项使用隔离数据或合成打印驱动，不代表真实打印机、纸张或全4174岗位验收。"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { createPrintPackingTestFixture } from "./helpers/printPackingTestFixture.mjs";
 import { existsSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -16,7 +17,9 @@ const bridgeScript = join(process.cwd(), "scripts", "print-command-bridge.mjs");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 
+const packingFixture = createPrintPackingTestFixture();
 const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
+  seedSource: "synthetic", coreWorkspaceReadRepository: packingFixture.repository,
   printDriverAdapterOptions: {
     dryRunEnabled: false,
     systemPrinterEnabled: true,
@@ -75,6 +78,8 @@ try {
     { headers: officeHeaders },
   );
 
+  await packingFixture.complete(baseUrl, fulfillmentId);
+
   const printFulfillment = await postJson(
     baseUrl,
     `/api/fulfillments/${fulfillmentId}/print`,
@@ -91,6 +96,8 @@ try {
   if (!printJobId || printFulfillment.printJob?.jobStatus !== "queued") {
     throw new Error("Command-bridge status check did not create a queued print job");
   }
+
+  await packingFixture.assertLabels(baseUrl, false);
 
   const dispatchResult = await postJson(
     baseUrl,
@@ -203,6 +210,8 @@ try {
   ) {
     throw new Error("Terminal command-bridge poll mutated a printed job");
   }
+
+  await packingFixture.assertLabels(baseUrl, true, printFulfillment.printJob.printRecordId);
 
   console.log("print-job-command-bridge-status-readback check passed");
 } finally {
