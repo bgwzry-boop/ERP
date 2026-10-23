@@ -1,6 +1,7 @@
 import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
+import { DesktopFulfillmentOperations } from "./DesktopFulfillmentOperations.jsx";
 import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
 import { FinishedInventoryCorrectionCreate } from "./FinishedInventoryCorrectionCreate.jsx";
 import { useMemo, useState } from "react";
@@ -643,9 +644,9 @@ function FulfillmentWorkspace({ formal }) {
         <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>已发数量</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>本次发货</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未发</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
         <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
         <section className="business-detail-section"><h3>收款关联（只读）</h3><dl className="fulfillment-receivable-facts"><div><dt>历史欠款</dt><dd>{moneyText(selected.historicalDebt)}</dd></div><div><dt>本单应收</dt><dd>{moneyText(selected.currentReceivable)}</dd></div><div><dt>累计待收</dt><dd>{moneyText(selected.cumulativeReceivable)}</dd></div></dl><div className="business-boundary"><InfoCircleOutlined /><div><strong>出库与收款保持分离</strong><p>这里仅提示对账关联；交付完成不会在本页直接核销客户欠款。</p></div></div></section>
+        <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </> : <div className="business-empty"><FileTextOutlined /><strong>暂无交付任务</strong></div>}</div>
-      <footer><button className="primary" disabled={!selected} onClick={() => setNotice("已展开当前交付任务的正式只读事实；业务状态未发生变化。") } type="button">查看交付依据</button></footer>
     </aside>
   </div>;
 }

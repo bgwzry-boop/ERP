@@ -308,6 +308,8 @@
     "finance-print-read-authorization:check": "node scripts/check-finance-print-read-authorization.mjs",
     "finance-dialog-contracts:check": "node scripts/check-finance-dialog-contracts.mjs",
     "finance-dialog-interactions:check": "node scripts/check-finance-dialog-interactions.mjs",
+    "desktop-fulfillment-operations:check": "node scripts/check-desktop-fulfillment-operations.mjs",
+    "fulfillment-operator-candidates:check": "node scripts/check-fulfillment-operator-candidates.mjs",
     "p1-postgres:check": "node scripts/check-p1-material-inventory-postgres.mjs && node scripts/check-runtime-identity-concurrency-postgres.mjs && node scripts/check-miniapp-postgres-live.mjs"
   },
   "dependencies": {

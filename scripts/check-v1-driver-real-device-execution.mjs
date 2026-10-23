@@ -8,6 +8,7 @@ import {
   closeTestServer,
   getTestServerBaseUrl,
   listenTestServer,
+  postJson as postSharedJson,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
 import {
@@ -16,6 +17,7 @@ import {
   writeDriverRealDeviceExecutionArtifacts,
 } from "./run-v1-driver-real-device-execution.mjs";
 import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
+import { completePhysicalPackingFixture } from "./helpers/physicalPackingFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-driver-real-device-execution");
 const apiStorageRoot = join(storageRoot, "api-storage");
@@ -151,10 +153,18 @@ async function checkReadyCli(baseUrl) {
 }
 
 async function preparePositiveDriverReadiness(baseUrl) {
-  const driverTasks = await getDriverJson(baseUrl, "/driver/delivery-tasks?pageSize=1");
-  const driverTask = driverTasks.items?.[0];
+  const origin = new URL(baseUrl).origin;
+  const packing = await completePhysicalPackingFixture(origin);
+  await postSharedJson(origin, `/api/fulfillments/${packing.fulfillmentId}/dispatch`, {
+    driverId: "U-DRIVER-A", routeDate: "2026-07-14", routeNo: "合成设备验收路线", routeSequence: 1,
+  }, { headers: { "x-erp-user-id": "U-OFFICE-A" } });
+  const driverTasks = await getDriverJson(baseUrl, "/driver/delivery-tasks?pageSize=200");
+  const driverTask = driverTasks.items?.find((item) => item.fulfillmentId === packing.fulfillmentId);
   assert.ok(driverTask?.fulfillmentId, "positive readiness setup missed driver delivery task");
-  const expectedPackageId = driverTask.packageChecklist?.[0]?.packageId || `${driverTask.fulfillmentId}-PKG-1`;
+  assert.equal(driverTask.driverId, "U-DRIVER-A");
+  const expectedPackageId = driverTask.packageChecklist?.[0]?.packageId;
+  assert.ok(expectedPackageId, "device execution requires an actual task package");
+  assert.ok(packing.packageIds.includes(expectedPackageId), "device execution must use a persisted package returned by packing");
   const fieldTest = await postDriverJson(
     baseUrl,
     `/driver/delivery-tasks/${encodeURIComponent(driverTask.fulfillmentId)}/device-field-tests`,

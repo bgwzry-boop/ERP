@@ -55,6 +55,8 @@ export const CHECK_GROUPS = Object.freeze({
     "finance-print-read-authorization:check",
     "finance-dialog-contracts:check",
     "finance-dialog-interactions:check",
+    "desktop-fulfillment-operations:check",
+    "fulfillment-operator-candidates:check",
     "office-workspace-hook:check",
     "office-core-reads:check",
     "office-role-tool-reads:check",
