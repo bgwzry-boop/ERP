@@ -68,6 +68,16 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   }
 }
 
+for (const status of ["failed", "canceled"]) {
+  const harness = createHarness([createPrintJob({ jobStatus: "preview_only", driverMode: "preview_only" })]);
+  const result = await harness.service.updatePrintJobStatus({ workspace: harness.workspace, printJobId: "PJ-001", operatorId: "U-OFFICE-A", body: { status, reason: "预览作业停止办理" } });
+  assert.equal(result.printJob.jobStatus, status);
+  assert.equal(result.printJob.metadata.lastDispatch, undefined);
+  const forged = await harness.service.recordPrintJobDriverStatus({ workspace: harness.workspace, printJobId: "PJ-001", operatorId: "U-PRINT-DRIVER-A", body: { status: "printed", externalJobId: "FORGED" } });
+  assert.equal(forged.code, "PRINT_JOB_DRIVER_CALLBACK_NOT_EXPECTED");
+  assert.equal(harness.updateCalls.length, 1);
+}
+
 {
   const harness = createHarness([createPrintJob()]);
   const dispatched = await harness.service.dispatchPrintJob({

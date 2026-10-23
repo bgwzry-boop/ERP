@@ -1,3 +1,4 @@
+import { completePhysicalPackingFixture } from "./helpers/physicalPackingFixture.mjs";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
@@ -27,26 +28,25 @@ try {
   const officeHeaders = { "x-erp-user-id": "U-OFFICE-A" };
   const warehouseHeaders = { "x-erp-user-id": "U-WAREHOUSE-A" };
   const printDriverHeaders = { "x-erp-user-id": "U-PRINT-DRIVER-A" };
-  const fulfillmentList = await getJson(baseUrl, "/api/fulfillments?method=快递快运&pageSize=1");
-  const fulfillmentId = fulfillmentList.items?.[0]?.fulfillmentId;
-  if (!fulfillmentId) throw new Error("No express/LTL fulfillment available for print driver status check");
+  const packing = await completePhysicalPackingFixture(baseUrl);
+  const fulfillmentId = packing.fulfillmentId;
 
   await postJson(
     baseUrl,
     "/api/print-devices",
     {
       printDeviceId: "PRN-DRIVER-STATUS-CHECK",
-      name: "驱动状态校验标签机",
-      deviceType: "label_printer",
+      name: "驱动状态校验针式打印机",
+      deviceType: "dot_matrix",
       status: "active",
       connectionType: "system_printer",
       connectionUri: "system://driver-status-check",
       driverName: "Driver Status Check 203dpi",
-      supportedDocumentTypes: ["express_ltl_label"],
-      defaultDocumentTypes: ["express_ltl_label"],
-      paperWidthMm: 76,
-      paperHeightMm: 50,
-      paperName: "76x50 热敏标签",
+      supportedDocumentTypes: ["delivery_note"],
+      defaultDocumentTypes: ["delivery_note"],
+      paperWidthMm: 241,
+      paperHeightMm: 140,
+      paperName: "241mm 连续二联纸",
       dpi: 203,
       defaultCopies: 1,
       settings: { driverMode: "system_printer" },
@@ -59,8 +59,8 @@ try {
     baseUrl,
     `/api/fulfillments/${fulfillmentId}/print`,
     {
-      templateId: "tpl-p0-express-label",
-      documentType: "express_ltl_label",
+      templateId: "tpl-p0-delivery-note",
+      documentType: "delivery_note",
       printDeviceId: "PRN-DRIVER-STATUS-CHECK",
       printAction: "first_print",
       operatorId: "U-OFFICE-A",

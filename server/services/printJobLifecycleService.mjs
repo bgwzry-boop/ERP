@@ -28,7 +28,7 @@ export function createPrintJobLifecycleService({
     if (["sent", "printed"].includes(status)) {
       return businessError(409, "PRINT_JOB_DRIVER_CONFIRMATION_REQUIRED", "派发和打印完成必须由打印驱动确认，不能手工修改为已发送或已打印。");
     }
-    const transitionError = getPrintJobDriverStatusTransitionError(before, { status });
+    const transitionError = getPrintJobStatusTransitionError(before, { status });
     if (transitionError) return { error: true, ...transitionError };
     const updatedAt = nowIso(now);
     const terminal = ["printed", "failed", "canceled"].includes(status);
@@ -439,10 +439,17 @@ function getPrintJobDriverStatusTransitionError(printJob, driverStatusEvent) {
   if (expectedExternalJobId && driverStatusEvent.externalJobId !== expectedExternalJobId && (driverStatusEvent.eventSource || ["sent", "printed"].includes(driverStatusEvent.status))) {
     return businessErrorFields(409, "PRINT_JOB_EXTERNAL_ID_MISMATCH", "Driver callback externalJobId does not match the dispatched print job.");
   }
+  return getPrintJobStatusTransitionError(printJob, driverStatusEvent);
+}
+
+function getPrintJobStatusTransitionError(printJob, driverStatusEvent) {
   if (["printed", "failed", "canceled"].includes(printJob.jobStatus) && driverStatusEvent.status !== printJob.jobStatus) {
     return businessErrorFields(409, "PRINT_JOB_TERMINAL_STATUS_LOCKED", "Terminal print jobs cannot be changed by a later driver callback.");
   }
   const allowedNextStatuses = {
+    // A preview can be abandoned or marked failed by the office. It cannot
+    // become a physical print or receive a driver callback.
+    preview_only: ["failed", "canceled"],
     queued: ["queued", "sent", "printed", "failed", "canceled"],
     sent: ["sent", "printed", "failed", "canceled"],
     printed: ["printed"],

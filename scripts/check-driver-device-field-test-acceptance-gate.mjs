@@ -1,3 +1,4 @@
+import { completePhysicalPackingFixture } from "./helpers/physicalPackingFixture.mjs";
 import assert from "node:assert/strict";
 import { createApiServer } from "../server/apiServer.mjs";
 import {
@@ -19,12 +20,17 @@ await listenTestServer(server);
 
 try {
   const baseUrl = getTestServerBaseUrl(server);
+  const packing = await completePhysicalPackingFixture(baseUrl);
+  await postSharedJson(baseUrl, `/api/fulfillments/${packing.fulfillmentId}/dispatch`, {
+    driverId: "U-DRIVER-A", routeDate: "2026-07-14", routeNo: "合成设备验收路线", routeSequence: 1,
+  }, { headers: { "x-erp-user-id": "U-OFFICE-A" } });
   const tasks = await getJson(baseUrl, "/driver/delivery-tasks", headers);
-  const task = tasks.items?.[0];
+  const task = tasks.items?.find(item => item.fulfillmentId === packing.fulfillmentId);
   assert.ok(task?.fulfillmentId, "isolated driver QA gate check requires a seeded delivery task");
   assert.equal(task.driverId, "U-DRIVER-A");
   assert.ok(task.packageChecklist?.[0]?.packageId, "isolated driver QA gate check requires a real task package");
   const packageId = task.packageChecklist[0].packageId;
+  assert.ok(packing.packageIds.includes(packageId), "device QA must use a persisted package returned by packing");
   const originalStatus = task.status;
   const checks = [
     "camera_permission",

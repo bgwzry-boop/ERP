@@ -1,3 +1,4 @@
+import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { checkAuthSkeleton } from "./api-skeleton/auth.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
 import { createHash, randomBytes } from "node:crypto";
@@ -33,7 +34,15 @@ delete process.env.ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON;
 delete process.env.ERP_SYSTEM_PRINTER_COMMAND_TIMEOUT_MS;
 delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 
-let server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false }));
+// The general API checks retain the default guarded adapter. Only explicitly
+// registered synthetic jobs may use the dry-run dispatch fixture below.
+const printDriverAdapter = createPrintDriverAdapter();
+const dryRunPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: true });
+const guardedDispatchPrintJob = printDriverAdapter.dispatchPrintJob;
+const syntheticDispatchJobIds = new Set();
+printDriverAdapter.dispatchPrintJob = input => syntheticDispatchJobIds.has(input.printJob.printJobId)
+  ? dryRunPrintDriverAdapter.dispatchPrintJob(input) : guardedDispatchPrintJob(input);
+let server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false, printDriverAdapter }));
 let restartedServer = null;
 
 try {
@@ -2488,11 +2497,13 @@ try {
     throw new Error("creating a physical print job should not confirm paper output or advance fulfillment");
   }
 
+  const physicalPrintCallbackDispatch = await dispatchSyntheticPrintJob(baseUrl, physicalPrintFulfillment.printJob.printJobId);
   const physicalPrintCallback = await postJson(
     baseUrl,
     `/api/print-jobs/${physicalPrintFulfillment.printJob.printJobId}/driver-status`,
     {
       status: "printed",
+      externalJobId: physicalPrintCallbackDispatch.dispatchResult.externalJobId,
       adapterName: "api-check-system-printer",
       eventSource: "driver_callback",
       driverStatus: "completed",
@@ -2566,11 +2577,13 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/print did not create a queued reprint record after voiding");
   }
 
+  const reprintCallbackDispatch = await dispatchSyntheticPrintJob(baseUrl, reprintFulfillment.printJob.printJobId);
   const reprintCallback = await postJson(
     baseUrl,
     `/api/print-jobs/${reprintFulfillment.printJob.printJobId}/driver-status`,
     {
       status: "printed",
+      externalJobId: reprintCallbackDispatch.dispatchResult.externalJobId,
       adapterName: "api-check-system-printer",
       eventSource: "driver_callback",
       driverStatus: "completed",
@@ -2655,11 +2668,13 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/print did not create a queued delivery note record");
   }
 
+  const deliveryFirstPrintCallbackDispatch = await dispatchSyntheticPrintJob(baseUrl, deliveryFirstPrint.printJob.printJobId);
   const deliveryFirstPrintCallback = await postJson(
     baseUrl,
     `/api/print-jobs/${deliveryFirstPrint.printJob.printJobId}/driver-status`,
     {
       status: "printed",
+      externalJobId: deliveryFirstPrintCallbackDispatch.dispatchResult.externalJobId,
       adapterName: "api-check-dot-matrix",
       eventSource: "driver_callback",
       driverStatus: "completed",
@@ -2724,11 +2739,13 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/print did not queue a delivery note reprint after voiding");
   }
 
+  const deliveryReprintCallbackDispatch = await dispatchSyntheticPrintJob(baseUrl, deliveryReprint.printJob.printJobId);
   const deliveryReprintCallback = await postJson(
     baseUrl,
     `/api/print-jobs/${deliveryReprint.printJob.printJobId}/driver-status`,
     {
       status: "printed",
+      externalJobId: deliveryReprintCallbackDispatch.dispatchResult.externalJobId,
       adapterName: "api-check-dot-matrix",
       eventSource: "driver_callback",
       driverStatus: "completed",
@@ -2885,11 +2902,13 @@ try {
     },
     { headers: { "x-erp-user-id": "U-OFFICE-A" } },
   );
+  const driverOutboundPrintCallbackDispatch = await dispatchSyntheticPrintJob(baseUrl, driverOutboundPrint.printJob.printJobId);
   const driverOutboundPrintCallback = await postJson(
     baseUrl,
     `/api/print-jobs/${driverOutboundPrint.printJob.printJobId}/driver-status`,
     {
       status: "printed",
+      externalJobId: driverOutboundPrintCallbackDispatch.dispatchResult.externalJobId,
       adapterName: "api-check-dot-matrix",
       eventSource: "driver_callback",
       driverStatus: "completed",
@@ -4081,9 +4100,13 @@ try {
   ) {
     throw new Error("/api/attachments/{attachmentId}/access-url returned an unexpected payload");
   }
-  const signedPaymentAttachmentContent = await getText(baseUrl, paymentAttachmentAccessUrl.accessUrl, {
-    headers: { "x-erp-action-permissions": "none" },
+  const deniedSignedPaymentAttachment = await getText(baseUrl, paymentAttachmentAccessUrl.accessUrl, {
+    headers: { "x-erp-action-permissions": "none" }, expectedStatus: 403,
   });
+  if (!deniedSignedPaymentAttachment.text.includes("ATTACHMENT_OWNER_PERMISSION_DENIED")) {
+    throw new Error("A signed financial attachment URL must still require statement preview permission");
+  }
+  const signedPaymentAttachmentContent = await getText(baseUrl, paymentAttachmentAccessUrl.accessUrl);
   if (
     signedPaymentAttachmentContent.text !== "payment-proof" ||
     !signedPaymentAttachmentContent.contentType.includes("image/png")
@@ -4643,4 +4666,15 @@ async function assertOperationLogOperator(
       `${targetType}/${targetId} operation log ${operationLogId} did not preserve authenticated operator ${expectedOperatorId}`,
     );
   }
+}
+
+async function dispatchSyntheticPrintJob(baseUrl, printJobId) {
+  syntheticDispatchJobIds.add(printJobId);
+  try {
+    const dispatched = await postJson(baseUrl, `/api/print-jobs/${printJobId}/dispatch`, { reason: "合成HTTP测试：显式dry-run派发后再验回执" });
+    if (dispatched.printJob?.jobStatus !== "sent" || dispatched.dispatchResult?.adapterStatus !== "dry_run_sent" || !dispatched.dispatchResult?.externalJobId) {
+      throw new Error("Synthetic print fixture must persist a real dispatch identity before a callback");
+    }
+    return dispatched;
+  } finally { syntheticDispatchJobIds.delete(printJobId); }
 }

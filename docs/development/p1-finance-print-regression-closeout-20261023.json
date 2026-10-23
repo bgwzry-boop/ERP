@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "finance-print-regression-closeout-v1",
+  "date": "2026-10-23",
+  "fix": "办公室对 preview_only 作业允许 failed/canceled；方向和终态守卫共用，驱动身份及禁止预览回执仍由驱动守卫负责。办公室 sent/printed 继续返回 409。",
+  "fixtures": [
+    "打印回执及司机设备验收共用正常打包 HTTP：现有待打包任务 2000 个，明确四包各 500 个，返回四个唯一包裹码；设备验收另由办公室真实派单给司机。",
+    "API skeleton 五个可信打印回调先对显式登记的合成测试作业执行 dry-run dispatch 并保存 externalJobId，再按该 ID 回执；默认 guarded 配置与上线门禁未改变。",
+    "对账附件有效签名 URL 仍要求对账查看权限：无权限 403，有权限可下载。"
+  ],
+  "passed": [
+    "check-print-job-lifecycle-service.mjs",
+    "check-print-job-driver-status.mjs",
+    "check-driver-device-field-test-acceptance-gate.mjs",
+    "check-api-skeleton.mjs"
+  ],
+  "boundary": "检查使用隔离本地数据及合成驱动，不代表真实打印机和司机设备现场验收。",
+  "parentActions": [
+    "整合后再次运行上述检查，关注订单组新增的实包和签收门槛。",
+    "七项 P1 已在整合树最终 0050 连续迁移下完成真实 PostgreSQL CAS 复核；不恢复子树旧 0053 编号。"
+  ]
+}
