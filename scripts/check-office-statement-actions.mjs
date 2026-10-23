@@ -38,13 +38,15 @@ const baseStatement = {
   assert.deepEqual(refreshCalls, [{ statementId: baseStatement.id, showToast: false }]);
 }
 
-function createHarness({ allowLocalFallback = false, api = {}, confirmAction = () => true, statement = baseStatement } = {}) {
+function createHarness({ allowLocalFallback = false, api = {}, confirmAction = () => true, statement = baseStatement, beginAttachmentRead, loadAttachmentAccessAudit = async () => ({ source: "api", items: [], total: 0 }) } = {}) {
   let statements = [{ ...statement }];
   const toasts = [];
   const modals = [];
   const downloads = [];
+  const viewers = [];
   const controller = createOfficeStatementActions({
     allowLocalFallback,
+    beginAttachmentRead,
     api,
     authState: { authenticated: true },
     confirmAction,
@@ -57,8 +59,8 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmAction = (
     findCustomer: () => ({ id: "C001", name: "测试客户", contact: "客户联系人" }),
     getStatementBlockingAmount: (item) => Math.max(0, Number(item.receivable) - Number(item.received)),
     guardUiAction: () => true,
-    loadAttachmentAccessAudit: async () => ({ source: "api", items: [], total: 0 }),
-    openAttachmentViewer: () => {},
+    loadAttachmentAccessAudit,
+    openAttachmentViewer: value => viewers.push(value),
     openModal: (modal) => modals.push(modal),
     orderLines: [],
     readBlobAsDataUrl: async () => "",
@@ -69,7 +71,7 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmAction = (
     setToast: (message) => toasts.push(message),
     statements,
   });
-  return { controller, downloads, getStatements: () => statements, modals, toasts };
+  return { controller, downloads, viewers, getStatements: () => statements, modals, toasts };
 }
 
 {
@@ -212,3 +214,27 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmAction = (
 }
 
 console.log("Office statement actions check passed: financial actions are isolated and formal mode rejects local fallback state changes.");
+
+for (const [action, field] of [['查看付款凭证','paymentAttachmentFiles'],['查看客户确认附件','customerConfirmationAttachmentFiles']]) {
+  for (const cached of [false,true]) {
+    let current=true;
+    let finish;
+    const deferred=()=>new Promise(resolve=>{finish=resolve});
+    const harness=createHarness({
+      statement:{...baseStatement,[field]:[{attachmentId:'ATT-RACE', ...(cached?{previewDataUrl:'data:image/png;base64,AA==',contentSource:'api'}:{})}]},
+      beginAttachmentRead:()=>()=>current,
+      api:{downloadOfficeAttachmentContent:deferred},
+      loadAttachmentAccessAudit:deferred,
+    });
+    const before=structuredClone(harness.getStatements());
+    const pending=harness.controller.statementAction(action,baseStatement.id,{attachmentId:'ATT-RACE'});
+    assert.equal(typeof finish,'function');
+    current=false;
+    finish(cached?{source:'api',items:[],total:0}:{source:'api',contentBlob:new Blob(['test']),contentType:'image/png'});
+    assert.equal((await pending).stale,true);
+    assert.deepEqual(harness.getStatements(),before);
+    assert.deepEqual(harness.viewers,[]);
+    assert.deepEqual(harness.toasts,[]);
+  }
+}
+console.log('PASS payment/customer evidence cached and uncached late reads cannot publish after viewer ownership changes.');

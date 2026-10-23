@@ -37,9 +37,9 @@ export function createPackingCommandService({
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const fulfillment = findFulfillmentByOrderLineId(workspace, orderLineId);
-      const actualPackedQty = Number(body.actualPackedQty ?? beforeTask.plannedQty ?? beforeOrderLine.qty ?? 0);
+      const actualPackedQty = body.actualPackedQty;
       if (!Number.isSafeInteger(actualPackedQty) || actualPackedQty <= 0) {
-        return businessError(422, "VALIDATION_ERROR", "actualPackedQty must be greater than 0.");
+        return businessError(422, "VALIDATION_ERROR", "请填写实际打包数量，必须为正整数，不能用计划数量代替。");
       }
       const packageError = validatePackageInput(body, actualPackedQty, orderLineId, fulfillment?.id ?? fulfillment?.fulfillmentId ?? "");
       if (packageError) return packageError;

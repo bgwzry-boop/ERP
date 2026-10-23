@@ -29,7 +29,7 @@ const baseFulfillments = [
   },
 ];
 
-function createHarness({ allowLocalFallback = false, api = {}, fulfillments: initialFulfillments = baseFulfillments, initialTodos = [], refreshTodoResult } = {}) {
+function createHarness({ allowLocalFallback = false, api = {}, fulfillments: initialFulfillments = baseFulfillments, initialTodos = [], refreshTodoResult, beginAttachmentRead } = {}) {
   let fulfillments = initialFulfillments.map((item) => ({
     ...item,
     deliveryEvidenceAttachmentFiles: item.deliveryEvidenceAttachmentFiles?.map((file) => ({ ...file })) ?? [],
@@ -43,6 +43,7 @@ function createHarness({ allowLocalFallback = false, api = {}, fulfillments: ini
   const calls = { complete: [], prepared: [], review: [] };
   const controller = createOfficeFulfillmentActions({
     allowLocalFallback,
+    beginAttachmentRead,
     api,
     authState: { authenticated: true },
     completeFulfillmentAction: async (input) => {
@@ -249,3 +250,17 @@ function createHarness({ allowLocalFallback = false, api = {}, fulfillments: ini
 }
 
 console.log("Office fulfillment actions check passed: evidence reads, todo routing, print gates, and delivery modes are covered with formal-mode safeguards.");
+
+{
+  let current=true;
+  let finish;
+  const harness=createHarness({beginAttachmentRead:()=>()=>current, api:{downloadOfficeAttachmentContent:()=>new Promise(resolve=>{finish=resolve})}});
+  const before=structuredClone(harness.getFulfillments());
+  const pending=harness.controller.updateFulfillment('查看水印照片','F-CONTROLLER-DELIVERY');
+  current=false;
+  finish({source:'api',contentBlob:new Blob(['test']),contentType:'image/jpeg'});
+  assert.equal((await pending).stale,true);
+  assert.deepEqual(harness.getFulfillments(),before);
+  assert.equal(harness.getViewers().length,0);
+  assert.equal(harness.toasts.length,0);
+}

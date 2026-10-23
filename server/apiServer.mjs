@@ -52,6 +52,7 @@ import {
   getRequestPermissionContext,
 } from "./services/requestAuthContextService.mjs";
 import { writeActionPermissions } from "./writeActionPermissions.mjs";
+import { authorizeBusinessRead, authorizeProductionWriteScope } from "./services/businessReadAccessService.mjs";
 import {
   buildOfficeWorkspaceProjection,
   isOfficeWorkspaceProjectionEnabled,
@@ -539,6 +540,8 @@ export function createApiServer(options = {}) {
 async function routeGet(context) {
   const { url, response, workspace, openapi, permissionContext, authContext } = context;
 
+  if (!authorizeBusinessRead({ url, response, permissionContext, requireAnyActionPermission })) return;
+
   if (url.pathname === "/api/health") {
     return sendJson(response, 200, buildSystemHealthResponse({ workspace, openapi }));
   }
@@ -617,6 +620,7 @@ async function routeGet(context) {
       sendJson,
       sendNotFound,
       buildProductionMachineQueueResponse: productionMachineQueueReadService.buildMachineQueue,
+      permissionContext,
     })
   ) {
     return;
@@ -715,7 +719,7 @@ async function routeGet(context) {
 
   if (await handleRawMaterialPurchaseReadRoutes({ url, response, workspace, sendJson, sendNotFound })) return;
 
-  if (await handleRawMaterialReadRoutes({ url, response, workspace, sendJson, sendNotFound })) return;
+  if (await handleRawMaterialReadRoutes({ url, response, workspace, permissionContext, sendJson, sendNotFound })) return;
 
   if (
     await handleMaintenanceTaskReadRoutes({
@@ -822,6 +826,7 @@ async function routeGet(context) {
 
 async function routeWrite(context) {
   const { method, request, url, response, workspace, body, permissionContext, authContext } = context;
+  if (!await authorizeProductionWriteScope({ url, response, workspace, permissionContext, sendJson })) return;
   normalizeExpectedRevisionAtApiBoundary(body);
   const idempotencyKey =
     workspace.runtimeConfig?.production && isProductionBusinessWritePath(url.pathname)

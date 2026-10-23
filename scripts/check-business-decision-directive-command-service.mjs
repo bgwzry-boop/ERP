@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildWriteDecisionDirectiveTransactionQuery,
   createLocalBusinessDecisionEvidenceRepository,
+  createPostgresBusinessDecisionEvidenceRepository,
 } from "../server/businessDecisionEvidenceRepository.mjs";
 import { createBusinessDecisionDirectiveCommandService } from "../server/services/businessDecisionDirectiveCommandService.mjs";
 import { createBusinessDecisionEvidenceService } from "../server/services/businessDecisionEvidenceService.mjs";
@@ -98,6 +99,68 @@ const denied = await service.recordDecisionDirective({
 assert.equal(denied.statusCode, 403);
 assert.equal(denied.code, "BUSINESS_DECISION_DIRECT_PERMISSION_DENIED");
 
+// Having major-exception authority must not allow it to be attached to financial or inventory records.
+for (const [businessType, decisionScope] of [
+  ["statement", "major_exception"], ["todo", "statement_write_off"],
+  ["order", "production_schedule"], ["fulfillment", "raw_material_purchase"],
+  ["raw_material_inbound", "raw_material_purchase"],
+]) {
+  const previousCounts = [workspace.businessDecisionRecords.length, workspace.todos.length, workspace.operationLogs.length];
+  const invalid = await service.recordDecisionDirective({
+    workspace: { ...workspace, statements: [{ id: "T-EX-1", variance: 9000 }],
+      originalOrders: [{ id: "T-EX-1" }], fulfillments: [{ id: "T-EX-1" }], rawMaterialInbounds: [{ id: "T-EX-1" }] },
+    body: { ...body, businessType, decisionScope, idempotencyKey: `invalid-${businessType}-${decisionScope}` },
+    operatorId: "U-MOTHER", actionPermissions: primaryPermissions,
+  });
+  assert.equal(invalid.code, "BUSINESS_DECISION_TARGET_SCOPE_MISMATCH", `${businessType}/${decisionScope}`);
+  assert.deepEqual([workspace.businessDecisionRecords.length, workspace.todos.length, workspace.operationLogs.length], previousCounts);
+}
+
+const financialWorkspace = {
+  ...workspace, businessDecisionRecords: [], operationLogs: [], operationIdempotencyRecords: [], todos: [],
+  statements: [{ id: "ST-FIN-1", revision: 1, receivable: 10000, received: 1000, variance: null, status: "差额待确认" }],
+  businessDecisionAuthorizations: [{ ...authorization("AUTH-FIN", "ERP-MOTHER", "statement_write_off"), maxAmount: 100 }],
+};
+const financialBody = { ...body, businessType: "statement", businessId: "ST-FIN-1", decisionScope: "statement_write_off", idempotencyKey: "financial-directive" };
+const financialPermissions = ["business_decision.act_directly", "statement.write_off.direct"];
+for (const authorizationAmount of [undefined, null, 1]) {
+  const stale = await service.recordDecisionDirective({ workspace: financialWorkspace, body: { ...financialBody, authorizationAmount }, operatorId: "U-MOTHER", actionPermissions: financialPermissions });
+  assert.equal(stale.code, "BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT");
+  assert.equal(stale.details.currentAmount, 9000);
+}
+const excessive = await service.recordDecisionDirective({ workspace: financialWorkspace, body: { ...financialBody, authorizationAmount: 9000 }, operatorId: "U-MOTHER", actionPermissions: financialPermissions });
+assert.equal(excessive.code, "AMOUNT_EXCEEDED");
+assert.equal(financialWorkspace.businessDecisionRecords.length, 0);
+assert.equal(financialWorkspace.todos.length, 0);
+assert.equal(financialWorkspace.operationLogs.length, 0);
+financialWorkspace.statements[0] = { id: "ST-FIN-1", revision: 1, variance: null, receivable: null, received: null };
+const unknown = await service.recordDecisionDirective({ workspace: financialWorkspace, body: { ...financialBody, authorizationAmount: 0 }, operatorId: "U-MOTHER", actionPermissions: financialPermissions });
+assert.equal(unknown.code, "BUSINESS_DECISION_FINANCIAL_FACTS_UNAVAILABLE");
+financialWorkspace.statements[0] = { id: "ST-FIN-1", revision: 1, variance: 50, receivable: 150, received: 100, status: "差额待确认" };
+const allowed = await service.recordDecisionDirective({ workspace: financialWorkspace, body: { ...financialBody, authorizationAmount: 50, factsSnapshot: [["差额", "¥0"]] }, operatorId: "U-MOTHER", actionPermissions: financialPermissions });
+assert.equal(allowed.statusCode, 201);
+assert.ok(financialWorkspace.businessDecisionRecords[0].decisionContent.factsSnapshot.some(([key, value]) => key === "差额" && value === "¥50.00"));
+
+for (const change of [{ revision: 2 }, { received: 101 }, { variance: 49 }, { status: "已核销" }, null]) {
+  const changedWorkspace = { ...financialWorkspace, businessDecisionRecords: [], operationLogs: [], operationIdempotencyRecords: [], todos: [],
+    statements: [{ id: "ST-FIN-1", revision: 1, variance: 50, receivable: 150, received: 100, status: "差额待确认" }],
+    businessDecisionEvidenceRepository: { writeDecisionDirective(input) {
+      const sql = buildWriteDecisionDirectiveTransactionQuery(input);
+      assert.match(sql.text, /FROM statements WHERE id = .* FOR UPDATE/);
+      assert.match(sql.text, /ERP_BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT/);
+      assert.match(sql.text, /FROM financial_snapshot_guard/);
+      input.workspace.statements = change ? [{ ...input.workspace.statements[0], ...change }] : [];
+      return repository.writeDecisionDirective(input);
+    } },
+  };
+  const interrupted = await service.recordDecisionDirective({ workspace: changedWorkspace, body: { ...financialBody, authorizationAmount: 50 }, operatorId: "U-MOTHER", actionPermissions: financialPermissions });
+  assert.equal(interrupted.code, "BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT");
+  assert.equal(changedWorkspace.businessDecisionRecords.length, 0);
+  assert.equal(changedWorkspace.todos.length, 0);
+  assert.equal(changedWorkspace.operationLogs.length, 0);
+  assert.equal(changedWorkspace.operationIdempotencyRecords.length, 0);
+}
+
 const query = buildWriteDecisionDirectiveTransactionQuery({
   decisionRecord: workspace.businessDecisionRecords[0],
   todo: first.response.todo,
@@ -107,6 +170,14 @@ assert.match(query.text, /ERP_BUSINESS_DECISION_ALREADY_TERMINAL/);
 assert.match(query.text, /INSERT INTO business_decision_records/);
 assert.match(query.text, /INSERT INTO todos/);
 assert.match(query.text, /INSERT INTO operation_logs/);
+
+const missingResultRepository = createPostgresBusinessDecisionEvidenceRepository({
+  queryJson: async () => null, idempotentTransactionJson: async () => null,
+});
+await assert.rejects(() => missingResultRepository.writeDecisionDirective({
+  decisionRecord: workspace.businessDecisionRecords[0], todo: first.response.todo,
+  operationLog: workspace.operationLogs[0], idempotencyKey: "missing-result-check",
+}), /returned invalid data/, "missing database result must not fabricate success from submitted input");
 
 console.log("Business decision directive checks passed: formal authorization, first-terminal-wins, idempotent replay, office todo creation, and PostgreSQL transaction SQL are covered.");
 

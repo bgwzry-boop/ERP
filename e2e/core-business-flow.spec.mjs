@@ -461,6 +461,8 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   await page.getByRole("button", { name: "登记实收", exact: true }).click();
   const paymentDialog = page.getByRole("dialog", { name: "登记实收" });
   await expect(paymentDialog).toBeVisible();
+  expect(Number(createdLine.amount)).toBeGreaterThan(0);
+  await paymentDialog.getByLabel("实收金额", {exact:true}).fill(String(createdLine.amount));
   await paymentDialog.locator('input[type="file"]').setInputFiles({
     name: "e2e-payment-proof.png",
     mimeType: "image/png",
@@ -479,7 +481,53 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
     request,
     `/attachments?ownerType=statement&ownerId=${encodeURIComponent(customerStatement.statementId)}&purpose=payment_screenshot`,
   );
-  expect(paymentAttachments.items.some((file) => file.fileName === "e2e-payment-proof.png")).toBe(true);
+  const paymentProof = paymentAttachments.items.find((file) => file.fileName === "e2e-payment-proof.png");
+  expect(paymentProof).toBeTruthy();
+  const linkedPayments = statementDetail.payments.filter(payment => payment.attachmentIds.includes(paymentProof.attachmentId));
+  expect(linkedPayments).toHaveLength(1);
+  expect(Number(linkedPayments[0].amount)).toBe(Number(createdLine.amount));
+  expect(linkedPayments[0].statementId).toBe(customerStatement.statementId);
+  expect(linkedPayments[0].customerId).toBe("C001");
+  expect(Number(statementDetail.received)).toBe(Number(createdLine.amount));
+
+  const proofRow = page.locator(".payment-proof-row").filter({ hasText: "e2e-payment-proof.png" });
+  const auditUrl = `**/api/attachments/${paymentProof.attachmentId}/access-logs*`;
+  await page.route(auditUrl, route => route.fulfill({ json: {} }));
+  await proofRow.getByRole("button", { name: "查看", exact: true }).click();
+  const proofViewer = page.getByRole("dialog", { name: "付款凭证预览", exact: true });
+  await expect(proofViewer.getByRole("img", { name: "e2e-payment-proof.png", exact: true })).toBeVisible();
+  await expect(proofViewer).toContainText("访问记录读取失败");
+  await expect(proofViewer).not.toContainText("暂无访问记录");
+  await proofViewer.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.unroute(auditUrl);
+  await proofRow.getByRole("button", { name: "查看", exact: true }).click();
+  await expect(proofViewer).toContainText("读取内容");
+  await expect(proofViewer).not.toContainText("访问记录读取失败");
+  await expect(proofViewer.getByRole("button", { name: "下载附件", exact: true })).toBeEnabled();
+  await proofViewer.getByRole("button", { name: "关闭", exact: true }).click();
+
+  const contentUrl = `**/api/attachments/${paymentProof.attachmentId}/content`;
+  let releaseOldContent;
+  let markContentCaptured;
+  const contentCaptured = new Promise(resolve => { markContentCaptured = resolve; });
+  const releaseContent = new Promise(resolve => { releaseOldContent = resolve; });
+  await page.route(contentUrl, async route => {
+    const response = await route.fetch();
+    expect(response.ok()).toBe(true);
+    markContentCaptured();
+    await releaseContent;
+    await route.fulfill({ response });
+  });
+  await proofRow.getByRole("button", { name: "查看", exact: true }).click();
+  await contentCaptured;
+  await switchAccount(page, "U-FINANCE-A");
+  const oldContentFinished = page.waitForEvent("requestfinished", { predicate: req => req.url().endsWith(`/attachments/${paymentProof.attachmentId}/content`) });
+  releaseOldContent();
+  await oldContentFinished;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(proofViewer).toHaveCount(0);
+  await page.unroute(contentUrl);
+
 
   expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
 });

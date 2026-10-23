@@ -15,7 +15,7 @@ const identities = {
 
 assert.throws(
   () => createMiniappApiRuntime({ runtimeMode: "production", repositoryMode: "memory" }),
-  /requires MINIAPP_INTAKE_STORE=postgres/,
+  /internal-only/,
 );
 assert.throws(
   () => createMiniappApiRuntime({ repositoryMode: "unknown" }),

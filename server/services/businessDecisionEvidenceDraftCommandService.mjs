@@ -1,16 +1,7 @@
 import { createHash } from "node:crypto";
-import { businessDecisionScopes } from "../../shared/businessDecisionCatalog.js";
+import { businessDecisionScopes, isBusinessDecisionTargetTypeAllowed } from "../../shared/businessDecisionCatalog.js";
 import { getBusinessDecisionPermissionKeys } from "./businessDecisionPolicyService.mjs";
 import { normalizeDraft } from "../businessDecisionEvidenceDraftRepository.mjs";
-
-const businessTypesByScope = Object.freeze({
-  order_priority: new Set(["order", "order_draft"]),
-  production_schedule: new Set(["production_task", "production_schedule_queue"]),
-  raw_material_purchase: new Set(["raw_material_purchase_request"]),
-  fulfillment_quantity_variance: new Set(["fulfillment"]),
-  statement_variance: new Set(["statement"]),
-  statement_write_off: new Set(["statement"]),
-});
 
 export function createBusinessDecisionEvidenceDraftCommandService({ buildOperationLog, now = () => new Date() } = {}) {
   if (typeof buildOperationLog !== "function") throw new TypeError("buildOperationLog must be a function.");
@@ -155,7 +146,7 @@ export function validateTarget(body = {}) {
   const decisionScope = cleanText(body.decisionScope);
   if (!businessType || !businessId) return failure(422, "BUSINESS_DECISION_EVIDENCE_DRAFT_TARGET_REQUIRED", "凭据草稿必须绑定具体业务对象。");
   if (!businessDecisionScopes.includes(decisionScope)) return failure(422, "BUSINESS_DECISION_SCOPE_INVALID", "凭据草稿授权范围无效。");
-  if (!businessTypesByScope[decisionScope]?.has(businessType)) return failure(422, "BUSINESS_DECISION_EVIDENCE_DRAFT_TARGET_MISMATCH", "业务对象类型与决定范围不匹配。");
+  if (decisionScope === "major_exception" || !isBusinessDecisionTargetTypeAllowed(decisionScope, businessType)) return failure(422, "BUSINESS_DECISION_EVIDENCE_DRAFT_TARGET_MISMATCH", "业务对象类型与决定范围不匹配。");
   return { ok: true, value: { businessType, businessId, decisionScope } };
 }
 

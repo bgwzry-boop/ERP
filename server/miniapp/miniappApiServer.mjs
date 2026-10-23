@@ -7,6 +7,7 @@ import { createMiniappInMemoryRepository } from "./miniappInMemoryRepository.mjs
 import { createPostgresMiniappRepository } from "./miniappPostgresRepository.mjs";
 import { createPostgresMiniappErpProjectionAdapter } from "./miniappErpProjectionAdapter.mjs";
 import { createMiniappBffService } from "./miniappBffService.mjs";
+import { assertMiniappInternalRuntime, MINIAPP_INTERNAL_ONLY_MESSAGE } from "./miniappInternalRuntimePolicy.mjs";
 
 function json(response, statusCode, body) {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -63,12 +64,10 @@ export function createMiniappApiServer(options) {
 }
 
 export function createMiniappApiRuntime(options = {}) {
+  assertMiniappInternalRuntime(options);
   const repositoryMode = options.repositoryMode || process.env.MINIAPP_INTAKE_STORE || "memory";
   if (!new Set(["memory", "postgres"]).has(repositoryMode)) {
     throw new Error(`Unsupported Miniapp intake repository mode: ${repositoryMode}`);
-  }
-  if (options.runtimeMode === "production" && repositoryMode !== "postgres") {
-    throw new Error("Production Miniapp BFF requires MINIAPP_INTAKE_STORE=postgres");
   }
   const databaseUrl = options.databaseUrl
     || process.env.MINIAPP_DATABASE_URL
@@ -97,5 +96,5 @@ export function createMiniappApiRuntime(options = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  throw new Error("Use server/miniapp/startMiniappApiServer.mjs to start the production Miniapp BFF.");
+  throw new Error(MINIAPP_INTERNAL_ONLY_MESSAGE);
 }

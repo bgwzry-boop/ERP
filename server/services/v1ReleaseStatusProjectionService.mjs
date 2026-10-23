@@ -10,9 +10,9 @@ export function sanitizeV1GoLiveSummary(value = {}) {
   const source = isPlainObject(value) ? value : {};
   return {
     label: sanitizeV1SensitiveStatusText(source.label) || "V1 完成度快照：BLOCKED",
-    requirements: sanitizeV1SensitiveStatusText(source.requirements) || "85-90%",
-    p0Prototype: sanitizeV1SensitiveStatusText(source.p0Prototype) || "97-98%",
-    v1Readiness: sanitizeV1SensitiveStatusText(source.v1Readiness) || "80-83%",
+    requirements: sanitizeV1SensitiveStatusText(source.requirements) || "待核查",
+    p0Prototype: sanitizeV1SensitiveStatusText(source.p0Prototype) || "待核查",
+    v1Readiness: sanitizeV1SensitiveStatusText(source.v1Readiness) || "待核查",
     releaseGate:
       sanitizeV1SensitiveStatusText(source.releaseGate || source.releaseCandidate) || "0/4 发布门禁通过",
     runtimeReadiness: sanitizeV1SensitiveStatusText(source.runtimeReadiness),
@@ -112,9 +112,9 @@ export function sanitizeV1OwnerDecisionBrief(value = {}, completion = {}, suite 
         "是否继续按阻塞清单补齐后再评审？",
     },
     completion: {
-      requirements: sanitizeV1SensitiveStatusText(completionSource.requirements) || "85-90%",
-      p0Prototype: sanitizeV1SensitiveStatusText(completionSource.p0Prototype) || "97-98%",
-      v1Readiness: sanitizeV1SensitiveStatusText(completionSource.v1Readiness) || "80-83%",
+      requirements: sanitizeV1SensitiveStatusText(completionSource.requirements) || "待核查",
+      p0Prototype: sanitizeV1SensitiveStatusText(completionSource.p0Prototype) || "待核查",
+      v1Readiness: sanitizeV1SensitiveStatusText(completionSource.v1Readiness) || "待核查",
       releaseGate:
         sanitizeV1SensitiveStatusText(completionSource.releaseGate || completionSource.releaseCandidate) ||
         "0/4 发布门禁通过",

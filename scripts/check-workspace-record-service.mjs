@@ -79,7 +79,9 @@ const service = createWorkspaceRecordService({ now: () => fixedNow });
 assert.equal(Object.isFrozen(service), true);
 assert.deepEqual(Object.keys(service).sort(), [...methodNames].sort());
 assert.equal(service.cleanServerText("  value  "), "value");
-assert.equal(service.nextId("LOG", [{}, {}]), "LOG-003");
+assert.match(service.nextId("LOG", [{}, {}]), /^LOG-[0-9a-f-]{36}$/);
+assert.notEqual(service.nextId("LOG", []), service.nextId("LOG", []));
+assert.equal(service.nextId("ATT", [{}, {}]), "ATT-003");
 assert.equal(service.nextPlainId("TASK", " A/B 01 "), "TASK--A-B-01-");
 
 assert.equal(service.findAttachmentRecord(workspace, " ATT-PRIMARY "), workspace.attachments[0]);
@@ -188,7 +190,7 @@ const operationLog = service.buildOperationLog(workspace, {
   action: "test",
 });
 assert.deepEqual(operationLog, {
-  id: "LOG-001",
+  id: operationLog.id,
   targetType: "order_line",
   targetId: "OL-1",
   action: "test",
@@ -228,3 +230,13 @@ assert.throws(
 console.log(
   "Workspace record service checks passed: IDs, authoritative lookups, repository fallback, audit, todo references, customer snapshots, and fulfillment records are isolated",
 );
+
+// Two proposals can be built before either is added, or after a fresh workspace is hydrated.
+const proposalIds = new Set();
+for (let index = 0; index < 100; index += 1) {
+  const fresh = createWorkspaceRecordService({now:()=>fixedNow});
+  const log = fresh.buildOperationLog({operationLogs:[]},{action:'concurrent-proposal'});
+  assert.match(log.id,/^LOG-[0-9a-f-]{36}$/);
+  proposalIds.add(log.id);
+}
+assert.equal(proposalIds.size,100,'Audit identity must not depend on collection length or timestamp');

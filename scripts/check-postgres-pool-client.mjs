@@ -33,6 +33,16 @@ assert.doesNotMatch(calls[1].text, /\bBEGIN\b|\bCOMMIT\b/i);
 assert.equal(calls[2], "COMMIT");
 assert.equal(calls[3], "RELEASE");
 
+calls.length = 0;
+await client.transactionJson("SELECT '{}'::jsonb AS result", [], { resourceLocks: ["intake:B", "intake:A", "intake:A"] });
+assert.equal(calls[0], "BEGIN");
+assert.deepEqual(calls[1].values, ["intake:A"]);
+assert.deepEqual(calls[2].values, ["intake:B"]);
+assert.match(calls[1].text, /pg_advisory_xact_lock/);
+assert.equal(calls[3].text, "SELECT '{}'::jsonb AS result");
+assert.equal(calls[4], "COMMIT");
+assert.equal(calls[5], "RELEASE");
+
 const queryResult = await client.queryJson("SELECT json_build_object('total', 1) AS result");
 assert.deepEqual(queryResult, { total: 1 });
 

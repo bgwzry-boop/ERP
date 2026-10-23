@@ -104,7 +104,9 @@ export function createAttachmentFileAccessService({ addOperationLog, nextId, now
   }
 
   async function recordAccessLog(workspace, input) {
-    const operationLogId = addOperationLog(workspace, {
+    requireMethod(workspace.attachmentAccessAuditRepository, "recordAccessLog", "workspace.attachmentAccessAuditRepository");
+    const proposedWorkspace = { ...workspace, operationLogs: [...(workspace.operationLogs ?? [])] };
+    const operationLogId = addOperationLog(proposedWorkspace, {
       targetType: "attachment",
       targetId: input.attachment.attachmentId,
       action: input.action,
@@ -122,8 +124,7 @@ export function createAttachmentFileAccessService({ addOperationLog, nextId, now
         contentType: input.contentType ?? input.attachment.mimeType ?? "",
       },
     });
-    const operationLog = (workspace.operationLogs ?? []).find((log) => log.id === operationLogId);
-    requireMethod(workspace.attachmentAccessAuditRepository, "recordAccessLog", "workspace.attachmentAccessAuditRepository");
+    const operationLog = proposedWorkspace.operationLogs.find((log) => log.id === operationLogId);
     await workspace.attachmentAccessAuditRepository.recordAccessLog({
       workspace,
       accessLog: {
@@ -145,6 +146,7 @@ export function createAttachmentFileAccessService({ addOperationLog, nextId, now
         occurredAt: operationLog?.occurredAt ?? now(),
       },
     });
+    if (operationLog) workspace.operationLogs.unshift(operationLog);
     return operationLogId;
   }
 }

@@ -29,7 +29,6 @@ export function DecisionMobilePage({
   orderLines = [],
   fulfillments = [],
   statements = [],
-  rawMaterialInbounds = [],
   helpers = {},
 }) {
   const [view, setView] = useState("current");
@@ -45,9 +44,8 @@ export function DecisionMobilePage({
     orderLines,
     fulfillments,
     statements,
-    rawMaterialInbounds,
     findCustomer: helpers.findCustomer,
-  }).filter((task) => !isBackup || task.backupAllowed), [fulfillments, helpers.findCustomer, isBackup, orderLines, rawMaterialInbounds, statements, todos]);
+  }).filter((task) => !isBackup || task.backupAllowed), [fulfillments, helpers.findCustomer, isBackup, orderLines, statements, todos]);
   const tasks = useMemo(() => candidateTasks.filter((task) => !decisionRecords.some((record) =>
     record.status === "active"
     && record.businessType === task.businessType
@@ -235,7 +233,7 @@ export function DecisionMobilePage({
           <div>
             <ScopeButton count={countScope(tasks, "order_priority")} icon={SafetyCertificateOutlined} label="订单优先级" onClick={() => openScope("order_priority")} />
             <ScopeButton count={countScope(tasks, "production_schedule")} icon={UnorderedListOutlined} label="生产排期" onClick={() => openScope("production_schedule")} />
-            <ScopeButton count={countScope(tasks, "raw_material_purchase")} icon={InboxOutlined} label="原料采购" onClick={() => openScope("raw_material_purchase")} />
+            <ScopeButton count={0} icon={InboxOutlined} label="原料采购" unavailableReason="采购建议待接入" />
             <ScopeButton count={countScope(tasks, "fulfillment_quantity_variance")} icon={WarningOutlined} label="出货差异" onClick={() => openScope("fulfillment_quantity_variance")} />
             <ScopeButton count={countScope(tasks, "statement_variance")} icon={FileSearchOutlined} label="对账差额" onClick={() => openScope("statement_variance")} />
             <ScopeButton count={countScope(tasks, "statement_write_off")} icon={CheckCircleOutlined} label="抹零核销" onClick={() => openScope("statement_write_off")} />
@@ -255,15 +253,15 @@ export function DecisionMobilePage({
   );
 }
 
-function ScopeButton({ count, icon: Icon, label, onClick }) {
-  return <button disabled={!count} onClick={onClick} type="button"><Icon /><strong>{label}</strong><span>{count} 项</span></button>;
+function ScopeButton({ count, icon: Icon, label, onClick, unavailableReason }) {
+  return <button disabled={!count} onClick={onClick} type="button"><Icon /><strong>{label}</strong><span>{unavailableReason || `${count} 项`}</span></button>;
 }
 
 function countScope(tasks, scope) {
   return tasks.filter((task) => task.scope === scope).length;
 }
 
-function buildDecisionTasks({ todos, orderLines, fulfillments, statements, rawMaterialInbounds, findCustomer }) {
+function buildDecisionTasks({ todos, orderLines, fulfillments, statements, findCustomer }) {
   const tasks = [];
   const priorityLine = orderLines.find((line) => line.latest?.includes("今天") && line.status !== "已交付") ?? orderLines[0];
   if (priorityLine) tasks.push(decisionTask({
@@ -297,23 +295,6 @@ function buildDecisionTasks({ todos, orderLines, fulfillments, statements, rawMa
     primaryOutcome: "同意排期",
     businessType: "production_schedule_queue",
     businessId: scheduleLine.productionTaskId || scheduleLine.id,
-  }));
-
-  const inbound = rawMaterialInbounds.find((item) => item.status !== "已完成") ?? rawMaterialInbounds[0];
-  if (inbound) tasks.push(decisionTask({
-    id: `decision-purchase-${inbound.id}`,
-    scope: "raw_material_purchase",
-    scopeLabel: "原材料采购",
-    title: `${inbound.productName || inbound.materialType || "原材料"}采购建议`,
-    summary: `${inbound.factoryColor || inbound.supplierColor || "颜色待补"} · ${inbound.spec || "规格待补"}`,
-    evidence: `当前到货 ${inbound.rollCount || 0} 卷，${inbound.totalWeightKg ? `${inbound.totalWeightKg}kg` : "重量待补"}；建议仍需服务端库存和消耗数据校验。`,
-    impact: "同意后只生成供应商分组建议，不自动形成采购订单或库存写入。",
-    facts: [["供应商", inbound.supplierName || "待确认"], ["当前到货", `${inbound.rollCount || 0} 卷`], ["规格", inbound.spec || "待补"], ["数据状态", inbound.status || "待复核"]],
-    urgency: "下班前",
-    tone: "neutral",
-    primaryOutcome: "采纳建议",
-    businessType: "raw_material_inbound",
-    businessId: inbound.id,
   }));
 
   const varianceFulfillment = fulfillments.find((item) => Number(item.actualQty ?? item.qty) !== Number(item.expectedQty ?? item.qty) || item.status?.includes("数量"));

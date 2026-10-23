@@ -159,3 +159,9 @@ for (const secret of Object.values(secrets)) {
 console.log(
   "V1 release-status projection service checks passed: summary, owner decision, module status, and blockers are isolated and redacted.",
 );
+
+const missingCompletion = sanitizeV1GoLiveSummary({});
+for (const key of ['requirements','p0Prototype','v1Readiness']) assert.equal(missingCompletion[key],'待核查');
+const { normalizeV1GoLiveStatusForClient } = await import('../src/services/officeV1GoLiveStatusApiClient.js');
+const missingClient = normalizeV1GoLiveStatusForClient({});
+for (const metric of missingClient.metrics.slice(0,3)) { assert.equal(metric[1],'待核查'); assert.notEqual(metric[2],'success'); }

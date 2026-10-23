@@ -185,16 +185,15 @@ export function V1StatusGateModulePanel({
         <section className="v1-status-control-stage">
           <div className="panel-head compact">
             <div>
-              <h2>分模块完成度</h2>
-              <span>百分比是代码和验收证据口径，不是上线承诺。</span>
+              <h2>分模块来源估算</h2>
+              <span>这些比例来自来源报告或历史估算，未证明全项目已读、业务闭环或现场验收通过。</span>
             </div>
           </div>
           <DataTable
             className="v1-module-table"
             columns={["模块", "需求", "P0/代码", "V1"]}
             rows={moduleCompletionRows.map((item) => {
-              const readiness = Number.parseInt(item.v1Readiness, 10);
-              const tone = readiness < 50 ? "danger" : readiness < 65 ? "warning" : "success";
+              const tone = "warning";
               return {
                 id: item.module,
                 active: item.module === selectedModule.module,

@@ -92,7 +92,7 @@ async function processBatch() {
 }
 
 const timer = setInterval(() => void processBatch(), pollMs);
-timer.unref();
+// Keep this daemon alive even when the database has no open sockets.
 void processBatch();
 
 let stopping = false;

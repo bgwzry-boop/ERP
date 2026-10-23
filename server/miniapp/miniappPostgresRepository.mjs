@@ -155,13 +155,9 @@ ${artworkValues}
     ids,
     text: `
 BEGIN;
-WITH intake_lock AS MATERIALIZED (
-  SELECT pg_advisory_xact_lock(hashtextextended(${scope} || ':' || ${key}, 0)) AS locked
-),
-existing AS MATERIALIZED (
+WITH existing AS MATERIALIZED (
   SELECT submission.id, submission.request_hash, submission.public_response_json
   FROM order_intake_submissions AS submission
-  CROSS JOIN intake_lock
   WHERE submission.idempotency_scope = ${scope}
     AND submission.idempotency_key = ${key}
   FOR UPDATE
@@ -334,7 +330,7 @@ WHERE submission.customer_id = ${customerId}
 export function createPostgresMiniappRepository(options = {}) {
   const postgresClient = options.postgresClient || (options.queryJson || options.transactionJson ? null : createPostgresPoolClient(options));
   const queryJson = options.queryJson || ((text, values) => postgresClient.queryJson(text, values));
-  const transactionJson = options.transactionJson || ((text, values) => postgresClient.transactionJson(text, values));
+  const transactionJson = options.transactionJson || ((text, values, transactionOptions) => postgresClient.transactionJson(text, values, transactionOptions));
 
   return {
     kind: "postgres",
@@ -349,7 +345,9 @@ export function createPostgresMiniappRepository(options = {}) {
     async createSubmissionWithDraft(input) {
       const query = buildCreateMiniappSubmissionTransaction(input);
       try {
-        return await transactionJson(query.text, query.values);
+        return await transactionJson(query.text, query.values, {
+          resourceLocks: [`${input.idempotencyScope}:${input.idempotencyKey}`],
+        });
       } catch (error) {
         if (/ERP_MINIAPP_IDEMPOTENCY_CONFLICT/.test(String(error?.message || "")) ||
             (error?.statusCode === 409 && error?.code === "BUSINESS_WRITE_CONFLICT")) {

@@ -207,3 +207,65 @@ function createHarness({ allowLocalFallback = false, api = {}, downloadResult = 
 }
 
 console.log("Office attachment actions check passed: access audit, formal download/sync gates, retry keys, and source persistence are covered.");
+
+for (const response of [null, {blocked:true,error:{message:'网络不可用'}}, {blocked:true,error:{requiredPermission:'attachment.view'}}]) {
+  const harness=createHarness({api:{listOfficeAttachmentAccessLogs:async()=>response}});
+  const audit=await harness.controller.loadAttachmentAccessAudit('ATT-1');
+  assert.equal(audit.source,'api_error');assert.deepEqual(audit.items,[]);
+  assert.doesNotMatch(audit.status,/暂无访问记录|attachment.view/);
+}
+{
+  const harness=createHarness({api:{listOfficeAttachmentAccessLogs:async()=>{throw new Error('chunk load failed')}}});
+  const audit=await harness.controller.loadAttachmentAccessAudit('ATT-1');
+  assert.equal(audit.source,'api_error');
+  assert.match(audit.status,/重新打开附件重试/);
+}
+
+for (const method of ['syncStatementPaymentAttachmentsFromSource','syncStatementCustomerAttachmentsFromSource']) {
+  for (const invalid of ['throw',null,{source:'api'}]) {
+    let calls=0;
+    const harness=createHarness({api:{listOfficeAttachments:async()=>{
+      calls++;
+      if(calls>1) return {source:'api',items:[]};
+      if(invalid==='throw') throw new Error('module unavailable');
+      return invalid;
+    }}});
+    const before=structuredClone(harness.getStatements());
+    const failed=await harness.controller[method]('ST-1');
+    assert.equal(failed.blocked,true);
+    assert.deepEqual(harness.getStatements(),before);
+    const retry=await harness.controller[method]('ST-1');
+    assert.equal(retry.source,'api');
+    assert.equal(calls,2,'Failure must release sync key so ordinary retry reaches the API');
+  }
+}
+
+for (const method of ['syncStatementPaymentAttachmentsFromSource','syncStatementCustomerAttachmentsFromSource']) {
+  for (const oldResponse of [{source:'api',items:[{attachmentId:'OLD'}],total:1},{source:'api_error',blocked:true}]) {
+    const pending=[];
+    const harness=createHarness({api:{listOfficeAttachments:()=>new Promise(resolve=>pending.push(resolve))}});
+    const older=harness.controller[method]('ST-1');
+    const newer=harness.controller[method]('ST-1',{force:true});
+    pending[1]({source:'api',items:[],total:0});
+    await newer;
+    const afterNew=structuredClone(harness.getStatements());
+    pending[0](oldResponse);
+    assert.equal((await older).stale,true);
+    assert.deepEqual(harness.getStatements(),afterNew);
+    assert.equal((await harness.controller[method]('ST-1')).skipped,true,'Old failure must not remove the successful newer sync marker');
+  }
+}
+
+for (const [method, refName] of [['syncStatementPaymentAttachmentsFromSource','paymentRef'],['syncStatementCustomerAttachmentsFromSource','customerRef']]) {
+  const pending=[];
+  const harness=createHarness({api:{listOfficeAttachments:()=>new Promise(resolve=>pending.push(resolve))}});
+  const older=harness.controller[method]('ST-1');
+  harness[refName].current=new Set();
+  const newer=harness.controller[method]('ST-1');
+  pending[1]({source:'api',items:[]});
+  await newer;
+  pending[0]({source:'api',items:[{attachmentId:'OLD-SESSION'}]});
+  assert.equal((await older).stale,true);
+  assert.equal(harness[refName].current.size,1);
+  assert.equal((await harness.controller[method]('ST-1')).skipped,true);
+}

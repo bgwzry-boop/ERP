@@ -1,5 +1,6 @@
+import { decisionStatementSnapshot } from "./businessDecisionStatementSnapshot.mjs";
 import { createHash } from "node:crypto";
-import { getBusinessDecisionScopeLabel } from "../../shared/businessDecisionCatalog.js";
+import { getBusinessDecisionScopeLabel, isBusinessDecisionTargetTypeAllowed } from "../../shared/businessDecisionCatalog.js";
 import { normalizeIdempotencyKey } from "../idempotency.mjs";
 
 const outcomeLabels = Object.freeze({
@@ -12,7 +13,6 @@ const outcomeLabels = Object.freeze({
 const targetCollections = Object.freeze({
   order: ["originalOrders", "orderLines"],
   production_schedule_queue: ["productionTasks", "orderLines"],
-  raw_material_inbound: ["rawMaterialInbounds"],
   fulfillment: ["fulfillments"],
   statement: ["statements"],
   todo: ["todos"],
@@ -110,6 +110,7 @@ export function createBusinessDecisionDirectiveCommandService({
       const saved = await workspace.businessDecisionEvidenceRepository.writeDecisionDirective({
         workspace,
         decisionRecord: prepared.record,
+        financialSnapshot: input.value.financialSnapshot,
         attachmentLinks: prepared.attachmentLinks,
         todo,
         operationLog,
@@ -129,6 +130,10 @@ export function createBusinessDecisionDirectiveCommandService({
         },
       };
     } catch (caught) {
+      if (String(caught?.message ?? "").includes("ERP_BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT")
+        || (input.value.financialSnapshot && caught?.code === "BUSINESS_WRITE_CONFLICT")) {
+        return error(409, "BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT", "提交期间对账单已变化，请刷新后重新确认。");
+      }
       if (Number.isInteger(caught?.statusCode)) {
         return error(caught.statusCode, caught.code, caught.message, caught.details);
       }
@@ -151,20 +156,48 @@ function validateInput(workspace, body) {
   const actionLabel = cleanText(body.actionLabel) || outcomeLabels[outcome] || "";
   const note = cleanText(body.note ?? body.reason);
   const taskTitle = cleanText(body.taskTitle);
+  if (!decisionScope) return error(422, "BUSINESS_DECISION_SCOPE_REQUIRED", "请选择经营决定范围。");
+  if (!isBusinessDecisionTargetTypeAllowed(decisionScope, businessType)) {
+    return error(422, "BUSINESS_DECISION_TARGET_SCOPE_MISMATCH", "该业务对象不属于所选决定范围，请返回对应业务流程处理。");
+  }
   if (!targetCollections[businessType] || !businessId) {
     return error(422, "BUSINESS_DECISION_TARGET_INVALID", "经营决定必须绑定受支持的业务事项。");
   }
   if (!targetExists(workspace, businessType, businessId)) {
     return error(404, "BUSINESS_DECISION_TARGET_NOT_FOUND", "经营决定对应的业务事项不存在或已经移除。");
   }
-  if (!decisionScope) return error(422, "BUSINESS_DECISION_SCOPE_REQUIRED", "请选择经营决定范围。");
   if (!outcomeLabels[outcome]) return error(422, "BUSINESS_DECISION_OUTCOME_INVALID", "请选择固定的决定结果。");
   if (!actionLabel || actionLabel.length > 40) return error(422, "BUSINESS_DECISION_ACTION_LABEL_INVALID", "决定动作名称必须在 40 个字以内。");
   if (note.length < 2 || note.length > 500) return error(422, "BUSINESS_DECISION_NOTE_REQUIRED", "请填写 2–500 个字的决定说明。");
   if (taskTitle.length > 120) return error(422, "BUSINESS_DECISION_TASK_TITLE_INVALID", "事项标题不能超过 120 个字。");
-  const authorizationAmount = nullableAmount(body.authorizationAmount);
+  let authorizationAmount = nullableAmount(body.authorizationAmount);
   if (body.authorizationAmount !== null && body.authorizationAmount !== undefined && body.authorizationAmount !== "" && authorizationAmount === null) {
     return error(422, "BUSINESS_DECISION_AMOUNT_INVALID", "授权金额必须为非负数。");
+  }
+  let factsSnapshot = normalizeFacts(body.factsSnapshot);
+  let financialSnapshot = null;
+  if (businessType === "statement") {
+    // Bind financial authority to the statement itself, not a foreign-key alias or client amount.
+    const statement = (workspace?.statements ?? []).find((item) => cleanText(item.id ?? item.statementId) === businessId);
+    if (!statement) return error(404, "BUSINESS_DECISION_TARGET_NOT_FOUND", "对账单不存在，请刷新后重新选择。");
+    financialSnapshot = decisionStatementSnapshot(statement);
+    if (!financialSnapshot) return error(409, "BUSINESS_DECISION_FINANCIAL_FACTS_UNAVAILABLE", "对账单缺少有效版本，请重新读取后再决定。");
+    const explicit = finiteAmount(statement.variance);
+    const receivable = finiteAmount(statement.receivable);
+    const received = finiteAmount(statement.received);
+    const difference = explicit ?? (receivable !== null && received !== null ? receivable - received : null);
+    if (difference === null) return error(409, "BUSINESS_DECISION_FINANCIAL_FACTS_UNAVAILABLE", "对账金额尚未核实，请先在对账单补齐后再决定。");
+    authorizationAmount = Number(Math.abs(difference).toFixed(2));
+    if (nullableAmount(body.authorizationAmount) !== authorizationAmount) {
+      return error(409, "BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT", "对账金额已变化或未提供核对金额，请刷新对账单后重新确认。", { currentAmount: authorizationAmount });
+    }
+    factsSnapshot = [
+      ["对账单", businessId],
+      ["应收", receivable === null ? "待核实" : `¥${receivable.toFixed(2)}`],
+      ["实收", received === null ? "待核实" : `¥${received.toFixed(2)}`],
+      ["差额", `¥${authorizationAmount.toFixed(2)}`],
+      ["当前状态", cleanText(statement.status) || "待核实"],
+    ];
   }
   return {
     ok: true,
@@ -176,7 +209,8 @@ function validateInput(workspace, body) {
       actionLabel,
       note,
       taskTitle,
-      factsSnapshot: normalizeFacts(body.factsSnapshot),
+      factsSnapshot,
+      financialSnapshot,
       authorizationAmount,
     },
   };
@@ -221,10 +255,17 @@ function normalizeFacts(value) {
   }).filter(([label, fact]) => label && fact);
 }
 
+function finiteAmount(value) {
+  if (value === null || value === undefined || typeof value === "boolean" || (typeof value === "string" && !value.trim())) return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 function nullableAmount(value) {
   if (value === null || value === undefined || value === "") return null;
-  const amount = Number(value);
-  return Number.isFinite(amount) && amount >= 0 ? Number(amount.toFixed(2)) : null;
+  const amount = finiteAmount(value);
+  return amount !== null && amount >= 0 ? Number(amount.toFixed(2)) : null;
 }
 
 function error(statusCode, code, message, details) {

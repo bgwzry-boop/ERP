@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   canUseUiAction,
   getPermissionDeniedText,
@@ -393,6 +393,16 @@ export function useOfficeInteractionController(options) {
   const [modal, setModal] = useState(null);
   const [orderActionModal, setOrderActionModal] = useState(null);
   const [attachmentViewer, setAttachmentViewer] = useState(null);
+  const attachmentRequestRef = useRef(0);
+  const attachmentOwnerRef = useRef(null);
+  const attachmentOwner = `${options.currentUserId ?? ""}:${options.authState?.session?.accessToken ?? ""}`;
+  attachmentOwnerRef.current = attachmentOwner;
+  const beginAttachmentRead = () => {
+    const revision = ++attachmentRequestRef.current;
+    return () => attachmentRequestRef.current === revision && attachmentOwnerRef.current === attachmentOwner;
+  };
+  useEffect(() => { attachmentRequestRef.current += 1; setAttachmentViewer(null); }, [attachmentOwner]);
+  useEffect(() => () => { attachmentRequestRef.current += 1; }, []);
   const [masterDataTemplatePanel, setMasterDataTemplatePanel] = useState(null);
 
   const setToast = (message) => {
@@ -404,7 +414,7 @@ export function useOfficeInteractionController(options) {
   const openOrderActionModal = (nextModal) => setOrderActionModal(nextModal ?? null);
   const closeOrderActionModal = () => setOrderActionModal(null);
   const openAttachmentViewer = (attachment) => setAttachmentViewer(attachment ?? null);
-  const closeAttachmentViewer = () => setAttachmentViewer(null);
+  const closeAttachmentViewer = () => { attachmentRequestRef.current += 1; setAttachmentViewer(null); };
   const openMasterDataTemplatePanel = (panel) => setMasterDataTemplatePanel(panel ?? null);
   const closeMasterDataTemplatePanel = () => setMasterDataTemplatePanel(null);
 
@@ -419,6 +429,7 @@ export function useOfficeInteractionController(options) {
 
   return {
     attachmentViewer,
+    beginAttachmentRead,
     closeAttachmentViewer,
     closeMasterDataTemplatePanel,
     closeModal,

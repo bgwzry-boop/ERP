@@ -23,10 +23,18 @@ export function createPostgresPoolClient(options = {}) {
       return readJsonQueryResult(await pool.query({ text, values }));
     },
 
-    async transactionJson(text, values = []) {
+    async transactionJson(text, values = [], options = {}) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        // Acquire business locks before the statement snapshot is taken. A lock
+        // inside a CTE cannot refresh a snapshot after waiting for another writer.
+        for (const resourceLock of normalizeResourceLocks(options)) {
+          await client.query({
+            text: "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0));",
+            values: [resourceLock],
+          });
+        }
         const result = await client.query({ text: removeOuterTransactionStatements(text), values });
         await client.query("COMMIT");
         return readJsonQueryResult(result);

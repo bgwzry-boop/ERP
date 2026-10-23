@@ -8,6 +8,8 @@ import {
 } from "../state/officeStatementActions.js";
 import { downloadAttachmentPreview as downloadAttachmentPreviewDefault } from "./attachmentViewUtils.js";
 
+const attachmentSyncRequests = new WeakMap();
+
 const defaultApi = {
   listOfficeAttachmentAccessLogs: listOfficeAttachmentAccessLogsDefault,
   listOfficeAttachments: listOfficeAttachmentsDefault,
@@ -29,19 +31,25 @@ export function createOfficeAttachmentActions({
   const apiOptions = { serverRequired: !allowLocalFallback };
 
   async function loadAttachmentAccessAudit(attachmentId) {
-    const result = await attachmentApi.listOfficeAttachmentAccessLogs({
+    let result;
+    try {
+      result = await attachmentApi.listOfficeAttachmentAccessLogs({
       authState,
       attachmentId,
       operatorId: currentUserId,
       limit: 6,
-    }, apiOptions);
+      }, apiOptions);
+    } catch {
+      result = { blocked: true, error: { message: "访问记录读取失败，请关闭后重新打开附件重试。" } };
+    }
+    if (!result) result = { blocked: true, error: { message: "访问记录未返回，请重新打开附件重试。" } };
 
     if (result.blocked) {
       return {
         source: "api_error",
         status: result.error?.requiredPermission
-          ? `后端拒绝访问记录：缺少权限 ${result.error.requiredPermission}`
-          : `后端拒绝访问记录：${result.error?.message ?? "未知错误"}`,
+          ? "没有查看访问记录的权限，请联系管理员核对。"
+          : `访问记录读取失败：${result.error?.message ?? "请重新打开附件重试。"}`,
         items: [],
         total: 0,
       };
@@ -95,15 +103,34 @@ export function createOfficeAttachmentActions({
     if (force) syncKeysRef.current.delete(syncKey);
     if (syncKeysRef.current.has(syncKey)) return { skipped: true, reason: "already_synced" };
     syncKeysRef.current.add(syncKey);
+    const syncKeys = syncKeysRef.current;
+    let requests = attachmentSyncRequests.get(syncKeys);
+    if (!requests) { requests = new Map(); attachmentSyncRequests.set(syncKeys, requests); }
+    const requestScope = `${currentUserId}:${safeStatementId}:${purpose}`;
+    const requestIdentity = {};
+    requests.set(requestScope, requestIdentity);
+
     const currentStatement = statements.find((item) => item.id === safeStatementId);
-    const result = await attachmentApi.listOfficeAttachments({
+    let result;
+    try {
+      result = await attachmentApi.listOfficeAttachments({
       authState,
       ownerType: "statement",
       ownerId: safeStatementId,
       purpose,
       operatorId: currentUserId,
       localAttachments: selectLocalAttachments(currentStatement),
-    }, apiOptions);
+      }, apiOptions);
+    } catch {
+      result = { source: "api_error", blocked: true, error: { code: "STATEMENT_ATTACHMENTS_READ_FAILED", message: "对账附件读取失败，请重新读取。" } };
+    }
+    if (!result || (result.source === "api" && !Array.isArray(result.items))) {
+      result = { source: "api_error", blocked: true, error: { code: "STATEMENT_ATTACHMENTS_READ_INVALID", message: "对账附件返回不完整，请重新读取。" } };
+    }
+    if (syncKeysRef.current !== syncKeys || requests.get(requestScope) !== requestIdentity) {
+      return { stale: true, cancelled: true };
+    }
+    requests.delete(requestScope);
     if (isCancelled()) {
       syncKeysRef.current.delete(syncKey);
       return { ...result, cancelled: true };

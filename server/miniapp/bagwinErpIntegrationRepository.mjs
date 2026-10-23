@@ -286,7 +286,7 @@ export function buildCreateBagwinOrderTransaction(input) {
 export function createPostgresBagwinErpIntegrationRepository(options = {}) {
   const postgresClient = options.postgresClient || createPostgresPoolClient(options);
   const queryJson = options.queryJson || ((text, values) => postgresClient.queryJson(text, values));
-  const transactionJson = options.transactionJson || ((text, values) => postgresClient.transactionJson(text, values));
+  const transactionJson = options.transactionJson || ((text, values, transactionOptions) => postgresClient.transactionJson(text, values, transactionOptions));
 
   return Object.freeze({
     kind: "postgres",
@@ -315,7 +315,9 @@ export function createPostgresBagwinErpIntegrationRepository(options = {}) {
     },
     async createOrderIntake(input) {
       const query = buildCreateBagwinOrderTransaction(input);
-      const response = await transactionJson(query.text, query.values);
+      const response = await transactionJson(query.text, query.values, {
+        resourceLocks: [`bagwin:orders:${input.sourceOrderNo}`],
+      });
       return {
         sourceOrderNo: input.sourceOrderNo,
         erpOrderId: query.ids.intakeId,

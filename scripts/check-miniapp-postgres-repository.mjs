@@ -78,7 +78,7 @@ const ids = {
 
 const transaction = buildCreateMiniappSubmissionTransaction(input, ids);
 assert.match(transaction.text, /^BEGIN;/);
-assert.match(transaction.text, /pg_advisory_xact_lock/);
+assert.doesNotMatch(transaction.text, /pg_advisory_xact_lock/, "lock must precede the business statement snapshot");
 assert.match(transaction.text, /ERP_MINIAPP_IDEMPOTENCY_CONFLICT/);
 assert.match(transaction.text, /INSERT INTO order_drafts/);
 assert.match(transaction.text, /INSERT INTO order_draft_lines/);
@@ -116,8 +116,8 @@ const repository = createPostgresMiniappRepository({
     if (/customer_channel_bindings/.test(text)) return { id: "BIND-A", customerId: "CUSTOMER-A", status: "active" };
     return [{ id: ids.orderId, status: "confirming" }];
   },
-  transactionJson: async (text, values) => {
-    calls.push({ kind: "transaction", text, values });
+  transactionJson: async (text, values, options) => {
+    calls.push({ kind: "transaction", text, values, options });
     return { orderId: ids.orderId, draftId: ids.draftId, status: "confirming", replayed: false };
   },
 });
@@ -126,6 +126,7 @@ assert.equal((await repository.getActiveBinding("BIND-A")).customerId, "CUSTOMER
 assert.equal((await repository.createSubmissionWithDraft(input)).status, "confirming");
 assert.equal((await repository.getOrderForCustomer("CUSTOMER-A", ids.orderId)).id, ids.orderId);
 assert.equal(calls.filter((call) => call.kind === "transaction").length, 1);
+assert.deepEqual(calls.find((call) => call.kind === "transaction").options.resourceLocks, [`${input.idempotencyScope}:${input.idempotencyKey}`]);
 
 const conflictRepository = createPostgresMiniappRepository({
   queryJson: async () => null,

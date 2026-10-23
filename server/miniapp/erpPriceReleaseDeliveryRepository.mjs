@@ -55,7 +55,9 @@ export function buildMarkErpPriceReleaseWaitingQuery(input) {
     text: `
 WITH updated AS (
   UPDATE miniapp_price_release_delivery_jobs
-  SET status = 'waiting_activation', next_attempt_at = ${parameters.timestamp(input.nextAttemptAt)},
+  SET status = 'waiting_activation',
+      attempt_count = GREATEST(0, attempt_count - 1),
+      next_attempt_at = ${parameters.timestamp(input.nextAttemptAt)},
       lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
       last_response_json = ${parameters.json(input.acknowledgement)}, updated_at = ${parameters.timestamp(input.now)}
   WHERE id = ${parameters.text(input.jobId)} AND status = 'running'

@@ -570,6 +570,10 @@ assert(listFallback.source === "local_fallback", "attachment list network failur
 assert(listFallback.items.length === 1, "attachment list local fallback should filter by owner and purpose");
 assert(listFallback.items[0].attachmentId === fallback.attachment.attachmentId, "attachment list local fallback returned the wrong item");
 
+for (const payload of [{}, {attachmentId:'AUDIT-TEST',items:[{}],total:1}, {attachmentId:'OTHER',items:[],total:0}, {attachmentId:'AUDIT-TEST',items:[],total:-1}]) {
+  const invalid = await listOfficeAttachmentAccessLogs({authState,attachmentId:'AUDIT-TEST'}, {fetchImpl:async()=>createJsonResponse(200,payload)});
+  assert(invalid.blocked === true && invalid.error.code === 'ATTACHMENT_ACCESS_LOG_RESPONSE_INVALID', 'invalid audit HTTP response must fail explicitly');
+}
 const accessLogFallback = await listOfficeAttachmentAccessLogs(
   {
     authState,
@@ -582,7 +586,7 @@ const accessLogFallback = await listOfficeAttachmentAccessLogs(
     },
   },
 );
-assert(accessLogFallback.source === "local_fallback", "attachment access-log network failure should fall back locally");
+assert(accessLogFallback.source === "api_error" && accessLogFallback.blocked === true, "audit network failure must not become empty local history");
 assert(accessLogFallback.items.length === 0, "attachment access-log local fallback should return an empty list");
 
 console.log("Frontend attachment API client check passed: selected payment screenshot metadata/content, frontend upload validation, API mapping, owner-scoped list, content fetch, access-url mapping, access-log mapping, denial blocking, state projection, and local fallback are covered.");

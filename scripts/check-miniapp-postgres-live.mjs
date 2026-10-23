@@ -30,7 +30,7 @@ try {
   await seedMiniappMasterData(seedPool);
 
   runtime = createMiniappApiRuntime({
-    runtimeMode: "production",
+    runtimeMode: "test",
     repositoryMode: "postgres",
     databaseUrl,
     sessionSecret,
@@ -228,6 +228,45 @@ SELECT json_build_object(
   assert.equal(reconciliation.orders[0].sourceOrderNo, sourceOrderNo);
   assert.deepEqual(reconciliation.orders[0].lines, [{ skuId: "ERP-SKU-LIVE-1", quantity: 500 }]);
   assert.equal((await seedPool.query("SELECT count(*)::int AS count FROM original_orders")).rows[0].count, 0);
+
+  // Hold the same business lock so both requests enter before either commits.
+  // Sequential retries do not exercise a statement snapshot taken before a wait.
+  const concurrentOrder = { ...bagwinOrder, sourceOrderNo: "WT20260804ABCDEF5679" };
+  const concurrentEnvelope = {
+    schemaVersion: 1, sourceOrderNo: concurrentOrder.sourceOrderNo,
+    payloadSha256: bagwinPayloadSha256(concurrentOrder), order: concurrentOrder,
+  };
+  const lockClient = await seedPool.connect();
+  let attempts;
+  let queued = false;
+  try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1::text, 0))", [`bagwin:orders:${concurrentOrder.sourceOrderNo}`]);
+    attempts = Promise.allSettled([
+      bagwinService.createOrder(concurrentEnvelope), bagwinService.createOrder(concurrentEnvelope),
+    ]);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const waiting = await lockClient.query("SELECT count(*)::int AS count FROM pg_stat_activity WHERE wait_event = 'advisory'");
+      if (waiting.rows[0].count >= 2) { queued = true; break; }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  } finally {
+    await lockClient.query("SELECT pg_advisory_unlock_all()");
+    lockClient.release();
+  }
+  const concurrentResults = await attempts;
+  assert.equal(concurrentResults.filter((item) => item.status === "fulfilled").length, 2,
+    JSON.stringify(concurrentResults.map((item) => ({ status: item.status, error: item.reason?.message }))));
+  assert.equal(queued, true, "both concurrent intake writes must reach the held lock before reading the business snapshot");
+  assert.deepEqual(concurrentResults.map((item) => item.value.disposition).sort(), ["created", "existing"]);
+  assert.equal((await seedPool.query("SELECT count(*)::int AS count FROM order_intake_submissions WHERE biz_no = $1", [concurrentOrder.sourceOrderNo])).rows[0].count, 1);
+  const changedOrder = { ...concurrentOrder, lines: [{ ...concurrentOrder.lines[0], quantity: 600 }] };
+  await assert.rejects(() => bagwinService.createOrder({
+    ...concurrentEnvelope, order: changedOrder, payloadSha256: bagwinPayloadSha256(changedOrder),
+  }), (error) => error.statusCode === 409 && error.code === "BAGWIN_ORDER_PAYLOAD_CONFLICT");
+  assert.equal((await seedPool.query("SELECT count(*)::int AS count FROM order_drafts WHERE id = $1", [`DRAFT-${concurrentOrder.sourceOrderNo}`])).rows[0].count, 1);
+  assert.equal((await seedPool.query("SELECT count(*)::int AS count FROM todos WHERE id = $1", [`TODO-${concurrentOrder.sourceOrderNo}`])).rows[0].count, 1);
+  assert.equal((await seedPool.query("SELECT count(*)::int AS count FROM original_orders")).rows[0].count, 0);
+
 
   await checkP1OrderConfirmationLive({ databaseUrl, pool: seedPool, bagwinService, bagwinOrder });
 

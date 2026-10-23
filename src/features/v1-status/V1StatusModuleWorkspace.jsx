@@ -12,9 +12,9 @@ export function V1StatusModuleWorkspace({
       <div className="v1-module-summary">
         <InfoGrid
           rows={[
-            ["需求确认", selectedModule.requirements],
-            ["P0/代码", selectedModule.p0Code],
-            ["V1 上线就绪", selectedModule.v1Readiness],
+            ["需求估算", selectedModule.requirements],
+            ["代码估算", selectedModule.p0Code],
+            ["就绪估算", selectedModule.v1Readiness],
             ["完成标准", "发布门禁 + 现场证据 + 签字"],
             ["当前阶段", `${selectedPhase.label} / ${selectedPhase.taskCount} 项`],
           ]}

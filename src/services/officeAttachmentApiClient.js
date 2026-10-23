@@ -374,7 +374,8 @@ export async function listOfficeAttachmentAccessLogs(input, options = {}) {
   const { authState, attachmentId, operatorId, limit } = input;
   if (!attachmentId) {
     return {
-      source: "local_fallback",
+      source: "api_error",
+      blocked: true,
       attachmentId: "",
       items: [],
       total: 0,
@@ -408,7 +409,14 @@ export async function listOfficeAttachmentAccessLogs(input, options = {}) {
       };
     }
 
-    const items = Array.isArray(json?.items) ? json.items.map((item) => mapAttachmentAccessLog(item)) : [];
+    if (json?.attachmentId !== attachmentId || !Array.isArray(json?.items) ||
+      !Number.isSafeInteger(json.total) || json.total < json.items.length ||
+      json.items.some(item => !item?.logId || item.attachmentId !== attachmentId || !item.action || !item.operatorId) ||
+      new Set(json.items.map(item => item.logId)).size !== json.items.length) {
+      return { source: "api_error", blocked: true, attachmentId, items: [], total: 0,
+        error: { code: "ATTACHMENT_ACCESS_LOG_RESPONSE_INVALID", message: "附件访问记录返回不完整，请重新读取。" } };
+    }
+    const items = json.items.map(mapAttachmentAccessLog);
     return {
       source: "api",
       attachmentId: json?.attachmentId ?? attachmentId,
@@ -417,13 +425,14 @@ export async function listOfficeAttachmentAccessLogs(input, options = {}) {
     };
   } catch (error) {
     return {
-      source: "local_fallback",
+      source: "api_error",
+      blocked: true,
       attachmentId,
       items: [],
       total: 0,
       error: {
         code: "ATTACHMENT_ACCESS_LOG_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
+        message: "附件访问记录读取失败，请重新读取。",
       },
     };
   }

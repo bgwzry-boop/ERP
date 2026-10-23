@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { makeTodo } from "../../src/data/fixtures.js";
 import { normalizeTodoReferenceForWrite } from "./todoReferenceService.mjs";
 
@@ -11,6 +12,7 @@ export function createWorkspaceRecordService({ now = () => new Date() } = {}) {
   }
 
   function nextId(prefix, rows) {
+    if (prefix === "LOG" || prefix === "ALOG") return `${prefix}-${randomUUID()}`;
     return `${prefix}-${String(rows.length + 1).padStart(3, "0")}`;
   }
 
@@ -182,7 +184,7 @@ export function createWorkspaceRecordService({ now = () => new Date() } = {}) {
 
   function buildOperationLog(workspace, input) {
     return {
-      id: input.id ?? nextId("LOG", workspace.operationLogs),
+      id: input.id ?? `LOG-${randomUUID()}`,
       targetType: input.targetType,
       targetId: input.targetId,
       action: input.action,

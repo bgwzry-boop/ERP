@@ -352,6 +352,11 @@ export function useOfficeWorkspace({
   const printJobQueueItemsRef = useRef([]);
   const paymentAttachmentSyncKeysRef = useRef(new Set());
   const customerConfirmationAttachmentSyncKeysRef = useRef(new Set());
+  useEffect(() => {
+    paymentAttachmentSyncKeysRef.current = new Set();
+    customerConfirmationAttachmentSyncKeysRef.current = new Set();
+  }, [currentUserId, authState?.session?.accessToken]);
+
 
   useEffect(() => {
     todosRef.current = todos;

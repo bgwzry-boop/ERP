@@ -78,3 +78,18 @@ export function getBusinessDecisionTypeLabel(type) {
 export function getBusinessDecisionStatusLabel(status) {
   return businessDecisionStatusLabels[String(status ?? "").trim()] ?? "未知状态";
 }
+
+// Evidence drafts and commands share the same business scope, never infer it from permissions.
+export const businessDecisionTargetTypes = Object.freeze({
+  order_priority: Object.freeze(["order", "order_draft"]),
+  production_schedule: Object.freeze(["production_task", "production_schedule_queue"]),
+  raw_material_purchase: Object.freeze(["raw_material_purchase_request"]),
+  fulfillment_quantity_variance: Object.freeze(["fulfillment"]),
+  statement_variance: Object.freeze(["statement"]),
+  statement_write_off: Object.freeze(["statement"]),
+  major_exception: Object.freeze(["todo"]),
+});
+
+export function isBusinessDecisionTargetTypeAllowed(scope, type) {
+  return businessDecisionTargetTypes[String(scope ?? "").trim()]?.includes(String(type ?? "").trim()) === true;
+}

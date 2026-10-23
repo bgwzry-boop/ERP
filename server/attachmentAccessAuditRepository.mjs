@@ -1,5 +1,5 @@
 import { resolveStoreMode } from "./storeMode.mjs";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -46,15 +46,24 @@ export function createLocalAttachmentAccessAuditRepository(options = {}) {
       if (!normalized) {
         throw new Error("Invalid attachment access log record");
       }
-      workspace.attachmentAccessLogs.unshift(normalized);
-      persistPersistentAttachmentAccessAuditState(storageRoot, workspace);
+      if (workspace.attachmentAccessLogs.some(log => log.logId === normalized.logId)) {
+        throw new Error("Attachment access audit identity already exists");
+      }
+      const nextLogs = [normalized, ...workspace.attachmentAccessLogs];
+      persistPersistentAttachmentAccessAuditState(storageRoot, { ...workspace, attachmentAccessLogs: nextLogs });
+      workspace.attachmentAccessLogs = nextLogs;
       return normalized;
     },
 
     listAccessLogs({ workspace, attachmentId, limit = 50 }) {
-      const items = filterAccessLogs(workspace.attachmentAccessLogs, { attachmentId });
+      const items = [...filterAccessLogs(workspace.attachmentAccessLogs, { attachmentId })];
+      if (items.some(item => !Number.isFinite(Date.parse(item.occurredAt)))) {
+        throw new Error("Attachment access audit list contains invalid occurrence time");
+      }
+      items.sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt)
+        || (left.logId < right.logId ? 1 : left.logId > right.logId ? -1 : 0));
       return {
-        items: items.slice(0, limit),
+        items: items.slice(0, clampLimit(limit)),
         total: items.length,
       };
     },
@@ -86,9 +95,11 @@ export function createPostgresAttachmentAccessAuditRepository(options = {}) {
 
     async listAccessLogs({ attachmentId, limit = 50 }) {
       const query = buildListAttachmentAccessLogsQuery({ attachmentId, limit });
-      return normalizeAttachmentAccessLogListResponse(
-        await queryJson(query.text, query.values),
-      );
+      const result = normalizeAttachmentAccessLogListResponse(await queryJson(query.text, query.values));
+      if (result.items.some(item => item.attachmentId !== attachmentId)) {
+        throw new Error("Attachment access audit list belongs to another attachment");
+      }
+      return result;
     },
   };
 }
@@ -146,23 +157,6 @@ INSERT INTO attachment_access_logs (
   ${parameters.timestamp(accessLog.occurredAt)},
   now()
 )
-ON CONFLICT (id) DO UPDATE SET
-  attachment_id = EXCLUDED.attachment_id,
-  operation_log_id = EXCLUDED.operation_log_id,
-  action = EXCLUDED.action,
-  operator_id = EXCLUDED.operator_id,
-  access_mode = EXCLUDED.access_mode,
-  delivery_mode = EXCLUDED.delivery_mode,
-  storage_provider = EXCLUDED.storage_provider,
-  storage_key = EXCLUDED.storage_key,
-  owner_type = EXCLUDED.owner_type,
-  owner_id = EXCLUDED.owner_id,
-  purpose = EXCLUDED.purpose,
-  file_name = EXCLUDED.file_name,
-  content_type = EXCLUDED.content_type,
-  expires_at = EXCLUDED.expires_at,
-  metadata_json = EXCLUDED.metadata_json,
-  occurred_at = EXCLUDED.occurred_at
 RETURNING ${attachmentAccessLogJsonExpression("attachment_access_logs")} AS result;
 `.trim();
 }
@@ -198,16 +192,15 @@ FROM paged;
 }
 
 export function normalizeAttachmentAccessLogListResponse(value) {
-  if (Array.isArray(value)) {
-    const items = normalizeAttachmentAccessLogs(value);
-    return { items, total: items.length };
+  const records = Array.isArray(value) ? value : value?.items;
+  const items = normalizeAttachmentAccessLogs(records);
+  const total = Array.isArray(value) ? items.length : value?.total;
+  if (!Array.isArray(records) || items.length !== records.length ||
+    new Set(items.map(item => item.logId)).size !== items.length ||
+    !Number.isSafeInteger(total) || total < items.length) {
+    throw new Error("Invalid attachment access audit list response");
   }
-  const items = normalizeAttachmentAccessLogs(value?.items);
-  const total = Number(value?.total);
-  return {
-    items,
-    total: Number.isFinite(total) ? total : items.length,
-  };
+  return { items, total };
 }
 
 export function normalizeAttachmentAccessLogs(value) {
@@ -247,32 +240,39 @@ function loadPersistentAttachmentAccessAuditState(storageRoot) {
   if (!existsSync(filePath)) {
     return { attachmentAccessLogs: [] };
   }
-  try {
-    const content = readFileSync(filePath, "utf8");
-    const json = JSON.parse(content);
-    return {
-      attachmentAccessLogs: normalizeAttachmentAccessLogs(json?.attachmentAccessLogs),
-    };
-  } catch {
-    return { attachmentAccessLogs: [] };
+  const json = JSON.parse(readFileSync(filePath, "utf8"));
+  if (json?.version !== 1 || !Array.isArray(json.attachmentAccessLogs)) {
+    throw new Error("Invalid attachment access audit snapshot");
   }
+  const logs = normalizeAttachmentAccessLogs(json.attachmentAccessLogs);
+  if (logs.length !== json.attachmentAccessLogs.length || new Set(logs.map(log => log.logId)).size !== logs.length) {
+    throw new Error("Attachment access audit snapshot contains invalid or duplicate records");
+  }
+  return { attachmentAccessLogs: logs };
 }
 
 function persistPersistentAttachmentAccessAuditState(storageRoot, workspace) {
+  const sourceLogs = workspace.attachmentAccessLogs;
+  const logs = normalizeAttachmentAccessLogs(sourceLogs);
+  if (!Array.isArray(sourceLogs) || logs.length !== sourceLogs.length || new Set(logs.map(log => log.logId)).size !== logs.length) {
+    throw new Error("Attachment access audit write contains invalid or duplicate records");
+  }
   const filePath = join(storageRoot, attachmentAccessAuditStoreKey);
-  mkdirSync(dirname(filePath), { recursive: true });
+  mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
   writeFileSync(
-    filePath,
+    `${filePath}.tmp`,
     `${JSON.stringify(
       {
         version: 1,
         updatedAt: new Date().toISOString(),
-        attachmentAccessLogs: normalizeAttachmentAccessLogs(workspace.attachmentAccessLogs),
+        attachmentAccessLogs: logs,
       },
       null,
       2,
     )}\n`,
+    { mode: 0o600 },
   );
+  renameSync(`${filePath}.tmp`, filePath);
 }
 
 function filterAccessLogs(accessLogs, filters = {}) {

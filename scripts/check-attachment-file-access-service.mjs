@@ -147,3 +147,32 @@ assert.equal(
 console.log(
   "Attachment file-access service checks passed: list redaction, access URLs, content reads, audit persistence, bounds, and missing records are isolated.",
 );
+
+// Hold both writes open so the second request cannot depend on the first append.
+const {createWorkspaceRecordService}=await import('../server/services/workspaceRecordService.mjs');
+const records=createWorkspaceRecordService();
+const concurrentService=createAttachmentFileAccessService({...records});
+const pending=[];
+const concurrentWorkspace={...workspace,attachmentObjectStorage:{readObject:async()=>({buffer:Buffer.from("test")})},operationLogs:[],attachmentAccessLogs:[],attachmentAccessAuditRepository:{
+  recordAccessLog({accessLog}) { return new Promise(resolve=>pending.push({accessLog,resolve})); }
+}};
+const reads=[0,1].map(()=>concurrentService.getContent({workspace:concurrentWorkspace,attachmentId:'ATT-1',operatorId:'U-FINANCE',accessMode:'permission'}));
+for(let attempt=0;attempt<100 && pending.length<2;attempt++) await new Promise(resolve=>setImmediate(resolve));
+assert.equal(pending.length,2);
+assert.equal(concurrentWorkspace.operationLogs.length,0,"Pending writes must not publish successful operation evidence");
+assert.notEqual(pending[0].accessLog.logId,pending[1].accessLog.logId,'Concurrent reads must have independent access audit identities');
+assert.notEqual(pending[0].accessLog.operationLogId,pending[1].accessLog.operationLogId);
+for(const entry of pending) entry.resolve(entry.accessLog);
+await Promise.all(reads);
+console.log('PASS concurrent attachment reads retain independent audit identities before either audit write completes.');
+
+const retainedLog={id:'LOG-existing',action:'existing'};
+const failureWorkspace={...concurrentWorkspace,operationLogs:[retainedLog],attachmentAccessAuditRepository:{
+ async recordAccessLog(){
+   failureWorkspace.operationLogs.push({id:'LOG-unrelated',action:'another concurrent operation'});
+   throw new Error('audit storage unavailable');
+ }
+}};
+await assert.rejects(concurrentService.getContent({workspace:failureWorkspace,attachmentId:'ATT-1',operatorId:'U-FINANCE',accessMode:'permission'}),/audit storage unavailable/);
+assert.deepEqual(failureWorkspace.operationLogs.map(row=>row.id),['LOG-existing','LOG-unrelated']);
+console.log('PASS failed access audit exposes no successful operation log and preserves unrelated concurrent operations.');

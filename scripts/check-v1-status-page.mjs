@@ -354,9 +354,9 @@ assertIncludes(v1StatusPageSource, "v1StatusSnapshotMaxAgeMs", "page should defi
 assertIncludes(v1StatusPageSource, "后端快照已过期", "page should mark expired V1 status snapshots");
 assertIncludes(v1StatusPageSource, "status-stale", "page should render an expired V1 status snapshot with a danger treatment");
 assertIncludes(v1StatusPageSource, "V1 仍未完成", "page should state current V1 status");
-assertIncludes(v1StatusPageSource, "85-90%", "page should show requirement completion");
-assertIncludes(v1StatusPageSource, "97-98%", "page should show P0/code completion");
-assertIncludes(v1StatusPageSource, "80-83%", "page should show V1 readiness");
+assertIncludes(v1StatusPageSource, "需求估算", "page must label source estimates");
+assertIncludes(v1StatusPageSource, "代码估算", "page must label code estimates");
+assertIncludes(v1StatusPageSource, "待核查", "missing completion data remains unknown");
 assertIncludes(v1StatusPageSource, "0/4", "page should show release gate status");
 assertIncludes(v1StatusPageSource, "0/40", "page should show field evidence status");
 assertIncludes(v1StatusPageSource, "0/6", "page should show signoff status");

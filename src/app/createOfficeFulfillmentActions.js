@@ -25,6 +25,7 @@ export function createOfficeFulfillmentActions({
   loadAttachmentAccessAudit,
   mergeAttachmentSummaries,
   openAttachmentViewer,
+  beginAttachmentRead = () => () => true,
   openModal,
   readBlobAsDataUrl,
   refreshTodos,
@@ -52,6 +53,7 @@ export function createOfficeFulfillmentActions({
     }
     const targetFulfillmentId = selected.id;
     if (action === "查看水印照片" || action === "查看签收照片") {
+      const isCurrentAttachmentRead = beginAttachmentRead();
       const isSignature = action === "查看签收照片";
       const attachmentId = actionPayload.attachmentId || (isSignature ? selected.signaturePhotoAttachmentId : selected.watermarkedPhotoAttachmentId);
       const attachmentFile = findAttachmentSummaryById(selected.deliveryEvidenceAttachmentFiles, attachmentId);
@@ -60,33 +62,12 @@ export function createOfficeFulfillmentActions({
         setToast(isSignature ? "当前送货记录没有签收照片附件。" : "当前送货记录没有水印照片附件。");
         return;
       }
-      if (attachmentFile?.previewDataUrl && (allowLocalFallback || attachmentFile.contentSource === "api")) {
-        const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        openAttachmentViewer({
-          ...attachmentFile,
-          attachmentId,
-          viewerTitle,
-          accessAudit,
-          fulfillmentId: selected.id,
-        });
-        setFulfillments((current) =>
-          current.map((item) =>
-            item.id === selected.id
-              ? {
-                  ...item,
-                  deliveryEvidenceAttachmentFiles: mergeAttachmentSummaries(item.deliveryEvidenceAttachmentFiles, [{ ...attachmentFile, accessAudit }]),
-                }
-              : item,
-          ),
-        );
-        setToast(`已打开${isSignature ? "签收照片" : "送达水印照片"}预览：${attachmentFile.fileName || attachmentId}。`);
-        return;
-      }
       const contentResult = await downloadOfficeAttachmentContent({
         authState,
         attachmentId,
         operatorId: currentUserId,
       });
+      if (!isCurrentAttachmentRead()) return { stale: true };
       if (contentResult.blocked) {
         setToast(
           contentResult.error?.requiredPermission
@@ -100,12 +81,14 @@ export function createOfficeFulfillmentActions({
         return;
       }
       const previewDataUrl = contentResult.contentBlob ? await readBlobAsDataUrl(contentResult.contentBlob) : "";
+      if (!isCurrentAttachmentRead()) return { stale: true };
       const isImagePreview = isInlineImageAttachment({
         previewDataUrl,
         contentType: contentResult.contentType,
         mimeType: contentResult.contentType || attachmentFile?.mimeType,
       });
       const accessAudit = await loadAttachmentAccessAudit(attachmentId);
+        if (!isCurrentAttachmentRead()) return { stale: true };
       const nextPreview = {
         ...attachmentFile,
         attachmentId,

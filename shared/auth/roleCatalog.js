@@ -1,3 +1,5 @@
+import { roleReadPermissions } from "./readPermissions.js";
+
 export const systemV1ActionPermissions = Object.freeze([
   "system.v1_field_evidence_intake.apply",
   "system.v1_field_evidence.validate",
@@ -472,7 +474,7 @@ export const roleCatalog = Object.freeze(
       Object.freeze({
         ...definition,
         buttonPermissions: Object.freeze([...definition.buttonPermissions]),
-        actionPermissions: Object.freeze([...definition.actionPermissions]),
+        actionPermissions: Object.freeze([...definition.actionPermissions, ...(roleReadPermissions[roleKey] ?? [])]),
       }),
     ]),
   ),

@@ -226,4 +226,16 @@ export async function checkPostgresLiveAttachmentRepositoryScenario({
   const accessLogs = await auditRepository.listAccessLogs({ attachmentId: attachment.attachmentId, limit: 10 });
   assert.equal(accessLogs.total, 1);
   assert.equal(accessLogs.items[0].operationLogId, "LOG-LIVE-REPO-001");
+  await assert.rejects(
+    auditRepository.recordAccessLog({
+      workspace,
+      accessLog: { ...accessLogs.items[0], operatorId: "U-OFFICE-A" },
+    }),
+    /duplicate key|unique constraint/i,
+  );
+  assert.deepEqual(
+    await auditRepository.listAccessLogs({ attachmentId: attachment.attachmentId, limit: 10 }),
+    accessLogs,
+    "Repeated audit identity must preserve all original persisted evidence",
+  );
 }

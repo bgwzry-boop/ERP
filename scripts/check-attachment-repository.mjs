@@ -300,7 +300,7 @@ async function checkLocalAccessAuditRepository() {
   assert.equal(listed.items[0].logId, accessLog.logId);
 
   const limited = await repository.listAccessLogs({ workspace, attachmentId: accessLog.attachmentId, limit: 0 });
-  assert.equal(limited.items.length, 0);
+  assert.equal(limited.items.length, 1);
   assert.equal(limited.total, 1);
 }
 
@@ -343,7 +343,7 @@ async function checkPostgresAccessAuditRepositorySqlBoundary() {
 
   const insertQuery = buildInsertAttachmentAccessLogQuery(accessLog);
   const insertSql = buildInsertAttachmentAccessLogSql(accessLog);
-  assert.match(insertSql, /ON CONFLICT \(id\) DO UPDATE/);
+  assert.doesNotMatch(insertSql, /ON CONFLICT|DO UPDATE/i);
   assert.equal(insertQuery.text, insertSql);
   assert.ok(insertQuery.values.length > 15);
 

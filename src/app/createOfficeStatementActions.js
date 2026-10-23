@@ -47,6 +47,7 @@ export function createOfficeStatementActions({
   guardUiAction,
   loadAttachmentAccessAudit,
   openAttachmentViewer,
+  beginAttachmentRead = () => () => true,
   openModal,
   orderLines,
   readBlobAsDataUrl,
@@ -168,25 +169,11 @@ export function createOfficeStatementActions({
     }
 
     if (action === "查看付款凭证") {
+      const isCurrentAttachmentRead = beginAttachmentRead();
       const attachmentId = typeof actionPayload === "string" ? actionPayload : actionPayload?.attachmentId;
       const attachmentFile = (selected.paymentAttachmentFiles ?? []).find((file) => file.attachmentId === attachmentId);
       if (!attachmentId) {
         setToast("未找到付款凭证附件 ID，无法预览。");
-        return;
-      }
-      if (attachmentFile?.previewDataUrl && (allowLocalFallback || attachmentFile.contentSource === "api")) {
-        const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        openAttachmentViewer({
-          ...attachmentFile,
-          accessAudit,
-          statementId: selected.id,
-        });
-        setStatements((current) =>
-          updateStatementPaymentAttachmentPreview(current, selected.id, attachmentId, {
-            accessAudit,
-          }),
-        );
-        setToast(`已打开付款凭证预览：${attachmentFile.fileName || attachmentId}。`);
         return;
       }
       const contentResult = await downloadOfficeAttachmentContent({
@@ -194,6 +181,7 @@ export function createOfficeStatementActions({
         attachmentId,
         operatorId: currentUserId,
       });
+      if (!isCurrentAttachmentRead()) return { stale: true };
       if (contentResult.blocked) {
         setToast(
           contentResult.error?.requiredPermission
@@ -212,12 +200,14 @@ export function createOfficeStatementActions({
         return;
       }
       const previewDataUrl = contentResult.contentBlob ? await readBlobAsDataUrl(contentResult.contentBlob) : "";
+      if (!isCurrentAttachmentRead()) return { stale: true };
       const isImagePreview = isInlineImageAttachment({
         previewDataUrl,
         contentType: contentResult.contentType,
         mimeType: contentResult.contentType || attachmentFile?.mimeType,
       });
       const accessAudit = await loadAttachmentAccessAudit(attachmentId);
+        if (!isCurrentAttachmentRead()) return { stale: true };
       const nextPreview = {
         ...attachmentFile,
         attachmentId,
@@ -255,26 +245,11 @@ export function createOfficeStatementActions({
     }
 
     if (action === "查看客户确认附件") {
+      const isCurrentAttachmentRead = beginAttachmentRead();
       const attachmentId = typeof actionPayload === "string" ? actionPayload : actionPayload?.attachmentId;
       const attachmentFile = (selected.customerConfirmationAttachmentFiles ?? []).find((file) => file.attachmentId === attachmentId);
       if (!attachmentId) {
         setToast("未找到客户确认附件 ID，无法预览。");
-        return;
-      }
-      if (attachmentFile?.previewDataUrl && (allowLocalFallback || attachmentFile.contentSource === "api")) {
-        const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        openAttachmentViewer({
-          ...attachmentFile,
-          accessAudit,
-          statementId: selected.id,
-          viewerTitle: "客户确认附件预览",
-        });
-        setStatements((current) =>
-          updateStatementCustomerConfirmationAttachmentPreview(current, selected.id, attachmentId, {
-            accessAudit,
-          }),
-        );
-        setToast(`已打开客户确认附件预览：${attachmentFile.fileName || attachmentId}。`);
         return;
       }
       const contentResult = await downloadOfficeAttachmentContent({
@@ -282,6 +257,7 @@ export function createOfficeStatementActions({
         attachmentId,
         operatorId: currentUserId,
       });
+      if (!isCurrentAttachmentRead()) return { stale: true };
       if (contentResult.blocked) {
         setToast(
           contentResult.error?.requiredPermission
@@ -300,12 +276,14 @@ export function createOfficeStatementActions({
         return;
       }
       const previewDataUrl = contentResult.contentBlob ? await readBlobAsDataUrl(contentResult.contentBlob) : "";
+      if (!isCurrentAttachmentRead()) return { stale: true };
       const isImagePreview = isInlineImageAttachment({
         previewDataUrl,
         contentType: contentResult.contentType,
         mimeType: contentResult.contentType || attachmentFile?.mimeType,
       });
       const accessAudit = await loadAttachmentAccessAudit(attachmentId);
+        if (!isCurrentAttachmentRead()) return { stale: true };
       const nextPreview = {
         ...attachmentFile,
         attachmentId,

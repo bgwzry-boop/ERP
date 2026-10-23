@@ -75,6 +75,13 @@ const service = createPackingCommandService({
   },
 });
 
+for (const value of [undefined, null, true, "", "100"]) {
+  const beforeCalls = calls.length;
+  const result = await service.completePackingTask({ workspace, packingTaskId: "PKT-1", operatorId: "U-PACKING", body: { actualPackedQty: value } });
+  assert.equal(result.error, true, `actual packed quantity must be explicit numeric input: ${String(value)}`);
+  assert.equal(calls.length, beforeCalls, "invalid actual quantity must never reach persistence");
+}
+
 const completed = await service.completePackingTask({
   workspace,
   packingTaskId: "PKT-1",

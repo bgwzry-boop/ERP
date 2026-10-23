@@ -229,6 +229,7 @@ function OfficeWorkbenchRuntime({
   const {
     guardUiAction,
     openAttachmentViewer,
+    beginAttachmentRead,
     openMasterDataTemplatePanel: showMasterDataTemplatePanel,
     openModal,
     openOrderActionModal,
@@ -510,6 +511,7 @@ function OfficeWorkbenchRuntime({
     markFulfillmentPrepared,
     mergeAttachmentSummaries,
     openAttachmentViewer,
+    beginAttachmentRead,
     openModal,
     readBlobAsDataUrl,
     refreshTodos,
@@ -552,6 +554,7 @@ function OfficeWorkbenchRuntime({
     guardUiAction,
     loadAttachmentAccessAudit: attachmentActions.loadAttachmentAccessAudit,
     openAttachmentViewer,
+    beginAttachmentRead,
     openModal,
     orderLines,
     readBlobAsDataUrl,

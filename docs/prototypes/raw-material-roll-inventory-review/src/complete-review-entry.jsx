@@ -49,9 +49,13 @@ if (identityGuard) {
     let viewportFamilyReloadTimer = null;
     const reloadForViewportFamily = (event) => {
       window.clearTimeout(viewportFamilyReloadTimer);
+      const currentFamily = handsetRuntime && phoneViewportQuery.matches ? "mobile" : "desktop";
+      if (currentFamily === expectedViewportFamily) return;
       viewportFamilyReloadTimer = window.setTimeout(() => {
+        const nextFamily = handsetRuntime && phoneViewportQuery.matches ? "mobile" : "desktop";
+        if (nextFamily === expectedViewportFamily) return;
         const nextUrl = new URL(window.location.href);
-        nextUrl.searchParams.set("erpViewport", handsetRuntime && event.matches ? "mobile" : "desktop");
+        nextUrl.searchParams.set("erpViewport", nextFamily);
         window.location.replace(nextUrl.toString());
       }, 120);
     };

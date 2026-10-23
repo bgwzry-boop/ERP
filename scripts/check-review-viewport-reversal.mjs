@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const source=readFileSync('docs/prototypes/raw-material-roll-inventory-review/src/complete-review-entry.jsx','utf8');
+const handler=source.slice(source.indexOf('  let viewportFamilyReloadTimer'),source.indexOf('  phoneViewportQuery.addEventListener'));
+let pending=null;const redirects=[];const query={matches:false};
+const context={URL,handsetRuntime:true,expectedViewportFamily:"desktop",phoneViewportQuery:query,window:{clearTimeout(){pending=null;},setTimeout(fn){pending=fn;return 1;},location:{href:'http://localhost:4174/?erpViewport=desktop#production-tasks',replace(url){redirects.push(url);}}}};
+vm.createContext(context);vm.runInContext(handler+';globalThis.change=reloadForViewportFamily;',context);
+query.matches=true;context.change({matches:true});
+query.matches=false;context.change({matches:false});
+if(pending)pending();
+assert.equal(redirects.length,0,'Returning to mounted width must cancel the pending family reload');
+query.matches=true;context.change({matches:true});pending();
+assert.equal(new URL(redirects[0]).searchParams.get('erpViewport'),'mobile');
+assert.equal(new URL(redirects[0]).hash,'#production-tasks');
+console.log('PASS viewport reversal cancels stale redirect; stable crossing preserves route');
