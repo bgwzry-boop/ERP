@@ -1102,6 +1102,9 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
       };
     }
 
+    if (!json?.operationLogId || json.packingTaskId !== safePackingTaskId || json.orderLineId !== safeOrderLineId || (fulfillmentId && json.fulfillmentId !== fulfillmentId) || !Array.isArray(json.packageIds) || json.packageIds.length !== safePackageCount || json.packageIds.some(id => typeof id !== "string" || !id) || new Set(json.packageIds).size !== json.packageIds.length) {
+      return { source: "api_error", blocked: true, error: { code: "PACKING_COMPLETION_RECEIPT_INCOMPLETE", message: "打包保存回执不完整，请用同一提交编号重试核对，不能按估算包裹继续。" } };
+    }
     return {
       source: "api",
       ...mapPackingCompleteResponse(json, {
@@ -1300,11 +1303,11 @@ function mapProductionFinishedGoodsPhotoResponse(json, fallback = {}) {
 function mapPackingCompleteResponse(json, fallback = {}) {
   const packageIds = Array.isArray(json?.packageIds)
     ? json.packageIds
-    : Array.from({ length: Math.max(1, Math.trunc(Number(fallback.packageCount || 1))) }, (_, index) => `PKG-${fallback.packingTaskId}-${index + 1}`);
+    : json ? [] : Array.from({ length: Math.max(1, Math.trunc(Number(fallback.packageCount || 1))) }, (_, index) => `PKG-${fallback.packingTaskId}-${index + 1}`);
   return {
-    packingTaskId: cleanText(json?.packingTaskId ?? fallback.packingTaskId),
-    orderLineId: cleanText(json?.orderLineId ?? fallback.orderLineId),
-    status: cleanText(json?.status) || "已完成",
+    packingTaskId: json ? cleanText(json.packingTaskId) : cleanText(fallback.packingTaskId),
+    orderLineId: json ? cleanText(json.orderLineId) : cleanText(fallback.orderLineId),
+    status: json ? cleanText(json.status) : "已完成",
     actualPackedQty: Math.trunc(Number(json?.actualPackedQty ?? fallback.actualPackedQty ?? 0)),
     packageIds,
     packageCount: packageIds.length,

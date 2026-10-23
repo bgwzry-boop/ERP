@@ -175,5 +175,20 @@
       "混装多明细与挂牌更正重印仍未接入，界面明确说明，不冒充已完成",
       "实体打印/扫码与现场岗位验收另行进行"
     ]
+  },
+  "candidatePermissionCloseout": {
+    "changes": [
+      "出库候选独立只读端点，仅按出库执行/派车权限返回必要ID和姓名",
+      "司机来自当前真实账号状态及角色，员工旧loginEnabled不覆盖停用账号；仓库执行人允许无账号在岗员工",
+      "正式打包回执缺packageIds/不符任务明细或交付ID即阻断，不能补造PKG编号；桌面核对业务ID和审计回执"
+    ],
+    "verification": [
+      "普通office/warehouse HTTP候选通过且账号管理API仍403",
+      "driver/finance候选403",
+      "严格认证真实签名runtime会话office/warehouse通过、driver/finance拒绝，伪造身份header401",
+      "缺包裹ID、他单ID、缺审计回执客户端拒绝",
+      "OpenAPI 207 paths验证通过"
+    ],
+    "pending": "派车写入端当前司机资格校验按主任务授权在下一提交补齐"
   }
 }

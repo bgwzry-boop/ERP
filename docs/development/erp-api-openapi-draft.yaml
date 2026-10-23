@@ -3629,6 +3629,39 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /fulfillments/operator-candidates:
+    get:
+      tags: [Fulfillment]
+      summary: 按当前办理权限读取出库执行人或司机候选
+      description: 仅出库执行权限返回在岗员工的 employeeId/name；仅派单权限返回绑定在岗员工且启用、可登录、具有司机岗位的账号 userId/name。不返回账号管理、工资或角色明细，未授权返回 403。
+      operationId: listFulfillmentOperatorCandidates
+      responses:
+        "200":
+          description: 仅包含当前账号获准查看的候选组
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  warehouseExecutors:
+                    type: array
+                    items:
+                      type: object
+                      required: [employeeId, name]
+                      properties:
+                        employeeId: { type: string }
+                        name: { type: string }
+                  drivers:
+                    type: array
+                    items:
+                      type: object
+                      required: [userId, name]
+                      properties:
+                        userId: { type: string }
+                        name: { type: string }
+        "403":
+          description: 当前账号没有出库执行或送货派单权限
+
   /fulfillments/{fulfillmentId}:
     get:
       tags: [Fulfillment]

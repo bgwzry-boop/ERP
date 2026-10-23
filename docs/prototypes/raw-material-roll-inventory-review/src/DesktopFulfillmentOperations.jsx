@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { completeOfficePackingTask } from "../../../../src/services/officeProductionPackingApiClient.js";
-import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
+import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import "./desktop-fulfillment-operations.css";
@@ -19,6 +19,7 @@ export function parseActualPackageQuantities(text) {
 
 function FulfillmentOperations({ fulfillment, formal }) {
   const [notice, setNotice] = useState("");
+  const [candidates, setCandidates] = useState({ warehouseExecutors: [], drivers: [], loading: true, error: "" });
   const [busy, setBusy] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
   const [uncertain, setUncertain] = useState(false);
@@ -47,8 +48,19 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const line = (formal?.data?.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === lineId);
   const task = fulfillment.packingTask ?? (formal?.data?.packingTasks ?? []).map(row => row.packingTask ?? row).find(row => (row.orderLineId ?? row.lineId) === lineId);
   const paper = fulfillment.paperOutboundDocument;
-  const employees = (formal?.data?.employeeAccountReviews ?? []).filter(row => !row.departedAt && row.profileStatus !== "merged");
-  const drivers = employees.filter(row => row.userId && row.loginEnabled === true && row.accountEnabled === true && (row.accountRoleKeys ?? []).includes("driver"));
+  const employees = candidates.warehouseExecutors;
+  const drivers = candidates.drivers;
+  const canReadCandidates = can("fulfillment.warehouse.execute") || can("fulfillment.dispatch.update");
+  useEffect(() => {
+    if (!canReadCandidates) return;
+    let active = true;
+    const controller = new AbortController();
+    getOfficeFulfillmentOperatorCandidates({authState: formal?.authState, operatorId: formal?.operatorId}, { serverRequired: true, signal: controller.signal }).then(result => {
+      if (!active) return;
+      setCandidates(result.source === "api" && !result.error ? { warehouseExecutors: result.warehouseExecutors, drivers: result.drivers, loading: false, error: "" } : { warehouseExecutors: [], drivers: [], loading: false, error: "办理人员读取失败，请刷新重试。" });
+    });
+    return () => { active = false; controller.abort(); };
+  }, [canReadCandidates, formal?.authState, formal?.operatorId]);
   const expected = Number(fulfillment.qty ?? fulfillment.expectedQty ?? 0);
   const method = fulfillment.method ?? fulfillment.fulfillmentMethod;
   const packages = parseActualPackageQuantities(packageText);
@@ -71,7 +83,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
     try {
       const result = await current.execute(current.payload, { serverRequired: true });
       if (!mounted.current) return;
-      if (result.source !== "api" || result.blocked || result.error || !result.operationLogId) {
+      if (result.source !== "api" || result.blocked || result.error || !hasCompleteFulfillmentReceipt(current, result)) {
         const unknown = !result.error?.status || result.error.status >= 500;
         setUncertain(unknown);
         setNotice(unknown ? "网络未确认结果，请保持当前内容并重试本次操作。" : result.error?.message || "未保存，请核对后再提交。");
@@ -100,6 +112,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
 
   return <section className="business-detail-section desktop-fulfillment-operations" aria-label="出库办理">
     <h3>出库办理</h3>
+    {candidates.error && <p role="alert">{candidates.error}</p>}
     {notice && <p className="fulfillment-operation-notice" role="status">{notice}</p>}
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {canPack && can("packing.complete") && <fieldset disabled={locked}>
@@ -118,8 +131,8 @@ function FulfillmentOperations({ fulfillment, formal }) {
       {can("fulfillment.paper.handoff") && ["已打印", "已重打"].includes(paper?.status) && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
       {can("fulfillment.warehouse.execute") && paper?.status === "已交库房" && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
         <legend>库房实际执行</legend>
-        <label>执行人<select value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">选择实际执行人</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name} · {row.bizNo || row.employeeId}</option>)}</select></label>
-        {!employees.length && <p>当前未载入可选员工，暂不能登记执行；请检查员工资料和查看权限。</p>}
+        <label>执行人<select value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">选择实际执行人</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}</select></label>
+        {!employees.length && <p>{candidates.loading ? "正在读取在岗员工…" : "暂无可选在岗员工，请先核对员工档案。"}</p>}
         <div className="fulfillment-operation-grid"><label>执行结果<select value={execution} onChange={event => setExecution(event.target.value)}>{["已备货", "实物已出库", "数量不符", "无法出库"].map(value => <option key={value}>{value}</option>)}</select></label><label>反馈方式<select value={channel} onChange={event => setChannel(event.target.value)}>{["当面", "电话", "微信", "纸面", "其他"].map(value => <option key={value}>{value}</option>)}</select></label></div>
         {execution !== "已备货" && <label>实际数量<input type="number" min="0" step="1" value={actualQty} onChange={event => setActualQty(event.target.value)} /></label>}
         <label>说明<textarea rows="2" value={note} onChange={event => setNote(event.target.value)} placeholder="差异、无法出库或需要交接的事项" /></label>
@@ -128,7 +141,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
       {method === "送货" && can("fulfillment.dispatch.update") && <fieldset disabled={locked}>
         <legend>安排送货</legend><p>司机在手机逐包扫码装车，并上传送货照片、签字照片或未签原因。</p>
         <label>司机<select value={driverId} onChange={event => setDriverId(event.target.value)}><option value="">选择已启用司机账号</option>{drivers.map(row => <option key={row.userId} value={row.userId}>{row.name}</option>)}</select></label>
-        {!drivers.length && <p>没有已启用的司机账号，请先由管理员核对司机岗位和账号。</p>}
+        {!drivers.length && <p>{candidates.loading ? "正在读取可派单司机…" : "没有已启用的司机账号，请先由管理员核对司机岗位和账号。"}</p>}
         <div className="fulfillment-operation-grid"><label>送货日期<input type="date" value={routeDate} onChange={event => setRouteDate(event.target.value)} /></label><label>车次<input value={routeNo} onChange={event => setRouteNo(event.target.value)} placeholder="填写实际车次" /></label><label>本车顺序<input type="number" min="1" step="1" value={routeSequence} onChange={event => setRouteSequence(event.target.value)} /></label></div>
         <button type="button" disabled={!driverId || !routeDate || !routeNo.trim() || !Number.isSafeInteger(Number(routeSequence)) || Number(routeSequence) < 1} onClick={() => ask("安排送货", updateOfficeFulfillmentDispatch, { driverId, routeDate, routeNo: routeNo.trim(), routeSequence: Number(routeSequence), remark: note }, `${drivers.find(row => row.userId === driverId)?.name}，${routeDate}，车次 ${routeNo}，顺序 ${routeSequence}。`)}>核对并派单</button>
       </fieldset>}
@@ -138,4 +151,16 @@ function FulfillmentOperations({ fulfillment, formal }) {
     </>}
     {confirmation && <div className="fulfillment-operation-confirm" role="group" aria-label="提交前核对"><strong>{confirmation.label}</strong><p>{confirmation.summary}</p><div><button type="button" disabled={busy || uncertain} onClick={() => setConfirmation(null)}>返回修改</button><button type="button" className="primary" disabled={busy} onClick={() => commit(uncertain)}>{busy ? "正在保存…" : uncertain ? "重试本次操作" : "确认提交"}</button></div></div>}
   </section>;
+}
+
+export function hasCompleteFulfillmentReceipt(attempt, result) {
+  if (!result?.operationLogId) return false;
+  const input = attempt.payload;
+  if (attempt.execute === completeOfficePackingTask) return result.packingTaskId === input.packingTaskId && result.fulfillmentId === input.fulfillmentId && result.orderLineId === input.orderLineId && Array.isArray(result.packageIds) && result.packageIds.length === input.packageCount && result.packageIds.every(id => typeof id === "string" && id.length > 0) && new Set(result.packageIds).size === result.packageIds.length;
+  if (result.fulfillmentId !== input.fulfillment?.id) return false;
+  if (attempt.execute === printOfficeFulfillment) return Boolean((result.printJobId ?? result.printJob?.printJobId) && (result.printRecord?.printRecordId ?? result.printRecord?.id));
+  if (attempt.execute === handoffOfficePaperOutbound) return (result.paperOutboundDocument?.paperOutboundDocumentId ?? result.paperOutboundDocument?.id) === (input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id);
+  if (attempt.execute === recordOfficeWarehouseOutboundExecution) return Boolean(result.warehouseOutboundExecution?.warehouseOutboundExecutionId ?? result.warehouseOutboundExecution?.id);
+  if (attempt.execute === updateOfficeFulfillmentDispatch) return result.dispatch?.driverId === input.driverId;
+  return Boolean(result.status);
 }

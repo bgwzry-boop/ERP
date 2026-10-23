@@ -759,3 +759,14 @@ function toNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
+
+export async function getOfficeFulfillmentOperatorCandidates(input = {}, options = {}) {
+  try {
+    const response = await requestFulfillmentApi("/fulfillments/operator-candidates", { ...options, authState: input.authState, operatorId: input.operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "无法读取出库办理人员。") };
+    return { source: "api", warehouseExecutors: Array.isArray(json?.warehouseExecutors) ? json.warehouseExecutors : [], drivers: Array.isArray(json?.drivers) ? json.drivers : [] };
+  } catch (error) {
+    return buildServerRequiredWriteError("FULFILLMENT_OPERATOR_CANDIDATES_UNAVAILABLE", error);
+  }
+}

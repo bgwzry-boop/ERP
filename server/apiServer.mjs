@@ -644,6 +644,7 @@ async function routeGet(context) {
       url,
       response,
       workspace,
+      permissionContext,
       sendJson,
       sendNotFound,
       paginate,
