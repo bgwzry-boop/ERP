@@ -1,8 +1,9 @@
+import { normalizeIntakeDeliveryMethod } from "./miniapp/miniappDeliveryMethod.mjs";
 import { buildMiniappConfirmationSourceQuery } from "./miniapp/miniappConfirmationSource.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey, readPostgresIdempotencyReplay, buildIdempotencyRequestHash, buildIdempotencyConflictError } from "./idempotency.mjs";
 import { normalizeInventoryIntents } from "./inventoryIntentDomain.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
 
@@ -27,25 +28,43 @@ export function createOrderDraftRepository(options = {}) {
 }
 
 export function createLocalOrderDraftRepository() {
+  const receipts = new WeakMap();
   return {
     kind: "local_memory",
+
+    readSaveReceipt({ workspace, draftId, idempotencyKey, idempotencyPayload }) {
+      const stored = receipts.get(workspace)?.get(`${draftId}:${idempotencyKey}`);
+      if (!stored) return null;
+      if (stored.hash !== buildIdempotencyRequestHash(idempotencyPayload)) throw buildIdempotencyConflictError();
+      return structuredClone(stored.result);
+    },
 
     loadState() {
       return { orderDrafts: [] };
     },
 
-    getMiniappConfirmationSources({ workspace, draftId }) {
-      return (workspace?.miniappConfirmationSources ?? []).filter(source => source.draftId === draftId);
-    },
+    getMiniappConfirmationSources({ workspace, draftId }) {return (workspace?.miniappConfirmationSources??[]).filter(source=>source.draftId===draftId);},
 
     getOrderDraft(input) {
       return normalizeOrderDraft((input.workspace?.orderDrafts ?? []).find((item) => item.id === input.draftId));
     },
 
     saveOrderDraft(input) {
+      const prior = this.readSaveReceipt({ ...input, draftId: input.draft?.id ?? input.draft?.draftId });
+      if (prior) return prior;
+      if (input.sourceHoldGuard) {
+        const expected = input.sourceHoldGuard;
+        const current = (input.workspace?.inventoryReservations ?? []).find(row => (row.id ?? row.reservationId) === (expected.id ?? expected.reservationId));
+        if (!current || ["inventoryItemId", "customerId", "sourceIntentId", "reservedQty", "revision", "status", "reservationType", "expiresAt"].some(key => current[key] !== expected[key]) ||
+          current.status !== "生效" || !(Date.parse(current.expiresAt) > Date.now())) throw orderDraftConcurrencyError();
+      }
       const requestedDraft = normalizeOrderDraft(input.draft);
       const expectedRevision = Math.max(0, toInteger(input.expectedRevision ?? requestedDraft?.revision, 0));
       const currentDraft = (input.workspace?.orderDrafts ?? []).find((item) => item.id === requestedDraft?.id);
+      if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(currentDraft?.status)) throw orderDraftConcurrencyError();
+      if (currentDraft?.sourceChannel === "mini_program" && ["sourceChannel", "sourceMessageId", "customerId"].some(key =>
+        String(requestedDraft?.[key] ?? "") !== String(currentDraft[key] ?? "")
+      )) throw Object.assign(new Error("小程序草稿来源身份不可修改。"), {code:"MINIAPP_DRAFT_SOURCE_IMMUTABLE",statusCode:409});
       const currentRevision = Math.max(0, toInteger(currentDraft?.revision ?? currentDraft?.clientRevision, 0));
       if ((currentDraft && currentRevision !== expectedRevision) || (!currentDraft && expectedRevision !== 0)) {
         throw orderDraftConcurrencyError();
@@ -63,12 +82,17 @@ export function createLocalOrderDraftRepository() {
         todos: input.todos,
         operationLog: input.operationLog,
       });
-      return {
+      const result = {
         draft,
         inventoryIntents: normalizeInventoryIntents(input.inventoryIntents),
         todos: normalizeTodos(input.todos),
         operationLogId: input.operationLog?.id ?? "",
       };
+      if (input.idempotencyKey && input.idempotencyPayload !== undefined) {
+        if (!receipts.has(input.workspace)) receipts.set(input.workspace, new Map());
+        receipts.get(input.workspace).set(`${draft.id}:${input.idempotencyKey}`, { hash: buildIdempotencyRequestHash(input.idempotencyPayload), result: structuredClone(result) });
+      }
+      return result;
     },
   };
 }
@@ -84,6 +108,11 @@ export function createPostgresOrderDraftRepository(options = {}) {
 
   return {
     kind: "postgres",
+
+    async readSaveReceipt({ draftId, idempotencyKey, idempotencyPayload }) {
+      const value = await readPostgresIdempotencyReplay({ queryJson, scope: `order.draft.save.${draftId}`, idempotencyKey, payload: idempotencyPayload });
+      return value ? normalizeOrderDraftTransactionResult(value) : null;
+    },
 
     async loadState() {
       const query = buildListOrderDraftsQuery();
@@ -144,6 +173,27 @@ SELECT COALESCE(
       'sourceText', draft.source_text,
       'sourceChannel', draft.source_channel,
       'sourceMessageId', COALESCE(draft.source_message_id, ''),
+      'miniappDeliveryRequests', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'sourceOrderNo', submission.biz_no,
+          'sourceRevision', submission.revision,
+          'status', 'customer_requested',
+          'method', submission.normalized_payload_json->>'deliveryMethod',
+          'desiredDate', submission.normalized_payload_json->>'desiredDate',
+          'desiredTime', submission.normalized_payload_json->>'desiredTime',
+          'packagingPreference', submission.normalized_payload_json->>'packagingPreference',
+          'address', jsonb_build_object(
+            'recipientName', submission.normalized_payload_json->'address'->>'recipientName',
+            'phone', submission.normalized_payload_json->'address'->>'phone',
+            'province', submission.normalized_payload_json->'address'->>'province',
+            'city', submission.normalized_payload_json->'address'->>'city',
+            'district', submission.normalized_payload_json->'address'->>'district',
+            'detail', submission.normalized_payload_json->'address'->>'detail'
+          )
+        ) ORDER BY submission.id)
+        FROM order_intake_submissions submission
+        WHERE submission.draft_id = draft.id AND submission.customer_id = draft.customer_id
+      ), '[]'::jsonb),
       'customerId', COALESCE(draft.customer_id, ''),
       'customerName', COALESCE(customer.name, draft.recognition_summary->>'customerName', ''),
       'status', draft.status,
@@ -211,11 +261,31 @@ export function buildSaveOrderDraftTransactionQuery(input) {
   const inventoryIntentSql = buildInsertInventoryIntentsSql(inventoryIntents, parameters);
   const operationLogSql = buildInsertOperationLogSql(operationLog, parameters);
 
+  const hold = input.sourceHoldGuard;
+  const holdGuardSql = hold ? `
+locked_source_hold AS MATERIALIZED (
+  SELECT * FROM inventory_reservations WHERE id = ${parameters.text(hold.id ?? hold.reservationId)} FOR UPDATE
+),
+source_hold_guard AS MATERIALIZED (
+  SELECT erp_require(EXISTS (
+    SELECT 1 FROM locked_source_hold
+    WHERE status = '生效' AND reservation_type = '临时留货'
+      AND inventory_item_id = ${parameters.text(hold.inventoryItemId)}
+      AND customer_id = ${parameters.text(hold.customerId)}
+      AND source_intent_id = ${parameters.text(hold.sourceIntentId)}
+      AND reserved_qty = ${parameters.integer(hold.reservedQty)}
+      AND revision = ${parameters.integer(hold.revision)}
+      AND expires_at = ${parameters.timestamp(hold.expiresAt)}
+      AND expires_at > clock_timestamp()
+  ), 'ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT') AS ok
+),` : "source_hold_guard AS MATERIALIZED (SELECT true AS ok),";
+
   return {
     text: `
 BEGIN;
-WITH locked_draft AS MATERIALIZED (
-  SELECT id, revision
+WITH ${holdGuardSql}
+locked_draft AS MATERIALIZED (
+  SELECT id, revision, status
   FROM order_drafts
   WHERE id = ${parameters.text(draft.id)}
   FOR UPDATE
@@ -248,8 +318,9 @@ upserted_draft AS (
     ${parameters.nullableText(draft.createdBy)},
     ${parameters.timestamp(draft.createdAt)},
     ${parameters.timestamp(draft.updatedAt)}
-  WHERE ${parameters.integer(expectedRevision)} = 0
-    OR EXISTS (SELECT 1 FROM locked_draft WHERE revision = ${parameters.integer(expectedRevision)})
+  FROM source_hold_guard
+  WHERE source_hold_guard.ok AND (${parameters.integer(expectedRevision)} = 0
+    OR EXISTS (SELECT 1 FROM locked_draft WHERE revision = ${parameters.integer(expectedRevision)} AND status NOT IN ('已生成正式订单','已生成多个正式订单','已确认')))
   ON CONFLICT (id) DO UPDATE SET
     source_text = EXCLUDED.source_text,
     source_channel = EXCLUDED.source_channel,
@@ -260,6 +331,7 @@ upserted_draft AS (
     revision = order_drafts.revision + 1,
     updated_at = EXCLUDED.updated_at
   WHERE order_drafts.revision = ${parameters.integer(expectedRevision)}
+    AND order_drafts.status NOT IN ('已生成正式订单','已生成多个正式订单','已确认')
   RETURNING order_drafts.id AS id, json_build_object(
     'id', order_drafts.id,
     'draftId', order_drafts.id,
@@ -578,7 +650,7 @@ export function normalizeOrderDraft(value) {
     status: cleanText(value.status) || "待审核",
     revision,
     clientRevision: Math.max(1, toInteger(value.clientRevision ?? revision, revision || 1)),
-    lines: (Array.isArray(value.lines) ? value.lines : []).map(normalizeDraftLine).filter(Boolean),
+    lines: (Array.isArray(value.lines) ? value.lines : []).map(line=>normalizeDraftLine(line && ["mini_program","wechat_mini_program"].includes(value.sourceChannel??value.source_channel) ? {...line,fulfillment:normalizeIntakeDeliveryMethod(line.fulfillment??line.fulfillmentMethod)}:line)).filter(Boolean),
     createdBy: cleanText(value.createdBy ?? value.created_by),
     createdAt,
     updatedAt: normalizeTimestamp(value.updatedAt ?? value.updated_at, createdAt),

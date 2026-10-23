@@ -1,11 +1,12 @@
-import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
-import { loadMiniappDraftLockedPricing, applyMiniappDraftLockedPricing } from "../miniapp/miniappDraftLockedPricing.mjs";
+import { normalizeInventoryHoldTimestamp } from "../../shared/inventoryHoldTime.js";
 import { createHash } from "node:crypto";
+import { loadMiniappDraftLockedPricing, applyMiniappDraftLockedPricing } from "../miniapp/miniappDraftLockedPricing.mjs";
 import { buildInventoryIntentsFromRecognition } from "../inventoryIntentDomain.mjs";
 import { assertOrderDraftSplitPlan, buildOrderDraftSplitPlan } from "../orderDraftSplitDomain.mjs";
 import { buildOrderDraftQueuePlan } from "../orderDraftQueueDomain.mjs";
 import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
+import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 
 export function createOrderDraftCommandService(dependencies = {}) {
   const {
@@ -62,10 +63,22 @@ export function createOrderDraftCommandService(dependencies = {}) {
     linkCrossDraftShortageCancellation,
     confirmOrderDraft,
     previewOrderDraftSplit,
+    previewOrderDraftInventory,
     confirmSplitOrderDraft,
   };
 
   async function recognizeOrderDraft({ workspace, body = {}, operatorId }) {
+    const draftId = body.draftId ?? (body.idempotencyKey
+      ? `DRAFT-API-${createHash("sha256").update(body.idempotencyKey).digest("hex").slice(0, 16).toUpperCase()}`
+      : nextId("DRAFT-API", workspace.orderDrafts));
+    if (body.idempotencyKey && workspace.orderDraftRepository.readSaveReceipt) {
+      const prior = await workspace.orderDraftRepository.readSaveReceipt({ workspace, draftId, idempotencyKey: body.idempotencyKey, idempotencyPayload: { ...body, operatorId } });
+      if (prior?.draft) {
+        const context = prior.draft.recognitionContext ?? {};
+        return success({ draft: summarizeDraft(prior.draft), lines: prior.draft.lines.map(toRecognizedDraftLine), recognition: context,
+          inventoryIntents: prior.inventoryIntents, riskHints: [...buildDraftRiskHints(prior.draft.lines), ...(context.riskHints ?? [])], operationLogId: prior.operationLogId });
+      }
+    }
     const sourceText = body.sourceText ?? body.text ?? "";
     const recognition = recognizeOrderConversation(
       Array.isArray(body.sourceMessages) && body.sourceMessages.length ? body.sourceMessages : sourceText,
@@ -84,7 +97,19 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!recognition.sourceMessages.length) {
       return businessError(422, "VALIDATION_ERROR", "sourceText or sourceMessages must contain at least one message");
     }
-    const lines = recognition.orderRows;
+    let lines = recognition.orderRows;
+    const sourceHoldId = String(body.sourceHoldId ?? "").trim();
+    const sourceIntentId = String(body.sourceIntentId ?? "").trim();
+    let sourceHoldGuard = null;
+    if (sourceHoldId || sourceIntentId) {
+      if (!sourceHoldId || !sourceIntentId || lines.length !== 1) {
+        return businessError(422, "TEMPORARY_HOLD_SOURCE_REQUIRED", "留货转单必须提供完整来源，并且只对应一条商品明细。");
+      }
+      lines = lines.map(line => ({ ...line, sourceHoldId, sourceIntentId }));
+      const conversions = resolveTemporaryHoldConversions(workspace, lines);
+      if (conversions.error) return conversions.error;
+      sourceHoldGuard = structuredClone(conversions.byHoldId.get(sourceHoldId));
+    }
     const recognitionContext = {
       version: recognition.version,
       sourceMessages: recognition.sourceMessages,
@@ -92,12 +117,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
       nonOrderIntents: recognition.nonOrderIntents,
       temporaryHolds: recognition.temporaryHolds,
       summary: recognition.summary,
+      riskHints: recognition.riskHints,
     };
-    const draftId =
-      body.draftId ??
-      (body.idempotencyKey
-        ? `DRAFT-API-${createHash("sha256").update(body.idempotencyKey).digest("hex").slice(0, 16).toUpperCase()}`
-        : nextId("DRAFT-API", workspace.orderDrafts));
     const customerId = body.customerId ?? lines[0]?.customerId ?? "";
     const draft = buildDraftProjection(null, {
       id: draftId,
@@ -138,6 +159,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       operationLog,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
+      sourceHoldGuard,
     });
     const savedLines = transaction.draft.lines;
 
@@ -300,6 +322,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
+    if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(previous.status)) {
+      return businessError(409, "ORDER_DRAFT_ALREADY_CONFIRMED", "草稿已生成正式订单，不能重新保存；请从正式订单处理后续变更。");
+    }
+    if (previous.sourceChannel === "mini_program" && ["sourceChannel", "sourceMessageId", "customerId"].some(key =>
+      body[key] !== undefined && String(body[key] ?? "") !== String(previous[key] ?? "")
+    )) {
+      return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序草稿的来源渠道、源订单号和客户归属不能通过保存草稿改写。");
+    }
     const draft = buildDraftProjection(previous, {
       id: draftId,
       draftId,
@@ -554,10 +584,26 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!expectedRevision) {
       return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
     }
+    if (body.idempotencyKey) {
+      const replay = await workspace.orderConfirmationTransactionRepository.findIdempotentReplay?.({
+        draftId,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: { ...body, operatorId },
+      });
+      if (replay?.commandResponse) return success(replay.commandResponse);
+      const rejected = await workspace.orderDraftRepository.readSaveReceipt?.({ workspace, draftId,
+        idempotencyKey: body.idempotencyKey, idempotencyPayload: { ...body, operatorId, action: "blocked_order_confirmation" } });
+      if (rejected?.draft?.recognitionContext?.confirmationBlockReason) {
+        return { ...businessError(409, "ORDER_DRAFT_BLOCKED", rejected.draft.recognitionContext.confirmationBlockReason),
+          details: { draftId, clientRevision: rejected.draft.revision ?? rejected.draft.clientRevision, operationLogId: rejected.operationLogId } };
+      }
+    }
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
-    if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
+    if (["mini_program","wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) {
+      return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
+    }
     const miniappPricing = await loadMiniappDraftLockedPricing(workspace.orderDraftRepository, previous, lines, workspace);
     const cancellationResolution = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellationResolution.error) return cancellationResolution.error;
@@ -597,6 +643,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
           body.customerId ?? previous.customerId ?? lines[0]?.customerId,
         ),
         status: confirmation.draftStatus,
+        recognitionContext: { ...previous.recognitionContext, confirmationBlockReason: confirmation.toast },
         lines: mergeDraftLineChecks(cancellationResolution.lines, confirmation.checkedRows),
         revision: expectedRevision,
         clientRevision: expectedRevision,
@@ -611,16 +658,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
         after: summarizeDraft(blockedDraft),
         reason: confirmation.toast,
       });
-      await workspace.orderDraftRepository.saveOrderDraft({
+      const saved = await workspace.orderDraftRepository.saveOrderDraft({
         workspace,
         draft: blockedDraft,
         expectedRevision,
         todos: [],
         operationLog,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { ...body, operatorId },
+        idempotencyPayload: { ...body, operatorId, action: "blocked_order_confirmation" },
       });
-      return businessError(409, "ORDER_DRAFT_BLOCKED", confirmation.toast);
+      return { ...businessError(409, "ORDER_DRAFT_BLOCKED", confirmation.toast), details: { draftId, clientRevision: saved.draft.revision ?? saved.draft.clientRevision, operationLogId: saved.operationLogId } };
     }
 
     const confirmedDraft = buildDraftProjection(previous, {
@@ -674,8 +721,29 @@ export function createOrderDraftCommandService(dependencies = {}) {
       operatorId,
     );
     const todos = buildConfirmationTodos(workspace, confirmation.shortageTodoInputs, operatorId, confirmation.newLines);
+    const commandResponse = {
+      orderId: confirmation.orderNo,
+      orderSummaryStatus: "处理中",
+      orderLines: confirmation.newLines.map(toOrderLineSummary),
+      productionTasks: productionTasks,
+      priceSnapshots: priceSnapshots.map(snapshot => ({ ...snapshot, amount: snapshot.finalAmount })),
+      inventoryChecks: confirmation.checkedRows.map((line, index) =>
+        toInventoryCheckResult(workspace, line, confirmation.newLines[index]),
+      ),
+      reservations: inventoryReservations.map(toInventoryReservationTransactionSummary),
+      convertedTemporaryHoldIds: inventoryReservations
+        .filter((reservation) => reservation.convertFromTemporaryHold)
+        .map((reservation) => reservation.reservationId),
+      cancelledDraftLineIds: cancellationResolution.cancelledDraftLineIds,
+      appliedShortageCancellationIntentIds: cancellationResolution.appliedIntents.map((intent) => intent.id),
+      closedWithoutOrder: false,
+      fulfillmentTasks: confirmation.newFulfillments.map(toFulfillmentTaskSummary),
+      todos: todos.map(toTodoSummary),
+      operationLogIds: [operationLog.id],
+    };
     const transaction = await workspace.orderConfirmationTransactionRepository.confirmOrder({
       workspace,
+      commandResponse,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
       orderDraft: confirmedDraft,
@@ -703,26 +771,29 @@ export function createOrderDraftCommandService(dependencies = {}) {
       operationLog,
     });
 
-    return success({
-      orderId: transaction.order.orderId,
-      orderSummaryStatus: "处理中",
-      orderLines: confirmation.newLines.map(toOrderLineSummary),
-      productionTasks: transaction.productionTasks,
-      priceSnapshots: priceSnapshots.map(snapshot => ({ ...snapshot, amount: snapshot.finalAmount })),
-      inventoryChecks: confirmation.checkedRows.map((line, index) =>
-        toInventoryCheckResult(workspace, line, confirmation.newLines[index]),
-      ),
-      reservations: transaction.inventoryReservations.map(toInventoryReservationTransactionSummary),
-      convertedTemporaryHoldIds: inventoryReservations
-        .filter((reservation) => reservation.convertFromTemporaryHold)
-        .map((reservation) => reservation.reservationId),
-      cancelledDraftLineIds: cancellationResolution.cancelledDraftLineIds,
-      appliedShortageCancellationIntentIds: cancellationResolution.appliedIntents.map((intent) => intent.id),
-      closedWithoutOrder: false,
-      fulfillmentTasks: confirmation.newFulfillments.map(toFulfillmentTaskSummary),
-      todos: transaction.todos.map(toTodoSummary),
-      operationLogIds: [transaction.operationLogId],
-    });
+    return success(transaction.commandResponse ?? commandResponse);
+  }
+
+  async function previewOrderDraftInventory({ workspace, draftId, body = {} }) {
+    if (workspace.coreWorkspaceReadRepository?.kind === "postgres") {
+      const state = await workspace.coreWorkspaceReadRepository.loadState();
+      workspace = { ...workspace, inventories: state.inventories, inventoryReservations: state.inventoryReservations,
+        orderLines: state.orderLines, fulfillments: state.fulfillments, customers: state.customers };
+    }
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
+    if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "请先保存有效草稿版本。");
+    const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
+    if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
+    if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已更新，请重新读取后校验。");
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    if (!lines.length || lines.some(line => !Number.isSafeInteger(line.qty) || line.qty <= 0)) return businessError(422, "VALIDATION_ERROR", "请填写有效的正整数数量。");
+    const holdResolution = resolveTemporaryHoldConversions(workspace, lines);
+    if (holdResolution.error) return holdResolution.error;
+    const result = confirmDraftOrder({ draftRows: lines,
+      inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
+      orderLines: workspace.orderLines, fulfillments: workspace.fulfillments, customers: workspace.customers });
+    return success({ draftId, revision: expectedRevision, checkedAt: nowIso(now),
+      checks: result.checkedRows.map(line => ({ draftLineId: line.id, inventory: line.inventory })) });
   }
 
   async function previewOrderDraftSplit({ workspace, draftId, body = {} }) {
@@ -757,6 +828,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     };
     if (body.idempotencyKey) {
       const replay = await workspace.orderConfirmationTransactionRepository.findIdempotentReplay?.({
+        draftId,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload,
       });
@@ -768,7 +840,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
       return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "The draft changed before split confirmation.");
     }
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
-    if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
+    if (["mini_program","wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) {
+      return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
+    }
     const miniappPricing = await loadMiniappDraftLockedPricing(workspace.orderDraftRepository, previous, lines, workspace);
     const cancellationResolution = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellationResolution.error) return cancellationResolution.error;
@@ -811,7 +885,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         customers: workspace.customers,
       });
       applyMiniappDraftLockedPricing(confirmation, miniappPricing);
-    if (confirmation.blocked) {
+      if (confirmation.blocked) {
         return businessError(409, "ORDER_DRAFT_SPLIT_GROUP_BLOCKED", `${group.groupId}: ${confirmation.toast}`);
       }
       confirmations.push({ group, confirmation });
@@ -1238,7 +1312,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
       .filter((line) => normalizeOrderType(line.orderType) !== "external_print")
       .map((line) => {
         const productionTaskId = nextPlainId("PT", line.id);
-        const taskType = line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
+        const orderType = normalizeOrderType(line.orderType);
+        const taskType = orderType === "stock_printed" || orderType === "custom_print" || line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
         return {
           productionTaskId,
           bizNo: productionTaskId,
@@ -1294,7 +1369,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
       if (!reservation || reservation.reservationType !== "临时留货" || reservation.status !== "生效") {
         return { error: businessError(409, "TEMPORARY_HOLD_NOT_ACTIVE", "The linked temporary hold is not active.") };
       }
-      if (reservation.expiresAt && Date.parse(reservation.expiresAt) <= new Date(now()).getTime()) {
+      const expiry = Date.parse(normalizeInventoryHoldTimestamp(reservation.expiresAt));
+      if (!Number.isFinite(expiry)) {
+        return { error: businessError(409, "TEMPORARY_HOLD_EXPIRY_INVALID", "临时留货到期时间缺失或无效，请核对留货记录后再转订单。") };
+      }
+      if (expiry <= new Date(now()).getTime()) {
         return { error: businessError(409, "TEMPORARY_HOLD_EXPIRED", "The linked temporary hold has expired.") };
       }
       if (Number(reservation.reservedQty ?? reservation.qty) !== Number(line.qty)) {

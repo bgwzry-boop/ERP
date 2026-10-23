@@ -141,7 +141,7 @@ console.log("Statement financial command service checks passed");
 
 function createWorkspace() {
   const current = {
-    statements: [{ id: "ST-1", customerId: "C-1", receivable: 100, received: 0, variance: 20, status: "差额待确认", revision: 1 }],
+    statements: [{ id: "ST-1", customerId: "C-1", receivable: 100, received: 80, variance: 20, status: "差额待确认", revision: 1 }],
     paymentRecords: [],
     varianceRecords: [],
     todos: [],

@@ -12,16 +12,20 @@ export { resolveOfficeOrderConfirmationStrategy } from "./officeOrderSelectors.j
 const defaultDraftStatus = "待补充信息";
 
 export async function recognizeOfficeDraft(input, options = {}) {
-  const { authState, customers = [], inventories = [], operatorId, sourceMessages, sourceText } = input;
+  const { authState, customerId, customers = [], inventories = [], operatorId, sourceMessages, sourceText } = input;
   try {
     const response = await requestOrderApi("/order-drafts/recognize", {
       ...options,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       authState,
       method: "POST",
       operatorId,
       body: {
         sourceText,
         sourceMessages,
+        customerId,
+        sourceHoldId: input.sourceHoldId,
+        sourceIntentId: input.sourceIntentId,
         sourceChannel: "manual",
         operatorId,
       },
@@ -49,6 +53,7 @@ export async function recognizeOfficeDraft(input, options = {}) {
     const recognition = recognizeOrderConversation(sourceMessages?.length ? sourceMessages : sourceText, {
       customers,
       inventories,
+      customerId,
     });
     return {
       source: "local_fallback",
@@ -194,6 +199,7 @@ export async function saveOfficeDraft(input, options = {}) {
   try {
     const response = await requestOrderApi(`/order-drafts/${encodeURIComponent(resolvedDraftId)}`, {
       ...options,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       authState,
       method: "PATCH",
       operatorId,
@@ -334,6 +340,7 @@ export async function confirmOfficeDraftViaApi(input, options = {}) {
   try {
     const response = await requestOrderApi(`/order-drafts/${encodeURIComponent(resolvedDraftId)}/confirm`, {
       ...options,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       authState,
       method: "POST",
       operatorId,
@@ -548,6 +555,8 @@ function mapQueuedDraftRecord(draft, inventories) {
     customerNote: line.note,
     recognitionEvidence: {
       normalizedLine: line.normalizedLine ?? line.recognitionEvidence?.normalizedLine,
+      sourceHoldId: line.sourceHoldId,
+      sourceIntentId: line.sourceIntentId,
       sourceText: line.source,
       sourceMessageId: line.sourceMessageId,
       sourceSender: line.sourceSender,

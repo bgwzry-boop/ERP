@@ -73,8 +73,8 @@ const order = {
     quantity: 1000,
     artworkFileId: null,
     artwork: null,
-    specification: {},
-    quoteSnapshot: {},
+    specification: { patternName: "福字袋", printColors: ["红色", "黑色"], printSideMode: "double_different", printPositionMode: "other", printPositionNote: "距袋底 8 厘米", additionalRequirementsText: "按扣" },
+    quoteSnapshot: { priceVersion: "PRICE-1", quantity: 1000, amount: 100 },
     inventorySnapshot: { status: "available" },
     estimatedAmount: 100,
   }],
@@ -343,10 +343,36 @@ try {
   });
   assert.equal(repository.created.length, 1);
   assert.equal(repository.created[0].customerId, "CUSTOMER-A");
+  for (const invalidAmount of [null, "", false, "100", 0.001]) {
+    const invalid = structuredClone(order);
+    invalid.sourceOrderNo = "WT20260804FFFFFFFFFF";
+    invalid.pricing.estimatedAmount = invalidAmount;
+    const rejected = await request(baseUrl, createPath, { method: "POST", body: envelope(invalid) });
+    assert.equal(rejected.status, 422);
+    assert.equal(rejected.body.code, "BAGWIN_ORDER_SCHEMA_INVALID");
+  }
+  const mismatched = structuredClone(order);
+  mismatched.sourceOrderNo = "WT20260804FFFFFFFFFF";
+  mismatched.lines[0].estimatedAmount = 99;
+  const mismatchedResult = await request(baseUrl, createPath, { method: "POST", body: envelope(mismatched) });
+  assert.equal(mismatchedResult.status, 422);
+  assert.equal(mismatchedResult.body.code, "BAGWIN_ORDER_AMOUNT_MISMATCH");
+  assert.equal(repository.created.length, 1);
+  for (const change of [{ quantity: 999 }, { amount: 99 }]) {
+    const invalid = structuredClone(order);
+    invalid.sourceOrderNo = "WT20260804FFFFFFFFFF";
+    Object.assign(invalid.lines[0].quoteSnapshot, change);
+    const rejected = await request(baseUrl, createPath, { method: "POST", body: envelope(invalid) });
+    assert.equal(rejected.status, 422);
+    assert.equal(rejected.body.code, "BAGWIN_ORDER_QUOTE_MISMATCH");
+    assert.equal(repository.created.length, 1);
+  }
   assert.equal(repository.created[0].serverQuote.authoritative, true);
   assert.equal(repository.created[0].serverQuote.priceReleaseId, "PRICE-RELEASE-1");
   assert.equal(repository.created[0].serverQuote.priceReleaseSha256, "a".repeat(64));
   assert.equal(repository.created[0].normalizedPayload.customerSnapshot.companyName, "测试客户");
+  assert.deepEqual(repository.created[0].normalizedPayload.lines[0].specification, order.lines[0].specification);
+  assert.equal(repository.created[0].normalizedPayload.lines[0].patternName, "福字袋");
   assert.equal(Object.hasOwn(repository.created[0], "formalOrderId"), false);
 
   const retry = await request(baseUrl, createPath, { method: "POST", body: envelope() });
@@ -363,7 +389,7 @@ try {
 
   const changedOrder = {
     ...order,
-    lines: [{ ...order.lines[0], quantity: 1001 }],
+    lines: [{ ...order.lines[0], quantity: 1001, quoteSnapshot: { ...order.lines[0].quoteSnapshot, quantity: 1001 } }],
   };
   const conflict = await request(baseUrl, createPath, { method: "POST", body: envelope(changedOrder) });
   assert.equal(conflict.status, 409);
@@ -464,7 +490,26 @@ try {
     productionStatuses: ["已完成"],
   }, now).status, "stocking", "a historical completed task alone must not falsely keep the order in production");
 
-  console.log("Bagwin ERP integration checks passed: HMAC, replay protection, source lookup, draft-only intake, authoritative price-release lock, digest conflict, customer mapping, line-aware status projection, and complete reconciliation export are enforced.");
+  for (const amounts of [[0], [0.1, 0.2]]) {
+    const pricingRepository = createMemoryRepository();
+    const pricingService = createBagwinErpIntegrationService({ repository: pricingRepository, now: () => now });
+    const valid = structuredClone(order);
+    valid.lines = amounts.map((amount, index) => ({ ...valid.lines[0], sourceLineId: `PRICE-LINE-${index}`, clientLineId: `P${index}`, estimatedAmount: amount, quoteSnapshot: { ...valid.lines[0].quoteSnapshot, priceVersion: `LINE-VERSION-${index}`, amount } }));
+    valid.pricing.estimatedAmount = amounts.reduce((sum, value) => sum + value, 0);
+    assert.equal((await pricingService.createOrder(envelope(valid))).disposition, "created");
+  }
+  const legacy = structuredClone(order);
+  legacy.lines[0].quoteSnapshot = {};
+  const legacyRepository = createMemoryRepository();
+  await legacyRepository.createOrderIntake({ sourceOrderNo, payloadSha256: bagwinPayloadSha256(legacy), rawPayload: legacy });
+  const legacyService = createBagwinErpIntegrationService({ repository: legacyRepository });
+  assert.equal((await legacyService.createOrder(envelope(legacy))).disposition, "existing");
+  assert.equal(legacyRepository.created.length, 1);
+  const alteredLegacy = structuredClone(legacy);
+  alteredLegacy.lines[0].quantity += 1;
+  await assert.rejects(legacyService.createOrder(envelope(alteredLegacy)), { code: "BAGWIN_ORDER_PAYLOAD_CONFLICT" });
+  await assert.rejects(legacyService.createOrder({ ...envelope(legacy), order: alteredLegacy }), { code: "BAGWIN_ORDER_PAYLOAD_DIGEST_CONFLICT" });
+  console.log("Bagwin ERP integration checks passed: HMAC, replay protection, source lookup, draft-only intake, authoritative price-release lock, numeric money and line-total consistency, digest conflict, customer mapping, line-aware status projection, and complete reconciliation export are enforced.");
 } finally {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }

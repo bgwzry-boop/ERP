@@ -1,3 +1,4 @@
+import { normalizeIntakeDeliveryMethod } from "./miniappDeliveryMethod.mjs";
 import { randomUUID } from "node:crypto";
 
 import { createPostgresPoolClient } from "../postgresPoolClient.mjs";
@@ -106,7 +107,7 @@ export function buildCreateMiniappSubmissionTransaction(input, ids = buildBusine
   ${parameters.nullableText(line.patternName || line.patternId)}, ${parameters.boolean(printFlag)},
   ${parameters.nullableText(line.printColor)}, ${parameters.nullableText(line.printSideMode || line.printSide)},
   ${parameters.nullableText(line.handleColor)}, ${parameters.integer(line.quantity)},
-  ${parameters.nullableText(input.normalizedPayload.deliveryMethod)}, ${latestNeededAt}, ${parameters.nullableText(remark)},
+  ${parameters.nullableText(normalizeIntakeDeliveryMethod(input.normalizedPayload.deliveryMethod))}, ${latestNeededAt}, ${parameters.nullableText(remark)},
   'structured', ARRAY[]::text[], ${parameters.json({ source: "mini_program", clientLineId: line.clientLineId, normalizedLine: line })},
   ${receivedAt}, ${receivedAt}
 )`,

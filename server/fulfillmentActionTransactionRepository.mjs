@@ -1,5 +1,6 @@
 import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,mergePrintTodoCompletion,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
 import {buildGetTodoActionStateQuery,normalizeTodoLookupResult} from "./todoActionRepository.mjs";
+import { matchesDeliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { captureLegacyPrintOrderPrice } from "./services/fulfillmentPrintPricingService.mjs";
 import { captureFulfillmentBillingSnapshot, buildFulfillmentBillingSnapshotGuard } from "./services/fulfillmentBillingSnapshotService.mjs";
@@ -391,7 +392,7 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
   return `
 BEGIN;
 WITH locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, physical_outbound_at, loaded_at, final_delivery_at, delivered_at
+  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id
   FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
   FOR UPDATE
@@ -441,6 +442,7 @@ fulfillment_write_guard AS MATERIALIZED (
   SELECT erp_require(
     (SELECT COUNT(*) FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision)}) = 1
       AND (SELECT order_line_id FROM locked_fulfillment) = ${parameters.text(fulfillment.orderLineId)}
+      AND (${input.deliveryEvidenceSnapshot ? `EXISTS (SELECT 1 FROM locked_fulfillment WHERE revision = ${parameters.integer(input.deliveryEvidenceSnapshot.revision)} AND COALESCE(watermarked_photo_attachment_id,'') = ${parameters.text(input.deliveryEvidenceSnapshot.watermarkedPhotoAttachmentId)} AND COALESCE(signature_photo_attachment_id,'') = ${parameters.text(input.deliveryEvidenceSnapshot.signaturePhotoAttachmentId)})` : 'TRUE'})
       AND (${fulfillmentOperationalBoundsSql(operationLog.action,fulfillment,parameters)})
       AND (${buildFulfillmentBillingSnapshotGuard(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot, parameters)}),
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
@@ -2443,6 +2445,7 @@ function assertLocalFulfillmentOperationalBounds(input) {
  const current=(input.workspace.fulfillments??[]).find(row=>(row.fulfillmentId??row.id)===id);
  if(!current || (current.orderLineId??current.lineId)!==(next.orderLineId??next.lineId)) throw fulfillmentConflict(next.revision);
  const action=input.operationLog?.action;
+ if(input.deliveryEvidenceSnapshot && !matchesDeliveryEvidenceSnapshot(input.deliveryEvidenceSnapshot,current)) throw fulfillmentConflict(current.revision);
  if(action==="driver_resubmit_delivery_evidence" && ["deliveredAt","finalDeliveryAt"].some(key=>current[key]&&Date.parse(current[key])!==Date.parse(next[key]))) throw fulfillmentConflict(current.revision);
  if(["cancel_fulfillment","record_warehouse_outbound_execution","resolve_fulfillment_quantity_variance"].includes(action) && (current.physicalOutboundAt||current.loadedAt||current.finalDeliveryAt||["已交付","已完成","已取消"].includes(current.status))) throw fulfillmentConflict(current.revision);
  if(["driver_complete_delivery","driver_resubmit_delivery_evidence","driver_report_delivery_exception"].includes(action) && Number(next.actualQty)!==Number(current.actualQty??current.expectedQty??current.qty)) throw fulfillmentConflict(current.revision);

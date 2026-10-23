@@ -1,3 +1,5 @@
+import { findDeliveryEvidenceRetakeTodo } from "./deliveryEvidenceRetakeTodo.mjs";
+import { matchesDeliveryEvidenceSnapshot } from "../../shared/deliveryEvidenceSnapshot.js";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 import { captureFulfillmentBillingSnapshot, selectFulfillmentPriceSnapshot } from "./fulfillmentBillingSnapshotService.mjs";
 import { resolveFulfillmentBillingQuantity } from "./fulfillmentBillingQuantityService.mjs";
@@ -705,13 +707,18 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
         "Delivery evidence review only applies to delivery fulfillments.",
       );
     }
-    if (!hasDriverWatermarkEvidence(before)) {
-      return businessError(
-        409,
-        "DELIVERY_EVIDENCE_WATERMARK_REQUIRED",
-        "Delivery evidence review requires a submitted watermarked delivery photo.",
-      );
-    }
+    const evidence = validateBusinessAttachment({
+      workspace,
+      attachmentId: before.watermarkedPhotoAttachmentId,
+      findAttachment: findAttachmentRecord,
+      expectedOwnerType: "fulfillment",
+      expectedOwnerId: fulfillmentId,
+      expectedPurpose: "delivery_watermark_photo",
+      requireUploader: true,
+      errorCodePrefix: "DELIVERY_EVIDENCE_ATTACHMENT",
+      label: "delivery review watermarked photo",
+    });
+    if (!evidence.ok) return businessError(evidence.statusCode, evidence.errorCode, evidence.message);
 
     const reviewStatus = normalizeDeliveryEvidenceReviewStatus(body.reviewStatus ?? body.decision ?? body.status);
     if (!reviewStatus) {
@@ -722,12 +729,16 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       );
     }
 
-    const reviewedAt = normalizeTimestamp(body.reviewedAt, nowIso(now));
-    const reviewerLabel =
-      String(body.reviewerName ?? body.reviewedBy ?? body.reviewerLabel ?? "").trim() ||
-      String(operatorId ?? "U-OFFICE-A").trim();
+    const reviewedAt = nowIso(now);
+    const reviewer = (workspace.users ?? []).find(user => (user.userId ?? user.id) === operatorId);
+    const reviewerLabel = String(reviewer?.displayName ?? reviewer?.display_name ?? reviewer?.name ?? "").trim()
+      || String(operatorId ?? "").trim();
     const reason = String(body.reason ?? body.reasonText ?? body.remark ?? "").trim();
-    const issueReason = reviewStatus === "需重拍" ? reason || "水印/定位/照片清晰度需补充" : "";
+    if (reviewStatus === "需重拍" && !reason) return businessError(422, "DELIVERY_EVIDENCE_RETAKE_REASON_REQUIRED", "请填写具体重拍原因，说明司机需要补拍什么。");
+    if (!matchesDeliveryEvidenceSnapshot(body.expectedEvidence, before)) {
+      return businessError(409, "DELIVERY_EVIDENCE_SNAPSHOT_CONFLICT", "送达证据或单据已更新，请重新读取详情并核对照片后再复核。");
+    }
+    const issueReason = reviewStatus === "需重拍" ? reason : "";
     const after = {
       ...before,
       deliveryEvidenceReviewStatus: reviewStatus,
@@ -759,6 +770,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
         confirmedAt: after.confirmedAt ?? after.completedAt ?? "",
       }),
       todo,
+      deliveryEvidenceSnapshot: body.expectedEvidence,
       operationLog,
     });
     const savedFulfillment = findFulfillment(workspace, fulfillmentId) ?? after;
@@ -1722,18 +1734,16 @@ function cleanText(value) {
 
   function buildDeliveryEvidenceRetakeTodo(workspace, fulfillment, reason, operatorId) {
     const orderLineId = fulfillment.lineId ?? fulfillment.orderLineId ?? "";
-    const existingTodo = (workspace.todos ?? []).find(
-      (todo) => todo.type === "照片待重拍" && !todo.handled && (todo.ref === orderLineId || todo.ref === fulfillment.id),
-    );
+    const existingTodo = findDeliveryEvidenceRetakeTodo(workspace, fulfillment);
     const customerName = findCustomerName(workspace, fulfillment.customerId);
     const goods = fulfillment.goods ?? (orderLineId || fulfillment.id);
     return buildTodo(workspace, {
       ...(existingTodo ?? {}),
       type: "照片待重拍",
       customerId: fulfillment.customerId ?? "",
-      ref: orderLineId || fulfillment.id,
-      refType: orderLineId ? "order_line" : "fulfillment",
-      refId: orderLineId || fulfillment.id,
+      ref: fulfillment.id,
+      refType: "fulfillment",
+      refId: fulfillment.id,
       summary: `${customerName} ${goods}：${reason}`,
       latest: fulfillment.latest ?? fulfillment.latestNeededAt ?? "待确认",
       urgency: "异常",
@@ -1743,13 +1753,7 @@ function cleanText(value) {
   }
 
   function buildResolvedDeliveryEvidenceRetakeTodo(workspace, fulfillment, operatorId, handledAt) {
-    const orderLineId = fulfillment.lineId ?? fulfillment.orderLineId ?? "";
-    const existingTodo = (workspace.todos ?? []).find(
-      (todo) =>
-        todo.type === "照片待重拍" &&
-        !todo.handled &&
-        (todo.ref === orderLineId || todo.ref === fulfillment.id),
-    );
+    const existingTodo = findDeliveryEvidenceRetakeTodo(workspace, fulfillment);
     if (!existingTodo) return null;
     return {
       ...existingTodo,

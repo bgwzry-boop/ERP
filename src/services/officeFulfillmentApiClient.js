@@ -1,3 +1,4 @@
+import { deliveryEvidenceSnapshot } from "../../shared/deliveryEvidenceSnapshot.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import {
   buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
@@ -688,6 +689,7 @@ export async function reviewOfficeDeliveryEvidence(input, options = {}) {
         operatorId,
         body: {
           fulfillmentId: fulfillment.id,
+          expectedEvidence: input.expectedEvidence ?? deliveryEvidenceSnapshot(fulfillment),
           reviewStatus,
           reason,
           remark,

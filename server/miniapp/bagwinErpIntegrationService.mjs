@@ -56,7 +56,8 @@ function optionalString(value, field, max = 500) {
 
 function requireMoney(value, field) {
   const number = Number(value);
-  if (!Number.isFinite(number) || number < 0 || number > 100_000_000) {
+  if (typeof value !== "number" || !Number.isFinite(number) || number < 0 || number > 100_000_000 ||
+      Math.abs(number * 100 - Math.round(number * 100)) > 0.000001) {
     fail("BAGWIN_ORDER_SCHEMA_INVALID", `${field} is invalid.`);
   }
   return number;
@@ -135,7 +136,7 @@ function validateOrderLine(value, index) {
   };
 }
 
-export function validateBagwinCreateEnvelope(value) {
+function validateBagwinCreateIdentity(value) {
   const envelope = requireRecord(value, "request");
   requireExactKeys(envelope, ["schemaVersion", "sourceOrderNo", "payloadSha256", "order"], "request");
   if (envelope.schemaVersion !== 1) fail("BAGWIN_ORDER_SCHEMA_INVALID", "schemaVersion must be 1.");
@@ -150,6 +151,14 @@ export function validateBagwinCreateEnvelope(value) {
   if (order.schemaVersion !== 1 || order.sourceSystem !== "miniapp" || order.sourceOrderNo !== sourceOrderNo) {
     fail("BAGWIN_ORDER_SCHEMA_INVALID", "Order source identity does not match the request envelope.");
   }
+  if (bagwinPayloadSha256(order) !== payloadSha256) {
+    throw new BagwinErpIntegrationError(409, "BAGWIN_ORDER_PAYLOAD_DIGEST_CONFLICT", "Order payload digest does not match the submitted order.");
+  }
+  return { sourceOrderNo, payloadSha256, order };
+}
+
+export function validateBagwinCreateEnvelope(value) {
+  const { sourceOrderNo, payloadSha256, order } = validateBagwinCreateIdentity(value);
   const submittedAt = requireString(order.submittedAt, "order.submittedAt", { max: 40 });
   if (Number.isNaN(Date.parse(submittedAt))) fail("BAGWIN_ORDER_SCHEMA_INVALID", "order.submittedAt is invalid.");
 
@@ -170,9 +179,22 @@ export function validateBagwinCreateEnvelope(value) {
   const delivery = requireRecord(order.delivery, "order.delivery");
   requireExactKeys(delivery, ["method", "desiredDate", "desiredTime", "addressSnapshot", "packagingPreference"], "order.delivery");
   requireString(delivery.method, "order.delivery.method", { max: 80 });
+  if (!["到厂自提", "送货上门", "快递 / 快运到厂提货", "自提", "送货", "快递快运"].includes(delivery.method)) {
+    throw new BagwinErpIntegrationError(422, "BAGWIN_DELIVERY_METHOD_INVALID", "交付方式不在已支持的自提、送货或快运范围内。");
+  }
+
   if (delivery.desiredDate !== null) requireString(delivery.desiredDate, "order.delivery.desiredDate", { pattern: DATE_PATTERN, max: 10 });
   if (delivery.desiredTime !== null) requireString(delivery.desiredTime, "order.delivery.desiredTime", { pattern: TIME_PATTERN, max: 5 });
   requireRecord(delivery.addressSnapshot, "order.delivery.addressSnapshot");
+  if (["送货上门", "送货"].includes(delivery.method)) {
+    const address = delivery.addressSnapshot;
+    const required = ["recipientName", "phone", "province", "city", "district", "detail"];
+    if (required.some(key => typeof address[key] !== "string" || !address[key].trim()) ||
+        address.phone.replace(/[\s()+-]/g, "").length < 6) {
+      throw new BagwinErpIntegrationError(422, "BAGWIN_DELIVERY_ADDRESS_REQUIRED", "送货订单需提供完整收货人、电话和地址。");
+    }
+  }
+
   optionalString(delivery.packagingPreference, "order.delivery.packagingPreference", 500);
 
   const pricing = requireRecord(order.pricing, "order.pricing");
@@ -186,12 +208,22 @@ export function validateBagwinCreateEnvelope(value) {
     fail("BAGWIN_ORDER_SCHEMA_INVALID", "order.lines must contain between 1 and 100 items.");
   }
   const lines = order.lines.map(validateOrderLine);
+  const totalCents = lines.reduce((sum, line) => sum + Math.round(line.estimatedAmount * 100), 0);
+  if (totalCents !== Math.round(pricing.estimatedAmount * 100)) {
+    fail("BAGWIN_ORDER_AMOUNT_MISMATCH", "Order amount does not match its line amounts.");
+  }
+  for (const [index, line] of lines.entries()) {
+    const quote = line.quoteSnapshot;
+    const quoteAmount = requireMoney(quote.amount, `order.lines[${index}].quoteSnapshot.amount`);
+    requireString(quote.priceVersion, `order.lines[${index}].quoteSnapshot.priceVersion`, { max: 160 });
+    if (typeof quote.quantity !== "number" || quote.quantity !== line.quantity ||
+        Math.round(quoteAmount * 100) !== Math.round(line.estimatedAmount * 100)) {
+      fail("BAGWIN_ORDER_QUOTE_MISMATCH", `order.lines[${index}] quote does not match its order line.`);
+    }
+  }
   if (new Set(lines.map((line) => line.sourceLineId)).size !== lines.length ||
       new Set(lines.map((line) => line.clientLineId)).size !== lines.length) {
     fail("BAGWIN_ORDER_SCHEMA_INVALID", "Order line identifiers must be unique.");
-  }
-  if (bagwinPayloadSha256(order) !== payloadSha256) {
-    throw new BagwinErpIntegrationError(409, "BAGWIN_ORDER_PAYLOAD_DIGEST_CONFLICT", "Order payload digest does not match the submitted order.");
   }
   return { sourceOrderNo, payloadSha256, order, lines, erpCustomerId, miniappCustomerId, submittedAt };
 }
@@ -246,6 +278,9 @@ function toRepositoryInput(parsed, priceRelease) {
     quantity: line.quantity,
     artworkToken: line.artworkFileId || "",
     artwork: line.artwork,
+    specification: structuredClone(line.specification),
+    patternId: lineSpecificationText(line.specification, "patternId", 120),
+    patternName: lineSpecificationText(line.specification, "patternName", 160),
     printContent: lineSpecificationText(line.specification, "printContent"),
     printColor: lineSpecificationText(line.specification, "printColor"),
     printSide: lineSpecificationText(line.specification, "printSide"),
@@ -388,14 +423,15 @@ export function createBagwinErpIntegrationService(options = {}) {
     },
 
     async createOrder(value) {
-      const parsed = validateBagwinCreateEnvelope(value);
-      const existing = await repository.findBySourceOrderNo(parsed.sourceOrderNo);
+      const identity = validateBagwinCreateIdentity(value);
+      const existing = await repository.findBySourceOrderNo(identity.sourceOrderNo);
       if (existing) {
-        if (existing.payloadSha256 !== parsed.payloadSha256) {
+        if (existing.payloadSha256 !== identity.payloadSha256) {
           throw new BagwinErpIntegrationError(409, "BAGWIN_ORDER_PAYLOAD_CONFLICT", "The source order already exists with a different payload digest.");
         }
         return { schemaVersion: 1, ...existing, disposition: "existing" };
       }
+      const parsed = validateBagwinCreateEnvelope(value);
       if (!await repository.customerExists(parsed.erpCustomerId)) {
         throw new BagwinErpIntegrationError(422, "BAGWIN_ERP_CUSTOMER_NOT_FOUND", "The mapped ERP customer does not exist or is not ready for intake.");
       }

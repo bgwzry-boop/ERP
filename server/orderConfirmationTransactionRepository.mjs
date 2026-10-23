@@ -1,3 +1,4 @@
+import { normalizeInventoryHoldTimestamp } from "../shared/inventoryHoldTime.js";
 import { isDeepStrictEqual } from "node:util";
 import { buildMiniappConfirmationSourceGuard, validateMiniappConfirmationSource } from "./miniapp/miniappConfirmationSource.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
@@ -334,8 +335,12 @@ inventory_write_guard AS MATERIALIZED (
         JOIN temporary_hold_inputs AS conversion ON conversion.reservation_id = reservation.id
         WHERE reservation.reservation_type <> '临时留货'
           OR reservation.status <> '生效'
+          OR reservation.inventory_item_id IS DISTINCT FROM conversion.inventory_item_id
+          OR reservation.source_intent_id IS DISTINCT FROM conversion.source_intent_id
+          OR reservation.reserved_qty <> conversion.reserved_qty
           OR reservation.expires_at IS NULL
-          OR reservation.expires_at <= now()
+          OR reservation.expires_at <= clock_timestamp()
+          OR reservation.customer_id IS DISTINCT FROM conversion.customer_id
       ),
     'ERP_TEMPORARY_HOLD_CONVERSION_CONFLICT'
   ) AS hold_ok
@@ -903,7 +908,9 @@ function validateLocalTemporaryHoldConversions(workspace, reservations) {
       || existing.sourceIntentId !== conversion.sourceIntentId
       || existing.inventoryItemId !== conversion.inventoryItemId
       || Number(existing.reservedQty ?? existing.qty) !== conversion.reservedQty
-      || (existing.expiresAt && Date.parse(existing.expiresAt) <= Date.now())
+      || existing.customerId !== conversion.customerId
+      || !Number.isFinite(Date.parse(normalizeInventoryHoldTimestamp(existing.expiresAt)))
+      || Date.parse(normalizeInventoryHoldTimestamp(existing.expiresAt)) <= Date.now()
       || intent?.intentStatus !== "临时留货-生效") {
       const error = new Error("The temporary hold changed before order confirmation.");
       error.statusCode = 409;
@@ -1474,7 +1481,7 @@ HAVING SUM(reserved_qty) <> 0`;
 function buildTemporaryHoldConversionsSql(records, parameters) {
   if (records.length === 0) {
     return `SELECT NULL::text AS reservation_id, NULL::text AS source_intent_id,
-      NULL::text AS inventory_item_id, 0::integer AS reserved_qty, NULL::text AS order_line_id
+      NULL::text AS inventory_item_id, 0::integer AS reserved_qty, NULL::text AS order_line_id, NULL::text AS customer_id
       WHERE false`;
   }
   const values = records.map((record) => `(
@@ -1482,11 +1489,12 @@ function buildTemporaryHoldConversionsSql(records, parameters) {
     ${parameters.text(record.sourceIntentId)},
     ${parameters.text(record.inventoryItemId)},
     ${parameters.integer(record.reservedQty)},
-    ${parameters.text(record.orderLineId)}
+    ${parameters.text(record.orderLineId)},
+    ${parameters.nullableText(record.customerId)}
   )`).join(",\n");
   return `SELECT * FROM (VALUES
 ${values}
-) AS conversion(reservation_id, source_intent_id, inventory_item_id, reserved_qty, order_line_id)`;
+) AS conversion(reservation_id, source_intent_id, inventory_item_id, reserved_qty, order_line_id, customer_id)`;
 }
 
 function buildConvertInventoryIntentsSql(records) {

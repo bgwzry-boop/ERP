@@ -1,3 +1,4 @@
+import { deliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
 import assert from "node:assert/strict";
 import { createFulfillmentActionCommandService } from "../server/services/fulfillmentActionCommandService.mjs";
 
@@ -353,11 +354,11 @@ async function checkCancellationRelease() {
 }
 
 async function checkEvidenceReview() {
-  const workspace = buildWorkspace({ method: "送货", watermarkedPhotoAttached: true, driverId: "U-DRIVER-A" });
+  const workspace = buildWorkspace({ method: "送货", watermarkedPhotoAttached: true, watermarkedPhotoAttachmentId:"ATT-WM-001", driverId: "U-DRIVER-A" });
   const rejected = await service.reviewDeliveryEvidence({
     workspace,
     fulfillmentId: "FUL-001",
-    body: { reviewStatus: "retake_required", reason: "照片模糊", operatorId: "U-SPOOFED" },
+    body: { expectedEvidence: deliveryEvidenceSnapshot(workspace.fulfillments[0]), reviewStatus: "retake_required", reason: "照片模糊", operatorId: "U-SPOOFED" },
     operatorId: "U-OFFICE-A",
   });
   assert.equal(rejected.response.reviewStatus, "需重拍");
@@ -366,11 +367,11 @@ async function checkEvidenceReview() {
   assert.equal(calls.at(-1).fulfillment.deliveryEvidenceReviewedByUserId, "U-OFFICE-A");
   assert.equal(calls.at(-1).idempotencyPayload.operatorId, "U-OFFICE-A");
 
-  const approvedWorkspace = buildWorkspace({ method: "送货", watermarkedPhotoAttached: true });
+  const approvedWorkspace = buildWorkspace({ method: "送货", watermarkedPhotoAttached: true, watermarkedPhotoAttachmentId:"ATT-WM-001" });
   const approved = await service.reviewDeliveryEvidence({
     workspace: approvedWorkspace,
     fulfillmentId: "FUL-001",
-    body: { reviewStatus: "approved" },
+    body: { expectedEvidence: deliveryEvidenceSnapshot(approvedWorkspace.fulfillments[0]), reviewStatus: "approved" },
     operatorId: "U-OFFICE-A",
   });
   assert.equal(approved.response.reviewStatus, "已复核");

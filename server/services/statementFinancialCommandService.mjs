@@ -56,6 +56,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     if (blocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", blocker);
     const expectedRevision = requireExpectedRevision(body.expectedRevision);
     if (expectedRevision.error) return expectedRevision.error;
+    if(paymentCents(body.amount)===null || paymentCents(statement.receivable,true)===null || paymentCents(statement.received,true)===null) return businessError(422,"STATEMENT_PAYMENT_AMOUNT_INVALID","实收必须为有效金额，账单已有金额须先核实。");
     const attachmentValidation = validatePaymentAttachments({ workspace, statementId, body });
     if (attachmentValidation.error) return attachmentValidation;
 
@@ -128,7 +129,9 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const reason = mapVarianceHandlingResult(body.handlingResult, body.reason);
     const expectedRevision = requireExpectedRevision(body.expectedRevision);
     if (expectedRevision.error) return expectedRevision.error;
-    const varianceAmount = authoritativeStatementVariance(statement);
+    const amounts = validateSettlementAmounts(statement);
+    if(amounts.error) return amounts.error;
+    const varianceAmount = amounts.variance;
     const hasOpenVarianceTodo = workspace.todos.some(
       (todo) => todo.ref === statementId && todo.type === "收款差额待确认" && !todo.handled,
     );
@@ -220,7 +223,9 @@ export function createStatementFinancialCommandService(dependencies = {}) {
         "Write-off attachments are not persisted by this command; link evidence to the payment or variance record first.",
       );
     }
-    const blockingAmount = authoritativeStatementVariance(statement);
+    const amounts = validateSettlementAmounts(statement);
+    if(amounts.error) return amounts.error;
+    const blockingAmount = amounts.variance;
     const blocker = getStatementWriteOffBlocker(statement, blockingAmount);
     if (blocker) return businessError(409, "STATEMENT_WRITE_OFF_BLOCKED", blocker);
     const result = confirmStatementWriteOff(workspace.statements, statement, blockingAmount);
@@ -355,12 +360,6 @@ function prepareFinancialDecision({
   });
 }
 
-function authoritativeStatementVariance(statement) {
-  const explicit = Number(statement?.variance);
-  const calculated = Number(statement?.receivable ?? 0) - Number(statement?.received ?? 0);
-  return Number(Math.abs(Number.isFinite(explicit) ? explicit : calculated).toFixed(2));
-}
-
 function resolveCommittedStatement(requestedStatement, persistedStatement, expectedRevision) {
   return {
     ...requestedStatement,
@@ -402,4 +401,25 @@ function paymentResponse(transaction) {
 
 function buildSettlementReplayResponse(statementId,r,kind,evidence,mapStatus) {
  const s=r.statement;return {statementId,status:mapStatus(s.status),statementStatus:mapStatus(s.status),statementRevision:s.revision,receivable:s.receivable,received:s.received,variance:s.variance,varianceRecord:r.varianceRecord,writeOffRecord:r.writeOffRecord,debtAmount:String(s.status).includes('欠款')?s.variance:0,todoId:r.todo?.id,operationLogId:r.operationLogId,businessDecision:evidence.toProjection(r.businessDecision)};
+}
+
+function validateSettlementAmounts(statement) {
+  const receivable = paymentCents(statement?.receivable, true);
+  const received = paymentCents(statement?.received, true);
+  if (receivable === null || received === null) return { error: businessError(422, "STATEMENT_SETTLEMENT_AMOUNT_INVALID", "账单应收或已收金额缺失、格式不正确，请先复核账单，不能处理差额或核销。") };
+  if (received > receivable) return { error: businessError(409, "STATEMENT_OVERPAYMENT_REQUIRES_RESOLUTION", "本账单存在多收款，请先处理多收，不能作为少收差额核销。") };
+  const variance = receivable - received;
+  if (statement.variance !== undefined && statement.variance !== null) {
+    const declared = paymentCents(statement.variance, true);
+    if (declared === null || declared !== variance) return { error: businessError(409, "STATEMENT_VARIANCE_SNAPSHOT_CONFLICT", "账单差额与应收减已收不一致，请先复核账单，不能按旧差额核销。") };
+  }
+  return { variance: variance / 100 };
+}
+
+
+function paymentCents(value, allowZero = false) {
+  if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '') return null;
+  const scaled = Number(value) * 100;
+  const cents = Math.round(scaled);
+  return Number.isSafeInteger(cents) && cents >= (allowZero ? 0 : 1) && cents <= 99999999999999 && Math.abs(scaled-cents) < 0.000001 ? cents : null;
 }
