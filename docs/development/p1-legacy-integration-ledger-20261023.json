@@ -38,11 +38,11 @@
     "statusCounts": {
       "reviewed-cross-domain-scoped": 9,
       "p1-semantics-transplanted-partial": 49,
-      "reviewed-scoped-semantics": 383,
+      "reviewed-scoped-semantics": 384,
       "retained-historical-evidence": 61,
       "reviewed-followup-required": 46,
       "reviewed-validation-history": 29,
-      "reviewed-current-contract": 30,
+      "reviewed-current-contract": 29,
       "current-rule-replaces-legacy-scope": 4
     },
     "ancestorOfBaseline": 0,
@@ -16166,8 +16166,8 @@
         "docs/development/optimization-2026-09-05/miniapp-delivery-handoff.md",
         "scripts/check-postgres-live.mjs"
       ],
-      "status": "reviewed-current-contract",
-      "note": "自提与快递必须区分库存不足失败和已具足量占用后的合法执行，遵循当前实物出库单据契约，不能恢复旧的无单直接扣库。",
+      "status": "reviewed-scoped-semantics",
+      "note": "本轮真实数据库联查复现了实出10个但占用仅6个却少扣库存的遗漏。已补服务与锁后守恒：实扣、释放占用、流水及实出对应，等待锁后改量、串单或改库存均回滚；特殊尺寸/外加工合法无成品库存路线保留。自提和快递继续按现纸单及实际交付步骤执行。",
       "mechanical": {
         "parents": [
           "edcc12a8f9256f9a18d8068d499e80637b4beecc"
@@ -16199,8 +16199,8 @@
       "businessReview": {
         "kind": "scoped-semantic-review",
         "wholeCommitIntegrated": false,
-        "decision": "current-contract-retained",
-        "reason": "自提与快递必须区分库存不足失败和已具足量占用后的合法执行，遵循当前实物出库单据契约，不能恢复旧的无单直接扣库。",
+        "decision": "semantics-transplanted",
+        "reason": "本轮真实数据库联查复现了实出10个但占用仅6个却少扣库存的遗漏。已补服务与锁后守恒：实扣、释放占用、流水及实出对应，等待锁后改量、串单或改库存均回滚；特殊尺寸/外加工合法无成品库存路线保留。自提和快递继续按现纸单及实际交付步骤执行。",
         "domain": "root",
         "report": "docs/development/legacy-remaining-root-review-20261023.json",
         "currentEvidence": [
@@ -16220,7 +16220,9 @@
         "validation": [
           "scripts/check-fulfillment-action-command-service.mjs",
           "scripts/check-fulfillment-action-transaction-repository.mjs",
-          "scripts/check-postgres-live.mjs"
+          "scripts/check-postgres-live.mjs",
+          "scripts/check-fulfillment-inventory-conservation-postgres.mjs",
+          "scripts/check-fulfillment-inventory-conservation-local.mjs"
         ],
         "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。",
         "legacyPatchSha256": "635e8c86c903795082bf6cbe3a50648537b8e23f4bb1b4f703490964a34de0e6"
@@ -51546,15 +51548,15 @@
         "domain": "root",
         "path": "docs/development/legacy-remaining-root-review-20261023.json",
         "count": 29,
-        "sha256": "5789f8db6cefb578708b56b4012963e89f7c2c71aceb2c090f60761a27ba7153"
+        "sha256": "f91510eb777476d813ed92b2e12e9ffe9ff44344811d8555da672a91d7837819"
       }
     ],
     "sourceStatusCounts": {
       "reviewed-cross-domain-scoped": 9,
-      "reviewed-scoped-semantics": 383,
+      "reviewed-scoped-semantics": 384,
       "reviewed-followup-required": 46,
       "reviewed-validation-history": 29,
-      "reviewed-current-contract": 30
+      "reviewed-current-contract": 29
     },
     "scope": "497条都有实际差异审查记录和限定范围结论；仍有效但未完成的界面/恢复链明确为followup。不是497整提交全部移植、全部功能完成或已部署。",
     "crossDomainEvidence": [

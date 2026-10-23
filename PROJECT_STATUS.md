@@ -16,7 +16,7 @@ Current values come from live frontend/API identities and remote refs, not this 
 
 ## October 23 Local Legacy Integration
 
-The isolated `codex/p1-integration-20261023` task reviewed the remaining 497 actual legacy diffs while preserving newer contracts. The 611-entry ledger retains the prior 114 decisions. The new records classify 383 scoped adaptations, 30 current-contract replacements, 29 historical validations, 46 unfinished interface/recovery scopes and 9 cross-domain scoped reviews. These are commit-record counts, never whole-patch completion or a bug count.
+The isolated `codex/p1-integration-20261023` task reviewed the remaining 497 actual legacy diffs while preserving newer contracts. The 611-entry ledger retains the prior 114 decisions. The new records classify 384 scoped adaptations, 29 current-contract replacements, 29 historical validations, 46 unfinished interface/recovery scopes and 9 cross-domain scoped reviews. These are commit-record counts, never whole-patch completion or a bug count.
 
 The [review and remediation report](docs/development/legacy-remaining-review-closeout-20261023.html) contains verified fixes, actual test evidence and remaining work. Canonical order editing, hold actions, financial variance/write-off interfaces and some maintenance/recovery flows remain explicit followups. `git-baseline-scope:check` now verifies exact source coverage, report fingerprints and duplicate/missing records. The old tree's 59 uncommitted entries remain untouched. This task has not deployed or advanced the canonical release line.
 

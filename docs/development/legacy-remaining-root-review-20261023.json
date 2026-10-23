@@ -174,8 +174,8 @@
     {
       "commit": "933c6b8a90716a23903240c2ade755d7c0924205",
       "subject": "test(pickup): separate insufficient reservation and full delivery scenarios",
-      "decision": "current-contract-retained",
-      "reason": "自提与快递必须区分库存不足失败和已具足量占用后的合法执行，遵循当前实物出库单据契约，不能恢复旧的无单直接扣库。",
+      "decision": "semantics-transplanted",
+      "reason": "本轮真实数据库联查复现了实出10个但占用仅6个却少扣库存的遗漏。已补服务与锁后守恒：实扣、释放占用、流水及实出对应，等待锁后改量、串单或改库存均回滚；特殊尺寸/外加工合法无成品库存路线保留。自提和快递继续按现纸单及实际交付步骤执行。",
       "currentEvidence": [
         {
           "path": "server/services/fulfillmentActionCommandService.mjs",
@@ -193,12 +193,14 @@
       "validation": [
         "scripts/check-fulfillment-action-command-service.mjs",
         "scripts/check-fulfillment-action-transaction-repository.mjs",
-        "scripts/check-postgres-live.mjs"
+        "scripts/check-postgres-live.mjs",
+        "scripts/check-fulfillment-inventory-conservation-postgres.mjs",
+        "scripts/check-fulfillment-inventory-conservation-local.mjs"
       ],
       "legacyPatchSha256": "635e8c86c903795082bf6cbe3a50648537b8e23f4bb1b4f703490964a34de0e6",
       "wholeCommitIntegrated": false,
       "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。",
-      "validationScope": "前两项核现有命令/事务边界；真实PG自提/快递不足占用与合法实物出库场景归check-postgres-live及最终closeout，不以P1生产打包脚本替代。"
+      "validationScope": "service先失败再通过的10/6、无占用及合法生产直出；真实PG先复现少扣、后校验四种锁等待变更完整回滚和足量正控制。完整自提/快递HTTP链由check-postgres-live及最终closeout记录。 本地同样在写入前核对足量在库/汇总占用，失败保持整份工作区不变。"
     },
     {
       "commit": "a21a73ae1518085e649a239b48fda5d1821e989b",
