@@ -85,6 +85,7 @@ export const requiredTables = [
 ];
 
 export const requiredTableColumns = {
+  payment_records: ["id", "statement_id", "amount", "evidence_attachment_id", "evidence_attachment_ids"],
   packing_tasks: [
     "id",
     "order_line_id",

@@ -73,6 +73,14 @@ const privilegeBlockedReport = buildProductionPostgresPreflight({
   env: { ERP_V1_DATABASE_URL: sensitiveDatabaseUrl },
   commandRunner: fakePsqlRunner({ denyPrivilegeTable: "attachments" }),
 });
+
+const missingPaymentEvidence = buildProductionPostgresPreflight({
+  env: { ERP_V1_DATABASE_URL: sensitiveDatabaseUrl },
+  commandRunner: fakePsqlRunner({ omitColumn: "payment_records|evidence_attachment_ids" }),
+});
+assert.equal(missingPaymentEvidence.ready, false, "migration metadata alone cannot prove receipt evidence schema exists");
+assert.equal(missingPaymentEvidence.criteria.find(item => item.key === "schema-migrations").status, "passed");
+assert.equal(missingPaymentEvidence.criteria.find(item => item.key === "required-columns").status, "blocked");
 assert.equal(privilegeBlockedReport.ready, false);
 const privilegeCriterion = privilegeBlockedReport.criteria.find((item) => item.key === "core-privileges");
 assert.equal(privilegeCriterion.status, "blocked");
@@ -135,7 +143,7 @@ function fakePsqlRunner(options = {}) {
     if (/information_schema\.columns/.test(sql)) {
       const rows = [];
       for (const [table, columns] of Object.entries(requiredTableColumns)) {
-        for (const column of columns) rows.push(`${table}|${column}`);
+        for (const column of columns) if (`${table}|${column}` !== options.omitColumn) rows.push(`${table}|${column}`);
       }
       return { status: 0, stdout: `${rows.join("\n")}\n`, stderr: "" };
     }

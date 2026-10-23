@@ -84,11 +84,12 @@ INSERT INTO payment_records (
   status,
   registered_by,
   evidence_attachment_id,
+  evidence_attachment_ids,
   remark,
   created_at,
   updated_at
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, now(), now()
+  $1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $12::jsonb, $11, now(), now()
 )
 ON CONFLICT (id) DO UPDATE SET
   biz_no = EXCLUDED.biz_no,
@@ -100,6 +101,7 @@ ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
   registered_by = EXCLUDED.registered_by,
   evidence_attachment_id = EXCLUDED.evidence_attachment_id,
+  evidence_attachment_ids = EXCLUDED.evidence_attachment_ids,
   remark = EXCLUDED.remark,
   updated_at = now()
 RETURNING ${paymentRecordJsonExpression("payment_records")} AS result;
@@ -116,6 +118,7 @@ RETURNING ${paymentRecordJsonExpression("payment_records")} AS result;
       String(paymentRecord.operatorId ?? "").trim(),
       normalizeNullableValue(attachmentIds[0]),
       String(paymentRecord.remark ?? ""),
+      JSON.stringify([...new Set(attachmentIds)]),
     ],
   };
 }
@@ -166,7 +169,7 @@ export function normalizePaymentRecord(record) {
   if (!paymentRecordId || !statementId || !Number.isFinite(amount)) return null;
   const evidenceAttachmentId = String(record.evidenceAttachmentId ?? record.evidence_attachment_id ?? "").trim();
   const attachmentIds = Array.isArray(record.attachmentIds)
-    ? record.attachmentIds.map((item) => String(item ?? "").trim()).filter(Boolean)
+    ? [...new Set(record.attachmentIds.map((item) => String(item ?? "").trim()).filter(Boolean))]
     : evidenceAttachmentId
       ? [evidenceAttachmentId]
       : [];
@@ -221,10 +224,7 @@ function paymentRecordJsonExpression(alias) {
     'paidAt', ${alias}.payment_at,
     'method', ${alias}.payment_method,
     'status', ${alias}.status,
-    'attachmentIds', CASE
-      WHEN ${alias}.evidence_attachment_id IS NULL OR ${alias}.evidence_attachment_id = '' THEN '[]'::json
-      ELSE json_build_array(${alias}.evidence_attachment_id)
-    END,
+    'attachmentIds', CASE WHEN jsonb_array_length(${alias}.evidence_attachment_ids) > 0 THEN ${alias}.evidence_attachment_ids ELSE CASE WHEN ${alias}.evidence_attachment_id IS NULL OR ${alias}.evidence_attachment_id = '' THEN '[]'::jsonb ELSE jsonb_build_array(${alias}.evidence_attachment_id) END END,
     'operatorId', ${alias}.registered_by,
     'remark', ${alias}.remark
   )`;

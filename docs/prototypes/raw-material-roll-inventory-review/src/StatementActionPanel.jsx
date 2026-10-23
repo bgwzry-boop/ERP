@@ -1,3 +1,4 @@
+import { getStatementPaymentBlocker } from "../../../../shared/statementPaymentPolicy.js";
 import { useRef, useState } from "react";
 import { markOfficeStatementSentViaApi, recordOfficeStatementCustomerConfirmation, recordOfficeStatementPayment } from "../../../../src/services/officeStatementApiClient.js";
 import { getAttachmentPurposeRule, uploadOfficeAttachmentFile } from "../../../../src/services/officeAttachmentApiClient.js";
@@ -28,8 +29,7 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
   const attachments = [...(detail.attachments ?? []), ...files.map(row => row.attachment).filter(Boolean)]
     .filter((row, index, all) => row.ownerType === "statement" && row.ownerId === detail.id && row.purpose === purpose && row.status === "uploaded" && row.hasContent === true
       && all.findIndex(item => item.attachmentId === row.attachmentId) === index);
-  const terminal = /已核销|已结清/.test(detail.status);
-  const blocked = payment && terminal ? "本期已核销或结清，不能在此修改实收。" : confirmation && !(detail.sendRecords ?? []).length ? "请先登记实际发送的对账单，再登记客户回复。" : "";
+  const blocked = payment ? getStatementPaymentBlocker(detail) : confirmation && !(detail.sendRecords ?? []).length ? "请先登记实际发送的对账单，再登记客户回复。" : "";
 
   function review() {
     action.setError("");

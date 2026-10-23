@@ -1,0 +1,78 @@
+{
+  "kind": "p1-finance-legacy-closeout-20261023",
+  "baseCommit": "09acbd9908c9610ebc59dfe6d1febb6d4aa070f9",
+  "scope": "本地独立分支整改；未部署、未写线上数据；旧目录59处未提交改动未触碰",
+  "rules": [
+    "保留累计实收：20改为50后为50而不是70。关闭账期的新收款/差异/核销动作禁止，原幂等请求仍可重放。",
+    "付款所有已认证上传凭证都要落库，第一张旧字段仅为兼容。",
+    "出库纸单按本次交付应收入账/计划金额；全单最终金额按整数分比例分摊，已入账及旧打印快照不可改写。"
+  ],
+  "legacyDecisions": [
+    {
+      "commit": "b79d9e88c3e762a9d53245d1ef6644f7fa435208",
+      "decision": "移植关闭账期保护并适配当前累计实收/沟通状态合同"
+    },
+    {
+      "commit": "27b669096dfad5168a4cdc49d667ff8d9c4c0cc2",
+      "decision": "移植全部凭证保存，新增0051并纳入迁移/恢复字段核验"
+    },
+    {
+      "commit": "33a1d76c2de52115b5c9246c718c9203d1adcfe3",
+      "decision": "移植不可覆盖收款身份/幂等回放，保留当前持久化配置与累计金额"
+    },
+    {
+      "commit": "658378e6c8b76cf24b86894c9672343092682142",
+      "decision": "选择性移植分批金额分摊和账务快照，当前服务与数据库事务适配"
+    },
+    {
+      "commit": "71129362cf14319e62b0aece0384384786e56a14",
+      "decision": "旧单笔金额累加与当前累计实收冲突，明确不移植"
+    },
+    {
+      "commit": "ef8315523c / 16c969f472fb0daf4a71e23d190ce8120571fe69 / 80d091089b",
+      "decision": "另一个已确认P1：导出覆盖正式statement_lines。按父任务授权继续单独修复，不在本提交声称闭环"
+    }
+  ],
+  "changes": [
+    "闭账后业务与数据库双重保护；发送/确认不能重开账期；不可覆盖收款ID和原请求重放。",
+    "全部付款图片ID原子验证/持久化；冷读保留多图；碰撞及失效附件回滚。",
+    "打印以本次交付、已入账行或最新最终报价生成金额；变更快照冲突回滚；旧任务重放保持旧纸单。",
+    "EX-07：真实PostgreSQL发现完整履约回执json_build_object超过100参数，改为等价jsonb两段合并，所有字段保留。",
+    "必要字段加入付款凭证数组；恢复检查从仅表数增强为正式字段检查，假迁移元数据但缺字段阻断。"
+  ],
+  "passedChecks": [
+    "node scripts/check-finance-closeout-regressions.mjs",
+    "node scripts/check-finance-closeout-postgres.mjs (disposable PostgreSQL 16; two successful runs)",
+    "node scripts/check-statement-financial-command-service.mjs",
+    "node scripts/check-statement-payment-transaction-repository.mjs",
+    "node scripts/check-statement-send-transaction-repository.mjs",
+    "node scripts/check-statement-settlement-transaction-repository.mjs",
+    "node scripts/check-statement-communication-command-service.mjs",
+    "node scripts/check-payment-record-repository.mjs",
+    "node scripts/check-finance-dialog-contracts.mjs",
+    "node scripts/check-fulfillment-print-command-service.mjs",
+    "node scripts/check-fulfillment-print-template.mjs",
+    "node scripts/check-fulfillment-action-transaction-repository.mjs",
+    "npm run db:check (51 migrations / 101 tables)",
+    "node scripts/check-v1-production-postgres-preflight.mjs",
+    "node scripts/check-v1-production-postgres-backup-restore-check.mjs",
+    "node scripts/check-v1-production-persistence-evidence.mjs",
+    "git diff --check"
+  ],
+  "postgresEvidence": [
+    "两张付款图经冷读保留；支付/日志身份冲突不覆盖；闭账后新付款拒绝，原请求可重放。",
+    "并发相同打印请求只有一份纸单/日志/任务；400/1200袋按432元单价快照生成144元。",
+    "价格或已入账行在事务前变化均冲突并回滚；已有纸单内容原样保留。"
+  ],
+  "validationBoundary": [
+    "本树api:check在基线订单生产fixture返回PRODUCTION_TASK_BINDING_MISMATCH，父整合树已由其他组修正，交父任务在整合后复跑。",
+    "真实打印机、纸张、司机真机及财务正式岗位验收尚未完成；隔离数据库验证不代表生产验收。",
+    "筛到73个相关deferred旧提交，只对列明重点完成语义抽检，不声称73个全部已审完。"
+  ],
+  "registrationSuggestions": {
+    "finance-closeout:check": "node scripts/check-finance-closeout-regressions.mjs",
+    "finance-closeout-postgres:check": "node scripts/check-finance-closeout-postgres.mjs",
+    "p1-postgres:check": "父任务将finance-closeout-postgres:check加入统一真PG组"
+  },
+  "packageManifestModified": false
+}

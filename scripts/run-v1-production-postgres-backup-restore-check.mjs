@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvironment } from "./run-v1-production-env-preflight.mjs";
 import { getDatabaseUrl, redactSensitiveText as redactPostgresText } from "./run-v1-production-postgres-preflight.mjs";
-import { requiredTables } from "./dbMigrationUtils.mjs";
+import { requiredTables, requiredTableColumns } from "./dbMigrationUtils.mjs";
 import {
   defaultProductionEnvSetupJsonPath,
   productionEnvFileSourceLabel,
@@ -690,6 +690,20 @@ function validateRestoredDatabase({ commandRunner, psqlCommand, state }) {
   const existing = new Set(String(tableResult.stdout || "").split("\n").map((line) => line.trim()).filter(Boolean));
   const missing = requiredTables.filter((table) => !existing.has(table));
   const missingPayrollAttendanceTables = payrollAttendanceRestoreTables.filter((table) => !existing.has(table));
+  const columnResult = runPsql(commandRunner, psqlCommand, state.restoreUrl,
+    "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, ordinal_position;",
+    { capture: true });
+  if (!columnResult.ok) {
+    return blockedCriterion({
+      key: "restored-database-validated", label: "恢复结果抽样校验",
+      detail: columnResult.safeError || "无法读取恢复验证库的必要字段。",
+      nextAction: "检查恢复后的正式业务字段，不能以迁移记录代替实际结构。",
+      evidence: { validated: false, missingTableCount: missing.length },
+    });
+  }
+  const requiredColumns = Object.entries(requiredTableColumns).flatMap(([table, columns]) => columns.map((column) => `${table}|${column}`));
+  const existingColumns = new Set(String(columnResult.stdout || "").split("\n").map((line) => line.trim()).filter(Boolean));
+  const missingColumns = requiredColumns.filter((column) => !existingColumns.has(column));
   const migrationResult = runPsql(commandRunner, psqlCommand, state.restoreUrl, "SELECT COUNT(*) FROM schema_migrations;", {
     capture: true,
   });
@@ -703,14 +717,14 @@ function validateRestoredDatabase({ commandRunner, psqlCommand, state }) {
     });
   }
   const migrationRowCount = Number(String(migrationResult.stdout || "").trim());
-  const passed = missing.length === 0 && missingPayrollAttendanceTables.length === 0 && migrationRowCount > 0;
+  const passed = missing.length === 0 && missingPayrollAttendanceTables.length === 0 && missingColumns.length === 0 && migrationRowCount > 0;
   return criterion({
     key: "restored-database-validated",
     label: "恢复结果抽样校验",
     status: passed ? "passed" : "blocked",
     detail: passed
-      ? `恢复验证库表结构和 schema_migrations 抽样通过：核心表 ${requiredTables.length}/${requiredTables.length}，考勤/工资表 ${payrollAttendanceRestoreTables.length}/${payrollAttendanceRestoreTables.length}，迁移记录 ${migrationRowCount} 行。`
-      : `恢复验证库抽样未通过：缺核心表 ${missing.length} 个，其中考勤/工资表 ${missingPayrollAttendanceTables.length} 个；迁移记录 ${Number.isFinite(migrationRowCount) ? migrationRowCount : 0} 行。`,
+      ? `恢复验证库表结构和 schema_migrations 抽样通过：核心表 ${requiredTables.length}/${requiredTables.length}，考勤/工资表 ${payrollAttendanceRestoreTables.length}/${payrollAttendanceRestoreTables.length}，必要字段 ${requiredColumns.length}/${requiredColumns.length}，迁移记录 ${migrationRowCount} 行。`
+      : `恢复验证库抽样未通过：缺核心表 ${missing.length} 个，其中考勤/工资表 ${missingPayrollAttendanceTables.length} 个；缺必要字段 ${missingColumns.length} 个；迁移记录 ${Number.isFinite(migrationRowCount) ? migrationRowCount : 0} 行。`,
     nextAction: passed ? "" : "重新执行 schema dump / 恢复验证，确认恢复验证库为空库且迁移记录 data dump 可恢复。",
     evidence: {
       validated: passed,
@@ -718,6 +732,9 @@ function validateRestoredDatabase({ commandRunner, psqlCommand, state }) {
       existingRequiredTableCount: requiredTables.length - missing.length,
       missingTableCount: missing.length,
       firstMissingTables: missing.slice(0, 8),
+      expectedColumnCount: requiredColumns.length,
+      missingColumnCount: missingColumns.length,
+      firstMissingColumns: missingColumns.slice(0, 8),
       expectedPayrollAttendanceTableCount: payrollAttendanceRestoreTables.length,
       existingPayrollAttendanceTableCount: payrollAttendanceRestoreTables.length - missingPayrollAttendanceTables.length,
       missingPayrollAttendanceTableCount: missingPayrollAttendanceTables.length,

@@ -1,8 +1,9 @@
+import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../shared/statementPaymentPolicy.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { normalizePaymentRecord } from "./paymentRecordRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey, readPostgresIdempotencyReplay, buildIdempotencyRequestHash, buildIdempotencyConflictError } from "./idempotency.mjs";
 
 export function createStatementPaymentTransactionRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -26,28 +27,47 @@ export function createStatementPaymentTransactionRepository(options = {}) {
 }
 
 export function createLocalStatementPaymentTransactionRepository() {
-  return {
+  const caches = new WeakMap();
+  const cache = workspace => { if (!caches.has(workspace)) caches.set(workspace,new Map()); return caches.get(workspace); };
+  function findPaymentReplay(input) {
+    if (!input.idempotencyKey) return null;
+    const saved=cache(input.workspace).get(input.idempotencyKey);
+    if(!saved)return null;
+    if(saved.hash!==buildIdempotencyRequestHash(paymentPayload(input)))throw buildIdempotencyConflictError();
+    return structuredClone(saved.result);
+  }
+  return { findPaymentReplay,
     kind: "local_memory",
 
     recordStatementPayment(input) {
+      const replay=findPaymentReplay(input);if(replay)return replay;
+      if ((input.workspace.paymentRecords ?? []).some(row => (row.paymentRecordId ?? row.id) === input.paymentRecord.paymentRecordId)
+        || (input.workspace.operationLogs ?? []).some(row=>row.id===input.operationLog?.id)
+        || (input.todo && (input.workspace.todos ?? []).some(row=>row.id===input.todo.id))) throw paymentIdentityConflict();
       const statement = buildLocalSavedStatement(input);
       const statements = replaceStatement(input.statements, statement);
       applyStatementPaymentWorkspaceMutation({ ...input, statements, statement });
-      return normalizeStatementPaymentTransactionResult({
+      const result = normalizeStatementPaymentTransactionResult({
         statement,
         payment: input.paymentRecord,
         todo: input.todo ?? null,
         operationLogId: input.operationLog?.id ?? "",
       });
+      if(input.idempotencyKey)cache(input.workspace).set(input.idempotencyKey,{hash:buildIdempotencyRequestHash(paymentPayload(input)),result:structuredClone(result)});
+      return result;
     },
   };
 }
 
 export function createPostgresStatementPaymentTransactionRepository(options = {}) {
-  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson, queryJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
+    async findPaymentReplay(input) {
+      const value = await readPostgresIdempotencyReplay({queryJson,scope:"statement.payment.record",idempotencyKey:input.idempotencyKey,payload:paymentPayload(input)});
+      return value ? normalizeStatementPaymentTransactionResult(value) : null;
+    },
 
     async recordStatementPayment(input) {
       const query = buildRecordStatementPaymentTransactionQuery(input);
@@ -57,11 +77,7 @@ export function createPostgresStatementPaymentTransactionRepository(options = {}
           buildPostgresIdempotencyRequest({
             scope: "statement.payment.record",
             idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
-            payload: input.idempotencyPayload ?? {
-              statementId,
-              paymentRecord: input.paymentRecord,
-              todo: input.todo,
-            },
+            payload: paymentPayload(input),
             operatorId: input.operationLog?.operatorId,
             targetType: "statement",
             targetId: statementId,
@@ -134,25 +150,25 @@ function buildRecordStatementPaymentTransactionText(input, parameters) {
   now(),
   now()
 )
-ON CONFLICT (id) DO UPDATE SET
-  type = EXCLUDED.type,
-  ref_type = EXCLUDED.ref_type,
-  ref_id = EXCLUDED.ref_id,
-  priority = EXCLUDED.priority,
-  status = EXCLUDED.status,
-  summary = EXCLUDED.summary,
-  due_at = EXCLUDED.due_at,
-  remind_at = EXCLUDED.remind_at,
-  updated_at = now()
+ON CONFLICT (id) DO NOTHING
 RETURNING ${todoJsonExpression("todos")} AS result`
     : "SELECT NULL::json AS result WHERE false";
 
   return `
 BEGIN;
-WITH locked_statement AS MATERIALIZED (
+WITH locked_payment_attachments AS MATERIALIZED (
+  SELECT attachment.id FROM attachments attachment
+  WHERE attachment.id IN (SELECT jsonb_array_elements_text(${parameters.json(paymentRecord.attachmentIds)}::jsonb))
+    AND attachment.status = 'uploaded' AND attachment.has_content = TRUE
+    AND attachment.file_type = 'image' AND attachment.mime_type LIKE 'image/%'
+    AND attachment.uploaded_by IS NOT NULL AND attachment.purpose = 'payment_screenshot'
+    AND EXISTS (SELECT 1 FROM attachment_links link WHERE link.attachment_id = attachment.id AND link.owner_type = 'statement' AND link.owner_id = ${parameters.text(statement.id)} AND link.purpose = 'payment_screenshot')
+  FOR SHARE OF attachment
+), locked_statement AS MATERIALIZED (
   SELECT id, revision
   FROM statements
   WHERE id = ${parameters.text(statement.id)}
+    AND status NOT IN (${closedStatementPaymentStatuses.map(status => parameters.text(status)).join(", ")})
   FOR UPDATE
 ),
 updated_statement AS (
@@ -186,6 +202,7 @@ inserted_payment AS (
     status,
     registered_by,
     evidence_attachment_id,
+    evidence_attachment_ids,
     remark,
     created_at,
     updated_at
@@ -200,22 +217,12 @@ inserted_payment AS (
     ${parameters.text(paymentRecord.status ?? "recorded")},
     ${parameters.nullableText(paymentRecord.operatorId)},
     ${parameters.nullableText(paymentRecord.attachmentIds[0])},
+    ${parameters.json(paymentRecord.attachmentIds)},
     ${parameters.text(paymentRecord.remark ?? "")},
     now(),
     now()
   )
-  ON CONFLICT (id) DO UPDATE SET
-    biz_no = EXCLUDED.biz_no,
-    statement_id = EXCLUDED.statement_id,
-    customer_id = EXCLUDED.customer_id,
-    amount = EXCLUDED.amount,
-    payment_method = EXCLUDED.payment_method,
-    payment_at = EXCLUDED.payment_at,
-    status = EXCLUDED.status,
-    registered_by = EXCLUDED.registered_by,
-    evidence_attachment_id = EXCLUDED.evidence_attachment_id,
-    remark = EXCLUDED.remark,
-    updated_at = now()
+ON CONFLICT (id) DO NOTHING
   RETURNING ${paymentRecordJsonExpression("payment_records")} AS result
 ),
 inserted_todo AS (
@@ -247,15 +254,7 @@ inserted_operation_log AS (
     ${parameters.timestamp(operationLog.occurredAt)},
     ${parameters.timestamp(operationLog.createdAt)}
   )
-  ON CONFLICT (id) DO UPDATE SET
-    target_type = EXCLUDED.target_type,
-    target_id = EXCLUDED.target_id,
-    action = EXCLUDED.action,
-    before_json = EXCLUDED.before_json,
-    after_json = EXCLUDED.after_json,
-    reason = EXCLUDED.reason,
-    operator_id = EXCLUDED.operator_id,
-    page_key = EXCLUDED.page_key
+ON CONFLICT (id) DO NOTHING
   RETURNING id
 )
 SELECT json_build_object(
@@ -263,7 +262,9 @@ SELECT json_build_object(
   'payment', (SELECT result FROM inserted_payment),
   'todo', (SELECT result FROM inserted_todo LIMIT 1),
   'operationLogId', (SELECT id FROM inserted_operation_log),
-  'writeGuard', (SELECT ok FROM statement_write_guard)
+  'writeGuard', (SELECT ok FROM statement_write_guard),
+  'attachmentGuard', erp_require((SELECT count(*) FROM locked_payment_attachments) = ${parameters.integer(paymentRecord.attachmentIds.length)}, 'ERP_STATEMENT_PAYMENT_ATTACHMENT_CONFLICT'),
+  'identityGuard', erp_require((SELECT count(*) FROM inserted_payment)=1 AND (SELECT count(*) FROM inserted_operation_log)=1 AND ${todo ? '(SELECT count(*) FROM inserted_todo)=1' : 'TRUE'}, 'ERP_STATEMENT_PAYMENT_IDENTITY_CONFLICT')
 ) AS result;
 COMMIT;
 `.trim();
@@ -282,21 +283,25 @@ export function normalizeStatementPaymentTransactionResult(value) {
 }
 
 function applyStatementPaymentWorkspaceMutation({ workspace, statements, statement, paymentRecord, todo, operationLog }) {
+  const current = workspace.statements.find(row=>row.id===statement?.id);
+  if (current && Number(current.revision)>Number(statement?.revision)) { statements=null; statement=null; }
   if (Array.isArray(statements)) {
     workspace.statements = statements.map((item) => (item.id === statement?.id ? { ...item, ...statement } : item));
   } else if (statement?.id) {
     workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
   }
   const payment = normalizePaymentRecord(paymentRecord);
-  if (payment) workspace.paymentRecords.unshift(payment);
-  if (todo) workspace.todos.unshift(todo);
-  if (operationLog) workspace.operationLogs.unshift(operationLog);
+  if (payment && !workspace.paymentRecords.some(row=>(row.paymentRecordId ?? row.id)===payment.paymentRecordId)) workspace.paymentRecords.unshift(payment);
+  if (todo && !workspace.todos.some(row=>row.id===todo.id)) workspace.todos.unshift(todo);
+  if (operationLog && !workspace.operationLogs.some(row=>row.id===operationLog.id)) workspace.operationLogs.unshift(operationLog);
 }
 
 function buildLocalSavedStatement(input) {
   const expected = Number(input.statement?.revision ?? 0);
   const current = (input.workspace?.statements ?? []).find((item) => item.id === input.statement?.id);
   if (!current || Number(current.revision ?? 1) !== expected) throw statementWriteConflict(current?.revision);
+  const blocker = getStatementPaymentBlocker(current);
+  if (blocker) throw Object.assign(new Error(blocker), { code: "STATEMENT_PAYMENT_PERIOD_CLOSED", statusCode: 409 });
   return { ...input.statement, revision: expected + 1 };
 }
 
@@ -414,10 +419,7 @@ function paymentRecordJsonExpression(alias) {
     'paidAt', ${alias}.payment_at,
     'method', ${alias}.payment_method,
     'status', ${alias}.status,
-    'attachmentIds', CASE
-      WHEN ${alias}.evidence_attachment_id IS NULL OR ${alias}.evidence_attachment_id = '' THEN '[]'::json
-      ELSE json_build_array(${alias}.evidence_attachment_id)
-    END,
+    'attachmentIds', CASE WHEN jsonb_array_length(${alias}.evidence_attachment_ids) > 0 THEN ${alias}.evidence_attachment_ids ELSE CASE WHEN ${alias}.evidence_attachment_id IS NULL OR ${alias}.evidence_attachment_id = '' THEN '[]'::jsonb ELSE jsonb_build_array(${alias}.evidence_attachment_id) END END,
     'operatorId', ${alias}.registered_by,
     'remark', ${alias}.remark
   )`;
@@ -451,3 +453,6 @@ function mapTodoPriorityForSql(value) {
   };
   return map[value] ?? (String(value ?? "normal").trim() || "normal");
 }
+
+function paymentPayload(input) { return input.idempotencyPayload ?? {statementId:input.statement?.id,paymentRecord:input.paymentRecord,todo:input.todo}; }
+function paymentIdentityConflict() {return Object.assign(new Error('付款或操作编号已经存在，请核对原记录。'),{code:'STATEMENT_PAYMENT_IDENTITY_CONFLICT',statusCode:409});}

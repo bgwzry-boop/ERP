@@ -1,9 +1,12 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { captureLegacyPrintOrderPrice } from "./services/fulfillmentPrintPricingService.mjs";
+import { captureFulfillmentBillingSnapshot, buildFulfillmentBillingSnapshotGuard } from "./services/fulfillmentBillingSnapshotService.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import {
   buildIdempotencyRequestHash,
   buildPostgresIdempotencyRequest,
   normalizeIdempotencyKey,
+  readPostgresIdempotencyReplay,
   resolveRepositoryIdempotencyKey,
 } from "./idempotency.mjs";
 import { normalizePrintJobRecord, printJobJsonExpression } from "./printJobRepository.mjs";
@@ -100,6 +103,7 @@ function commitLocalFulfillmentAction(input) {
   }
 
   const stagedWorkspace = stageLocalFulfillmentWorkspace(workspace);
+  assertLocalPrintPricingSnapshot(input);
   const fulfillment = commitLocalFulfillmentRevision(stagedWorkspace, input.fulfillment);
   const transaction = normalizeFulfillmentActionTransactionResult({
     fulfillment,
@@ -223,7 +227,7 @@ function fulfillmentConflict(currentRevision) {
 }
 
 export function createPostgresFulfillmentActionTransactionRepository(options = {}) {
-  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson, queryJson } = createPostgresTransactionExecutor(options);
 
   const recordFulfillmentAction = async (requestedInput) => {
     const input = consumeFulfillmentActionDecision(requestedInput);
@@ -238,6 +242,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       targetId: fulfillmentId,
       resourceLocks: [
         `fulfillment:${fulfillmentId}`,
+        ...(input.printBillingSnapshot ? [`order-line:${input.printBillingSnapshot.orderLineId}`] : []),
         ...(input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id
           ? [`paper-outbound:${input.paperOutboundDocument.paperOutboundDocumentId ?? input.paperOutboundDocument.id}`]
           : []),
@@ -306,6 +311,10 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
 
   return {
     kind: "postgres",
+    async findPrintReplay(input) {
+      const saved = await readPostgresIdempotencyReplay({ queryJson, scope: "fulfillment.print_fulfillment", idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
+      return saved ? normalizeFulfillmentActionTransactionResult(saved) : null;
+    },
     recordFulfillmentAction,
     recordFulfillmentPrint: recordFulfillmentAction,
   };
@@ -419,7 +428,8 @@ locked_inventory_items AS MATERIALIZED (
 ),
 fulfillment_write_guard AS MATERIALIZED (
   SELECT erp_require(
-    (SELECT COUNT(*) FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision)}) = 1,
+    (SELECT COUNT(*) FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision)}) = 1
+      AND (${buildFulfillmentBillingSnapshotGuard(input.printBillingSnapshot, parameters)}),
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
   ) ${operationLog.action === "driver_confirm_loaded" ? `AND erp_require_driver_packages(${parameters.text(fulfillment.fulfillmentId)}, ${parameters.text(fulfillment.orderLineId)}, ${parameters.textArray(operationLog.after?.checkedPackageIds ?? [])})` : ""} AS ok
 ),
@@ -2088,7 +2098,7 @@ RETURNING id`;
 }
 
 function fulfillmentJsonExpression(alias) {
-  return `json_build_object(
+  return `(jsonb_build_object(
     'fulfillmentId', ${alias}.id,
     'bizNo', ${alias}.biz_no,
     'orderLineId', ${alias}.order_line_id,
@@ -2126,7 +2136,8 @@ function fulfillmentJsonExpression(alias) {
     'watermarkGeoPoint', ${alias}.watermark_geo_point,
     'watermarkAddress', ${alias}.watermark_address,
     'watermarkOperatorId', ${alias}.watermark_operator_id,
-    'watermarkOperatorName', ${alias}.watermark_operator_name,
+    'watermarkOperatorName', ${alias}.watermark_operator_name
+  ) || jsonb_build_object(
     'signatureStatus', ${alias}.signature_status,
     'unsignedReason', ${alias}.unsigned_reason,
     'signaturePhotoAttached', ${alias}.signature_photo_attached,
@@ -2141,7 +2152,7 @@ function fulfillmentJsonExpression(alias) {
     'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
-  )`;
+  ))::json`;
 }
 
 function printRecordJsonExpression(alias) {
@@ -2391,4 +2402,13 @@ function toFiniteInteger(value) {
 function toFiniteNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function assertLocalPrintPricingSnapshot(input) {
+  const snapshot = input.printBillingSnapshot;
+  if (snapshot && (snapshot.orderLineId !== (input.fulfillment?.orderLineId ?? input.fulfillment?.lineId) || JSON.stringify(captureFulfillmentBillingSnapshot(input.workspace, snapshot.orderLineId)) !== JSON.stringify(snapshot))) throw fulfillmentConflict(input.fulfillment?.revision);
+  if (input.legacyPrintOrderPrice) {
+    const line = (input.workspace.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === input.legacyPrintOrderPrice.id);
+    if (JSON.stringify(captureLegacyPrintOrderPrice(line)) !== JSON.stringify(input.legacyPrintOrderPrice)) throw fulfillmentConflict(input.fulfillment?.revision);
+  }
 }

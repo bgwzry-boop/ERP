@@ -71,7 +71,7 @@ const pickupTemplate = buildFulfillmentPrintTemplate({
   },
 });
 assert.equal(pickupTemplate.documentType, "pickup_note");
-assert.equal(pickupTemplate.templateVersion, "p0-pickup_note-dot-matrix-v1");
+assert.equal(pickupTemplate.templateVersion, "p0-pickup_note-dot-matrix-v2");
 assert.equal(pickupTemplate.title, "自提单");
 assert.equal(pickupTemplate.priceHidden, false);
 assert.equal(pickupTemplate.paper.widthMm, 241);

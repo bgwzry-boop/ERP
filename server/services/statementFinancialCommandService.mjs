@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from "node:crypto";
+import { getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createStatementPolicyService } from "./statementPolicyService.mjs";
 
@@ -47,6 +49,11 @@ export function createStatementFinancialCommandService(dependencies = {}) {
   async function recordPayment({ workspace, statementId, body = {}, operatorId }) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
+    const idempotencyPayload = { ...body, statementId, attachmentIds: uniqueTextList(body.attachmentIds), operatorId };
+    const replay = await workspace.statementPaymentTransactionRepository?.findPaymentReplay?.({ workspace, idempotencyKey: body.idempotencyKey, idempotencyPayload });
+    if (replay) return paymentResponse(replay);
+    const blocker = getStatementPaymentBlocker(statement);
+    if (blocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", blocker);
     const expectedRevision = requireExpectedRevision(body.expectedRevision);
     if (expectedRevision.error) return expectedRevision.error;
     const attachmentValidation = validatePaymentAttachments({ workspace, statementId, body });
@@ -61,8 +68,9 @@ export function createStatementFinancialCommandService(dependencies = {}) {
       revision: expectedRevision.value,
     };
     const nextStatements = result.statements.map((item) => item.id === statementId ? nextStatement : item);
-    const todo = result.todoInput ? buildTodo(workspace, result.todoInput) : null;
-    const paymentRecordId = nextId("PAY", workspace.paymentRecords);
+    const identity = body.idempotencyKey ? createHash("sha256").update(JSON.stringify([statementId, operatorId, body.idempotencyKey])).digest("hex").slice(0, 32) : randomUUID();
+    const todo = result.todoInput ? { ...buildTodo(workspace, result.todoInput), id: `T-PAY-${identity}` } : null;
+    const paymentRecordId = `PAY-${identity}`;
     const paymentRecord = {
       paymentRecordId,
       bizNo: paymentRecordId,
@@ -80,6 +88,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
       targetType: "statement",
       targetId: statementId,
       action: "record_statement_payment",
+      id: `LOG-PAY-${identity}`,
       operatorId,
       before: statement,
       after: nextStatement,
@@ -87,7 +96,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const transaction = await workspace.statementPaymentTransactionRepository.recordStatementPayment({
       workspace,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, attachmentIds: attachmentValidation.attachmentIds, operatorId },
+      idempotencyPayload,
       statements: nextStatements,
       statement: nextStatement,
       paymentRecord,
@@ -108,6 +117,8 @@ export function createStatementFinancialCommandService(dependencies = {}) {
   async function handleVariance({ workspace, statementId, body = {}, operatorId, actionPermissions = [] }) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
+    const periodBlocker = getStatementPaymentBlocker(statement);
+    if (periodBlocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", periodBlocker);
     const attachmentValidation = validatePaymentAttachments({ workspace, statementId, body, maxAttachments: 1 });
     if (attachmentValidation.error) return attachmentValidation;
 
@@ -192,6 +203,8 @@ export function createStatementFinancialCommandService(dependencies = {}) {
   async function writeOffStatement({ workspace, statementId, body = {}, operatorId, actionPermissions = [] }) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
+    const periodBlocker = getStatementPaymentBlocker(statement);
+    if (periodBlocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", periodBlocker);
     const expectedRevision = requireExpectedRevision(body.expectedRevision);
     if (expectedRevision.error) return expectedRevision.error;
     if (uniqueTextList(body.attachmentIds).length) {
@@ -375,4 +388,8 @@ function notFound(code) {
 
 function businessError(statusCode, code, message) {
   return { error: true, statusCode, code, message };
+}
+
+function paymentResponse(transaction) {
+  return success({ payment: transaction.payment, statementStatus: statementPolicyService.mapStatementApiStatus(transaction.statement.status), statementRevision: transaction.statement.revision, varianceAmount: transaction.statement.variance, todoId: transaction.todo?.id, operationLogId: transaction.operationLogId });
 }

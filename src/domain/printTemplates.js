@@ -1,4 +1,5 @@
 import { getFulfillmentGoodsDisplay } from "./officeRules.js";
+import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 
 export const expressLtlLabelTemplateId = "tpl-p0-express-ltl-label";
 export const deliveryNoteTemplateId = "tpl-p0-delivery-note";
@@ -15,7 +16,7 @@ export function buildFulfillmentPrintTemplate(input = {}) {
   const isFulfillmentNote = !isExpressLtl;
   const packageCount = getPackageCount(fulfillment.packages);
   const packageText = getPackageText(fulfillment.packages, packageCount);
-  const quantity = Number(fulfillment.qty ?? fulfillment.expectedQty ?? orderLine?.qty ?? orderLine?.originalQty ?? 0) || 0;
+  const quantity = Number(input.pricing?.deliveredQty ?? fulfillment.qty ?? fulfillment.expectedQty ?? orderLine?.qty ?? orderLine?.originalQty ?? 0) || 0;
   const batchNo = printRecord.batchNo ?? input.batchNo ?? "PB-PREVIEW";
   const fulfillmentId = fulfillment.id ?? fulfillment.fulfillmentId ?? "";
   const orderLineNo = fulfillment.lineId ?? fulfillment.orderLineId ?? orderLine?.id ?? "";
@@ -46,7 +47,7 @@ export function buildFulfillmentPrintTemplate(input = {}) {
 
   return {
     templateId: printRecord.templateId ?? getTemplateId(documentType),
-    templateVersion: isExpressLtl ? "p0-express-ltl-label-v1" : `p0-${documentType}-dot-matrix-v1`,
+    templateVersion: isExpressLtl ? "p0-express-ltl-label-v1" : `p0-${documentType}-dot-matrix-v2`,
     documentType,
     title: isExpressLtl ? "快递快运包裹标签" : getFulfillmentDocumentTitle(documentType, method),
     priceHidden: isExpressLtl,
@@ -131,8 +132,9 @@ function buildFulfillmentDocumentFields({
   printRecord,
   input,
 }) {
-  const amount = Number(orderLine?.amount ?? fulfillment?.amount ?? 0) || 0;
-  const unitPrice = quantity > 0 && amount > 0 ? amount / quantity : 0;
+  const pricing = input.pricing ?? buildReferencePricing(orderLine, quantity);
+  const amount = pricing.amount;
+  const unitPrice = pricing.unitPrice;
   const printEnabled = orderLine?.print === "是" || String(orderLine?.orderType ?? "").includes("印刷");
   const lineItem = {
     lineNo: orderLine?.lineNo ?? getLineNoFromOrderLineNo(orderLineNo),
@@ -146,9 +148,9 @@ function buildFulfillmentDocumentFields({
     quantity,
     quantityText: `${quantity}个`,
     packageText,
-    unitPriceText: unitPrice > 0 ? formatMoney(unitPrice) : "待核价",
-    amountText: amount > 0 ? formatMoney(amount) : "待核价",
-    otherFeeText: "无",
+    unitPriceText: unitPrice !== null && unitPrice !== undefined ? formatUnitPrice(unitPrice) : "待核价",
+    amountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
+    otherFeeText: "待核对费用明细",
     note: buildDocumentLineNote({ orderLine, fulfillment }),
   };
   if (printEnabled) {
@@ -164,9 +166,33 @@ function buildFulfillmentDocumentFields({
     lineItems: [lineItem],
     totalQuantityText: `${quantity}个`,
     totalPackageText: packageText,
-    totalAmountText: amount > 0 ? formatMoney(amount) : "待核价",
-    priceStatementText: printEnabled ? "印刷订单价格按确认时价格快照核算" : "非印刷订单不显示印刷单价",
+    totalAmountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
+    unitPriceLabel: "折合单价",
+    amountLabel: pricing.source === "recorded_statement" ? "本次入账金额" : pricing.source === "price_snapshot" ? "本次计划金额" : "参考金额",
+    chargeableQuantityText: `${pricing.chargeableQty ?? quantity}个`,
+    freeQuantityText: `${pricing.freeQty ?? 0}个`,
+    pricingSource: pricing.source,
+    priceSnapshotId: pricing.priceSnapshotId || "",
+    statementLineId: pricing.statementLineId || "",
+    pricingEvidence: input.pricing ? {...pricing} : null,
+    priceStatementText: pricing.source === "recorded_statement" ? "金额沿用本次交付原入账凭据；未取得原单价时不推算单价"
+      : !input.pricing || pricing.source === "local_order_reference" ? "金额仅供核对；正式纸单由服务器按价格快照与分批计费记录生成"
+      : "按价格快照与当前分批记录计算；折合单价包含分摊费用，最终入账以实际交付为准",
   };
+}
+
+function buildReferencePricing(orderLine, quantity) {
+  const price = orderLine?.priceSnapshot;
+  const totalAmount = price?.finalAmount ?? orderLine?.amount;
+  const totalQty = price?.chargeableQty ?? orderLine?.qty ?? orderLine?.originalQty;
+  try {
+    const allocation = allocateFulfillmentAmount({totalAmount,totalChargeableQty:totalQty,chargeableQty:quantity});
+    return {amount:allocation.amount,unitPrice:Number(totalAmount)/Number(totalQty),source:"reference"};
+  } catch { return {amount:null,unitPrice:null,source:"unavailable"}; }
+}
+
+function formatUnitPrice(value) {
+  return `¥${Number(value).toLocaleString("zh-CN", {maximumFractionDigits:6})}`;
 }
 
 function getFulfillmentDocumentTitle(documentType, method) {

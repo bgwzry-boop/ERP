@@ -1,4 +1,5 @@
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
+import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
 
 export function createFulfillmentPrintCommandService({
   buildFulfillmentActionRecord,
@@ -23,6 +24,15 @@ export function createFulfillmentPrintCommandService({
   async function printFulfillment({ workspace, fulfillmentId, body = {}, operatorId }) {
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound();
+    const idempotencyPayload = { ...body, fulfillmentId, operatorId };
+    const replay = await workspace.fulfillmentActionTransactionRepository?.findPrintReplay?.({ idempotencyKey: body.idempotencyKey, idempotencyPayload });
+    if (replay) return {
+      fulfillmentId, printRecord: replay.printRecord, paperOutboundDocument: replay.paperOutboundDocument,
+      printTemplate: replay.printJob?.payload?.printTemplate, printJob: replay.printJob,
+      printJobId: replay.printJob?.printJobId, nextStatus: before.status, operationLogId: replay.operationLogId,
+      printJobOperationLogId: replay.printJobOperationLogId, physicalPrintConfirmed: replay.printJob?.jobStatus === "printed",
+      replayed: true,
+    };
 
     const normalizedPrintBody = {
       ...body,
@@ -76,6 +86,7 @@ export function createFulfillmentPrintCommandService({
         });
     const orderLine = findOrderLine(workspace, before.lineId ?? before.orderLineId);
     const customer = (workspace.customers ?? []).find((item) => item.id === before.customerId) ?? {};
+    const pricingResult = documentType === "express_ltl_label" ? null : resolveFulfillmentPrintPricing({ workspace, fulfillment: before, orderLine });
     const printTemplate = buildFulfillmentPrintTemplate({
       fulfillment: before,
       orderLine,
@@ -84,6 +95,7 @@ export function createFulfillmentPrintCommandService({
       documentType,
       action: printableBody.printAction,
       paperNo: printableBody.paperNo,
+      pricing: pricingResult?.pricing,
     });
     const printJob = buildPrintJobRecord({
       workspace,
@@ -129,15 +141,13 @@ export function createFulfillmentPrintCommandService({
     const transactionInput = {
       workspace,
       idempotencyKey: printableBody.idempotencyKey,
-      idempotencyPayload: {
-        ...printableBody,
-        packageIds: packageSnapshot.map((item) => item.packageId),
-        operatorId,
-      },
+      idempotencyPayload,
       fulfillment,
       printRecord,
       paperOutboundDocument,
       operationLog,
+      printBillingSnapshot: pricingResult?.billingSnapshot,
+      legacyPrintOrderPrice: pricingResult?.legacyOrderPrice,
     };
     const canPersistPrintAtomically =
       workspace.fulfillmentActionTransactionRepository?.kind === "postgres" &&
@@ -168,7 +178,7 @@ export function createFulfillmentPrintCommandService({
         fulfillmentId,
         printRecord: savedPrintRecord,
         paperOutboundDocument: transaction.paperOutboundDocument ?? paperOutboundDocument,
-        printTemplate,
+        printTemplate: savedPrintJob.payload?.printTemplate ?? printTemplate,
         printJob: savedPrintJob,
         printJobId: savedPrintJob.printJobId,
         nextStatus: before.status,

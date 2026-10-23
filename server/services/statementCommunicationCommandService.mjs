@@ -1,3 +1,4 @@
+import { closedStatementPaymentStatuses } from "../../shared/statementPaymentPolicy.js";
 import { createHash } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createStatementPolicyService } from "./statementPolicyService.mjs";
@@ -155,6 +156,7 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     });
     const after = {
       ...nextStatements.find((item) => item.id === statementId),
+      ...(closedStatementPaymentStatuses.includes(before.status) ? { status: before.status } : {}),
       revision: expectedRevision.value,
     };
     const versionedStatements = nextStatements.map((item) => item.id === statementId ? after : item);
@@ -318,6 +320,7 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     });
     const afterStatement = {
       ...nextStatements.find((item) => item.id === statementId),
+      ...(closedStatementPaymentStatuses.includes(beforeStatement.status) ? { status: beforeStatement.status } : {}),
       revision: expectedRevision.value,
     };
     const versionedStatements = nextStatements.map((item) => item.id === statementId ? afterStatement : item);

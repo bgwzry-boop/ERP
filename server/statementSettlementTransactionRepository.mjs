@@ -1,3 +1,4 @@
+import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../shared/statementPaymentPolicy.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -186,6 +187,7 @@ WITH locked_statement AS MATERIALIZED (
   SELECT id, revision
   FROM statements
   WHERE id = ${parameters.text(statement.id)}
+    AND status NOT IN (${closedStatementPaymentStatuses.map(status => parameters.text(status)).join(", ")})
   FOR UPDATE
 ),
 updated_statement AS (
@@ -291,6 +293,7 @@ WITH locked_statement AS MATERIALIZED (
   SELECT id, revision
   FROM statements
   WHERE id = ${parameters.text(statement.id)}
+    AND status NOT IN (${closedStatementPaymentStatuses.map(status => parameters.text(status)).join(", ")})
   FOR UPDATE
 ),
 updated_statement AS (
@@ -465,6 +468,9 @@ function commitLocalSettlementDecision({ input, scope, transaction, apply }) {
 function buildLocalSavedStatement(input) {
   const statement = normalizeStatementForApi(input.statement);
   if (!statement) throw new Error("A valid statement is required");
+  const current = input.workspace?.statements?.find(row => row.id === statement.id);
+  const blocker = getStatementPaymentBlocker(current);
+  if (blocker) throw Object.assign(new Error(blocker), { code: "STATEMENT_PAYMENT_PERIOD_CLOSED", statusCode: 409 });
   return { ...input.statement, ...statement, revision: statement.revision + 1 };
 }
 

@@ -1,3 +1,4 @@
+import { closedStatementPaymentStatuses } from "../shared/statementPaymentPolicy.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -185,7 +186,7 @@ function buildMarkStatementSentTransactionText(input, parameters) {
   return `
 BEGIN;
 WITH locked_statement AS MATERIALIZED (
-  SELECT id, revision
+  SELECT id, revision, status
   FROM statements
   WHERE id = ${parameters.text(statement.id)}
   FOR UPDATE
@@ -203,6 +204,7 @@ updated_statement AS (
   FROM locked_statement AS locked
   WHERE statements.id = locked.id
     AND locked.revision = ${parameters.integer(statement.revision)}
+    AND (locked.status NOT IN (${closedStatementPaymentStatuses.map(status => parameters.text(status)).join(", ")}) OR locked.status = ${parameters.text(statement.status)})
   RETURNING ${statementJsonExpression("statements")} AS result
 ),
 statement_write_guard AS MATERIALIZED (
@@ -341,7 +343,7 @@ function buildRecordStatementCustomerConfirmationTransactionText(input, paramete
   return `
 BEGIN;
 WITH locked_statement AS MATERIALIZED (
-  SELECT id, revision
+  SELECT id, revision, status
   FROM statements
   WHERE id = ${parameters.text(statement.id)}
   FOR UPDATE
@@ -364,6 +366,7 @@ updated_statement AS (
   FROM locked_statement AS locked
   WHERE statements.id = locked.id
     AND locked.revision = ${parameters.integer(statement.revision)}
+    AND (locked.status NOT IN (${closedStatementPaymentStatuses.map(status => parameters.text(status)).join(", ")}) OR locked.status = ${parameters.text(statement.status)})
   RETURNING ${statementJsonExpression("statements")} AS result
 ),
 updated_send_record AS (
@@ -521,6 +524,7 @@ function buildLocalSavedStatement(input) {
   const expected = Number(input.statement?.revision ?? 0);
   const current = (input.workspace?.statements ?? []).find((item) => item.id === input.statement?.id);
   if (!current || Number(current.revision ?? 1) !== expected) throw statementWriteConflict(current?.revision);
+  if (closedStatementPaymentStatuses.includes(current.status) && input.statement.status !== current.status) throw statementWriteConflict(current.revision);
   return { ...input.statement, revision: expected + 1 };
 }
 

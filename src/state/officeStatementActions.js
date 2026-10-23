@@ -1,3 +1,4 @@
+import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
 import {
   getStatementNextStatusForVariance,
   money,
@@ -16,7 +17,7 @@ export function markStatementSent(statements, statementId, payload = {}) {
     return {
       ...item,
       sent: true,
-      status: "已发送待回款",
+      status: closedStatementPaymentStatuses.includes(item.status) ? item.status : "已发送待回款",
       sentAt,
       sendRecordId,
       sendChannel: payload.channel ?? item.sendChannel ?? "微信",
@@ -82,7 +83,7 @@ export function recordStatementCustomerConfirmation(statements, statementId, pay
     const sendArchiveStatus = withReceipt.includes("客户确认") ? withReceipt : `${withReceipt}；客户确认`;
     return {
       ...item,
-      status: "客户已确认",
+      status: closedStatementPaymentStatuses.includes(item.status) ? item.status : "客户已确认",
       customerConfirmationStatus: "客户已确认",
       customerConfirmedAt: confirmedAt,
       customerConfirmedBy: confirmedByCustomer,
@@ -133,6 +134,8 @@ export function confirmStatementWriteOff(statements, statement, blockingAmount) 
 }
 
 export function confirmStatementPayment(statements, statement, payload) {
+  const blocker = getStatementPaymentBlocker(statement);
+  if (blocker) throw Object.assign(new Error(blocker), { code: "STATEMENT_PAYMENT_PERIOD_CLOSED", statusCode: 409 });
   const amount = Number(payload.amount || 0);
   const variance = Math.max(0, statement.receivable - amount);
   const attachmentFiles = (payload.paymentAttachmentFiles ?? []).map(normalizePaymentAttachmentFile);

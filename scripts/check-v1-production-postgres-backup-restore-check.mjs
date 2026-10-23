@@ -8,7 +8,7 @@ import {
   payrollAttendanceRestoreTables,
   redactSensitiveText,
 } from "./run-v1-production-postgres-backup-restore-check.mjs";
-import { requiredTables } from "./dbMigrationUtils.mjs";
+import { requiredTables, requiredTableColumns } from "./dbMigrationUtils.mjs";
 
 const runnerScript = join(process.cwd(), "scripts", "run-v1-production-postgres-backup-restore-check.mjs");
 const tempRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-production-postgres-backup-restore");
@@ -142,6 +142,21 @@ assert.equal(payrollRestoreValidation.evidence.missingPayrollAttendanceTableCoun
 assert.deepEqual(payrollRestoreValidation.evidence.firstMissingPayrollAttendanceTables, ["payroll_export_events"]);
 assertNoSensitiveOutput(JSON.stringify(missingPayrollTableReport));
 
+for (const missingColumn of ["payment_records|evidence_attachment_ids", "employees|payroll_position_key"]) {
+  const report = buildProductionPostgresBackupRestoreCheck({
+    env: { ERP_V1_DATABASE_URL: sensitiveSourceUrl, ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL: sensitiveRestoreUrl,
+      ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED: "true" },
+    commandRunner: fakePostgresToolsRunner({ missingRestoreColumn: missingColumn }),
+    tempDirFactory: () => join(tempRoot, `missing-column-${missingColumn.replace("|", "-")}`),
+  });
+  assert.equal(report.ready, false);
+  const result = report.criteria.find((item) => item.key === "restored-database-validated");
+  assert.equal(result.evidence.migrationRowCount, 1, "migration metadata does not substitute for restored columns");
+  assert.equal(result.evidence.missingColumnCount, 1);
+  assert.deepEqual(result.evidence.firstMissingColumns, [missingColumn]);
+  assertNoSensitiveOutput(JSON.stringify(report));
+}
+
 const dumpErrorReport = buildProductionPostgresBackupRestoreCheck({
   env: {
     ERP_V1_DATABASE_URL: sensitiveSourceUrl,
@@ -206,6 +221,10 @@ function fakePostgresToolsRunner(options = {}) {
           stdout: `${requiredTables.filter((table) => table !== options.missingRestoreTable).join("\n")}\n`,
           stderr: "",
         };
+      }
+      if (/information_schema\.columns/.test(sql)) {
+        const rows = Object.entries(requiredTableColumns).flatMap(([table, columns]) => columns.map((column) => `${table}|${column}`));
+        return { status: 0, stdout: rows.filter((row) => row !== options.missingRestoreColumn).join("\n"), stderr: "" };
       }
       if (/COUNT\(\*\) FROM schema_migrations/.test(sql)) return { status: 0, stdout: "1\n", stderr: "" };
       return { status: 1, stdout: "", stderr: `unexpected psql SQL for ${sensitiveRestoreUrl}` };
