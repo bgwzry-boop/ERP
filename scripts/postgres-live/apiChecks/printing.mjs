@@ -247,21 +247,17 @@ export async function checkPrintApi(runtime, { baseUrl, headers, warehouseHeader
   );
   const apiStatusPollItem = apiStatusPoll.items.find((item) => item.printJobId === "PJ-LIVE-API-POLL-001");
   assert.equal(apiStatusPollItem.beforeStatus, "sent");
-  assert.equal(apiStatusPollItem.afterStatus, "printed");
+  assert.equal(apiStatusPollItem.afterStatus, "sent");
+  assert.equal(apiStatusPollItem.error, true);
+  assert.equal(apiStatusPollItem.code, "PRINT_JOB_DISPATCH_REQUIRED");
   assert.equal(apiStatusPollItem.pollResult.adapterStatus, "dry_run_completed");
-  assert.equal(apiStatusPollItem.driverStatusEvent.operatorId, "U-PRINT-DRIVER-A");
-  assert.ok(apiStatusPollItem.operationLogId);
+  assert.ok(!apiStatusPollItem.operationLogId);
   assert.equal(
     queryJson(
       "SELECT json_build_object('status', job_status, 'eventSource', metadata_json->'lastDriverStatusEvent'->>'eventSource') AS result FROM print_jobs WHERE id = 'PJ-LIVE-API-POLL-001';",
     ).status,
-    "printed",
+    "sent",
   );
-  const apiStatusPollOperationLog = queryJson(
-    `SELECT json_build_object('operatorId', operator_id, 'action', action) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiStatusPollItem.operationLogId)};`,
-  );
-  assert.equal(apiStatusPollOperationLog.operatorId, "U-PRINT-DRIVER-A");
-  assert.equal(apiStatusPollOperationLog.action, "record_print_job_driver_status");
 
   const apiCallbackPrintJob = {
     ...buildPrintJobRecord({
@@ -304,14 +300,10 @@ export async function checkPrintApi(runtime, { baseUrl, headers, warehouseHeader
       message: "postgres live callback completed",
       operatorId: "PRINT-DRIVER-FREEFORM",
     },
-    { headers: printDriverHeaders },
+    { headers: printDriverHeaders, expectedStatus: 409 },
   );
-  postgresAssertions.assertApiDriverStatusPrintJob({ apiDriverStatusPrintJob });
-  const apiDriverStatusOperationLog = queryJson(
-    `SELECT json_build_object('operatorId', operator_id, 'action', action) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiDriverStatusPrintJob.operationLogId)};`,
-  );
-  assert.equal(apiDriverStatusOperationLog.operatorId, "U-PRINT-DRIVER-A");
-  assert.equal(apiDriverStatusOperationLog.action, "record_print_job_driver_status");
+  assert.equal(apiDriverStatusPrintJob.code, "PRINT_JOB_DISPATCH_REQUIRED", "An external id in metadata alone is not an actual dispatch receipt");
+  assert.equal(queryJson("SELECT json_build_object('status',job_status) AS result FROM print_jobs WHERE id='PJ-LIVE-API-CALLBACK-001'").status, "sent");
 
   const apiPrintBatchBody = {
     printBatchId: "PB-LIVE-API-001",
