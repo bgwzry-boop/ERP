@@ -462,7 +462,19 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   const paymentDialog = page.getByRole("dialog", { name: "登记实收" });
   await expect(paymentDialog).toBeVisible();
   expect(Number(createdLine.amount)).toBeGreaterThan(0);
-  await paymentDialog.getByLabel("实收金额", {exact:true}).fill(String(createdLine.amount));
+  // Payment amount is the maintained cumulative received value. Updating 20 to
+  // 50 must leave the statement at 50, never silently add another 50.
+  const statementBeforePayment = (await apiGet(request, "/statements/customers?page=1&pageSize=200")).items
+    .find(item => item.customerId === "C001");
+  expect(statementBeforePayment?.statementId).toBeTruthy();
+  await paymentDialog.getByLabel(/^(?:累计)?实收金额$/).fill("20");
+  await paymentDialog.getByRole("checkbox", { name: "付款截图/附件", exact: true }).uncheck();
+  await paymentDialog.getByRole("button", { name: "确认提交", exact: true }).click();
+  await waitForApiDetail(request, `/statements/${encodeURIComponent(statementBeforePayment.statementId)}`, detail => Number(detail.received) === 20);
+  await page.getByRole("button", { name: "登记实收", exact: true }).click();
+  await expect(paymentDialog).toBeVisible();
+  await expect(paymentDialog.getByLabel(/^(?:累计)?实收金额$/)).toHaveValue("20");
+  await paymentDialog.getByLabel(/^(?:累计)?实收金额$/).fill("50");
   await paymentDialog.locator('input[type="file"]').setInputFiles({
     name: "e2e-payment-proof.png",
     mimeType: "image/png",
@@ -485,10 +497,10 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   expect(paymentProof).toBeTruthy();
   const linkedPayments = statementDetail.payments.filter(payment => payment.attachmentIds.includes(paymentProof.attachmentId));
   expect(linkedPayments).toHaveLength(1);
-  expect(Number(linkedPayments[0].amount)).toBe(Number(createdLine.amount));
+  expect(Number(linkedPayments[0].amount)).toBe(50);
   expect(linkedPayments[0].statementId).toBe(customerStatement.statementId);
   expect(linkedPayments[0].customerId).toBe("C001");
-  expect(Number(statementDetail.received)).toBe(Number(createdLine.amount));
+  expect(Number(statementDetail.received)).toBe(50);
 
   const proofRow = page.locator(".payment-proof-row").filter({ hasText: "e2e-payment-proof.png" });
   const auditUrl = `**/api/attachments/${paymentProof.attachmentId}/access-logs*`;
@@ -600,6 +612,10 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   await scheduleDecisionSection.getByLabel("决定渠道").selectOption("wechat");
   await scheduleDecisionSection.getByLabel("决定内容").fill("负责人确认本单优先进入丝印排产");
   await scheduleDecisionSection.getByLabel("授权依据").fill("微信经营群确认");
+  await scheduleDecisionSection.locator('input[type="file"]').first().setInputFiles({
+    name: "e2e-schedule-decision.png", mimeType: "image/png", buffer: createOnePixelPng(),
+  });
+  await expect(scheduleDecisionSection.getByText("e2e-schedule-decision.png", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "发布排产", exact: true }).click();
   const scheduleConfirmation = page.getByRole("dialog", { name: "确认排产经营决定" });
   await expect(scheduleConfirmation).toBeVisible();
@@ -640,6 +656,9 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   );
   expect(workshopReviewDenied.requiredPermission).toBe("production.schedule.publish");
   await page.getByRole("tab", { name: "成品图", exact: true }).click();
+  await page.getByLabel("拍照/选择图片", { exact: true }).setInputFiles({
+    name: "e2e-production-finished-goods.png", mimeType: "image/png", buffer: createOnePixelPng(),
+  });
   await page.getByRole("button", { name: "上传成品图", exact: true }).click();
 
   let productionDetail = await waitForApiDetail(
@@ -861,7 +880,7 @@ test("经营决定区分决定人与操作人并保证授权、幂等和历史�
     businessType: "raw_material_purchase_request",
     businessId: requestId,
     decisionScope: "raw_material_purchase",
-  }, officeOperatorId, 201);
+  }, "U-OFFICE-B", 201);
   const evidenceAttachment = await apiPost(request, "/attachments", {
     idempotencyKey: `e2e-evidence-attachment-${suffix}`,
     ownerType: "business_decision_evidence_draft",
@@ -871,11 +890,11 @@ test("经营决定区分决定人与操作人并保证授权、幂等和历史�
     fileName: "微信经营群采购确认.png",
     contentRef: `e2e://business-decision/${suffix}`,
     mimeType: "image/png",
-    fileSize: 8,
-    contentDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+    fileSize: createOnePixelPng().length,
+    contentDataUrl: `data:image/png;base64,${createOnePixelPng().toString("base64")}`,
     uploadedBy: "FORGED-UPLOADER",
-  }, officeOperatorId);
-  expect(evidenceAttachment.uploadedBy).toBe(officeOperatorId);
+  }, "U-OFFICE-B");
+  expect(evidenceAttachment.uploadedBy).toBe("U-OFFICE-B");
   const delegatedDecision = {
     decisionMakerEmployeeId: "E2E-DM-MOTHER",
     decisionChannel: "wechat",
@@ -1145,7 +1164,7 @@ async function submitFulfillmentPrint(page, request, {
   await page.getByRole("button", { name: action, exact: true }).click();
   const printDialog = page.getByRole("dialog", { name: "单据 / 标签预览" });
   await expect(printDialog).toBeVisible();
-  await printDialog.getByRole("button", { name: "确认提交", exact: true }).click();
+  await printDialog.getByRole("button", { name: action, exact: true }).click();
   return waitForApiItem(request, "/print-jobs?page=1&pageSize=200", (item) =>
     !existingIds.has(item.printJobId) &&
     item.targetId === fulfillmentId &&
@@ -1372,7 +1391,9 @@ async function clickWithConfirm(page, locator, { accept, message }) {
 
 async function selectWorkbenchTabIfPresent(page, name) {
   const tab = page.getByRole("tab", { name, exact: true });
-  if (await tab.count()) await tab.click();
+  await expect(tab, "工作台异步加载完成后再切换，不能在首次空DOM时跳过").toBeVisible();
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
 }
 
 async function selectProductionTask(page, productionTaskId) {
