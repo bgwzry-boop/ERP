@@ -409,6 +409,7 @@ const voidPrintResult = await voidOfficePrintRecord(
     printRecordId: "PR-F003",
     operatorId: "U-OFFICE-A",
     reason: "信息变更需重打",
+    idempotencyKey: "print-void-frozen-request-0001",
   },
   {
     apiBaseUrl: "http://127.0.0.1:8787/api",
@@ -437,6 +438,8 @@ const voidPrintResult = await voidOfficePrintRecord(
 
 assert(voidPrintCalls[0]?.url === "http://127.0.0.1:8787/api/print-records/PR-F003/void", "void print API URL is incorrect");
 assert(voidPrintCalls[0]?.body.voidReason === "info_changed", "void print request reason is incorrect");
+assert(voidPrintCalls[0]?.body.idempotencyKey === "print-void-frozen-request-0001", "void request must preserve frozen idempotency key in body");
+assert(new Headers(voidPrintCalls[0]?.init.headers).get("Idempotency-Key") === "print-void-frozen-request-0001", "void request must preserve frozen idempotency header");
 assert(voidPrintResult.printRecord?.status === "voided" && voidPrintResult.operationLogId === "LOG-PRINT-VOID-1", "void print response was not mapped");
 
 const reprintCalls = [];

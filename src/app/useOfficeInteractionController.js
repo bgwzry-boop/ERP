@@ -116,6 +116,17 @@ export function createOfficeInteractionActions({
   async function confirmModal(payload) {
     const activeModal = getModal();
     if (!activeModal) return null;
+    if (["print", "printVoid"].includes(activeModal.type)) {
+      if (!permissionContext?.actionPermissions?.includes("fulfillment.print")) {
+        return { blocked: true, feedback: "当前账号没有打印或作废权限，请联系管理员。" };
+      }
+      const result = activeModal.type === "print"
+        ? await printFulfillmentDocument({ modal: activeModal, payload })
+        : await voidFulfillmentPrintRecord({ modal: activeModal, payload });
+      if (getModal() !== activeModal) return { blocked: true, stale: true };
+      if (result?.confirmed === true) closeModal();
+      return notifyResult(result);
+    }
     if (activeModal.type !== "dispatch") closeModal();
 
     if (activeModal.type === "batchPrintResult") {
@@ -156,14 +167,6 @@ export function createOfficeInteractionActions({
         paperOutboundDocument: selected.paperOutboundDocument,
         payload,
       }));
-    }
-
-    if (activeModal.type === "print") {
-      return notifyResult(await printFulfillmentDocument({ modal: activeModal, payload }));
-    }
-
-    if (activeModal.type === "printVoid") {
-      return notifyResult(await voidFulfillmentPrintRecord({ modal: activeModal, payload }));
     }
 
     if (activeModal.type === "mismatch" || activeModal.type === "unable") {
@@ -416,9 +419,9 @@ export function useOfficeInteractionController(options) {
     const feedback = cleanFeedback(message);
     if (feedback) setToastState(feedback);
   };
-  const openModal = (nextModal) => {modalRef.current=nextModal?.type === "dispatch" ? {...nextModal,sessionOwner:options.currentUserId} : nextModal ?? null;setModal(modalRef.current);};
+  const openModal = (nextModal) => {modalRef.current=["dispatch", "print", "printVoid"].includes(nextModal?.type) ? {...nextModal,sessionOwner:options.currentUserId} : nextModal ?? null;setModal(modalRef.current);};
   const closeModal = () => {modalRef.current=null;setModal(null);};
-  useEffect(()=>{if(modalRef.current?.type === "dispatch"){modalRef.current=null;setModal(null);}},[options.currentUserId,options.authState?.session?.accessToken]);
+  useEffect(()=>{if(["dispatch", "print", "printVoid"].includes(modalRef.current?.type)){modalRef.current=null;setModal(null);}},[options.currentUserId,options.authState?.session?.accessToken]);
   const openOrderActionModal=(nextModal)=>{orderActionModalRef.current=nextModal ?? null;setOrderActionModal(orderActionModalRef.current);};
   const closeOrderActionModal=()=>{orderActionModalRef.current=null;setOrderActionModal(null);};
   useEffect(()=>{orderActionModalRef.current=null;setOrderActionModal(null);},[options.currentUserId,options.authState?.session?.accessToken]);

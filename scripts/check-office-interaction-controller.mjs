@@ -59,13 +59,13 @@ function createHarness(overrides = {}) {
     orderLines: [{ id: "O-1", quantity: 100 }],
     permissionContext: overrides.permissionContext ?? {
       user: { displayName: "管理A" },
-      actionPermissions: ["order.void"],
+      actionPermissions: ["order.void", "fulfillment.print"],
       buttonPermissions: ["order.create"],
     },
-    printFulfillmentDocument: async (input) => {
+    printFulfillmentDocument: overrides.printFulfillmentDocument ?? (async (input) => {
       calls.push(["print", input]);
-      return { feedback: "打印作业已提交，等待可信状态回读。" };
-    },
+      return { confirmed: true, feedback: "打印作业已提交，等待可信状态回读。" };
+    }),
     readFileAsDataUrl: async () => "data:image/png;base64,AA==",
     recordWarehouseExecution: async (input) => {
       calls.push(["warehouseExecution", input]);
@@ -86,7 +86,7 @@ function createHarness(overrides = {}) {
     todos,
     voidFulfillmentPrintRecord: async (input) => {
       calls.push(["void", input]);
-      return { feedback: "打印记录已作废。" };
+      return { confirmed: true, feedback: "打印记录已作废。" };
     },
   });
 
@@ -96,6 +96,7 @@ function createHarness(overrides = {}) {
     calls,
     get fulfillments() { return fulfillments; },
     get modal() { return modal; },
+    replaceModal(value) { modal = value; },
     get orderActionModal() { return orderActionModal; },
     get statements() { return statements; },
     get toast() { return toast; },
@@ -323,3 +324,22 @@ for (const selector of [".payment-proof-row", ".attachment-preview", ".attachmen
 }
 
 console.log("Office interaction controller checks passed: overlay state, permission guards, modal routing, and conflict feedback are centralized.");
+
+{
+  let resolve;
+  const original={type:"print",fulfillmentId:"F-1",action:"打印标签"};
+  const harness=createHarness({modal:original,printFulfillmentDocument:()=>new Promise(r=>resolve=r)});
+  const pending=harness.actions.confirmModal({});
+  assert.equal(harness.modal,original,"Submitting print must keep its modal open");
+  resolve({blocked:true,feedback:"连接中断"});await pending;
+  assert.equal(harness.modal,original,"Failed print retains the current modal");
+  const late=harness.actions.confirmModal({});
+  const next={type:"print",fulfillmentId:"F-2",action:"打印标签"};harness.replaceModal(next);
+  resolve({confirmed:true,feedback:"旧单成功"});const result=await late;
+  assert.equal(result.stale,true);assert.equal(harness.modal,next);assert.notEqual(harness.toast,"旧单成功");
+}
+{
+ const harness=createHarness({modal:{type:"print",fulfillmentId:"F-1",action:"打印标签"},permissionContext:{actionPermissions:[]}});
+ const result=await harness.actions.confirmModal({});assert.equal(result.blocked,true);assert.equal(harness.calls.length,0);assert(harness.modal);
+}
+console.log("PASS print interaction keeps failed requests, closes only confirmed results, rechecks permission and ignores an old modal response.");

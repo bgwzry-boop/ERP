@@ -47,7 +47,7 @@ export function WorkspaceOverlays({
     <>
       {modal && (
         <ActionModal
-          key={modal.type === "dispatch" ? `${modal.sessionOwner || ""}:${modal.type}:${modal.fulfillmentId}` : "business-modal"}
+          key={["dispatch", "print", "printVoid"].includes(modal.type) ? `${modal.sessionOwner || ""}:${modal.type}:${modal.fulfillmentId}:${modal.action || ""}:${modal.printRecordId || ""}` : "business-modal"}
           modal={modal}
           fulfillments={fulfillments}
           statements={statements}

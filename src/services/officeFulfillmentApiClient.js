@@ -165,7 +165,9 @@ export async function voidOfficePrintRecord(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey: input.idempotencyKey,
       body: {
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
         voidReason: mapPrintVoidReason(reason),
         relatedPrintRecordId,
         operatorId,

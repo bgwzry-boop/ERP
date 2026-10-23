@@ -1,5 +1,6 @@
-import { createOfficeIdempotencyKey } from "../services/officeApiClientCore.js";
 import { useEffect, useRef, useState } from "react";
+import { createOfficeIdempotencyKey } from "../services/officeApiClientCore.js";
+import { readPrintCommandDraft, savePrintCommandDraft, clearPrintCommandDraft } from "../features/printing/print-command-draft.js";
 import {
   batchPrintResultOptions,
   getOfficeModalInitialNumberValue,
@@ -257,17 +258,42 @@ export function ActionModal({
   onClose,
   onConfirm,
 }) {
-  const fulfillment = fulfillments.find((item) => item.id === modal.fulfillmentId);
+  const isPrintCommand = ["print", "printVoid"].includes(modal.type);
+  const [printDraft, setPrintDraft] = useState(() => isPrintCommand ? readPrintCommandDraft(modal) : { request: null, error: "" });
+  const [printSubmitting, setPrintSubmitting] = useState(false);
+  const [printError, setPrintError] = useState("");
+  const [printConflict, setPrintConflict] = useState(false);
+  const printBusy = useRef(false);
+  const printMounted = useRef(true);
+  const printDialog = useRef(null);
+  useEffect(() => { printMounted.current = true; return () => { printMounted.current = false; }; }, []);
+  useEffect(() => {
+    if (!isPrintCommand || typeof document === "undefined") return;
+    const panel = printDialog.current, previous = document.activeElement;
+    const items = () => [...panel.querySelectorAll('button:not(:disabled), select:not(:disabled), input:not(:disabled), [tabindex="0"]')];
+    (panel.querySelector('select:not(:disabled)') ?? items()[0])?.focus();
+    const keydown = event => {
+      if (event.key === "Escape") { event.preventDefault(); if (!printBusy.current) onClose(); }
+      if (event.key === "Tab") {
+        const targets = items(), first = targets[0], last = targets.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    panel.addEventListener("keydown", keydown);
+    return () => { panel.removeEventListener("keydown", keydown); if (previous?.isConnected) previous.focus(); };
+  }, []);
+  const fulfillment = printDraft.request?.fulfillment ?? fulfillments.find((item) => item.id === modal.fulfillmentId);
   const fulfillmentDocumentLabel = fulfillment ? getFulfillmentDocumentLabel(fulfillment) : "单据/标签";
   const fulfillmentLine = fulfillment ? findOrderLine(orderLines, fulfillment.lineId ?? fulfillment.orderLineId) : null;
-  const printTemplate = fulfillment
+  const printTemplate = printDraft.request?.preview ?? (fulfillment
     ? buildFulfillmentPrintTemplate({
         fulfillment,
         orderLine: fulfillmentLine,
         customer: findCustomer(fulfillment.customerId),
         action: modal.action,
       })
-    : null;
+    : null);
   const statement = statements.find((item) => item.id === modal.statementId);
   const statementLines = statement ? statement.lineIds.map((id) => findOrderLine(orderLines, id)).filter(Boolean) : [];
   const preview = modal.preview;
@@ -289,7 +315,7 @@ export function ActionModal({
         finalAmount: line.amount,
       }));
   const [numberValue, setNumberValue] = useState(getOfficeModalInitialNumberValue(modal, { fulfillment, statement, getStatementBlockingAmount }));
-  const [reason, setReason] = useState(getOfficeModalInitialReason(modal));
+  const [reason, setReason] = useState(printDraft.request?.reason ?? getOfficeModalInitialReason(modal));
   const [attachPaymentProof, setAttachPaymentProof] = useState(modal.type === "payment");
   const [paymentProofRemark, setPaymentProofRemark] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState(null);
@@ -428,6 +454,34 @@ export function ActionModal({
   }
 
   async function confirm() {
+    if (isPrintCommand) {
+      if (printBusy.current || printConflict || printDraft.error) return;
+      if (!fulfillment) { setPrintError("未找到对应单据，请刷新后重新核对。"); return; }
+      const request = printDraft.request ?? {
+        idempotencyKey: createOfficeIdempotencyKey(), reason,
+        fulfillment: Object.fromEntries(["id", "method", "activePrintRecordId", "printRecordId", "lastPrintRecordId"].filter(key => fulfillment[key] !== undefined).map(key => [key, fulfillment[key]])),
+        printRecordId: modal.printRecordId ?? fulfillment.activePrintRecordId ?? fulfillment.printRecordId ?? "",
+        preview: printTemplate,
+      };
+      const storageError = savePrintCommandDraft(modal, request);
+      if (storageError) { setPrintError(storageError); return; }
+      setPrintDraft({ request, error: "" });
+      printBusy.current = true; setPrintSubmitting(true); setPrintError("");
+      try {
+        const result = await onConfirm({ reason: request.reason, printRequest: request });
+        if (result?.confirmed === true) clearPrintCommandDraft(modal, request);
+        else if (printMounted.current) {
+          setPrintError(result?.feedback || "尚未确认操作成功，已保留原请求，请重试。");
+          setPrintConflict(/CONFLICT|STALE|VERSION|KEY_REUSED/.test(result?.error?.code || ""));
+        }
+      } catch {
+        if (printMounted.current) setPrintError("未能确认服务器结果，已保留原请求，请重试。");
+      } finally {
+        printBusy.current = false;
+        if (printMounted.current) setPrintSubmitting(false);
+      }
+      return;
+    }
     if (modal.type === "paperHandoff") {
       onConfirm({ note: paperHandoffNote });
       return;
@@ -517,13 +571,13 @@ export function ActionModal({
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="modal" role="dialog" aria-modal="true" aria-label={officeModalTitles[modal.type]}>
+      <section ref={printDialog} className="modal" role="dialog" aria-modal="true" aria-label={officeModalTitles[modal.type]}>
         <div className="modal-title">
           <div>
             <span>业务操作</span>
             <h2>{officeModalTitles[modal.type]}</h2>
           </div>
-          <button className="icon-button" aria-label="关闭业务操作" disabled={dispatchSubmitting} onClick={onClose}>×</button>
+          <button className="icon-button" aria-label="关闭业务操作" disabled={printSubmitting || dispatchSubmitting} onClick={onClose}>×</button>
         </div>
         {modal.type === "print" ? (
           <PrintTemplatePreview template={printTemplate} fulfillment={fulfillment} />
@@ -535,7 +589,7 @@ export function ActionModal({
             </label>
             <label>
               作废原因
-              <select value={reason} onChange={(event) => setReason(event.target.value)}>
+              <select disabled={printSubmitting || Boolean(printDraft.request)} value={reason} onChange={(event) => setReason(event.target.value)}>
                 {printVoidReasonOptions.map((item) => (
                   <option key={item}>{item}</option>
                 ))}
@@ -851,9 +905,14 @@ export function ActionModal({
             {attachmentError && <div className="form-note" role="alert">{attachmentError}</div>}
           </div>
         )}
+        {isPrintCommand && (printDraft.error || printError || printDraft.request) ? <div className="form-grid">
+          {printDraft.error || printError ? <div className="form-note" role="alert">{printDraft.error || printError}</div> : null}
+          {printDraft.request ? <p className="form-note">已保留第一次提交的单据和内容。重试沿用原请求；关闭后再次进入本操作也可继续。</p> : null}
+          {printConflict ? <div className="form-note">数据已变化，请先检查当前打印任务和单据，再重新核对。<button type="button" onClick={() => { clearPrintCommandDraft(modal, printDraft.request); onClose(); }}>结束本次重试并关闭</button></div> : null}
+        </div> : null}
         <div className="modal-actions">
-          <button disabled={dispatchSubmitting} onClick={warehouseReviewOpen && modal.type === "warehouseExecution" ? () => setWarehouseReviewOpen(false) : onClose}>{warehouseReviewOpen && modal.type === "warehouseExecution" ? "返回修改" : "取消"}</button>
-          <button className="primary-action" disabled={dispatchSubmitting || (modal.type === "dispatch" && !dispatchRequest && (driverRoster.loading || !dispatchDriverAvailable))} onClick={confirm}>{modal.type === "warehouseExecution" ? warehouseReviewOpen ? "确认回录" : "下一步确认" : modal.type === "paperHandoff" ? "确认交库房" : modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? dispatchSubmitting ? "保存中…" : dispatchRequest ? "用原内容重试" : "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
+          <button disabled={printSubmitting || dispatchSubmitting} onClick={warehouseReviewOpen && modal.type === "warehouseExecution" ? () => setWarehouseReviewOpen(false) : onClose}>{warehouseReviewOpen && modal.type === "warehouseExecution" ? "返回修改" : isPrintCommand && printDraft.request ? "稍后重试" : "取消"}</button>
+          <button className="primary-action" disabled={dispatchSubmitting || (modal.type === "dispatch" && !dispatchRequest && (driverRoster.loading || !dispatchDriverAvailable)) || (isPrintCommand && (printSubmitting || printConflict || Boolean(printDraft.error)))} onClick={confirm}>{isPrintCommand && printSubmitting ? "正在确认…" : isPrintCommand && printDraft.request ? "用原请求重试" : modal.type === "print" ? modal.action : modal.type === "warehouseExecution" ? warehouseReviewOpen ? "确认回录" : "下一步确认" : modal.type === "paperHandoff" ? "确认交库房" : modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? dispatchSubmitting ? "保存中…" : dispatchRequest ? "用原内容重试" : "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
         </div>
       </section>
     </div>
