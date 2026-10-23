@@ -36,8 +36,8 @@
   "summary": {
     "entries": 611,
     "statusCounts": {
-      "deferred-semantic-review": 500,
-      "p1-semantics-transplanted-partial": 46,
+      "deferred-semantic-review": 497,
+      "p1-semantics-transplanted-partial": 49,
       "retained-historical-evidence": 61,
       "current-rule-replaces-legacy-scope": 4
     },
@@ -4196,8 +4196,8 @@
         "server/statementExportRepository.mjs",
         "src/services/officeStatementApiClient.js"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: preserve accounting lines and immutable export evidence”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 4 项、内容不同 5 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "导出不重建正式账务行；不可变文件、审计和历史快照回放",
       "mechanical": {
         "parents": [
           "2b3657990c4f547f2cfb79ee2c9976e3056fbb4a"
@@ -4236,10 +4236,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "statement-export-accounting-preservation-review",
+        "scope": [
+          "导出不重建正式账务行；不可变文件、审计和历史快照回放"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "1c38aa406203d31840a005b018d0aa0b0110c5dd",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: preserve accounting lines and immutable export evidence”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 4 项、内容不同 5 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅上述防线通过当前合同适配与验证，其他旧改动保留待审。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -4327,8 +4331,8 @@
         "server/services/statementCommunicationCommandService.mjs",
         "server/services/statementPreviewProjectionService.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: block statement exports with incomplete accounting facts”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 4 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "导出使用完整持久账务明细，数量金额守恒且合计匹配",
       "mechanical": {
         "parents": [
           "01b38ddc123118a3798722042a37e9eb29ed3afa"
@@ -4363,10 +4367,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "statement-export-accounting-preservation-review",
+        "scope": [
+          "导出使用完整持久账务明细，数量金额守恒且合计匹配"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "1c38aa406203d31840a005b018d0aa0b0110c5dd",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: block statement exports with incomplete accounting facts”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 4 项、当前缺失 2 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅上述防线通过当前合同适配与验证，其他旧改动保留待审。"
       },
       "followupDomains": [
         "历史文档与证据",
@@ -4388,8 +4396,8 @@
         "server/services/statementExportSnapshotService.mjs",
         "server/statementExportRepository.mjs"
       ],
-      "status": "deferred-semantic-review",
-      "note": "尚未对“fix: guard statement export commits against accounting races”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 4 项、当前缺失 4 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
+      "status": "p1-semantics-transplanted-partial",
+      "note": "事务核对账单头和明细快照，并发收款或新增明细冲突回滚",
       "mechanical": {
         "parents": [
           "16c969f472fb0daf4a71e23d190ce8120571fe69"
@@ -4426,10 +4434,14 @@
         }
       },
       "businessReview": {
-        "kind": "mechanical-only",
+        "kind": "statement-export-accounting-preservation-review",
+        "scope": [
+          "事务核对账单头和明细快照，并发收款或新增明细冲突回滚"
+        ],
+        "sourceRecord": "docs/development/p1-finance-legacy-closeout-20261023.json",
+        "integrationCommit": "1c38aa406203d31840a005b018d0aa0b0110c5dd",
         "wholeCommitIntegrated": false,
-        "decision": "尚未对“fix: guard statement export commits against accounting races”作完整业务等价验收。当前文件后像相同 0 项、仍为改前快照 1 项、内容不同 4 项、当前缺失 4 项；按列出的路径和 diff 基点继续复核，不能据此认定无用或删除。",
-        "next": "尚未完成业务语义审核，优先级未重新确认；须按当前版本复现与影响重新判定，不能把权限、资金或库存风险自动降级。"
+        "remainder": "仅上述防线通过当前合同适配与验证，其他旧改动保留待审。"
       },
       "followupDomains": [
         "历史文档与证据",

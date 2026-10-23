@@ -30,7 +30,7 @@
     },
     {
       "commit": "ef8315523c / 16c969f472fb0daf4a71e23d190ce8120571fe69 / 80d091089b",
-      "decision": "另一个已确认P1：导出覆盖正式statement_lines。按父任务授权继续单独修复，不在本提交声称闭环"
+      "decision": "导出保真、完整账务校验和并发快照保护已选择性移植，见exportFollowup。"
     }
   ],
   "changes": [
@@ -74,5 +74,20 @@
     "finance-closeout-postgres:check": "node scripts/check-finance-closeout-postgres.mjs",
     "p1-postgres:check": "父任务将finance-closeout-postgres:check加入统一真PG组"
   },
-  "packageManifestModified": false
+  "packageManifestModified": false,
+  "exportFollowup": {
+    "integrationCommit": "1c38aa406203d31840a005b018d0aa0b0110c5dd",
+    "status": "本地专项验证完成，未部署",
+    "changes": [
+      "导出不删改正式账单行；缺失数量、金额或合计不一致时阻断。",
+      "请求重放保留原文件快照；文件按内容摘要存储，失败不能覆盖旧对象。",
+      "等待期间发生收款或明细新增修改时拒绝陈旧导出并回滚；刷新后可重试。"
+    ],
+    "passedChecks": [
+      "52个不完整账务输入拒绝；正常分批、赠送、小数金额与回放通过",
+      "真实PostgreSQL：51迁移、原始行保真、冷读、碰撞拒绝、观察锁等待后的收款和新增明细冲突回滚",
+      "导出仓库、对象存储、沟通、预览及完整api:check通过"
+    ],
+    "boundary": "未列出的旧前端发送参数和历史文档等其他改动仍待核对。"
+  }
 }
