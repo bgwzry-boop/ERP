@@ -11,6 +11,8 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
   const permission = payment ? "statement.payment.record" : "statement.send";
   const title = payment ? "登记累计实收" : confirmation ? "登记客户确认" : "登记已发送";
   const purpose = payment ? "payment_screenshot" : "statement_customer_confirmation";
+  const attachmentRule = getAttachmentPurposeRule(purpose);
+  const attachmentAccept = [...attachmentRule.allowedMimePrefixes.map(prefix => `${prefix}*`), ...attachmentRule.allowedMimeTypes, ...attachmentRule.allowedExtensions].join(",");
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("bank_transfer");
   const [person, setPerson] = useState("");
@@ -85,7 +87,7 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
       </div>
       {payment || confirmation ? <div className="finance-evidence-picker"><p>凭证附件（可选）</p>
         {attachments.map(row => <label className="finance-check" key={row.attachmentId}><input type="checkbox" checked={selected.includes(row.attachmentId)} onChange={event => setSelected(previous => event.target.checked ? [...previous, row.attachmentId] : previous.filter(id => id !== row.attachmentId))} />{row.fileName}</label>)}
-        {hasFinancePermission(authState, "attachment.create") ? <><label>添加图片或 PDF<input ref={fileInput} type="file" accept={getAttachmentPurposeRule(purpose).accept} onChange={event => { const file = event.target.files?.[0]; if (file) setFiles(previous => [...previous, { key: createOfficeIdempotencyKey(), file }]); event.target.value = ""; }} /></label>{files.filter(row => !row.attachment).map(row => <div className="finance-file" key={row.key}><span>{row.file.name} · 待上传</span><button type="button" onClick={() => upload(row)}>上传凭证</button><button type="button" onClick={() => setFiles(previous => previous.filter(item => item.key !== row.key))}>移除</button></div>)}</> : <p className="finance-muted">当前账号不能上传新附件。</p>}
+        {hasFinancePermission(authState, "attachment.create") ? <><label>添加{attachmentRule.allowedLabel}（每个不超过 {Math.floor(attachmentRule.maxBytes / 1024 / 1024)} MB）<input ref={fileInput} type="file" accept={attachmentAccept} onChange={event => { const file = event.target.files?.[0]; if (file) setFiles(previous => [...previous, { key: createOfficeIdempotencyKey(), file }]); event.target.value = ""; }} /></label>{files.filter(row => !row.attachment).map(row => <div className="finance-file" key={row.key}><span>{row.file.name} · 待上传</span><button type="button" onClick={() => upload(row)}>上传凭证</button><button type="button" onClick={() => setFiles(previous => previous.filter(item => item.key !== row.key))}>移除</button></div>)}</> : <p className="finance-muted">当前账号不能上传新附件。</p>}
       </div> : null}
       <label className="finance-check"><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />{payment ? "已核对累计到账，确认没有遗漏以前的收款。" : confirmation ? "以上为客户实际回复，我已核对。" : "已实际发送给上述接收人。"}</label>
     </fieldset>

@@ -56,6 +56,12 @@ try {
     if (url.pathname.endsWith("/preview")) return json({ statementId: "ST-UI", downloadToken: "DL-UI", lines: [], summary: {}, operationLogId: "LOG-EXPORT-UI" });
     if (url.pathname.endsWith("/exports/DL-UI")) return route.fulfill({ contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers: { "content-disposition": "attachment; filename=statement-ui.xlsx", "access-control-expose-headers": "content-disposition" }, body: Buffer.from("synthetic-download-contract") });
     if (url.pathname === "/api/attachments/ATT-UI/content") return route.fulfill({ contentType: "image/png", body: Buffer.from("synthetic-attachment-contract") });
+    if (url.pathname === "/api/attachments/binary") {
+      assert.equal(url.searchParams.get("ownerType"), "statement");
+      assert.equal(url.searchParams.get("ownerId"), "ST-UI");
+      assert.equal(url.searchParams.get("purpose"), "payment_screenshot");
+      return json({ attachmentId: "ATT-UPLOADED", ownerType: "statement", ownerId: "ST-UI", purpose: "payment_screenshot", fileName: "新到账截图.png", hasContent: true, status: "uploaded", fileType: "image" });
+    }
     if (url.pathname.endsWith("/mark-sent")) { communication.push({ action: "sent", body: request.postDataJSON() }); revision++; return json({ statementId: "ST-UI", sendRecordId: "SEND-UI", operationLogId: "LOG-SENT-UI" }); }
     if (url.pathname.endsWith("/customer-confirmation")) { communication.push({ action: "confirmation", body: request.postDataJSON() }); revision++; return json({ statementId: "ST-UI", sendRecordId: "SEND-UI", confirmationRecordId: "CONF-UI", operationLogId: "LOG-CONF-UI" }); }
     return route.fulfill({ status: 404, body: JSON.stringify({ message: `Unexpected ${url.pathname}` }) });
@@ -64,6 +70,10 @@ try {
   await page.getByText("组件验收客户 · 2026-09").waitFor();
   await page.getByLabel("本期累计实收（元）").fill("500.25");
   await page.getByLabel("到账及调整依据").fill("核对两次到账合计，测试记录");
+  assert.equal(await page.locator('input[type="file"]').getAttribute("accept"), "image/*");
+  await page.locator('input[type="file"]').setInputFiles({ name: "新到账截图.png", mimeType: "image/png", buffer: Buffer.from("synthetic-upload-contract") });
+  await page.getByRole("button", { name: "上传凭证", exact: true }).click();
+  await page.getByLabel("新到账截图.png", { exact: true }).waitFor();
   await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").check();
   await page.getByRole("button", { name: "核对本次登记" }).click();
   assert.match(await page.locator(".finance-confirm").innerText(), /300\.25/);
@@ -74,6 +84,7 @@ try {
   assert.equal(paymentAttempts.length, 2);
   assert.deepEqual(paymentAttempts[0], paymentAttempts[1], "transport retry retains exact amount, time, revision and idempotency key");
   assert.equal(paymentAttempts[1].body.amount, 500.25, "current contract is cumulative, not additive");
+  assert.deepEqual(paymentAttempts[1].body.attachmentIds, ["ATT-UPLOADED"]);
   const fileDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载对账文件", exact: true }).click();
   assert.equal((await fileDownload).suggestedFilename(), "statement-ui.xlsx");
