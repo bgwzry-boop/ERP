@@ -3,6 +3,7 @@ import { completePhysicalPackingFixture } from "./helpers/physicalPackingFixture
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { checkAuthSkeleton } from "./api-skeleton/auth.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
+import { loadSeedWorkspace } from "../server/seedData.mjs";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -44,7 +45,36 @@ const guardedDispatchPrintJob = printDriverAdapter.dispatchPrintJob;
 const syntheticDispatchJobIds = new Set();
 printDriverAdapter.dispatchPrintJob = input => syntheticDispatchJobIds.has(input.printJob.printJobId)
   ? dryRunPrintDriverAdapter.dispatchPrintJob(input) : guardedDispatchPrintJob(input);
-let server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false, printDriverAdapter }));
+// The F006 delivery scenario begins after production and tests the paper-led
+// warehouse/driver chain. Give that exact order its already-counted stock and
+// reservation; the generic demo's 1,600 stock / 1,000 aggregate hold is not a
+// production receipt for this 2,000-bag order. Keep all other seed stock intact.
+const driverSeed = loadSeedWorkspace({ source: "synthetic" });
+const driverStockOrder = driverSeed.orderLines.find((line) => line.id === "ORD-0629-009-01");
+if (driverStockOrder?.qty !== 2000 || driverStockOrder.orderType !== "定制印刷") {
+  throw new Error("F006 outbound fixture must retain the accepted printed-order identity and quantity");
+}
+const driverStockItemId = `${driverStockOrder.size}-${driverStockOrder.color}-${driverStockOrder.handle}-${driverStockOrder.style}-API司机备货区`;
+const driverCoreWorkspaceFixture = {
+  kind: "local_memory",
+  loadState() {
+    return {
+      inventories: [...structuredClone(driverSeed.inventories), {
+        id: driverStockItemId, size: driverStockOrder.size, color: driverStockOrder.color,
+        handle: driverStockOrder.handle, style: driverStockOrder.style, zone: "API司机备货区",
+        state: "仓库已清点", inStock: driverStockOrder.qty, reserved: driverStockOrder.qty,
+        locked: 0, pending: 0, estimated: false, revision: 1,
+      }],
+      inventoryReservations: [{
+        id: "RSV-API-F006-COUNTED", reservationId: "RSV-API-F006-COUNTED",
+        orderLineId: driverStockOrder.id, inventoryItemId: driverStockItemId,
+        qty: driverStockOrder.qty, reservedQty: driverStockOrder.qty, status: "生效",
+        createdBy: "U-OFFICE-A", createdAt: "2026-07-02T08:00:00.000Z", revision: 1,
+      }],
+    };
+  },
+};
+let server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false, printDriverAdapter, coreWorkspaceReadRepository: driverCoreWorkspaceFixture }));
 let restartedServer = null;
 
 try {
@@ -2987,6 +3017,12 @@ try {
     `/api/fulfillments/${driverPendingTask.fulfillmentId}`,
   );
   const handedDriverPaperDocument = driverBeforeWarehouseExecution.paperOutboundDocument;
+  const driverStockBeforeOutbound = await getJson(baseUrl, `/api/inventory/items?keyword=${encodeURIComponent(driverStockItemId)}&pageSize=5`);
+  if (driverPendingTask.fulfillmentId !== "F006" || driverPendingTask.orderLineId !== driverStockOrder.id ||
+    driverPendingTask.expectedQty !== driverStockOrder.qty || driverStockBeforeOutbound.items?.[0]?.id !== driverStockItemId ||
+    driverStockBeforeOutbound.items[0].inStock !== 2000 || driverStockBeforeOutbound.items[0].reserved !== 2000) {
+    throw new Error("F006 physical outbound requires its exact counted inventory and full effective reservation");
+  }
   const driverWarehouseExecution = await postJson(
     baseUrl,
     `/api/fulfillments/${driverPendingTask.fulfillmentId}/warehouse-execution`,
@@ -3006,6 +3042,10 @@ try {
   );
   if (driverWarehouseExecution.status !== "待司机装车") {
     throw new Error("driver fulfillment warehouse execution did not reach the loading boundary");
+  }
+  const driverStockAfterOutbound = await getJson(baseUrl, `/api/inventory/items?keyword=${encodeURIComponent(driverStockItemId)}&pageSize=5`);
+  if (driverStockAfterOutbound.items?.[0]?.inStock !== 0 || driverStockAfterOutbound.items?.[0]?.reserved !== 0) {
+    throw new Error("F006 warehouse execution must deduct exactly 2,000 real bags and release its full reservation");
   }
 
   const driverLoadedAt = "2026-07-02T09:05:00.000Z";
@@ -3436,6 +3476,13 @@ try {
     !driverComplete.operationLogId
   ) {
     throw new Error("/api/driver/delivery-tasks/{id}/complete returned an unexpected payload");
+  }
+  const driverStockAfterDelivery = await getJson(baseUrl, `/api/inventory/items?keyword=${encodeURIComponent(driverStockItemId)}&pageSize=5`);
+  const driverOutboundLedger = await getJson(baseUrl, `/api/inventory/ledger-entries?inventoryItemId=${encodeURIComponent(driverStockItemId)}&sourceId=F006&sourceType=warehouse_physical_outbound&pageSize=5`);
+  if (driverStockAfterDelivery.items?.[0]?.inStock !== 0 || driverStockAfterDelivery.items?.[0]?.reserved !== 0 ||
+    driverOutboundLedger.total !== 1 || driverOutboundLedger.items?.[0]?.qtyBefore !== 2000 ||
+    driverOutboundLedger.items?.[0]?.qtyChange !== -2000 || driverOutboundLedger.items?.[0]?.qtyAfter !== 0) {
+    throw new Error("F006 final delivery must preserve the one exact warehouse stock deduction and its immutable ledger");
   }
 
   const deniedDriverDeliveryEvidenceReview = await postJson(
