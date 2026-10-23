@@ -1,9 +1,11 @@
 import { resolveStoreMode } from "./storeMode.mjs";
+import { captureStatementExportSnapshot, buildStatementExportSnapshotGuard } from "./services/statementExportSnapshotService.mjs";
+import { isDeepStrictEqual } from "node:util";
 import crypto from "node:crypto";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey, readPostgresIdempotencyReplay, buildIdempotencyRequestHash, buildIdempotencyConflictError } from "./idempotency.mjs";
 
 export function createStatementExportRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -25,7 +27,16 @@ export function createStatementExportRepository(options = {}) {
 }
 
 export function createLocalStatementExportRepository() {
-  return {
+  const caches = new WeakMap();
+  const cache = workspace => { if (!caches.has(workspace)) caches.set(workspace, new Map()); return caches.get(workspace); };
+  function findExportReplay(input) {
+    if (!input.idempotencyKey) return null;
+    const saved = cache(input.workspace).get(input.idempotencyKey);
+    if (!saved) return null;
+    if (saved.hash !== buildIdempotencyRequestHash(exportPayload(input))) throw buildIdempotencyConflictError();
+    return structuredClone(saved.result);
+  }
+  return { findExportReplay,
     kind: "local_memory",
 
     loadState() {
@@ -33,20 +44,28 @@ export function createLocalStatementExportRepository() {
     },
 
     createExportFile(input) {
+      const replay = findExportReplay(input); if (replay) return replay;
       const exportFile = normalizeStatementExportFile(input.exportFile);
       const statementLines = normalizeStatementLines(input.statementLines ?? [], exportFile?.statementId);
       if (!exportFile) throw new Error("Invalid statement export file");
+      if ((input.workspace.statementExportFiles ?? []).some(file => file.exportFileId === exportFile.exportFileId || file.downloadToken === exportFile.downloadToken)
+        || (input.workspace.operationLogs ?? []).some(log => log.id === input.operationLog?.id)) throw exportIdentityConflict();
+
+      const expected = input.expectedStatementSnapshot ?? captureStatementExportSnapshot(input.workspace, exportFile.statementId);
+      if (!expected || !isDeepStrictEqual(expected, captureStatementExportSnapshot(input.workspace, exportFile.statementId))) throw exportSnapshotConflict();
       applyStatementExportWorkspaceMutation({
         workspace: input.workspace,
         exportFile,
         statementLines,
         operationLog: input.operationLog,
       });
-      return normalizeStatementExportTransactionResult({
+      const result = normalizeStatementExportTransactionResult({
         exportFile,
         statementLines,
         operationLogId: input.operationLog?.id ?? exportFile.operationLogId,
       });
+      if (input.idempotencyKey) cache(input.workspace).set(input.idempotencyKey, { hash: buildIdempotencyRequestHash(exportPayload(input)), result: structuredClone(result) });
+      return result;
     },
 
     listExportFiles({ workspace, statementId, limit = 100 }) {
@@ -84,6 +103,10 @@ export function createPostgresStatementExportRepository(options = {}) {
 
   return {
     kind: "postgres",
+    async findExportReplay(input) {
+      const result = await readPostgresIdempotencyReplay({ queryJson, scope: "statement.export.create", idempotencyKey: input.idempotencyKey, payload: exportPayload(input) });
+      return result ? normalizeStatementExportTransactionResult(result) : null;
+    },
 
     async loadState() {
       const builtQuery = buildListStatementExportsQuery({ includeContent: false });
@@ -102,11 +125,7 @@ export function createPostgresStatementExportRepository(options = {}) {
           buildPostgresIdempotencyRequest({
             scope: "statement.export.create",
             idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
-            payload: input.idempotencyPayload ?? {
-              statementId,
-              previewType: input.exportFile?.previewType,
-              downloadToken: input.exportFile?.downloadToken,
-            },
+            payload: exportPayload(input),
             operatorId: input.operationLog?.operatorId,
             targetType: "statement",
             targetId: statementId,
@@ -115,7 +134,7 @@ export function createPostgresStatementExportRepository(options = {}) {
           }),
         ),
       );
-      if (!saved.exportFile) throw new Error("PostgreSQL statement export insert returned an invalid export file");
+      if (!saved.exportFile) throw exportIdentityConflict();
       applyStatementExportWorkspaceMutation({
         workspace: input.workspace,
         exportFile: saved.exportFile,
@@ -161,20 +180,19 @@ export function buildCreateStatementExportTransactionQuery(input) {
   }
   const parameters = createPostgresParameterBinder();
   const statementId = parameters.text(exportFile.statementId);
-  const insertedStatementLines = buildInsertStatementLinesSql(statementLines, parameters);
   const insertedOperationLog = buildInsertOperationLogSql(operationLog, parameters);
+  const snapshot = input.expectedStatementSnapshot ?? captureStatementExportSnapshot(input.workspace ?? {}, exportFile.statementId);
+  const snapshotGuard = buildStatementExportSnapshotGuard(snapshot, parameters);
   return {
     text: `
 BEGIN;
-WITH deleted_statement_lines AS (
-  DELETE FROM statement_lines
-  WHERE statement_id = ${statementId}
-  RETURNING id
-),
-inserted_statement_lines AS (
-  ${insertedStatementLines}
-),
-inserted_export_file AS (
+WITH locked_statement AS MATERIALIZED (
+  SELECT * FROM statements WHERE id = ${statementId} FOR UPDATE
+), export_guard AS MATERIALIZED (
+  SELECT erp_require(
+    COALESCE((${snapshotGuard}), FALSE),
+    'ERP_STATEMENT_EXPORT_SNAPSHOT_CONFLICT') AS ok
+), inserted_export_file AS (
   INSERT INTO statement_export_files (
     id,
     statement_id,
@@ -190,7 +208,7 @@ inserted_export_file AS (
     created_by,
     created_at,
     metadata_json
-  ) VALUES (
+  ) SELECT
     ${parameters.text(exportFile.exportFileId)},
     ${statementId},
     ${parameters.text(exportFile.previewType)},
@@ -205,30 +223,21 @@ inserted_export_file AS (
     ${parameters.nullableText(exportFile.createdBy || operationLog.operatorId)},
     ${parameters.timestamp(exportFile.createdAt)},
     ${parameters.json(exportFile.metadata)}
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    statement_id = EXCLUDED.statement_id,
-    preview_type = EXCLUDED.preview_type,
-    download_token = EXCLUDED.download_token,
-    file_name = EXCLUDED.file_name,
-    content_type = EXCLUDED.content_type,
-    storage_provider = EXCLUDED.storage_provider,
-    storage_key = EXCLUDED.storage_key,
-    content_text = EXCLUDED.content_text,
-    content_digest = EXCLUDED.content_digest,
-    operation_log_id = EXCLUDED.operation_log_id,
-    created_by = EXCLUDED.created_by,
-    metadata_json = EXCLUDED.metadata_json
+  FROM export_guard WHERE ok
+  ON CONFLICT DO NOTHING
   RETURNING ${statementExportJsonExpression("statement_export_files", { includeContent: true })} AS result
 ),
 inserted_operation_log AS (
   ${insertedOperationLog}
+), identity_guard AS MATERIALIZED (
+  SELECT erp_require((SELECT COUNT(*) FROM inserted_export_file) = 1
+    AND (SELECT COUNT(*) FROM inserted_operation_log) = 1, 'ERP_STATEMENT_EXPORT_IDENTITY_CONFLICT') AS ok
 )
 SELECT json_build_object(
   'exportFile', (SELECT result FROM inserted_export_file),
-  'statementLines', (SELECT COALESCE(json_agg(result ORDER BY result->>'statementLineId'), '[]'::json) FROM inserted_statement_lines),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
-) AS result;
+  'statementLines', ${parameters.json(statementLines)},
+  'operationLogId', (SELECT result->>'operationLogId' FROM inserted_export_file)
+) AS result FROM identity_guard WHERE ok;
 COMMIT;
 `.trim(),
     values: parameters.values,
@@ -322,7 +331,7 @@ export function normalizeStatementExportFile(file) {
   const metadata = normalizeMetadata(file.metadata ?? file.metadata_json);
   const exportFileId = String(file.exportFileId ?? file.export_file_id ?? file.id ?? downloadToken).trim() || downloadToken;
   const contentDigest =
-    String(file.contentDigest ?? file.content_digest ?? "").trim() || (content ? buildContentDigest(content) : "");
+    String(file.contentDigest ?? file.content_digest ?? "").trim() || (content ? buildContentDigest(content, file.contentEncoding ?? file.content_encoding ?? metadata.contentEncoding) : "");
   return {
     exportFileId,
     statementId,
@@ -378,19 +387,12 @@ export function normalizeStatementLine(line, fallbackStatementId = "") {
   };
 }
 
-function applyStatementExportWorkspaceMutation({ workspace, exportFile, statementLines = [], operationLog }) {
+function applyStatementExportWorkspaceMutation({ workspace, exportFile, operationLog }) {
   workspace.statementExportFiles = workspace.statementExportFiles ?? [];
   workspace.statementExportFiles = [
     exportFile,
     ...workspace.statementExportFiles.filter((item) => item.downloadToken !== exportFile.downloadToken),
-  ].slice(0, 100);
-  if (statementLines.length > 0) {
-    workspace.statementLines = workspace.statementLines ?? [];
-    workspace.statementLines = [
-      ...statementLines,
-      ...workspace.statementLines.filter((item) => item.statementId !== exportFile.statementId),
-    ];
-  }
+  ];
   if (operationLog) {
     workspace.operationLogs = workspace.operationLogs ?? [];
     workspace.operationLogs = [operationLog, ...workspace.operationLogs.filter((item) => item.id !== operationLog.id)];
@@ -428,7 +430,7 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   page_key,
   occurred_at,
   created_at
-) VALUES (
+) SELECT
   ${parameters.text(operationLog.id)},
   ${parameters.text(operationLog.targetType)},
   ${parameters.text(operationLog.targetId)},
@@ -440,63 +442,9 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   ${parameters.text(operationLog.pageKey)},
   ${parameters.timestamp(operationLog.occurredAt)},
   ${parameters.timestamp(operationLog.createdAt)}
-)
-ON CONFLICT (id) DO UPDATE SET
-  target_type = EXCLUDED.target_type,
-  target_id = EXCLUDED.target_id,
-  action = EXCLUDED.action,
-  before_json = EXCLUDED.before_json,
-  after_json = EXCLUDED.after_json,
-  reason = EXCLUDED.reason,
-  operator_id = EXCLUDED.operator_id,
-  page_key = EXCLUDED.page_key
+WHERE EXISTS (SELECT 1 FROM inserted_export_file WHERE result->>'operationLogId' = ${parameters.text(operationLog.id)})
+ON CONFLICT (id) DO NOTHING
 RETURNING id`;
-}
-
-function buildInsertStatementLinesSql(statementLines, parameters) {
-  if (statementLines.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = statementLines
-    .map(
-      (line) => `(
-    ${parameters.text(line.statementLineId)},
-    ${parameters.text(line.statementId)},
-    ${parameters.text(line.orderLineId)},
-    ${parameters.nullableText(line.fulfillmentId)},
-    ${parameters.integer(line.deliveredQty)},
-    ${parameters.integer(line.chargeableQty)},
-    ${parameters.integer(line.freeQty)},
-    ${parameters.number(line.amount)},
-    ${parameters.number(line.adjustmentAmount)},
-    ${parameters.number(line.finalAmount)},
-    ${parameters.timestamp(line.createdAt)}
-  )`,
-    )
-    .join(",\n");
-  return `INSERT INTO statement_lines (
-  id,
-  statement_id,
-  order_line_id,
-  fulfillment_id,
-  delivered_qty,
-  chargeable_qty,
-  free_qty,
-  amount,
-  adjustment_amount,
-  final_amount,
-  created_at
-) VALUES
-${values}
-ON CONFLICT (id) DO UPDATE SET
-  statement_id = EXCLUDED.statement_id,
-  order_line_id = EXCLUDED.order_line_id,
-  fulfillment_id = EXCLUDED.fulfillment_id,
-  delivered_qty = EXCLUDED.delivered_qty,
-  chargeable_qty = EXCLUDED.chargeable_qty,
-  free_qty = EXCLUDED.free_qty,
-  amount = EXCLUDED.amount,
-  adjustment_amount = EXCLUDED.adjustment_amount,
-  final_amount = EXCLUDED.final_amount
-RETURNING ${statementLineJsonExpression("statement_lines")} AS result`;
 }
 
 function normalizeOperationLogForPersistence(operationLog) {
@@ -538,22 +486,6 @@ function statementExportJsonExpression(alias, options = {}) {
   )`;
 }
 
-function statementLineJsonExpression(alias) {
-  return `json_build_object(
-    'statementLineId', ${alias}.id,
-    'statementId', ${alias}.statement_id,
-    'orderLineId', ${alias}.order_line_id,
-    'fulfillmentId', ${alias}.fulfillment_id,
-    'deliveredQty', ${alias}.delivered_qty,
-    'chargeableQty', ${alias}.chargeable_qty,
-    'freeQty', ${alias}.free_qty,
-    'amount', ${alias}.amount,
-    'adjustmentAmount', ${alias}.adjustment_amount,
-    'finalAmount', ${alias}.final_amount,
-    'createdAt', ${alias}.created_at
-  )`;
-}
-
 function normalizePreviewType(value) {
   return value === "internal_archive" ? "internal_archive" : "customer_send";
 }
@@ -571,4 +503,16 @@ function normalizeLimit(value) {
   const limit = Number(value);
   if (!Number.isInteger(limit) || limit < 1) return 100;
   return Math.min(limit, 500);
+}
+
+function exportIdentityConflict() {
+  return Object.assign(new Error('已有导出文件身份或内容不一致，请生成新的导出版本。'), { code: 'STATEMENT_EXPORT_IDENTITY_CONFLICT', statusCode: 409 });
+}
+
+function exportSnapshotConflict() {
+  return Object.assign(new Error("账单在生成文件期间已变化，请刷新账单后重新生成。"), { code: "STATEMENT_EXPORT_SNAPSHOT_CONFLICT", statusCode: 409 });
+}
+
+function exportPayload(input) {
+  return input.idempotencyPayload ?? { statementId: input.exportFile?.statementId, previewType: input.exportFile?.previewType, downloadToken: input.exportFile?.downloadToken };
 }

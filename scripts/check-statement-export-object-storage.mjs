@@ -30,7 +30,7 @@ async function checkLocalStatementExportStorage() {
 
   assert.equal(storage.kind, "local_fs");
   assert.equal(stored.storageProvider, "local_fs");
-  assert.equal(stored.storageKey, "statement-exports/DL-STORAGE-001/statement-STORAGE-001.xlsx");
+  assert.equal(stored.storageKey, `statement-exports/sha256/${expectedDigest.slice(0, 2)}/${expectedDigest}`);
   assert.equal(stored.contentDigest, `sha256:${expectedDigest}`);
   assert.equal(stored.contentLength, expectedBytes.length);
 
@@ -47,6 +47,15 @@ async function checkLocalStatementExportStorage() {
   });
   assert.equal(read.contentType, exportFile.contentType);
   assert.equal(read.buffer.toString("utf8"), expectedBytes.toString("utf8"));
+
+  const later = await storage.putExportFile({ exportFile: { ...exportFile, content: Buffer.from("changed workbook").toString("base64") } });
+  assert.notEqual(later.storageKey, stored.storageKey, "same token with different workbook cannot overwrite the original object");
+  assert.deepEqual(readFileSync(objectPath), expectedBytes);
+  const legacyKey = "statement-exports/DL-LEGACY/old.xlsx";
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(join(tempRoot, "statement-exports/DL-LEGACY"), { recursive: true });
+  writeFileSync(join(tempRoot, legacyKey), expectedBytes);
+  assert.deepEqual((await storage.readExportFile({ exportFile: { ...exportFile, storageProvider: "local_fs", storageKey: legacyKey } })).buffer, expectedBytes, "legacy immutable paths remain downloadable");
 
   const databaseOnlyRead = await storage.readExportFile({
     exportFile: {
@@ -106,8 +115,9 @@ async function checkS3CompatibleStatementExportStorage() {
 
   assert.equal(storage.kind, "object_storage");
   assert.equal(stored.storageProvider, "object_storage");
-  assert.equal(stored.storageKey, "erp-statement-exports/DL-STORAGE-REMOTE-001/statement-STORAGE-001.xlsx");
-  assert.equal(fetchCalls[0].url, "https://storage.example.test/erp-bucket/erp-statement-exports/DL-STORAGE-REMOTE-001/statement-STORAGE-001.xlsx");
+  const digest = createHash("sha256").update(Buffer.from(exportFile.content, "base64")).digest("hex");
+  assert.equal(stored.storageKey, `erp-statement-exports/sha256/${digest.slice(0, 2)}/${digest}`);
+  assert.equal(fetchCalls[0].url, `https://storage.example.test/erp-bucket/${stored.storageKey}`);
   assert.equal(fetchCalls[0].init.method, "PUT");
   assert.match(fetchCalls[0].init.headers.authorization, /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20260702\/cn-east-1\/s3\/aws4_request/);
 

@@ -21,7 +21,7 @@ const workspace = {
       note: "提手颜色更换",
     },
   ],
-  fulfillments: [{ fulfillmentId: "F-1", orderLineId: "OL-1", packages: "3包" }],
+  fulfillments: [{ fulfillmentId: "F-1", orderLineId: "OL-1", packages: "3包" }, { fulfillmentId: "F-PERSISTED", orderLineId: "OL-1", packages: "2包" }],
   statementLines: [
     {
       statement_line_id: "SL-1",
@@ -56,7 +56,7 @@ assert.equal(persisted[0].adjustmentAmount, -20);
 assert.equal(persisted[0].finalAmount, 480);
 assert.equal(
   persisted[0].goodsSpec,
-  "定制袋 / 35*41 / 白印黑 / 白袋黑提 / 双面 / 1200个 / 3包 / 加长提、提手颜色更换",
+  "定制袋 / 35*41 / 白印黑 / 白袋黑提 / 双面 / 1200个 / 2包 / 加长提、提手颜色更换",
 );
 assert.equal(persisted[0].remark, "加长提、提手颜色更换");
 assert.deepEqual(workspace, before, "statement preview projection must not mutate workspace data");

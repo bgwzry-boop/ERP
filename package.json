@@ -310,8 +310,8 @@
     "finance-dialog-interactions:check": "node scripts/check-finance-dialog-interactions.mjs",
     "desktop-fulfillment-operations:check": "node scripts/check-desktop-fulfillment-operations.mjs",
     "fulfillment-operator-candidates:check": "node scripts/check-fulfillment-operator-candidates.mjs",
-    "p1-postgres:check": "node scripts/check-p1-material-inventory-postgres.mjs && node scripts/check-runtime-identity-concurrency-postgres.mjs && node scripts/check-miniapp-postgres-live.mjs && node scripts/check-p1-inventory-correction-postgres.mjs && npm run finance-closeout-postgres:check",
-    "finance-closeout:check": "node scripts/check-finance-closeout-regressions.mjs",
+    "p1-postgres:check": "node scripts/check-p1-material-inventory-postgres.mjs && node scripts/check-runtime-identity-concurrency-postgres.mjs && node scripts/check-miniapp-postgres-live.mjs && node scripts/check-p1-inventory-correction-postgres.mjs && npm run finance-closeout-postgres:check && node scripts/check-statement-export-preservation-postgres.mjs",
+    "finance-closeout:check": "node scripts/check-finance-closeout-regressions.mjs && node scripts/check-statement-export-accounting-gate.mjs",
     "finance-closeout-postgres:check": "node scripts/check-finance-closeout-postgres.mjs"
   },
   "dependencies": {

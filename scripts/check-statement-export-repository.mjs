@@ -17,12 +17,12 @@ await checkPostgresStatementExportSqlBoundary();
 await checkPostgresStatementExportIdempotencyBoundary();
 
 console.log(
-  "Statement export repository check passed: local workspace mutation and PostgreSQL statement lines + metadata/content SQL are covered.",
+  "Statement export repository check passed: immutable export storage and PostgreSQL accounting preservation SQL are covered.",
 );
 
 async function checkLocalStatementExportRepository() {
   const repository = createLocalStatementExportRepository();
-  const workspace = { statementExportFiles: [], statementLines: [], operationLogs: [] };
+  const workspace = { statements: [{ id: "ST-EXPORT-001", revision: 1, receivable: 216, received: 0, variance: 216 }], statementExportFiles: [], statementLines: [{ id: "KEEP", amount: 77 }], operationLogs: [] };
   const exportFile = buildExportFile();
   const statementLines = buildStatementLines();
   const operationLog = buildOperationLog();
@@ -35,7 +35,7 @@ async function checkLocalStatementExportRepository() {
   assert.equal(transaction.statementLines.length, 2);
   assert.equal(transaction.operationLogId, "LOG-ST-EXPORT-001");
   assert.equal(workspace.statementExportFiles.length, 1);
-  assert.equal(workspace.statementLines.length, 2);
+  assert.deepEqual(workspace.statementLines, [{ id: "KEEP", amount: 77 }], "export never changes formal accounting rows");
   assert.equal(workspace.operationLogs.length, 1);
   assert.equal((await repository.listExportFiles({ workspace, statementId: "ST-EXPORT-001" })).length, 1);
   assert.equal(
@@ -68,7 +68,7 @@ async function checkPostgresStatementExportSqlBoundary() {
       return exportFile;
     },
   });
-  const workspace = { statementExportFiles: [], statementLines: [], operationLogs: [] };
+  const workspace = { statements: [{ id: "ST-EXPORT-001", revision: 1, receivable: 216, received: 0, variance: 216 }], statementExportFiles: [], statementLines: [{ id: "KEEP", amount: 77 }], operationLogs: [] };
 
   const transaction = await repository.createExportFile({ workspace, exportFile, statementLines, operationLog });
   const listed = await repository.listExportFiles({ statementId: exportFile.statementId });
@@ -87,13 +87,13 @@ async function checkPostgresStatementExportSqlBoundary() {
   assert.equal(found.content, exportFile.content);
   assert.equal(latest.downloadToken, exportFile.downloadToken);
   assert.equal(workspace.statementExportFiles.length, 1);
-  assert.equal(workspace.statementLines.length, 2);
+  assert.deepEqual(workspace.statementLines, [{ id: "KEEP", amount: 77 }], "export never changes formal accounting rows");
   assert.equal(workspace.operationLogs.length, 1);
 
   const createQuery = calls[0];
   assert.match(createQuery.text, /^BEGIN;/);
-  assert.match(createQuery.text, /DELETE FROM statement_lines/);
-  assert.match(createQuery.text, /INSERT INTO statement_lines/);
+  assert.doesNotMatch(createQuery.text, /DELETE FROM statement_lines/);
+  assert.doesNotMatch(createQuery.text, /INSERT INTO statement_lines/);
   assert.match(createQuery.text, /chargeable_qty/);
   assert.match(createQuery.text, /INSERT INTO statement_export_files/);
   assert.match(createQuery.text, /content_text/);
@@ -161,7 +161,7 @@ async function checkPostgresStatementExportIdempotencyBoundary() {
       return { exportFile, statementLines, operationLogId: operationLog.id };
     },
   });
-  const workspace = { statementExportFiles: [], statementLines: [], operationLogs: [] };
+  const workspace = { statements: [{ id: "ST-EXPORT-001", revision: 1, receivable: 216, received: 0, variance: 216 }], statementExportFiles: [], statementLines: [{ id: "KEEP", amount: 77 }], operationLogs: [] };
   await repository.createExportFile({
     workspace,
     exportFile,

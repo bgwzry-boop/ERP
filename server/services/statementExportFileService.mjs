@@ -58,7 +58,7 @@ export function createStatementExportFileService({ buildStatementPreviewLines, n
       contentDigest: "",
       createdBy: options.createdBy ?? "",
       createdAt,
-      metadata: buildStatementExcelMetadata(preview, templateContext),
+      metadata: { ...buildStatementExcelMetadata(preview, templateContext), statementPreviewSnapshot: structuredClone(preview), accountingSnapshot: structuredClone(options.accountingSnapshot ?? null) },
     };
   }
 

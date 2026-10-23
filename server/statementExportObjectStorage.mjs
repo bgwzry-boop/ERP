@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAttachmentObjectStorage } from "./attachmentObjectStorage.mjs";
 
 const defaultStatementExportKeyPrefix = "statement-exports";
@@ -21,6 +22,7 @@ export function createStatementExportObjectStorage(options = {}) {
       const buffer = exportContentToBuffer(exportFile);
       const stored = await storage.putObject({
         attachmentId: exportFileId,
+        contentDigest: createHash("sha256").update(buffer).digest("hex"),
         fileName: exportFile?.fileName || `${exportFileId}.xlsx`,
         contentPayload: {
           contentType: exportFile?.contentType || defaultStatementExportContentType,

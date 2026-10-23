@@ -1,5 +1,6 @@
+import { captureStatementExportSnapshot } from "./statementExportSnapshotService.mjs";
 import { closedStatementPaymentStatuses } from "../../shared/statementPaymentPolicy.js";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createStatementPolicyService } from "./statementPolicyService.mjs";
 
@@ -37,22 +38,23 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
 
     const previewType = body.previewType === "internal_archive" ? "internal_archive" : "customer_send";
     const templateId = getStatementExcelTemplateId(previewType);
-    const initialLines = buildStatementPreviewLines(workspace, statement);
+    const idempotencyPayload = { statementId, previewType, templateId, operatorId };
+    const replay = await workspace.statementExportRepository.findExportReplay?.({ workspace, idempotencyKey: body.idempotencyKey, idempotencyPayload });
+    if (replay) return previewResponse(replay.exportFile, replay.operationLogId);
+    const expectedStatementSnapshot = captureStatementExportSnapshot(workspace, statementId);
+    const initialLines = buildStatementPreviewLines(workspace, statement, { persistedOnly: true });
     const downloadToken = buildStableCommandId({
       prefix: "DL",
-      scope: `statement-preview:${statementId}:${previewType}`,
+      scope: `statement-preview:${statementId}:${previewType}:${operatorId}`,
       idempotencyKey: body.idempotencyKey,
-      fallback: () =>
-        nextPlainId(
-          "DL",
-          `${statementId}-${previewType}-${workspace.operationLogs.length + workspace.statementExportFiles.length + 1}`,
-        ),
+      fallback: () => `DL-${randomUUID()}`,
     });
     const operationLog = buildOperationLog(workspace, {
       id: buildStableCommandId({
         prefix: "LOG",
-        scope: `statement-preview-log:${statementId}:${previewType}`,
+        scope: `statement-preview-log:${statementId}:${previewType}:${operatorId}`,
         idempotencyKey: body.idempotencyKey,
+        fallback: () => `LOG-EXPORT-${randomUUID()}`,
       }),
       targetType: "statement",
       targetId: statementId,
@@ -70,14 +72,17 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
       statementId,
       downloadToken,
     });
+    if (existingExport) return previewResponse(existingExport, existingExport.operationLogId);
+    if (!expectedStatementSnapshot) return conflict("STATEMENT_EXPORT_SNAPSHOT_CONFLICT", "账单版本缺失，请刷新账单后重新生成。");
+    const invalid = validateExportLines(statement, initialLines);
+    if (invalid) return invalid;
     const summary = buildStatementSummary(statement, initialLines.length);
-    const exportFile =
-      existingExport ??
-      (await storeStatementExportFile(
+    const exportFile = await storeStatementExportFile(
         workspace,
         buildStatementExportFile(workspace, statement, {
           previewType,
           summary,
+          accountingSnapshot: expectedStatementSnapshot,
           lines: initialLines,
           downloadToken,
           operationLogId: operationLog.id,
@@ -85,33 +90,17 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
           createdAt: now(),
           templateId,
         }),
-      ));
+      );
     const transaction = await workspace.statementExportRepository.createExportFile({
       workspace,
       exportFile,
+      expectedStatementSnapshot,
       statementLines: initialLines,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: {
-        statementId,
-        previewType,
-        templateId,
-        operatorId,
-      },
+      idempotencyPayload,
     });
-    const lines = mergeStatementPreviewLines(initialLines, transaction.statementLines);
-    const savedTemplateId = transaction.exportFile.metadata?.templateId ?? templateId;
-
-    return success({
-      statementId,
-      previewType: transaction.exportFile.previewType,
-      templateId: savedTemplateId,
-      templateVersion: transaction.exportFile.metadata?.templateVersion ?? "",
-      summary: buildStatementSummary(statement, lines.length),
-      lines,
-      downloadToken: transaction.exportFile.downloadToken,
-      operationLogId: transaction.operationLogId,
-    });
+    return previewResponse(transaction.exportFile, transaction.operationLogId);
   }
 
   async function markSent({ workspace, statementId, body = {}, operatorId }) {
@@ -416,19 +405,42 @@ function requireExpectedRevision(value) {
   return { value: revision };
 }
 
-function mergeStatementPreviewLines(initialLines, persistedLines) {
-  if (!Array.isArray(persistedLines) || persistedLines.length === 0) return initialLines;
-  const persistedById = new Map();
-  for (const line of persistedLines) {
-    if (line.statementLineId) persistedById.set(`statement:${line.statementLineId}`, line);
-    if (line.orderLineId) persistedById.set(`order:${line.orderLineId}`, line);
+// New files must use finalized accounting facts. Replays retain their saved snapshot.
+function validateExportLines(statement, lines) {
+  const reject = (message) => businessError(422, "STATEMENT_EXPORT_ACCOUNTING_INCOMPLETE", message);
+  if (!Array.isArray(lines) || !lines.length) return reject("账单缺少持久明细，请先完成账单生成与复核。");
+  const receivable = moneyCents(statement.receivable);
+  if (receivable === null || receivable < 0) return reject("账单应收金额未确认，请先复核。");
+  let total = 0;
+  const identities = new Set();
+  for (const line of lines) {
+    if (!line.statementLineId || identities.has(line.statementLineId) || line.statementId !== statement.id) {
+      return reject("账单明细归属或编号异常，请先复核。");
+    }
+    identities.add(line.statementLineId);
+    const quantities = [line.deliveredQty, line.chargeableQty, line.freeQty];
+    if (quantities.some(value => !Number.isSafeInteger(value) || value < 0)
+      || line.deliveredQty !== line.chargeableQty + line.freeQty) {
+      return reject("账单实交、计费与赠送数量未确认或不一致，请先复核。");
+    }
+    const amount = moneyCents(line.amount);
+    const adjustment = moneyCents(line.adjustmentAmount);
+    const final = moneyCents(line.finalAmount);
+    if (amount === null || adjustment === null || final === null || amount < 0 || final < 0
+      || amount + adjustment !== final) return reject("账单明细金额或调整金额未确认，请先复核。");
+    total += final;
+    if (!Number.isSafeInteger(total)) return reject("账单金额超出可核算范围。");
   }
-  return initialLines.map((line) => {
-    const persisted =
-      persistedById.get(`statement:${line.statementLineId}`) ??
-      persistedById.get(`order:${line.orderLineId}`);
-    return persisted ? { ...line, ...persisted } : line;
-  });
+  if (total !== receivable) return reject("账单明细合计与应收金额不一致，请先复核。");
+  return null;
+}
+
+function moneyCents(value) {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !value.trim()) return null;
+  const scaled = Number(value) * 100;
+  const cents = Math.round(scaled);
+  return Number.isSafeInteger(cents) && Math.abs(scaled - cents) < 0.000001 ? cents : null;
 }
 
 function buildStatementSummary(statement, lineCount) {
@@ -481,4 +493,12 @@ function conflict(code, message) {
 
 function businessError(statusCode, code, message) {
   return { error: true, statusCode, code, message };
+}
+
+function previewResponse(exportFile, operationLogId) {
+  const snapshot = exportFile.metadata?.statementPreviewSnapshot;
+  if (!snapshot) return conflict("STATEMENT_EXPORT_PREVIEW_SNAPSHOT_MISSING", "历史导出缺少可复核的预览快照，请下载原文件或生成新版本。");
+  return success({ statementId: exportFile.statementId, previewType: exportFile.previewType,
+    templateId: exportFile.metadata?.templateId ?? "", templateVersion: exportFile.metadata?.templateVersion ?? "",
+    summary: structuredClone(snapshot.summary), lines: structuredClone(snapshot.lines), downloadToken: exportFile.downloadToken, operationLogId });
 }

@@ -12,7 +12,7 @@ export function createStatementPreviewProjectionService() {
   };
 }
 
-function buildPreviewLines(workspace = {}, statement = {}) {
+function buildPreviewLines(workspace = {}, statement = {}, options = {}) {
   const statementId = text(statement.id ?? statement.statementId ?? statement.statement_id);
   const statementLines = Array.isArray(workspace.statementLines) ? workspace.statementLines : [];
   const orderLines = Array.isArray(workspace.orderLines) ? workspace.orderLines : [];
@@ -24,10 +24,11 @@ function buildPreviewLines(workspace = {}, statement = {}) {
     return persistedLines.map((statementLine, index) => {
       const lineId = text(statementLine.orderLineId ?? statementLine.order_line_id);
       const line = orderLines.find((item) => text(item.id ?? item.orderLineId) === lineId);
-      return toPreviewLine(workspace, statement, lineId, line, index, statementLine);
+      return toPreviewLine(workspace, statement, lineId, line, index, statementLine, options);
     });
   }
 
+  if (options.persistedOnly) return [];
   const lineIds = array(statement.lineIds ?? statement.line_ids);
   return lineIds.map((rawLineId, index) => {
     const lineId = text(rawLineId);
@@ -36,40 +37,45 @@ function buildPreviewLines(workspace = {}, statement = {}) {
   });
 }
 
-function toPreviewLine(workspace = {}, statement = {}, lineId, line, index, persistedLine = null) {
+function toPreviewLine(workspace = {}, statement = {}, lineId, line, index, persistedLine = null, options = {}) {
   const statementId = text(statement.id ?? statement.statementId ?? statement.statement_id);
   const safeLineId = text(line?.id ?? line?.orderLineId ?? lineId);
-  const deliveredQty = finiteNumber(
+  const number = options.persistedOnly ? optionalNumber : finiteNumber;
+  const deliveredQty = number(
     persistedLine?.deliveredQty ?? persistedLine?.delivered_qty,
     finiteNumber(line?.qty ?? line?.quantity ?? line?.originalQty, 0),
   );
-  const chargeableQty = finiteNumber(
+  const chargeableQty = number(
     persistedLine?.chargeableQty ?? persistedLine?.chargeable_qty ?? persistedLine?.billQty,
     deliveredQty,
   );
-  const freeQty = finiteNumber(
+  const freeQty = number(
     persistedLine?.freeQty ?? persistedLine?.free_qty,
     Math.max(0, deliveredQty - chargeableQty),
   );
-  const amount = finiteNumber(
+  const amount = number(
     persistedLine?.amount,
     finiteNumber(line?.amount ?? line?.priceSnapshot?.finalAmount ?? line?.price_snapshot?.final_amount, 0),
   );
-  const adjustmentAmount = finiteNumber(
+  const adjustmentAmount = number(
     persistedLine?.adjustmentAmount ?? persistedLine?.adjustment_amount,
     0,
   );
-  const finalAmount = finiteNumber(
+  const finalAmount = number(
     persistedLine?.finalAmount ?? persistedLine?.final_amount,
     amount + adjustmentAmount,
   );
-  const fulfillment = findFulfillment(workspace, safeLineId || text(lineId));
+  const fulfillmentId = text(persistedLine?.fulfillmentId ?? persistedLine?.fulfillment_id);
+  const fulfillment = persistedLine
+    ? (workspace.fulfillments ?? []).find(item => text(item.id ?? item.fulfillmentId) === fulfillmentId
+      && text(item.lineId ?? item.orderLineId ?? item.order_line_id) === (safeLineId || text(lineId)))
+    : findFulfillment(workspace, safeLineId || text(lineId));
   const safeIndex = Number.isInteger(index) && index >= 0 ? index : 0;
 
   return {
     statementLineId:
       text(persistedLine?.statementLineId ?? persistedLine?.statement_line_id ?? persistedLine?.id) ||
-      `${statementId}-${String(safeIndex + 1).padStart(3, "0")}`,
+      (options.persistedOnly ? "" : `${statementId}-${String(safeIndex + 1).padStart(3, "0")}`),
     statementId,
     orderLineId: safeLineId || text(lineId),
     fulfillmentId:
@@ -77,34 +83,34 @@ function toPreviewLine(workspace = {}, statement = {}, lineId, line, index, pers
       text(fulfillment?.id ?? fulfillment?.fulfillmentId),
     orderNo: text(line?.orderNo ?? line?.orderId ?? line?.order_id) || text(lineId),
     productName: text(line?.productName ?? line?.product) || "未找到明细",
-    goodsSpec: buildGoodsSpec(workspace, line),
+    goodsSpec: buildGoodsSpec(workspace, line, persistedLine ? { fulfillment, quantity: deliveredQty } : null),
     remark: getLineRemark(line),
     deliveredQty,
     chargeableQty,
     freeQty,
     billQty: chargeableQty,
-    unitPrice: chargeableQty > 0 ? roundMoney(amount / chargeableQty) : 0,
+    unitPrice: amount === null || chargeableQty === null ? null : chargeableQty > 0 ? roundMoney(amount / chargeableQty) : 0,
     amount,
     adjustmentAmount,
     finalAmount,
   };
 }
 
-function buildGoodsSpec(workspace = {}, line) {
+function buildGoodsSpec(workspace = {}, line, context = null) {
   if (!line) return "";
   const lineId = text(line.id ?? line.orderLineId);
-  const fulfillment = findFulfillment(workspace, lineId);
+  const fulfillment = context ? context.fulfillment : findFulfillment(workspace, lineId);
   const colorSpec = getLineColorSpecLabel(line);
   const printSide = isPrinted(line) ? mapPrintSide(getLinePrintSide(line)) : "";
   const remark = getLineRemark(line);
-  const qty = finiteNumber(line.qty ?? line.quantity ?? line.originalQty, 0);
+  const qty = context ? context.quantity : finiteNumber(line.qty ?? line.quantity ?? line.originalQty, 0);
 
   return [
     line.productName ?? line.product,
     line.size,
     colorSpec,
     printSide,
-    `${qty}个`,
+    qty === null ? "" : `${qty}个`,
     fulfillment?.packages ?? fulfillment?.packageLabel ?? "",
     remark,
   ]
@@ -153,4 +159,10 @@ function text(value) {
 
 function array(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function optionalNumber(value) {
+  if (value === null || value === undefined || (typeof value === "string" && !value.trim()) || typeof value === "boolean" || typeof value === "object") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }

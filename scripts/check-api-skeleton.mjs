@@ -3653,7 +3653,10 @@ try {
   ) {
     throw new Error("/api/statements/{statementId}/exports did not return export metadata");
   }
-  if (!existsSync(join(checkStorageRoot, "statement-exports", preview.downloadToken))) {
+  const exportDigest = createHash("sha256").update(exportFile.bytes).digest("hex");
+  const retainedExportPath = join(checkStorageRoot, "statement-exports", "sha256", exportDigest.slice(0, 2), exportDigest);
+  if (exportList.items[0].contentDigest !== `sha256:${exportDigest}` ||
+      !existsSync(retainedExportPath) || !readFileSync(retainedExportPath).equals(exportFile.bytes)) {
     throw new Error("/api/statements/{statementId}/preview did not write a retained statement export object");
   }
 

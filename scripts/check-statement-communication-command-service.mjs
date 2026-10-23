@@ -24,6 +24,9 @@ const service = createStatementCommunicationCommandService({
       goodsSpec: "30*38 / 白印黑",
       billQty: 200,
       deliveredQty: 200,
+      chargeableQty: 200,
+      freeQty: 0,
+      adjustmentAmount: 0,
       amount: 100,
       finalAmount: 100,
     }];
@@ -43,7 +46,7 @@ const service = createStatementCommunicationCommandService({
       storageKey: options.downloadToken,
       createdBy: options.createdBy,
       createdAt: options.createdAt,
-      metadata: { templateId: options.templateId, templateVersion: "v1" },
+      metadata: { templateId: options.templateId, templateVersion: "v1", statementPreviewSnapshot: { lines: options.lines, summary: options.summary } },
     };
   },
   async storeStatementExportFile(_workspace, exportFile) {
