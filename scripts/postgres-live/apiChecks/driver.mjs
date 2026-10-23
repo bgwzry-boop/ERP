@@ -78,6 +78,8 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
   );
   assert.equal(driverWarehouseExecution.status, "待司机装车");
   assert.equal(driverWarehouseExecution.warehouseOutboundExecution.result, "实物已出库");
+  assert.deepEqual(queryJson("SELECT json_build_object('onHand',on_hand_qty,'reserved',reserved_qty) AS result FROM inventory_items WHERE id='INV-LIVE-DRIVER-F008'"), { onHand: 0, reserved: 0 });
+  assert.equal(Number(queryJson("SELECT json_build_object('quantity',-sum(qty_change)) AS result FROM inventory_ledger_entries WHERE source_type='warehouse_physical_outbound' AND source_id='F008'").quantity), 3000);
 
   const driverLoadAt = "2026-07-02T09:05:00.000Z";
   const driverLoadRemark = "postgres live driver load check；装车核对：6/6包";
@@ -223,7 +225,7 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
       fileName: "driver-watermark-f008-retake.png",
       mimeType: "image/png",
       contentRef: "p0://postgres-live/driver/F008/watermark-retake",
-      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS13YXRlcm1hcmstcmV0YWtl",
+      contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg==",
       uploadedBy: "U-SPOOFED",
       idempotencyKey: "driver-watermark-f008-retake-live-001",
       metadata: {

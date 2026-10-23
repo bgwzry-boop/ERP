@@ -26,6 +26,9 @@ import { createPostgresPrintJobRepository } from "../../server/printJobRepositor
 import { createPostgresTodoActionRepository } from "../../server/todoActionRepository.mjs";
 import { createPostgresInventoryCorrectionTransactionRepository } from "../../server/inventoryCorrectionTransactionRepository.mjs";
 import { createPostgresInventoryReservationReleaseTransactionRepository } from "../../server/inventoryReservationReleaseTransactionRepository.mjs";
+import { createPostgresFulfillmentActionTransactionRepository } from "../../server/fulfillmentActionTransactionRepository.mjs";
+import { createPostgresStatementPaymentTransactionRepository } from "../../server/statementPaymentTransactionRepository.mjs";
+import { createPostgresStatementSettlementTransactionRepository } from "../../server/statementSettlementTransactionRepository.mjs";
 import { createPostgresProductionFinishedGoodsPhotoTransactionRepository } from "../../server/productionFinishedGoodsPhotoTransactionRepository.mjs";
 import { createPrintDriverAdapter } from "../../server/printDriverAdapter.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../../server/v1PersistenceProfile.mjs";
@@ -69,6 +72,9 @@ export async function checkApiWithPostgresRepositories(runtime) {
   const inventoryReservationReleaseTransactionRepository = createPostgresInventoryReservationReleaseTransactionRepository({
     postgresClient: apiPostgresClient,
   });
+  const fulfillmentActionTransactionRepository = createPostgresFulfillmentActionTransactionRepository({ postgresClient: apiPostgresClient });
+  const statementPaymentTransactionRepository = createPostgresStatementPaymentTransactionRepository({ postgresClient: apiPostgresClient });
+  const statementSettlementTransactionRepository = createPostgresStatementSettlementTransactionRepository({ postgresClient: apiPostgresClient });
   const productionFinishedGoodsPhotoTransactionRepository = createPostgresProductionFinishedGoodsPhotoTransactionRepository({
     postgresClient: apiPostgresClient,
   });
@@ -103,6 +109,14 @@ export async function checkApiWithPostgresRepositories(runtime) {
   runPsql(`INSERT INTO price_snapshots(id,order_line_id,snapshot_type,version_no,bag_price,print_price,chargeable_qty,final_amount,override_reason,created_by)
     SELECT 'PS-LIVE-DRIVER-F008','ORD-0629-022-01','order_confirm',1,1,0,3000,3000,'合成送货验收订单锁价','U-OFFICE-A'
     WHERE NOT EXISTS(SELECT 1 FROM price_snapshots WHERE order_line_id='ORD-0629-022-01');`);
+  // Driver tests begin with already prepared custom-print goods. Give this
+  // isolated upstream fixture its own real finished-stock/reservation facts;
+  // delivery is never allowed to silently skip those three thousand units.
+  runPsql(`INSERT INTO standard_colors(id,color_key,name) VALUES('SC-LIVE-DRIVER-YELLOW','live-driver-yellow','黄色');
+    INSERT INTO inventory_items(id,inventory_key,size,standard_color_id,handle_type,style,zone,inventory_state,on_hand_qty,reserved_qty,trust_level)
+    VALUES('INV-LIVE-DRIVER-F008','live-driver-f008|40*30*10|黄色','40*30*10','SC-LIVE-DRIVER-YELLOW','普通提','空白袋','隔离送货测试已备货区','仓库已清点',3000,3000,'已清点');
+    INSERT INTO inventory_reservations(id,order_line_id,inventory_item_id,reserved_qty,reservation_type,status,created_by)
+    VALUES('RSV-LIVE-DRIVER-F008','ORD-0629-022-01','INV-LIVE-DRIVER-F008',3000,'出库占用','生效','U-OFFICE-A');`);
   // The photo scenario uses a separate active, published task on the seed worker's real machine.
   // Never reopen the report-completed task merely to satisfy a later API fixture.
   runPsql(`INSERT INTO machines(id,biz_no,name,machine_type,workshop,status,enabled,created_by)
@@ -126,6 +140,9 @@ export async function checkApiWithPostgresRepositories(runtime) {
     todoActionRepository,
     inventoryCorrectionTransactionRepository,
     inventoryReservationReleaseTransactionRepository,
+    fulfillmentActionTransactionRepository,
+    statementPaymentTransactionRepository,
+    statementSettlementTransactionRepository,
     productionFinishedGoodsPhotoTransactionRepository,
     productionPackingTransactionRepository,
     productionScheduleRecordRepository,
