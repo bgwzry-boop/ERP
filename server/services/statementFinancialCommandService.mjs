@@ -118,7 +118,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
     const settlementPayload={...body,statementId,attachmentIds:uniqueTextList(body.attachmentIds),operatorId};
-    const replay=await workspace.statementSettlementTransactionRepository.findSettlementReplay?.({workspace,scope:"statement.variance.handle",idempotencyKey:body.idempotencyKey,idempotencyPayload:settlementPayload});
+    const replay=await workspace.statementSettlementTransactionRepository?.findSettlementReplay?.({workspace,scope:"statement.variance.handle",idempotencyKey:body.idempotencyKey,idempotencyPayload:settlementPayload});
     if(replay) return success(buildSettlementReplayResponse(statementId,replay,"handleVariance",businessDecisionEvidenceService,mapStatementApiStatus));
     const periodBlocker = getStatementPaymentBlocker(statement);
     if (periodBlocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", periodBlocker);
@@ -207,7 +207,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
     const settlementPayload={...body,operatorId};
-    const replay=await workspace.statementSettlementTransactionRepository.findSettlementReplay?.({workspace,scope:"statement.write_off",idempotencyKey:body.idempotencyKey,idempotencyPayload:settlementPayload});
+    const replay=await workspace.statementSettlementTransactionRepository?.findSettlementReplay?.({workspace,scope:"statement.write_off",idempotencyKey:body.idempotencyKey,idempotencyPayload:settlementPayload});
     if(replay) return success(buildSettlementReplayResponse(statementId,replay,"writeOffStatement",businessDecisionEvidenceService,mapStatementApiStatus));
     const periodBlocker = getStatementPaymentBlocker(statement);
     if (periodBlocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", periodBlocker);

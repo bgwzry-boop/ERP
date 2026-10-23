@@ -44,12 +44,15 @@ const attachmentRepository = {
   },
 };
 
+let persistedAudit;
 const auditRepository = {
   async recordAccessLog({ accessLog }) {
+    if (persistedAudit) throw new Error("duplicate key");
+    persistedAudit = structuredClone(accessLog);
     return accessLog;
   },
   async listAccessLogs() {
-    return { total: 1, items: [{ operationLogId: "LOG-LIVE-REPO-001" }] };
+    return { total: 1, items: [structuredClone(persistedAudit)] };
   },
 };
 

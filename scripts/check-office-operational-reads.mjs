@@ -44,7 +44,7 @@ const inventoryActions = createOfficeInventoryDetailReadActions({
   api: {
     async listOfficeInventoryLedgerEntries(input) {
       inventoryCalls.push({ name: "ledger", input });
-      return { source: "api", items: [{ id: "LEDGER-1" }], total: 1 };
+      return { source: "api", items: [{ id: "LEDGER-1", inventoryItemId: "STOCK-1" }], total: 1 };
     },
     async listOfficeInventoryCorrectionDrafts(input) {
       inventoryCalls.push({ name: "queue", input });

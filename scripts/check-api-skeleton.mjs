@@ -10,7 +10,7 @@ import { checkPositivePrintDriverReadiness } from "./helpers/apiSkeletonPrintRea
 import {
   closeTestServer as close,
   getBinary,
-  getJson,
+  getJson as getHarnessJson,
   getText,
   listenTestServer as listen,
   patchJson,
@@ -4724,4 +4724,9 @@ async function dispatchSyntheticPrintJob(baseUrl, printJobId) {
     }
     return dispatched;
   } finally { syntheticDispatchJobIds.delete(printJobId); }
+}
+
+function getJson(baseUrl, route, options = {}) {
+  const privileged = /^\/api\/(?:system\/|openapi\/|operation-logs)/.test(route);
+  return getHarnessJson(baseUrl, route, privileged ? {...options,headers:{"x-erp-user-id":"U-MANAGER-A",...(options.headers || {})}} : options);
 }

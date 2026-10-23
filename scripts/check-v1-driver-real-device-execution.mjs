@@ -155,7 +155,10 @@ async function checkReadyCli(baseUrl) {
 async function preparePositiveDriverReadiness(baseUrl) {
   const origin = new URL(baseUrl).origin;
   const packing = await completePhysicalPackingFixture(origin);
+  const dispatchSource = (await requestJson(origin, `/api/fulfillments/${packing.fulfillmentId}`, {headers:{"x-erp-user-id":"U-OFFICE-A"}})).body;
   await postSharedJson(origin, `/api/fulfillments/${packing.fulfillmentId}/dispatch`, {
+    dispatchId: dispatchSource.dispatchId ?? "",
+    expectedRevision: dispatchSource.dispatchRevision ?? 0,
     driverId: "U-DRIVER-A", routeDate: "2026-07-14", routeNo: "合成设备验收路线", routeSequence: 1,
   }, { headers: { "x-erp-user-id": "U-OFFICE-A" } });
   const driverTasks = await getDriverJson(baseUrl, "/driver/delivery-tasks?pageSize=200");

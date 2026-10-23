@@ -1,3 +1,4 @@
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ users.push(
   {...users[0], userId: "TEST-office-readonly", loginName: "office-readonly", permissionDenylist: ["production.schedule.publish", "production.report.complete", "packing.complete", "todo.handle", "fulfillment.print", "fulfillment.dispatch.update", "fulfillment.complete"]},
   {...users[0], userId: "TEST-office-denied-reads", loginName: "office-denied-reads", permissionDenylist: ["production.read", "packing.read", "todo.read", "fulfillment.read", "print.read"]},
 );
-const server = createApiServer({ applyProductionEnvFile: false, runtimeMode: "test", strictAuth: true, authSecret, runtimeIdentityRepository: { kind: "test_memory", loadState: async () => ({ users, revokedSeedSessions: [] }), saveState: async () => ({}) } });
+const server = createApiServer(withLocalRepositoryFixture({ applyProductionEnvFile: false, runtimeMode: "test", strictAuth: true, authSecret, runtimeIdentityRepository: { kind: "test_memory", loadState: async () => ({ users, revokedSeedSessions: [] }), saveState: async () => ({}) } }));
 try {
   await listenTestServer(server);
   const base = getTestServerBaseUrl(server);

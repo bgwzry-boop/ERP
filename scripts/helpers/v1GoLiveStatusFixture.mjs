@@ -67,6 +67,8 @@ export async function prepareV1GoLiveStatusFixture(
       blockedEnvPath,
       "--api-base-url",
       apiBaseUrl,
+      "--operator-id",
+      "U-MANAGER-A",
       "--json",
     ],
     [0],

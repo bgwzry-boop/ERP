@@ -21,7 +21,10 @@ await listenTestServer(server);
 try {
   const baseUrl = getTestServerBaseUrl(server);
   const packing = await completePhysicalPackingFixture(baseUrl);
+  const dispatchSource=await getJson(baseUrl, `/fulfillments/${packing.fulfillmentId}`, {"x-erp-user-id":"U-OFFICE-A"});
   await postSharedJson(baseUrl, `/api/fulfillments/${packing.fulfillmentId}/dispatch`, {
+    dispatchId: dispatchSource.dispatchId ?? "",
+    expectedRevision: dispatchSource.dispatchRevision ?? 0,
     driverId: "U-DRIVER-A", routeDate: "2026-07-14", routeNo: "合成设备验收路线", routeSequence: 1,
   }, { headers: { "x-erp-user-id": "U-OFFICE-A" } });
   const tasks = await getJson(baseUrl, "/driver/delivery-tasks", headers);
