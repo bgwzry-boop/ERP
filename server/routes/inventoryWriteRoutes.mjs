@@ -1,3 +1,4 @@
+import { requireHttpIdempotencyKey } from "../idempotency.mjs";
 import { inventoryIntentRouteModule as defaultInventoryIntentRouteModule } from "./inventoryIntentRoutes.mjs";
 import { buildInventoryQuantitySnapshot } from "../services/inventoryCorrectionReadProjectionService.mjs";
 
@@ -117,6 +118,7 @@ export async function handleInventoryWriteRoutes({
   if (!reservationReleaseMatch) return false;
 
   if (!requireActionPermission(response, permissionContext, writeActionPermissions.releaseInventoryReservation)) return true;
+  requireHttpIdempotencyKey(undefined, body);
   const result = await inventoryReservationReleaseCommandService.releaseReservation({
     workspace,
     reservationId: decodeURIComponent(reservationReleaseMatch[1]),

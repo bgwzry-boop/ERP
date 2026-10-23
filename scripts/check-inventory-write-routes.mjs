@@ -5,7 +5,7 @@ const calls = [];
 const dependencies = {
   response: {},
   workspace: {},
-  body: { operatorId: "U-OFFICE-A" },
+  body: { operatorId: "U-OFFICE-A", idempotencyKey: "route-release-check" },
   authContext: { authenticated: true, userId: "U-AUTH" },
   permissionContext: { actionPermissions: ["inventory.correction.create"] },
   writeActionPermissions: {
@@ -260,3 +260,5 @@ function resolveIntentRoute(pathname) {
   if (pathname === "/api/inventory/holds/expire-due") return { kind: "hold-expire", permission: "inventory.reservation.release", params: {} };
   return null;
 }
+
+await assert.rejects(handleInventoryWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://test/api/inventory/reservations/R-1/release"), body: { releaseQty: 1 } }), { code: "IDEMPOTENCY_KEY_REQUIRED" });
