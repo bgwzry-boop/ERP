@@ -8,6 +8,7 @@ const queueItems = [
   buildQueueItem("PT-3", "OL-3", "BAG-02", "SCH-3", 1),
 ];
 const workspace = {
+  machines: ["BAG-01", "BAG-02"].map(id => ({ id, machineType: "bag_making", enabled: true, status: "active" })),
   users: [{ id: "U-OFFICE", displayName: "办公室" }],
   productionTasks: [
     buildTask("PT-1", "OL-1", "BAG-01", "SCH-1"),
@@ -300,4 +301,12 @@ function buildScheduleRecord(scheduleRecordId, productionTaskId, orderLineId, ma
     updatedBy: "U-OFFICE",
     updatedAt: "2026-07-11T10:00:00.000Z",
   };
+}
+
+for (const machine of [{id:"DISABLED",machineType:"bag_making",enabled:false,status:"inactive"},{id:"PRINT-01",machineType:"screen_printing",enabled:true,status:"active"}]) {
+ workspace.machines.push(machine);
+ const result = await service.publishSchedule({workspace,productionTaskId:"PT-1",operatorId:"U-OFFICE",body:{machineId:machine.id,expectedRevision:1}});
+ assert.equal(result.code, machine.enabled ? "PRODUCTION_MACHINE_PROCESS_MISMATCH" : "PRODUCTION_MACHINE_NOT_AVAILABLE");
+ const moved = await service.moveMachineQueueItem({workspace,operatorId:"U-OFFICE",body:{productionTaskId:"PT-1",targetMachineId:machine.id,expectedRevision:1}});
+ assert.equal(moved.code,result.code);
 }

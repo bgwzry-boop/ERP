@@ -13,6 +13,8 @@ export function buildPackingTaskId(orderLine) {
 }
 
 export function getProductionProcessType(orderLine) {
+  const taskType = cleanText(orderLine?.productionTask?.taskType ?? orderLine?.taskType);
+  if (taskType) return taskType;
   const status = cleanText(orderLine?.status ?? orderLine?.lineStatus);
   if (status.includes("丝印") || status.includes("补印")) return "丝印";
   return "制袋";

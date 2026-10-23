@@ -164,7 +164,7 @@ export function ProductionTaskReportInputs({
       </section>
       <section className="detail-section production-transaction-result">
         <h3>事务结果</h3>
-        <p>报当日数量只记录跨日进度，不入库、不占用、不生成打包任务；报工完成才会把合格数量入库并占用给该订单。</p>
+        <p>报当日数量只记录跨日进度；丝印完成交给制袋，制袋完成才将合格数量入库并占用给该订单。</p>
       </section>
     </>
   );
@@ -235,10 +235,10 @@ export function ProductionReportConfirmationPanel({
           <span id="production-report-confirmation-summary">
             {confirmation.kind === "daily"
               ? "确认后才会写入当日进度；按 Esc 可返回修改。"
-              : "确认后才会完成生产、入库、占用并创建待打包任务；按 Esc 可返回修改。"}
+              : confirmation.summary.isSilkScreenCompletion ? "确认后结束丝印任务并交给制袋；按 Esc 可返回修改。" : "确认后才会完成生产、入库、占用并创建待打包任务；按 Esc 可返回修改。"}
           </span>
         </div>
-        <StatusPill tone="warning">高风险写入</StatusPill>
+        <StatusPill tone="warning">{confirmation.summary.isSilkScreenCompletion ? "丝印完工确认" : "高风险写入"}</StatusPill>
       </div>
       <div className="production-report-confirmation-grid">
         {confirmation.summary.fields.map((item) => (
@@ -252,14 +252,14 @@ export function ProductionReportConfirmationPanel({
         {confirmation.summary.effects.map((item) => <li key={item}>{item}</li>)}
       </ul>
       <div className="production-report-confirmation-actions">
-        <button type="button" onClick={onReturnToEdit}>返回修改</button>
+        <button type="button" onClick={onReturnToEdit}>{confirmation.summary.isSilkScreenCompletion ? "还没印完" : "返回修改"}</button>
         <button
           className="primary-action"
           type="button"
           disabled={confirmation.kind === "daily" ? reportDailyDisabled : reportDisabled}
           onClick={onConfirm}
         >
-          {confirmation.kind === "daily" ? "确认提交当日报数" : "确认完成生产报工"}
+          {confirmation.summary.confirmLabel}
         </button>
       </div>
     </section>
@@ -344,7 +344,7 @@ export function PackingCompletionSection({
             {confirmation.summary.effects.map((item) => <li key={item}>{item}</li>)}
           </ul>
           <div className="packing-completion-confirmation-actions">
-            <button type="button" onClick={onReturnToEdit}>返回修改</button>
+            <button type="button" onClick={onReturnToEdit}>{confirmation.summary.isSilkScreenCompletion ? "还没印完" : "返回修改"}</button>
             <button className="primary-action" type="button" disabled={packingDisabled} onClick={onConfirm}>确认提交打包完成</button>
           </div>
         </section>

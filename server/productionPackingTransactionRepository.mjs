@@ -95,7 +95,10 @@ export function createLocalProductionPackingTransactionRepository() {
     recordProductionReport(input) {
       const replay = readLocalProductionTransactionReplay(productionReportResults, input, "production.report.complete");
       if (replay) return replay;
+      assertProductionStage(input);
       const transaction = normalizeProductionReportTransactionResult({
+        downstreamProductionTask: input.downstreamProductionTask,
+        todo: input.todo,
         productionTask: input.productionTask,
         workshopReport: input.workshopReport,
         orderLine: input.orderLine,
@@ -108,6 +111,8 @@ export function createLocalProductionPackingTransactionRepository() {
       applyProductionPackingWorkspaceMutation({
         workspace: input.workspace,
         productionTask: transaction.productionTask,
+        downstreamProductionTask: transaction.downstreamProductionTask,
+        todo: transaction.todo,
         workshopReport: transaction.workshopReport,
         orderLine: transaction.orderLine,
         packingTask: transaction.packingTask,
@@ -325,6 +330,8 @@ export function createPostgresProductionPackingTransactionRepository(options = {
         workspace: input.workspace,
         authoritative: true,
         productionTask: saved.productionTask,
+        downstreamProductionTask: saved.downstreamProductionTask,
+        todo: saved.todo,
         workshopReport: saved.workshopReport,
         orderLine: saved.orderLine,
         packingTask: saved.packingTask,
@@ -540,6 +547,9 @@ export function buildRecordProductionReportTransactionSql(input) {
 }
 
 export function buildRecordProductionReportTransactionQuery(input) {
+  assertProductionStage(input);
+  const downstreamProductionTask = normalizeProductionTask(input.downstreamProductionTask);
+  const todo = normalizeTodo(input.todo);
   const productionTask = normalizeProductionTask(input.productionTask);
   const workshopReport = normalizeWorkshopReport(input.workshopReport);
   const orderLine = normalizeOrderLine(input.orderLine);
@@ -567,6 +577,12 @@ WITH ${writeGuardCtes}
 upserted_production_task AS (
   ${buildUpsertProductionTaskSql(productionTask, parameters, "write_guard")}
 ),
+inserted_downstream_task AS (
+  ${downstreamProductionTask ? buildUpsertProductionTaskSql(downstreamProductionTask, parameters, "write_guard").replace(/ON CONFLICT \(id\) DO UPDATE SET[\s\S]*?RETURNING/, "RETURNING") : "SELECT NULL::json AS result WHERE false"}
+),
+inserted_todo AS (
+  ${buildInsertTodoSql(todo, parameters, "write_guard")}
+),
 inserted_workshop_report AS (
   ${buildInsertWorkshopReportSql(workshopReport, parameters, "write_guard")}
 ),
@@ -593,6 +609,8 @@ inserted_operation_log AS (
 )
 SELECT json_build_object(
   'productionTask', (SELECT result FROM upserted_production_task),
+  'downstreamProductionTask', (SELECT result FROM inserted_downstream_task),
+  'todo', (SELECT result FROM inserted_todo),
   'workshopReport', (SELECT result FROM inserted_workshop_report),
   'orderLine', (SELECT result FROM updated_order_line),
   'packingTask', (SELECT result FROM upserted_packing_task),
@@ -770,6 +788,8 @@ export function buildPublishProductionScheduleTransactionQuery(input) {
 
   const parameters = createPostgresParameterBinder();
   const writeGuardCtes = buildProductionWriteGuardCtes({
+    allowCreate: true,
+    validateMachine: true,
     productionTask,
     orderLine,
     inventoryAdjustments: [],
@@ -826,7 +846,7 @@ export function buildCompletePackingTaskTransactionQuery(input) {
   }
 
   const parameters = createPostgresParameterBinder();
-  const writeGuardCtes = buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment }, parameters);
+  const writeGuardCtes = buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment, createForStock: input.createForStock === true }, parameters);
   return {
     text: `
 BEGIN;
@@ -875,7 +895,7 @@ COMMIT;
   };
 }
 
-function buildProductionWriteGuardCtes({ productionTask, orderLine, inventoryAdjustments, disallowedStatuses }, parameters) {
+function buildProductionWriteGuardCtes({ productionTask, orderLine, inventoryAdjustments, disallowedStatuses, allowCreate = false, validateMachine = false }, parameters) {
   const inventoryIds = inventoryAdjustments.map((item) => item.inventoryItemId);
   const taskStatusGuard = disallowedStatuses.length
     ? `AND task_status <> ALL(${parameters.textArray(disallowedStatuses)})`
@@ -899,7 +919,7 @@ function buildProductionWriteGuardCtes({ productionTask, orderLine, inventoryAdj
     )
     .join("\n    AND ");
   return `locked_production_task AS MATERIALIZED (
-  SELECT id, revision, task_status FROM production_tasks
+  SELECT id, revision, task_status, order_line_id, task_type FROM production_tasks
   WHERE id = ${parameters.text(productionTask.productionTaskId)}
   FOR UPDATE
 ),
@@ -916,23 +936,26 @@ locked_inventory_items AS MATERIALIZED (
 write_guard AS MATERIALIZED (
   SELECT erp_require(
     (
-      NOT EXISTS (SELECT 1 FROM locked_production_task)
+      ${allowCreate ? "NOT EXISTS (SELECT 1 FROM locked_production_task)" : "FALSE"}
       OR EXISTS (
         SELECT 1 FROM locked_production_task
         WHERE revision = ${parameters.integer(productionTask.revision ?? 1)}
+        AND order_line_id = ${parameters.text(productionTask.orderLineId)}
+        AND task_type = ${parameters.text(productionTask.taskType)}
         ${taskStatusGuard}
       )
     ),
     'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT'
   )
   AND erp_require(${orderLineCondition}, 'ERP_ORDER_LINE_CONCURRENCY_CONFLICT')
+  ${validateMachine ? `AND erp_require(EXISTS (SELECT 1 FROM machines WHERE id = ${parameters.text(productionTask.machineId)} AND enabled = true AND status = 'active' AND machine_type = ${parameters.text(productionTask.taskType === "制袋" ? "bag_making" : productionTask.taskType === "丝印" ? "screen_printing" : "unsupported")} FOR SHARE), 'PRODUCTION_MACHINE_NOT_AVAILABLE')` : ""}
   ${inventoryConditions ? `AND ${inventoryConditions}` : ""} AS ok
 ),`;
 }
 
 function buildProductionExceptionResolutionWriteGuardCtes({ productionTask, productionException, todo }, parameters) {
   return `locked_production_task AS MATERIALIZED (
-  SELECT id, revision, task_status FROM production_tasks
+  SELECT id, revision, task_status, order_line_id, task_type FROM production_tasks
   WHERE id = ${parameters.text(productionTask.productionTaskId)}
   FOR UPDATE
 ),
@@ -978,7 +1001,7 @@ write_guard AS MATERIALIZED (
 ),`;
 }
 
-function buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment }, parameters) {
+function buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment, createForStock }, parameters) {
   const orderLineCondition = orderLine
     ? `EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(orderLine.revision ?? 1)})`
     : "TRUE";
@@ -991,12 +1014,12 @@ function buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment }, par
   FOR UPDATE
 ),
 locked_order_line AS MATERIALIZED (
-  SELECT id, revision FROM order_lines
+  SELECT id, revision, order_type, line_status FROM order_lines
   WHERE id = ${parameters.text(orderLine?.orderLineId ?? packingTask.orderLineId)}
   FOR UPDATE
 ),
 locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision FROM fulfillment_records
+  SELECT id, revision, order_line_id, status, physical_outbound_at, final_delivery_at FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment?.fulfillmentId ?? "")}
   FOR UPDATE
 ),
@@ -1007,7 +1030,12 @@ write_guard AS MATERIALIZED (
       WHERE revision = ${parameters.integer(packingTask.revision ?? 1)}
         AND order_line_id = ${parameters.text(packingTask.orderLineId)}
         AND status <> '已完成'
-    ),
+    ) OR (${parameters.boolean(createForStock === true)} AND NOT EXISTS (SELECT 1 FROM locked_packing_task)
+      AND ${parameters.text(packingTask.packingTaskId)} = 'PKT-F-' || ${parameters.text(fulfillment?.fulfillmentId ?? "")}
+      AND EXISTS (SELECT 1 FROM locked_order_line WHERE line_status NOT IN ('待排产','待生产') AND order_type IN ('stock','stock_plain','stock_printed','laminated_plain','laminated_printed','replenishment','现货','现货有货','现货缺货','现货通货','标准通货','印刷通货'))
+      AND EXISTS (SELECT 1 FROM locked_fulfillment WHERE order_line_id=${parameters.text(packingTask.orderLineId)} AND physical_outbound_at IS NULL AND final_delivery_at IS NULL AND status IN ('待出库','待库房备货','已备货','待打印标签'))
+      AND NOT EXISTS (SELECT 1 FROM packing_tasks WHERE order_line_id=${parameters.text(packingTask.orderLineId)})
+      AND NOT EXISTS (SELECT 1 FROM packages WHERE fulfillment_id=${parameters.text(fulfillment?.fulfillmentId ?? "")})),
     'ERP_PACKING_TASK_CONCURRENCY_CONFLICT'
   )
   AND erp_require(${orderLineCondition}, 'ERP_ORDER_LINE_CONCURRENCY_CONFLICT')
@@ -1075,4 +1103,13 @@ function assertPackingBindings(input) {
   const existing = (input.workspace?.packingTasks ?? []).find(t => (t.id ?? t.packingTaskId) === task?.packingTaskId);
   if (existing && (existing.orderLineId ?? existing.lineId) !== lineId || input.orderLine && (input.orderLine.orderLineId ?? input.orderLine.id) !== lineId || input.fulfillment && input.fulfillment.orderLineId !== lineId) throw contractError("PACKING_TASK_BINDING_MISMATCH");
   if (!Number.isSafeInteger(task?.actualPackedQty) || task.actualPackedQty <= 0 || !packages.length || new Set(packages.map(p => p.packageId)).size !== packages.length || new Set(packages.map(p => p.packageSeq)).size !== packages.length || packages.some(p => !Number.isSafeInteger(p.packedQty) || p.packedQty <= 0 || p.orderLineId !== lineId || (p.fulfillmentId ?? "") !== (input.fulfillment?.fulfillmentId ?? input.fulfillment?.id ?? "")) || packages.reduce((sum, p) => sum + p.packedQty, 0) !== task.actualPackedQty) throw contractError("PACKING_PACKAGE_QUANTITY_MISMATCH");
+}
+
+function assertProductionStage(input) {
+  const task = input.productionTask;
+  const lineId = task?.orderLineId;
+  if (input.workshopReport?.processType !== task?.taskType || input.workshopReport?.orderLineId !== lineId || (input.orderLine && (input.orderLine.orderLineId ?? input.orderLine.id) !== lineId)) throw contractError("PRODUCTION_TASK_BINDING_MISMATCH");
+  if (task?.taskType === "丝印" && ((input.inventoryAdjustments ?? []).length || (input.inventoryReservations ?? []).length || (input.inventoryLedgerEntries ?? []).length || input.packingTask || !input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
+  const next = input.downstreamProductionTask;
+  if (next && (task.taskType !== "丝印" || next.taskType !== "制袋" || next.orderLineId !== lineId || next.plannedQty !== input.workshopReport.qualifiedQty || (input.workspace?.productionTasks ?? []).some(t => (t.id ?? t.productionTaskId) === next.productionTaskId))) throw contractError("PRODUCTION_DOWNSTREAM_TASK_CONFLICT");
 }

@@ -6,7 +6,7 @@ import { parseOrderText } from '../src/lib/orderParser.js';
 import { buildDriverDeliveryTask } from '../server/services/driverDeliveryTaskProjectionService.mjs';
 const registry = createApiSharedServiceRegistry();
 const line = { id:'OL-P1',orderLineId:'OL-P1',orderId:'ORD-P1',customerId:'C001',product:'特殊尺寸空白袋',orderType:'特殊尺寸',size:'43*51*12',color:'红色',handle:'普通提',style:'空白袋',print:'否',qty:100,status:'制袋中',revision:1,fulfillment:'送货' };
-const workspace = { users:[{id:'U-OFFICE-A'}],customers:[{id:'C001',name:'测试'}],orderLines:[line],productionTasks:[{id:'PT-P1',productionTaskId:'PT-P1',orderLineId:line.id,taskType:'制袋',taskStatus:'制袋中',revision:1,plannedQty:100,createdBy:'U-OFFICE-A'}],fulfillments:[{id:'F-P1',fulfillmentId:'F-P1',lineId:line.id,orderLineId:line.id,method:'送货',qty:100,status:'待生产',revision:1}],inventories:[],inventoryReservations:[],inventoryLedgers:[],workshopReports:[],productionExceptions:[],packingTasks:[],packages:[],todos:[],operationLogs:[] };
+const workspace = { users:[{id:'U-OFFICE-A'}],customers:[{id:'C001',name:'测试'}],orderLines:[line],productionTasks:[{id:'PT-P1',productionTaskId:'PT-P1',orderLineId:line.id,taskType:'制袋',machineId:'BAG-01',taskStatus:'制袋中',revision:1,plannedQty:100,createdBy:'U-OFFICE-A'}],fulfillments:[{id:'F-P1',fulfillmentId:'F-P1',lineId:line.id,orderLineId:line.id,method:'送货',qty:100,status:'待生产',revision:1}],inventories:[],inventoryReservations:[],inventoryLedgers:[],workshopReports:[],productionExceptions:[],packingTasks:[],packages:[],todos:[],operationLogs:[] };
 workspace.productionPackingTransactionRepository=createLocalProductionPackingTransactionRepository();
 const complete=await registry.productionReportingCommandService.completeProductionReport({workspace,productionTaskId:'PT-P1',operatorId:'U-OFFICE-A',body:{qualifiedQty:100,idempotencyKey:'p1-special-production'}});
 assert.ok(complete.response,JSON.stringify(complete)); assert.equal(workspace.inventories.length,0);assert.equal(workspace.inventoryReservations.length,0);assert.equal(workspace.packingTasks.length,1);
@@ -31,3 +31,11 @@ for (const [n,status] of [[1,'异常暂停'],[2,'制袋中']]) {
 }
 assert.equal(typeof buildResolveProductionExceptionTransactionQuery,'function');
 console.log('P1 cross-service checks passed: special completion without stock, real packages with conserved totals, no fake driver packages, shortage routing, custom blank classification, all paused exceptions resolved before resume.');
+
+const screenWorkspace={...workspace,productionTasks:[{...workspace.productionTasks[0],id:'PT-SCREEN',productionTaskId:'PT-SCREEN',taskType:'丝印',machineId:'PRINT-01',taskStatus:'丝印中',status:'丝印中'}],packingTasks:[],packages:[],workshopReports:[],inventoryReservations:[],inventoryLedgers:[]};
+const screened=await registry.productionReportingCommandService.completeProductionReport({workspace:screenWorkspace,productionTaskId:'PT-SCREEN',operatorId:'U-OFFICE-A',body:{qualifiedQty:100,machineCount:105,idempotencyKey:'p1-screen-complete'}});
+assert.ok(screened.response,JSON.stringify(screened));assert.ok(screened.response.downstreamProductionTaskId);assert.equal(screenWorkspace.packingTasks.length,0);assert.equal(screenWorkspace.productionTasks.find(t=>t.productionTaskId===screened.response.downstreamProductionTaskId).taskStatus,'待排产');assert.equal(screenWorkspace.inventoryReservations.length,0);
+const stockWorkspace={...workspace,packingTasks:[],packages:[],orderLines:[{...line,orderType:'现货通货',status:'待出库'}],fulfillments:[{...workspace.fulfillments[0],status:'待出库'}]};
+const stockPacked=await registry.packingCommandService.completePackingTask({workspace:stockWorkspace,packingTaskId:'PKT-F-F-P1',operatorId:'U-OFFICE-A',body:{fulfillmentId:'F-P1',actualPackedQty:100,packages:[{packedQty:50},{packedQty:50}],idempotencyKey:'p1-stock-pack'}});
+assert.ok(stockPacked.response,JSON.stringify(stockPacked));assert.equal(stockWorkspace.packages.length,2);
+console.log('Stage and stock checks passed: silk screen hands off to bag-making with no finished packing, stock orders record actual packages.');

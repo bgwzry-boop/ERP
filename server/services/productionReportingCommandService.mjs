@@ -27,9 +27,7 @@ export function createProductionReportingCommandService({
 
   return {
     async recordDailyProgress({ workspace, productionTaskId, body = {}, operatorId }) {
-      const beforeTask =
-        findProductionTask(workspace, productionTaskId) ??
-        buildProductionTaskFromBody(workspace, productionTaskId, body);
+      const beforeTask = findProductionTask(workspace, productionTaskId);
       if (!beforeTask) return notFound("PRODUCTION_TASK_NOT_FOUND");
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
         return businessError(422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
@@ -45,6 +43,8 @@ export function createProductionReportingCommandService({
         return businessError(409, "PRODUCTION_TASK_EXCEPTION_PAUSED", "Paused production tasks require an explicit follow-up decision before daily progress.");
       }
 
+      const bindingError = validateTaskBinding(beforeTask, body);
+      if (bindingError) return bindingError;
       const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
@@ -81,9 +81,7 @@ export function createProductionReportingCommandService({
         orderLineId,
         excludeReportId: body.reportId,
       });
-      const cumulativeQualifiedQty = Number.isFinite(Math.trunc(Number(body.cumulativeQualifiedQty)))
-        ? Math.max(0, Math.trunc(Number(body.cumulativeQualifiedQty)))
-        : previousQualifiedQty + dailyQualifiedQty;
+      const cumulativeQualifiedQty = previousQualifiedQty + dailyQualifiedQty;
       const remainingQty = Math.max(0, plannedQty - cumulativeQualifiedQty);
       const nextWorkDate = body.nextWorkDate ?? (remainingQty > 0 ? getNextDateText(reportDate) : "");
       const effectiveMachineId = cleanText(beforeTask.machineId ?? body.machineId);
@@ -91,7 +89,7 @@ export function createProductionReportingCommandService({
         ...beforeTask,
         productionTaskId,
         orderLineId,
-        taskType: body.processType ?? beforeTask.taskType ?? "制袋",
+        taskType: beforeTask.taskType ?? "制袋",
         machineId: effectiveMachineId,
         plannedQty,
         taskStatus: remainingQty > 0 ? "跨日继续" : "待完工确认",
@@ -103,7 +101,7 @@ export function createProductionReportingCommandService({
         reportId,
         productionTaskId,
         orderLineId,
-        processType: body.processType ?? productionTask.taskType,
+        processType: productionTask.taskType,
         machineId: effectiveMachineId,
         operatorId,
         qualifiedQty: dailyQualifiedQty,
@@ -187,9 +185,7 @@ export function createProductionReportingCommandService({
     },
 
     async recordProductionException({ workspace, productionTaskId, body = {}, operatorId }) {
-      const beforeTask =
-        findProductionTask(workspace, productionTaskId) ??
-        buildProductionTaskFromBody(workspace, productionTaskId, body);
+      const beforeTask = findProductionTask(workspace, productionTaskId);
       if (!beforeTask) return notFound("PRODUCTION_TASK_NOT_FOUND");
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
         return businessError(422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
@@ -201,6 +197,8 @@ export function createProductionReportingCommandService({
         return businessError(409, "PRODUCTION_TASK_VOIDED", "Voided production tasks cannot report a new exception.");
       }
 
+      const bindingError = validateTaskBinding(beforeTask, body);
+      if (bindingError) return bindingError;
       const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
@@ -231,7 +229,7 @@ export function createProductionReportingCommandService({
         ...beforeTask,
         productionTaskId,
         orderLineId,
-        taskType: body.processType ?? beforeTask.taskType ?? "制袋",
+        taskType: beforeTask.taskType ?? "制袋",
         machineId: cleanText(beforeTask.machineId ?? body.machineId),
         plannedQty: Number(beforeTask.plannedQty ?? beforeTask.qty ?? beforeOrderLine.qty ?? beforeOrderLine.originalQty ?? 0),
         taskStatus: paused ? "异常暂停" : beforeTask.taskStatus ?? beforeTask.status ?? "制袋中",
@@ -503,9 +501,7 @@ export function createProductionReportingCommandService({
     },
 
     async completeProductionReport({ workspace, productionTaskId, body = {}, operatorId }) {
-      const beforeTask =
-        findProductionTask(workspace, productionTaskId) ??
-        buildProductionTaskFromBody(workspace, productionTaskId, body);
+      const beforeTask = findProductionTask(workspace, productionTaskId);
       if (!beforeTask) return notFound("PRODUCTION_TASK_NOT_FOUND");
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
         return businessError(422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
@@ -524,6 +520,8 @@ export function createProductionReportingCommandService({
       if (isProductionTaskExceptionPaused(beforeTask.taskStatus ?? beforeTask.status)) {
         return businessError(409, "PRODUCTION_TASK_EXCEPTION_PAUSED", "Paused production tasks require an explicit follow-up decision before completion reporting.");
       }
+      const bindingError = validateTaskBinding(beforeTask, body);
+      if (bindingError) return bindingError;
       const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
@@ -539,6 +537,118 @@ export function createProductionReportingCommandService({
       if (!Number.isSafeInteger(qualifiedQty) || qualifiedQty <= 0) {
         return businessError(422, "VALIDATION_ERROR", "qualifiedQty must be greater than 0.");
       }
+      if (!cleanText(beforeTask.machineId)) return businessError(409, "PRODUCTION_MACHINE_ASSIGNMENT_REQUIRED", "任务尚未排定机台，不能确认工序完成。");
+      if (beforeTask.taskType === "丝印") {
+        const machineCount = Number(body.machineCount);
+        if (!Number.isSafeInteger(machineCount) || machineCount < qualifiedQty) {
+          return businessError(422, "PRODUCTION_MACHINE_COUNT_INVALID", "丝印机器动作数必须为整数且不小于预计合格数量。");
+        }
+        const calculatedExceptionQty = machineCount - qualifiedQty;
+        const exceptionQty = Number(body.exceptionQty ?? calculatedExceptionQty);
+        if (!Number.isSafeInteger(exceptionQty) || exceptionQty < 0) return businessError(422, "VALIDATION_ERROR", "exceptionQty must be a nonnegative integer.");
+        const completedAt = nowIso(now);
+        const nextTaskId = nextPlainId("PT", `${productionTaskId}-BAG`);
+        if (findProductionTask(workspace, nextTaskId)) return businessError(409, "PRODUCTION_DOWNSTREAM_TASK_EXISTS", "下游制袋任务已存在，请刷新后核对。");
+        const productionTask = {
+          ...beforeTask,
+          productionTaskId,
+          orderLineId,
+          taskStatus: "已完成",
+          status: "已完成"
+        };
+        const downstreamProductionTask = {
+          productionTaskId: nextTaskId,
+          bizNo: nextTaskId,
+          orderLineId,
+          taskType: "制袋",
+          machineId: "",
+          plannedQty: qualifiedQty,
+          taskStatus: "待排产",
+          createdBy: operatorId,
+          createdAt: completedAt
+        };
+        const differenceQty = qualifiedQty - Number(beforeTask.plannedQty ?? beforeOrderLine.qty);
+        const orderLine = {
+          ...beforeOrderLine,
+          orderLineId,
+          lineStatus: "待排产",
+          status: "待排产",
+          exceptionTags: [...new Set([...(beforeOrderLine.exceptionTags ?? beforeOrderLine.exceptions ?? []), ...(differenceQty ? ["数量差异待处理"] : [])])]
+        };
+        const reportId = nextPlainId("WR", `${productionTaskId}-COMPLETE`);
+        const workshopReport = {
+          reportId,
+          productionTaskId,
+          orderLineId,
+          processType: "丝印",
+          machineId: beforeTask.machineId,
+          operatorId,
+          qualifiedQty,
+          exceptionQty,
+          machineCount,
+          startedAt: body.startedAt ?? "",
+          completedAt,
+          createdAt: completedAt,
+          remark: body.remark ?? "",
+          evidence: {
+            calculatedExceptionQty,
+            reportedExceptionQty: exceptionQty,
+            exceptionQtyOverridden: exceptionQty !== calculatedExceptionQty,
+            downstreamProductionTaskId: nextTaskId,
+            differenceQty,
+            inventoryCreated: false,
+            reservationCreated: false,
+            packingTaskCreated: false
+          }
+        };
+        const todo = differenceQty ? buildTodo(workspace, {
+          id: nextPlainId("T", `${productionTaskId}-QUANTITY`),
+          type: "生产异常",
+          ref: productionTaskId,
+          refId: productionTaskId,
+          refType: "production_task",
+          summary: `丝印计划 ${beforeTask.plannedQty ?? beforeOrderLine.qty}，交给制袋 ${qualifiedQty}，差异 ${differenceQty}，请办公室跟进。`,
+          status: "未处理",
+          createdBy: operatorId,
+          createdAt: completedAt,
+          updatedAt: completedAt
+        }) : null;
+        const operationLog = buildOperationLog(workspace, {
+          targetType: "production_task",
+          targetId: productionTaskId,
+          action: "complete_silk_screen_handoff",
+          operatorId,
+          before: beforeTask,
+          after: {
+            productionTask,
+            downstreamProductionTask,
+            workshopReport,
+            orderLine,
+            todoId: todo?.id ?? "",
+            inventoryCreated: false
+          },
+          reason: body.remark || "确认印完，交给制袋"
+        });
+        const transaction = await workspace.productionPackingTransactionRepository.recordProductionReport({
+          workspace,
+          productionTask,
+          downstreamProductionTask,
+          workshopReport,
+          orderLine,
+          todo,
+          operationLog,
+          inventoryAdjustments: [],
+          inventoryReservations: [],
+          inventoryLedgerEntries: [],
+          idempotencyKey: body.idempotencyKey,
+          idempotencyPayload
+        });
+        return success(buildProductionReportResponse(transaction, {
+          productionTaskId,
+          orderLineId
+        }));
+      }
+      if (beforeTask.taskType !== "制袋") return businessError(409, "PRODUCTION_PROCESS_COMPLETION_UNSUPPORTED", "该工序不能按制袋成品完成合同报工。");
       const customSpecial = normalizeOrderType(beforeOrderLine.orderType) === "custom_special";
       if (customSpecial && cleanText(body.inventoryItemId)) return businessError(409, "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY", "特殊尺寸按订单生产，不建立通货库存。");
       const inventoryItem = customSpecial ? null : body.inventoryItemId
@@ -556,7 +666,7 @@ export function createProductionReportingCommandService({
         ...beforeTask,
         productionTaskId,
         orderLineId,
-        taskType: body.processType ?? beforeTask.taskType ?? "制袋",
+        taskType: beforeTask.taskType ?? "制袋",
         machineId: effectiveMachineId,
         plannedQty: Number(beforeTask.plannedQty ?? beforeTask.qty ?? beforeOrderLine.qty ?? qualifiedQty),
         taskStatus: "已完成",
@@ -575,7 +685,7 @@ export function createProductionReportingCommandService({
         reportId,
         productionTaskId,
         orderLineId,
-        processType: body.processType ?? productionTask.taskType,
+        processType: productionTask.taskType,
         machineId: effectiveMachineId,
         operatorId,
         qualifiedQty,
@@ -740,6 +850,8 @@ function buildProductionReportResponse(transaction, fallbacks = {}) {
     inventoryItemId,
     reservationId: transaction.inventoryReservations?.[0]?.reservationId ?? "",
     packingTaskId: transaction.packingTask?.packingTaskId ?? "",
+    downstreamProductionTaskId: transaction.downstreamProductionTask?.productionTaskId ?? "",
+    todoId: transaction.todo?.id ?? "",
     inventoryLedgerIds: (transaction.inventoryLedgerEntries ?? []).map((entry) => entry.ledgerId),
     operationLogId: transaction.operationLogId ?? "",
   };
@@ -784,7 +896,7 @@ function sumProductionDailyProgressQty(workspace, input = {}) {
       productionTaskId && cleanText(report?.productionTaskId ?? report?.production_task_id) === productionTaskId;
     const matchesLine = orderLineId && cleanText(report?.orderLineId ?? report?.order_line_id) === orderLineId;
     const evidence = report?.evidence ?? report?.evidence_json ?? {};
-    if (!(matchesTask || matchesLine) || evidence?.reportKind !== "daily_progress") return total;
+    if (!(productionTaskId ? matchesTask : matchesLine) || evidence?.reportKind !== "daily_progress") return total;
     return total + Math.max(0, Math.trunc(Number(report.qualifiedQty ?? report.qualified_qty ?? 0)));
   }, 0);
 }
@@ -871,7 +983,7 @@ function resolveProductionExceptionTaskStatus({ beforeTask, beforeException, res
       beforeTask.status,
   );
   return ["", "异常暂停", "数量差异待处理", "已完成", "已作废", "待完工确认"].includes(statusBeforePause)
-    ? "制袋中"
+    ? cleanText(beforeTask.machineId) ? `${beforeTask.taskType === "丝印" ? "丝印" : "制袋"}中` : "待排产"
     : statusBeforePause;
 }
 
@@ -934,4 +1046,11 @@ function asObject(value) {
 
 function requireFunction(value, name) {
   if (typeof value !== "function") throw new TypeError(`${name} must be a function`);
+}
+
+function validateTaskBinding(task, body) {
+  if (body.orderLineId != null && body.orderLineId !== (task.orderLineId ?? task.lineId) || body.processType != null && body.processType !== task.taskType || body.machineId != null && task.machineId && body.machineId !== task.machineId) {
+    return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "既有生产任务的订单、工序和机台归属不能通过报工请求修改。");
+  }
+  return null;
 }

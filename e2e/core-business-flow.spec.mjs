@@ -515,7 +515,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
     buffer: createOnePixelPng(),
   });
   await expect(page.getByLabel("缺字段检查")).toHaveText("当前行已完成必要字段校对");
-  await expect(page.getByText("库存需复核", { exact: false })).toBeVisible();
+  await expect(page.getByText("订单生产，不走通货库存", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "保存并确认", exact: true }).click();
   await expect(page.getByRole("heading", { name: "订单池" })).toBeVisible();
 
@@ -535,7 +535,8 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
     item.orderLineId === createdLine.id,
   );
   const productionTaskId = productionTask.productionTaskId;
-  expect(productionTask.productionTask.machineId).toBe("PRINT-01");
+  expect(productionTask.productionTask.machineId).toBe("");
+  expect(productionTask.productionTask.taskType).toBe("丝印");
   const inventoryBeforeReport = await findInventoryItem(request, createdLine);
   const inStockBeforeReport = Number(inventoryBeforeReport.inStock ?? 0);
   const reservedBeforeReport = Number(inventoryBeforeReport.reserved ?? inventoryBeforeReport.reservedQty ?? 0);
@@ -627,7 +628,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   await page.getByLabel("异常/废品数").fill("2");
   await page.getByLabel("机器计数/动作次数").fill("9876");
   await page.getByRole("button", { name: "报工完成", exact: true }).click();
-  await page.getByRole("button", { name: "确认完成生产报工", exact: true }).click();
+  await page.getByRole("button", { name: "确认印完，交给制袋", exact: true }).click();
 
   productionDetail = await waitForApiDetail(
     request,
@@ -638,7 +639,21 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   expect(Number(productionDetail.latestReport?.exceptionQty)).toBe(2);
   expect(Number(productionDetail.latestReport?.machineCount)).toBe(9876);
   expect(productionDetail.latestReport?.operatorId).toBe("U-WORKSHOP-PRINT-A");
-  const packingTaskId = productionDetail.packingTask?.packingTaskId;
+  expect(productionDetail.packingTask).toBeNull();
+  const inventoryAfterScreen = await findInventoryItem(request, createdLine);
+  expect(Number(inventoryAfterScreen.inStock)).toBe(inStockBeforeReport);
+  const bagTask = await waitForApiItem(request, "/production-tasks?page=1&pageSize=200", item => item.orderLineId === createdLine.id && item.productionTask?.taskType === "制袋");
+  expect(bagTask.productionTask.status ?? bagTask.productionTask.taskStatus).toBe("待排产");
+  await apiPost(request, `/production-tasks/${encodeURIComponent(bagTask.productionTaskId)}/publish-schedule`, {
+    productionTaskId: bagTask.productionTaskId, orderLineId: createdLine.id, processType: "制袋", machineId: "BAG-01", plannedQty: 12,
+    expectedRevision: bagTask.productionTask.revision, directDecisionContent: "丝印完成，办公室确认转制袋", idempotencyKey: `e2e-bag-schedule-${bagTask.productionTaskId}`,
+  }, operatorId);
+  await apiPost(request, `/production-tasks/${encodeURIComponent(bagTask.productionTaskId)}/report-complete`, {
+    productionTaskId: bagTask.productionTaskId, orderLineId: createdLine.id, processType: "制袋", machineId: "BAG-01", qualifiedQty: 12, exceptionQty: 0,
+    inventoryItemId: inventoryBeforeReport.id, idempotencyKey: `e2e-bag-complete-${bagTask.productionTaskId}`,
+  }, "U-WORKSHOP-A");
+  const bagDetail = await waitForApiDetail(request, `/production-tasks/${encodeURIComponent(bagTask.productionTaskId)}`, detail => detail.productionTask?.status === "已完成");
+  const packingTaskId = bagDetail.packingTask?.packingTaskId;
   expect(packingTaskId).toBeTruthy();
 
   const inventoryAfterReport = await findInventoryItem(request, createdLine);

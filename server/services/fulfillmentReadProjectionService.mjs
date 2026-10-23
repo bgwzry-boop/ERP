@@ -57,6 +57,8 @@ function projectFulfillment(workspace, value) {
   const fulfillmentId = cleanText(item.id ?? item.fulfillmentId ?? item.fulfillment_id);
   const orderLineId = cleanText(item.lineId ?? item.orderLineId ?? item.order_line_id);
   const orderLine = findOrderLine(workspace, orderLineId);
+  const packingTask = list(workspace.packingTasks).find(row => cleanText(row.orderLineId ?? row.lineId) === orderLineId);
+  const actualPackageCount = list(workspace.packages).filter(row => cleanText(row.fulfillmentId ?? row.fulfillment_id) === fulfillmentId).length;
   const customerId = cleanText(item.customerId ?? item.customer_id ?? orderLine.customerId ?? orderLine.customer_id);
   const customer = findCustomer(workspace, customerId);
   const method = normalizeFulfillmentMethod(item.method ?? item.fulfillmentMethod ?? item.fulfillment_method);
@@ -93,6 +95,9 @@ function projectFulfillment(workspace, value) {
     fulfillmentId,
     customerId,
     orderLineId,
+    orderType: cleanText(orderLine.orderType ?? orderLine.order_type),
+    actualPackageCount,
+    packingTask: packingTask ? { packingTaskId: cleanText(packingTask.packingTaskId ?? packingTask.id), orderLineId, status: cleanText(packingTask.status), plannedQty: nonNegativeInteger(packingTask.plannedQty ?? packingTask.qty), actualPackedQty: nonNegativeInteger(packingTask.actualPackedQty), packageCount: actualPackageCount } : null,
     orderNo: cleanText(item.orderNo ?? item.order_no) || orderLineId,
     customerName: cleanText(customer.name ?? item.customerName ?? item.customer_name) || "客户待确认",
     method,

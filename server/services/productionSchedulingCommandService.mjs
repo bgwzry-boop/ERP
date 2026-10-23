@@ -50,7 +50,8 @@ export function createProductionSchedulingCommandService({
         );
       }
 
-      const orderLineId = cleanText(body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId);
+      if ((body.orderLineId && body.orderLineId !== (beforeTask.orderLineId ?? beforeTask.lineId)) || (body.processType && body.processType !== beforeTask.taskType)) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "排产不能改变生产任务的订单或工序。");
+      const orderLineId = cleanText(beforeTask.orderLineId ?? beforeTask.lineId);
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
       if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
@@ -74,6 +75,8 @@ export function createProductionSchedulingCommandService({
       if (!machineId) {
         return businessError(422, "VALIDATION_ERROR", "machineId is required when publishing a production schedule.");
       }
+      const machineError = validateSchedulingMachine(workspace, machineId, taskType);
+      if (machineError) return machineError;
       if (!Number.isFinite(plannedQty) || plannedQty <= 0) {
         return businessError(422, "VALIDATION_ERROR", "plannedQty must be greater than 0.");
       }
@@ -362,6 +365,9 @@ export function createProductionSchedulingCommandService({
           `Production task is not in the active machine queue: ${productionTaskId}`,
         );
       }
+      const task = findProductionTask(workspace, productionTaskId);
+      const machineError = validateSchedulingMachine(workspace, targetMachineId, task?.taskType);
+      if (machineError) return machineError;
       const sourceMachineId = cleanText(movingItem.machineId);
       const targetQueueBase = beforeQueue.items.filter(
         (item) => item.machineId === targetMachineId && item.productionTaskId !== productionTaskId,
@@ -784,4 +790,12 @@ function cleanText(value) {
 
 function requireFunction(value, name) {
   if (typeof value !== "function") throw new TypeError(`${name} must be a function`);
+}
+
+function validateSchedulingMachine(workspace, machineId, processType) {
+  const machine = (workspace.machines ?? []).find(row => (row.id ?? row.machineId) === machineId);
+  if (!machine || machine.enabled !== true || machine.status !== "active") return businessError(409, "PRODUCTION_MACHINE_NOT_AVAILABLE", "请选择已启用、可用的机台。");
+  const requiredType = processType === "制袋" ? "bag_making" : processType === "丝印" ? "screen_printing" : null;
+  if (!requiredType || machine.machineType !== requiredType) return businessError(409, "PRODUCTION_MACHINE_PROCESS_MISMATCH", "机台类型与本次生产工序不一致。");
+  return null;
 }

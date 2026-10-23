@@ -1,4 +1,4 @@
-import { createPostgresProductionPackingTransactionRepository } from "../../server/productionPackingTransactionRepository.mjs";
+import { buildPublishProductionScheduleTransactionQuery, createPostgresProductionPackingTransactionRepository } from "../../server/productionPackingTransactionRepository.mjs";
 import assert from 'node:assert/strict';
 import { createApiSharedServiceRegistry } from '../../server/apiSharedServiceRegistry.mjs';
 import { createPostgresOrderDraftRepository } from '../../server/orderDraftRepository.mjs';
@@ -51,9 +51,10 @@ export async function checkP1OrderConfirmationLive({ databaseUrl, pool, bagwinSe
   const task = workspace.productionTasks[0];
   assert.ok(task);
   await pool.query("UPDATE order_lines SET order_type='特殊尺寸', size='43*51*12' WHERE id=$1",[task.orderLineId]);
-  await pool.query("UPDATE production_tasks SET task_status='制袋中', task_type='制袋' WHERE id=$1",[task.productionTaskId ?? task.id]);
+  await pool.query("INSERT INTO machines (id,biz_no,name,machine_type,workshop,status,enabled) VALUES ('P1-BAG','P1-BAG','隔离制袋机','bag_making','测试','active',true) ON CONFLICT DO NOTHING");
+  await pool.query("UPDATE production_tasks SET task_status='制袋中', task_type='制袋', machine_id='P1-BAG' WHERE id=$1",[task.productionTaskId ?? task.id]);
   Object.assign(workspace.orderLines[0],{orderType:'特殊尺寸',size:'43*51*12'});
-  Object.assign(task,{taskStatus:'制袋中',status:'制袋中',taskType:'制袋'});
+  Object.assign(task,{machineId:'P1-BAG',taskStatus:'制袋中',status:'制袋中',taskType:'制袋'});
   const production = createApiSharedServiceRegistry().productionReportingCommandService;
   for (const n of [1,2]) {
     const result = await production.recordProductionException({workspace,productionTaskId:task.productionTaskId,operatorId:'U-MINIAPP-PRICE-CREATOR',body:{productionExceptionId:`PEX-LIVE-P1-${n}`,exceptionType:'机器问题',continuationMode:'暂停等确认',remark:'隔离数据库维修验证',idempotencyKey:`p1-live-pause-${n}`}});
@@ -64,7 +65,33 @@ export async function checkP1OrderConfirmationLive({ databaseUrl, pool, bagwinSe
     assert.ok(result.response,JSON.stringify(result));
     assert.equal((await pool.query('SELECT task_status FROM production_tasks WHERE id=$1',[task.productionTaskId])).rows[0].task_status,status);
   }
-  const completed=await production.completeProductionReport({workspace,productionTaskId:task.productionTaskId,operatorId:'U-MINIAPP-PRICE-CREATOR',body:{qualifiedQty:500,idempotencyKey:'p1-live-special-complete'}});
+  await pool.query("UPDATE production_tasks SET task_type='丝印', task_status='丝印中' WHERE id=$1",[task.productionTaskId]);
+  Object.assign(workspace.productionTasks.find(row=>row.productionTaskId===task.productionTaskId),{taskType:'丝印',taskStatus:'丝印中',status:'丝印中'});
+  const screen=await production.completeProductionReport({workspace,productionTaskId:task.productionTaskId,operatorId:'U-MINIAPP-PRICE-CREATOR',body:{qualifiedQty:500,machineCount:505,idempotencyKey:'p1-live-screen-complete'}});
+  assert.ok(screen.response,JSON.stringify(screen));assert.ok(screen.response.downstreamProductionTaskId);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM packing_tasks WHERE order_line_id=$1',[task.orderLineId])).rows[0].n,0);
+  const downstream=workspace.productionTasks.find(row=>row.productionTaskId===screen.response.downstreamProductionTaskId);
+  assert.equal(downstream.taskType,'制袋');assert.equal(downstream.taskStatus,'待排产');
+  await pool.query("INSERT INTO employees (id,biz_no,name,role_name) VALUES ('P1-MANAGER','P1-MANAGER','隔离负责人','管理') ON CONFLICT DO NOTHING");
+  const timestamp = new Date().toISOString();
+  const scheduleQuery = buildPublishProductionScheduleTransactionQuery({
+    productionTask:{...downstream,machineId:'P1-BAG',taskStatus:'制袋中',publishedScheduleId:'SCH-P1-BAG'},
+    productionScheduleRecord:{scheduleRecordId:'SQR-P1-BAG',productionTaskId:downstream.productionTaskId,orderLineId:task.orderLineId,machineId:'P1-BAG',publishedScheduleId:'SCH-P1-BAG',createdBy:'U-MINIAPP-PRICE-CREATOR',createdAt:timestamp},
+    orderLine:{...workspace.orderLines[0],lineStatus:'制袋中'},
+    operationLog:{id:'LOG-P1-BAG',targetType:'production_task',targetId:downstream.productionTaskId,action:'publish_production_schedule',operatorId:'U-MINIAPP-PRICE-CREATOR',occurredAt:timestamp,createdAt:timestamp},
+    decisionRecord:{id:'BD-P1-BAG',businessType:'production_task',businessId:downstream.productionTaskId,decisionScope:'production_schedule',decisionType:'direct',decisionMakerEmployeeId:'P1-MANAGER',decisionMakerEmployeeNoSnapshot:'P1-MANAGER',decisionMakerNameSnapshot:'隔离负责人',decisionChannel:'self_system',decidedAt:timestamp,decisionContent:{summary:'确认制袋'},authorizationSnapshot:{},authorizationBasis:'本人决定',enteredByUserId:'U-MINIAPP-PRICE-CREATOR',enteredAt:timestamp,status:'active',revision:1,operationLogId:'LOG-P1-BAG',createdAt:timestamp,updatedAt:timestamp},
+  });
+  const executeSchedule=()=>pool.query(scheduleQuery.text.replace(/^BEGIN;\s*/, '').replace(/\s*COMMIT;$/, ''),scheduleQuery.values);
+  await pool.query("UPDATE machines SET enabled=false WHERE id='P1-BAG'");
+  await assert.rejects(executeSchedule(),/PRODUCTION_MACHINE_NOT_AVAILABLE/);
+  await pool.query("UPDATE machines SET enabled=true,machine_type='screen_printing' WHERE id='P1-BAG'");
+  await assert.rejects(executeSchedule(),/PRODUCTION_MACHINE_NOT_AVAILABLE/);
+  await pool.query("UPDATE machines SET machine_type='bag_making' WHERE id='P1-BAG'");
+  const scheduled=(await executeSchedule()).rows[0].result;
+  Object.assign(downstream,scheduled.productionTask,{status:scheduled.productionTask.taskStatus});
+  Object.assign(workspace.orderLines[0],scheduled.orderLine,{status:scheduled.orderLine.lineStatus});
+
+  const completed=await production.completeProductionReport({workspace,productionTaskId:downstream.productionTaskId,operatorId:'U-MINIAPP-PRICE-CREATOR',body:{qualifiedQty:500,idempotencyKey:'p1-live-special-complete'}});
   assert.ok(completed.response,JSON.stringify(completed));assert.equal(completed.response.inventoryItemId,'');
   const packing = createApiSharedServiceRegistry().packingCommandService;
   const packed=await packing.completePackingTask({workspace,packingTaskId:completed.response.packingTaskId,operatorId:'U-MINIAPP-PRICE-CREATOR',body:{actualPackedQty:500,packages:[{packedQty:300},{packedQty:200}],idempotencyKey:'p1-live-pack'}});
@@ -76,6 +103,14 @@ export async function checkP1OrderConfirmationLive({ databaseUrl, pool, bagwinSe
   for (const scanned of [[],[ids[0],ids[0]],ids.concat('FOREIGN-PACKAGE')]) await assert.rejects(pool.query('SELECT erp_require_driver_packages($1,$2,$3)',[fulfillmentId,task.orderLineId,scanned]),/DRIVER_REAL_PACKAGES_CHANGED/);
   const retry=await packing.completePackingTask({workspace,packingTaskId:completed.response.packingTaskId,operatorId:'U-MINIAPP-PRICE-CREATOR',body:{actualPackedQty:500,packages:[{packedQty:300},{packedQty:200}],idempotencyKey:'p1-live-pack'}});
   assert.deepEqual(retry.response.packageIds,packed.response.packageIds);
+
+  // A second fulfillment is fixture intake; actual package creation still uses the real service + PostgreSQL transaction.
+  const stockLine = { ...workspace.orderLines[0], id: 'OL-P1-STOCK', orderLineId: 'OL-P1-STOCK', orderType: '现货通货', status: '待出库', lineStatus: '待出库', revision: 1 };
+  await pool.query("INSERT INTO order_lines SELECT (jsonb_populate_record(NULL::order_lines, to_jsonb(l) || jsonb_build_object('id','OL-P1-STOCK','biz_no','OL-P1-STOCK','order_type','现货通货','line_status','待出库','revision',1))).* FROM order_lines l WHERE id=$1",[task.orderLineId]);
+  await pool.query("INSERT INTO fulfillment_records SELECT (jsonb_populate_record(NULL::fulfillment_records, to_jsonb(f) || jsonb_build_object('id','F-P1-STOCK','biz_no','F-P1-STOCK','order_line_id','OL-P1-STOCK','status','待出库','revision',1))).* FROM fulfillment_records f WHERE id=$1",[fulfillmentId]);
+  workspace.orderLines.push(stockLine);workspace.fulfillments.push({...workspace.fulfillments[0],id:'F-P1-STOCK',fulfillmentId:'F-P1-STOCK',orderLineId:'OL-P1-STOCK',lineId:'OL-P1-STOCK',status:'待出库',revision:1});
+  const stockResult=await packing.completePackingTask({workspace,packingTaskId:'PKT-F-F-P1-STOCK',operatorId:'U-MINIAPP-PRICE-CREATOR',body:{fulfillmentId:'F-P1-STOCK',actualPackedQty:500,packages:[{packedQty:250},{packedQty:250}],idempotencyKey:'p1-live-stock-packing'}});
+  assert.ok(stockResult.response,JSON.stringify(stockResult));assert.equal((await pool.query("SELECT count(*)::int n FROM packages WHERE fulfillment_id='F-P1-STOCK'")).rows[0].n,2);
 
   await assert.rejects(pool.query("UPDATE fulfillment_records SET signature_status='signed' WHERE id=$1",[fulfillmentId]),/fulfillment_signature_state_check/);
   await assert.rejects(pool.query("UPDATE fulfillment_records SET signature_status='unsigned' WHERE id=$1",[fulfillmentId]),/fulfillment_signature_state_check/);

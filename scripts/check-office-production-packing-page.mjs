@@ -92,7 +92,7 @@ for (const label of ["确认排产经营决定", "原排产", "变更后", "业�
 assert.match(scheduleConfirmationSource, /formatBusinessDecisionChannelAndTime/);
 assert.match(pageSource, /ProductionScheduleActionConfirmationDialog/);
 assert.match(pageSource, /buildProductionReportSummary/);
-assert.match(detailSectionsSource, /确认完成生产报工/);
+assert.match(detailSectionsSource, /confirmation\.summary\.confirmLabel/);
 assert.match(pageSource, /productionReportConfirmed: true/);
 assert.match(pageSource, /restoreProductionReportTriggerKindRef/);
 assert.match(pageSource, /handleProductionReportConfirmationKeyDown/);

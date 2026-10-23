@@ -1200,6 +1200,7 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
       : accountEnabled
       ? "已启用"
       : identityConfirmation.activationBlocked ? "身份待确认" : "待管理员复核",
+    accountRoleKeys: Array.isArray(user?.roles) ? [...user.roles] : [],
     recommendedRoleKey: roleKey,
     recommendedRoleLabel: getEmployeeAccountRoleLabel(roleKey),
     recommendedRoleKeys: roleKeys,

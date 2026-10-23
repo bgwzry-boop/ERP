@@ -548,6 +548,7 @@ export async function reportOfficeProductionComplete(input = {}, options = {}) {
     authState,
     orderLine,
     productionTaskId = buildProductionTaskId(orderLine),
+    productionTask = orderLine?.productionTask,
     inventoryItem,
     inventoryItemId = inventoryItem?.id,
     qualifiedQty = orderLine?.qty ?? 0,
@@ -581,8 +582,8 @@ export async function reportOfficeProductionComplete(input = {}, options = {}) {
       body: {
         productionTaskId: safeProductionTaskId,
         orderLineId: safeOrderLineId,
-        processType: getProductionProcessType(orderLine),
-        machineId: getProductionMachineId(orderLine),
+        processType: productionTask?.taskType ?? getProductionProcessType(orderLine),
+        machineId: productionTask?.machineId ?? getProductionMachineId(orderLine),
         plannedQty: Number(orderLine?.qty ?? orderLine?.originalQty ?? safeQualifiedQty),
         qualifiedQty: safeQualifiedQty,
         exceptionQty: Math.max(0, Math.trunc(Number(exceptionQty ?? 0))),
@@ -1049,6 +1050,9 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
     inventoryItemId = inventoryItem?.id,
     actualPackedQty = packingTask?.plannedQty ?? orderLine?.qty ?? 0,
     packageCount = packingTask?.packageCount ?? 1,
+    packages,
+    fulfillmentId,
+    idempotencyKey,
     operatorId,
     remark = "",
   } = input;
@@ -1074,14 +1078,17 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         packingTaskId: safePackingTaskId,
         orderLineId: safeOrderLineId,
         actualPackedQty: safeActualPackedQty,
         packageCount: safePackageCount,
+        packages,
+        fulfillmentId,
+        idempotencyKey,
         inventoryItemId: cleanText(inventoryItemId),
         operatorId,
-        completedAt: new Date().toISOString(),
         remark: remark || "办公室端提交打包完成",
       },
     });
@@ -1102,6 +1109,9 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
         orderLineId: safeOrderLineId,
         actualPackedQty: safeActualPackedQty,
         packageCount: safePackageCount,
+        packages,
+        fulfillmentId,
+        idempotencyKey,
       }),
     };
   } catch (error) {
@@ -1119,6 +1129,9 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
         orderLineId: safeOrderLineId,
         actualPackedQty: safeActualPackedQty,
         packageCount: safePackageCount,
+        packages,
+        fulfillmentId,
+        idempotencyKey,
       }),
     };
   }
@@ -1139,8 +1152,10 @@ function mapProductionReportResponse(json, fallback = {}) {
     capacityBaselineId: cleanText(json?.capacityBaselineId ?? json?.capacityCalibration?.capacityBaselineId),
     capacityCalibration: normalizeCapacityCalibration(json?.capacityCalibration),
     inventoryItemId: cleanText(json?.inventoryItemId ?? fallback.inventoryItemId),
-    reservationId: cleanText(json?.reservationId) || `RSV-${fallback.productionTaskId}-LOCAL`,
-    packingTaskId: cleanText(json?.packingTaskId) || buildPackingTaskId({ id: fallback.orderLineId }),
+    downstreamProductionTaskId: cleanText(json?.downstreamProductionTaskId),
+    todoId: cleanText(json?.todoId),
+    reservationId: json ? cleanText(json.reservationId) : `RSV-${fallback.productionTaskId}-LOCAL`,
+    packingTaskId: json ? cleanText(json.packingTaskId) : buildPackingTaskId({ id: fallback.orderLineId }),
     inventoryLedgerIds: Array.isArray(json?.inventoryLedgerIds) ? json.inventoryLedgerIds : [],
     operationLogId: cleanText(json?.operationLogId),
   };

@@ -93,7 +93,9 @@ export async function printOfficeFulfillment(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey: input.idempotencyKey,
       body: {
+        idempotencyKey: input.idempotencyKey,
         templateId: getFulfillmentTemplateId(fulfillment, action),
         documentType: getFulfillmentDocumentType(fulfillment, action),
         printAction: resolvedPrintAction,
@@ -190,8 +192,10 @@ export async function handoffOfficePaperOutbound(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey: input.idempotencyKey,
       body: {
         fulfillmentId: fulfillment.id,
+        idempotencyKey: input.idempotencyKey,
         expectedRevision: Number(fulfillment.revision ?? 0),
         paperOutboundDocumentId: paperOutboundDocument.paperOutboundDocumentId ?? paperOutboundDocument.id,
         paperDocumentVersion: Number(paperOutboundDocument.documentVersion ?? 0),
@@ -236,8 +240,10 @@ export async function recordOfficeWarehouseOutboundExecution(input, options = {}
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey: input.idempotencyKey,
       body: {
         fulfillmentId: fulfillment.id,
+        idempotencyKey: input.idempotencyKey,
         expectedRevision: Number(fulfillment.revision ?? 0),
         paperOutboundDocumentId: paperOutboundDocument.paperOutboundDocumentId ?? paperOutboundDocument.id,
         paperDocumentVersion: Number(paperOutboundDocument.documentVersion ?? 0),
@@ -347,7 +353,6 @@ export async function completeOfficeFulfillment(input, options = {}) {
         actualQty: Number(actualQty ?? 0),
         handoverEvidence: [],
         operatorId,
-        completedAt: new Date().toISOString(),
         remark,
       },
     });
@@ -451,7 +456,6 @@ export async function confirmOfficeFulfillmentPickup(input, options = {}) {
         expectedRevision: Number(expectedRevision ?? 0),
         idempotencyKey,
         confirmedFinalDelivery,
-        pickedAt: new Date().toISOString(),
         operatorId,
         pickupBatchNo: `P0-${fulfillment.id}`,
         remark,
@@ -567,8 +571,10 @@ export async function updateOfficeFulfillmentDispatch(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey: input.idempotencyKey,
       body: {
         fulfillmentId: fulfillment.id,
+        idempotencyKey: input.idempotencyKey,
         driverId,
         routeDate,
         routeNo,

@@ -702,7 +702,7 @@ locked_schedule_records AS MATERIALIZED (
   FOR UPDATE
 ),
 locked_production_task AS MATERIALIZED (
-  SELECT id, revision, task_status
+  SELECT id, revision, task_status, task_type
   FROM production_tasks
   WHERE id = ${parameters.text(productionTask?.productionTaskId ?? "")}
   FOR UPDATE
@@ -722,7 +722,8 @@ write_guard AS MATERIALIZED (
     'ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT'
   )
   AND erp_require(${queueRevisionCondition}, 'ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT')
-  AND erp_require(${productionTaskCondition}, 'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT') AS ok
+  AND erp_require(${productionTaskCondition}, 'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT')
+  ${productionTask ? `AND erp_require(EXISTS (SELECT 1 FROM machines m JOIN locked_production_task t ON m.machine_type = CASE t.task_type WHEN '制袋' THEN 'bag_making' WHEN '丝印' THEN 'screen_printing' ELSE 'unsupported' END WHERE m.id = ${parameters.text(productionTask.machineId)} AND m.enabled = true AND m.status = 'active' FOR SHARE OF m), 'PRODUCTION_MACHINE_NOT_AVAILABLE')` : ""} AS ok
 ),`;
 }
 

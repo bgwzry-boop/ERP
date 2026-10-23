@@ -488,7 +488,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                       <input type="number" min="0" placeholder="只作凭证" value={reportMachineCount} onChange={(event) => updateReportInput("machineCount", event.target.value)} />
                     </label>
                   </div>
-                  <p>报当日数量只记录跨日继续和剩余数量，不入库；报工完成才会进入库存和后续打包。</p>
+                  <p>报当日数量只记录跨日进度；丝印完成交给制袋，制袋完成才进入库存和后续打包。</p>
                 </section>
                 <section className="detail-section production-exception-report">
                   <div className="section-title-row">
@@ -568,10 +568,10 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                         <span id="workshop-production-report-confirmation-summary">
                           {productionReportConfirmation.kind === "daily"
                             ? "确认后才会写入当日进度；按 Esc 可返回修改。"
-                            : "确认后才会完成生产、入库、占用并创建待打包任务；按 Esc 可返回修改。"}
+                            : productionReportConfirmation.summary.isSilkScreenCompletion ? "确认后结束丝印任务并交给制袋；按 Esc 可返回修改。" : "确认后才会完成生产、入库、占用并创建待打包任务；按 Esc 可返回修改。"}
                         </span>
                       </div>
-                      <StatusPill tone="warning">高风险写入</StatusPill>
+                      <StatusPill tone="warning">{productionReportConfirmation.summary.isSilkScreenCompletion ? "丝印完工确认" : "高风险写入"}</StatusPill>
                     </div>
                     <div className="production-report-confirmation-grid">
                       {productionReportConfirmation.summary.fields.map((item) => (
@@ -585,14 +585,14 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                       {productionReportConfirmation.summary.effects.map((item) => <li key={item}>{item}</li>)}
                     </ul>
                     <div className="production-report-confirmation-actions">
-                      <button type="button" onClick={returnToProductionReportEdit}>返回修改</button>
+                      <button type="button" onClick={returnToProductionReportEdit}>{productionReportConfirmation.summary.isSilkScreenCompletion ? "还没印完" : "返回修改"}</button>
                       <button
                         className="primary-action"
                         type="button"
                         disabled={productionReportConfirmation.kind === "daily" ? reportDailyDisabled : reportDisabled}
                         onClick={confirmProductionReport}
                       >
-                        {productionReportConfirmation.kind === "daily" ? "确认提交当日报数" : "确认完成生产报工"}
+                        {productionReportConfirmation.summary.confirmLabel}
                       </button>
                     </div>
                   </section>

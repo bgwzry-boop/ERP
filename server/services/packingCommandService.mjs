@@ -1,3 +1,4 @@
+import { isStockOrderType } from "../../shared/orderRouting.js";
 import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
 
 const inventoryReservationPolicyService = createInventoryReservationPolicyService();
@@ -23,7 +24,7 @@ export function createPackingCommandService({
 
   return {
     async completePackingTask({ workspace, packingTaskId, body = {}, operatorId }) {
-      const beforeTask = findPackingTask(workspace, packingTaskId);
+      const beforeTask = findPackingTask(workspace, packingTaskId) ?? buildStockPackingTask(workspace, packingTaskId, body, operatorId);
       if (!beforeTask) return notFound("PACKING_TASK_NOT_FOUND");
       if (body.packingTaskId && body.packingTaskId !== packingTaskId) {
         return businessError(422, "VALIDATION_ERROR", "packingTaskId in path and body must match");
@@ -149,6 +150,7 @@ export function createPackingCommandService({
       const transaction = await workspace.productionPackingTransactionRepository.completePackingTask({
         workspace,
         packingTask,
+        createForStock: beforeTask.createForStock === true,
         packages,
         fulfillment: updatedFulfillment,
         orderLine,
@@ -270,6 +272,15 @@ function buildPackingInventoryTrace(workspace, input) {
       },
     ],
   };
+}
+
+function buildStockPackingTask(workspace, packingTaskId, body, operatorId) {
+  const fulfillment = (workspace.fulfillments ?? []).find(item => (item.id ?? item.fulfillmentId) === body.fulfillmentId);
+  if (!fulfillment || packingTaskId !== `PKT-F-${fulfillment.id ?? fulfillment.fulfillmentId}` || fulfillment.physicalOutboundAt || fulfillment.finalDeliveryAt || !["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment.status)) return null;
+  const orderLineId = fulfillment.orderLineId ?? fulfillment.lineId;
+  const line = findOrderLine(workspace, orderLineId);
+  if (!line || !isStockOrderType(line.orderType) || ["待排产", "待生产"].includes(line.status ?? line.lineStatus) || (workspace.packingTasks ?? []).some(task => (task.orderLineId ?? task.lineId) === orderLineId) || (workspace.packages ?? []).some(item => item.fulfillmentId === body.fulfillmentId)) return null;
+  return { packingTaskId, id: packingTaskId, orderLineId, plannedQty: Number(fulfillment.qty ?? fulfillment.expectedQty), actualPackedQty: 0, status: "待打包", createdBy: operatorId, revision: 1, createForStock: true };
 }
 
 function findPackingTask(workspace, id) {

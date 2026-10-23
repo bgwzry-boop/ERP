@@ -36,6 +36,7 @@ ON CONFLICT (id) DO UPDATE SET
   published_schedule_id = EXCLUDED.published_schedule_id,
   revision = production_tasks.revision + 1,
   updated_at = now()
+WHERE erp_require(production_tasks.order_line_id = EXCLUDED.order_line_id AND production_tasks.task_type = EXCLUDED.task_type, 'ERP_PRODUCTION_TASK_BINDING_CONFLICT')
 RETURNING ${productionTaskJsonExpression("production_tasks")} AS result`;
 }
 
@@ -79,6 +80,7 @@ ON CONFLICT (id) DO UPDATE SET
   completed_at = EXCLUDED.completed_at,
   remark = EXCLUDED.remark,
   evidence_json = EXCLUDED.evidence_json
+WHERE erp_require(workshop_reports.order_line_id = EXCLUDED.order_line_id AND workshop_reports.production_task_id IS NOT DISTINCT FROM EXCLUDED.production_task_id AND workshop_reports.process_type = EXCLUDED.process_type, 'ERP_PRODUCTION_REPORT_BINDING_CONFLICT')
 RETURNING ${workshopReportJsonExpression("workshop_reports")} AS result`;
 }
 
@@ -127,6 +129,7 @@ ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
   revision = packing_tasks.revision + 1,
   updated_at = now()
+WHERE erp_require(packing_tasks.order_line_id = EXCLUDED.order_line_id, 'ERP_PACKING_TASK_BINDING_CONFLICT')
 RETURNING ${packingTaskJsonExpression("packing_tasks")} AS result`;
 }
 

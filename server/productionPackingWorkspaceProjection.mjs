@@ -12,6 +12,9 @@ export function applyProductionPackingWorkspaceMutation(input) {
   if (input.productionTask) {
     workspace.productionTasks = upsertById(workspace.productionTasks ?? [], toWorkspaceProductionTask(input.productionTask));
   }
+  if (input.downstreamProductionTask) {
+    workspace.productionTasks = upsertById(workspace.productionTasks ?? [], toWorkspaceProductionTask(input.downstreamProductionTask));
+  }
   if (input.workshopReport) {
     workspace.workshopReports = upsertById(workspace.workshopReports ?? [], toWorkspaceWorkshopReport(input.workshopReport));
   }

@@ -1,3 +1,4 @@
+import { normalizeOrderType } from "../../shared/orderRouting.js";
 import { useCallback } from "react";
 import {
   createFinishedGoodsPhotoAttachmentInput,
@@ -31,7 +32,6 @@ import {
 import {
   buildFulfillmentFromPacking,
   cleanProductionPackingText,
-  inferPackageCountFromQty,
   toProductionPackingNumber,
   upsertPackingTask,
   upsertProductionTaskLine,
@@ -797,7 +797,9 @@ export function createOfficeProductionWriteActions({
     const line = findOrderLine(payload);
     if (!line) return withFeedback({ source: "ui_error", blocked: true }, "未找到对应订单明细，无法提交生产报工。");
     const inventoryItem = findProductionInventoryItem(line, inventoryRecordsRef.current);
-    if (!inventoryItem) {
+    const task = payload.productionTask ?? line.productionTask;
+    const noStock = task?.taskType === "丝印" || normalizeOrderType(line.orderType) === "custom_special";
+    if (!inventoryItem && !noStock) {
       return withFeedback(
         { source: "ui_error", blocked: true },
         "未找到匹配的成品库存键，不能把报工数量直接入库；需先补库存主数据。",
@@ -807,7 +809,9 @@ export function createOfficeProductionWriteActions({
       await productionApi.reportOfficeProductionComplete({
         authState,
         orderLine: line,
-        inventoryItem,
+        productionTaskId: payload.productionTaskId,
+        productionTask: task,
+        inventoryItem: noStock ? undefined : inventoryItem,
         qualifiedQty: payload.qualifiedQty,
         exceptionQty: payload.exceptionQty,
         machineCount: payload.machineCount,
@@ -819,7 +823,7 @@ export function createOfficeProductionWriteActions({
     if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝生产报工", result));
     setOrderLines((current) => current.map((item) =>
       item.id === result.orderLineId
-        ? { ...item, status: result.orderLineStatus, lineStatus: result.orderLineStatus, inventory: "生产完成待打包" }
+        ? { ...item, status: result.orderLineStatus, lineStatus: result.orderLineStatus, inventory: result.downstreamProductionTaskId ? "丝印完成待制袋" : "生产完成待打包" }
         : item,
     ));
     setInventoryRecords((current) => current.map((item) =>
@@ -835,15 +839,15 @@ export function createOfficeProductionWriteActions({
       ...current,
       lastSource: result.source,
       reportResultsByLineId: { ...current.reportResultsByLineId, [result.orderLineId]: result },
-      packingTasks: upsertPackingTask(current.packingTasks, {
+      packingTasks: result.packingTaskId ? upsertPackingTask(current.packingTasks, {
         packingTaskId: result.packingTaskId,
         orderLineId: result.orderLineId,
         plannedQty: result.qualifiedQty,
         actualPackedQty: 0,
-        packageCount: inferPackageCountFromQty(result.qualifiedQty),
+        packageCount: 0,
         status: "待打包",
         source: result.source,
-      }),
+      }) : current.packingTasks,
     }));
     const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
     return finishCommittedWrite(
@@ -853,7 +857,7 @@ export function createOfficeProductionWriteActions({
         () => refreshInventoryRecords({ showToast: false }),
         () => refreshProductionPackingTaskLists({ showToast: false }),
       ],
-      `已通过${sourceLabel}完成生产报工：合格 ${result.qualifiedQty} 个入库并占用给订单；机器计数只作为凭证，不参与库存。`,
+      result.downstreamProductionTaskId ? `已确认印完：${result.qualifiedQty} 个交给制袋，等待排产。` : noStock ? `已完成生产报工：合格 ${result.qualifiedQty} 个按订单进入打包。` : `已通过${sourceLabel}完成生产报工：合格 ${result.qualifiedQty} 个入库并占用给订单；机器计数只作为凭证，不参与库存。`,
       "生产报工已由后端提交，但订单、库存或生产 / 打包任务池刷新失败，请手动刷新。",
     );
   }

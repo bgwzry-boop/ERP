@@ -13,6 +13,8 @@ export function normalizeProductionReportTransactionResult(value) {
     };
   }
   return {
+    downstreamProductionTask: normalizeProductionTask(value.downstreamProductionTask),
+    todo: normalizeTodo(value.todo),
     productionTask: normalizeProductionTask(value.productionTask ?? value.production_task),
     workshopReport: normalizeWorkshopReport(value.workshopReport ?? value.workshop_report),
     orderLine: normalizeOrderLine(value.orderLine ?? value.order_line),

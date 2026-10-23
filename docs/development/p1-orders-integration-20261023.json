@@ -147,7 +147,33 @@
   "boundaries": [
     "未部署；根任务整合后执行全量检查、受控发布及手机/电脑浏览器验收",
     "实体挂牌打印、纸张扫码、混装多明细与更正重印版本仍需独立业务验收；本次不宣称这类P2设计已完成",
-    "当前仓库有货通货的打包任务创建入口需与主任务出库组件一起核查，未以虚拟包放行",
     "正式打印出库模板与内部包裹挂牌不同，未替换旧出库打印样式"
-  ]
+  ],
+  "followup20261023": {
+    "oldPatch": "da5c423d960dca68259ba228feea9a0c4093d201 部分移植工序保护，保留本轮特殊尺寸/锁价/实包合同",
+    "changes": [
+      "丝印完工仅新增待排产制袋任务，不入成品库存、不占用、不生成打包任务；任务工序/订单归属不可经报工改写",
+      "缺货/特殊尺寸制袋完工合同保留；前端确认文案按工序与特殊尺寸区别",
+      "排产与换机服务只接受启用且工序匹配机台，发布/换机SQL事务再次锁定核对当前机器状态",
+      "标准现货按真实交付单、实际逐包数量创建打包任务和包裹，SQL拒绝重复任务、已有包裹和已出库交付",
+      "独立DesktopFulfillmentOperations接真实出库接口；单明细实包登记、纸单打印/交库房、库房回录、自提/快递确认、真实启用司机派单",
+      "组件按账号会话重置，同步防连点，提交摘要确认，保留网络未知结果原幂等键重试，检查operationLogId；员工读投影显式给出当前账号角色",
+      "交付读投影携带权威orderType/packingTask/actualPackageCount，避免依赖另一个已分页列表的偶然缓存"
+    ],
+    "validation": [
+      "production-packing-api:check 通过",
+      "production-packing-transaction:check 通过",
+      "office-production-packing-actions/page、workshop-mobile-api、office-production-writes 通过",
+      "production-schedule-record-repository 通过",
+      "desktop-fulfillment-operations：实际整数包数、真实账号角色、权限与终态、混装边界通过",
+      "隔离PostgreSQL：丝印→待排产制袋→特殊尺寸完成→实包；现货实包；禁用/工序不符机台事务拒绝，合法机台通过",
+      "跨岗位浏览器定制印刷 E2E 通过（丝印UI→制袋API→打包UI→可信打印→快递与对账）",
+      "npm run build 与资源预算通过，相关 ESLint 无警告"
+    ],
+    "boundaries": [
+      "未部署；当前review组件接线由主集成任务完成并浏览器验证",
+      "混装多明细与挂牌更正重印仍未接入，界面明确说明，不冒充已完成",
+      "实体打印/扫码与现场岗位验收另行进行"
+    ]
+  }
 }

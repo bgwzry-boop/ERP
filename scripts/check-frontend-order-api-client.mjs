@@ -120,6 +120,7 @@ assert(heldLineInput.recognitionEvidence.sourceIntentId === "INT-CLIENT-1", "inv
 const customLineInputs = mapDraftRowsToApiLines([
   {
     id: "DRAFT-LINE-CUSTOM-1",
+    orderType: "custom_print",
     customerId: "C001",
     customer: "张三服饰",
     product: "美的空调",
