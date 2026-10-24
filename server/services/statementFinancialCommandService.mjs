@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createStatementPolicyService } from "./statementPolicyService.mjs";
+import { createStatementExactPaymentCommand } from "./statementExactPaymentCommand.mjs";
 
 const statementPolicyService = createStatementPolicyService();
 
@@ -42,6 +43,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
   }
 
   return {
+    settleExactPayment: createStatementExactPaymentCommand({ findStatement, buildOperationLog, now }),
     recordPayment,
     handleVariance,
     writeOffStatement,
@@ -213,7 +215,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
   async function writeOffStatement({ workspace, statementId, body = {}, operatorId, actionPermissions = [] }) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
-    const settlementPayload={...body,operatorId};
+    const settlementPayload={...body,statementId,operatorId};
     const replay=await workspace.statementSettlementTransactionRepository?.findSettlementReplay?.({workspace,scope:"statement.write_off",idempotencyKey:body.idempotencyKey,idempotencyPayload:settlementPayload});
     if(replay) return success(buildSettlementReplayResponse(statementId,replay,"writeOffStatement",businessDecisionEvidenceService,mapStatementApiStatus));
     const periodBlocker = getStatementPaymentBlocker(statement);

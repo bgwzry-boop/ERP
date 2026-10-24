@@ -37,6 +37,7 @@ export const writeActionPermissions = Object.freeze({
   recordStatementPayment: "statement.payment.record",
   handleStatementVariance: "statement.variance.handle",
   writeOffStatement: "statement.write_off",
+  settleStatementExactPayment: "statement.exact_payment.settle",
   readBusinessDecision: "business_decision.read",
   recordDelegatedBusinessDecision: "business_decision.record_delegated",
   actBusinessDecisionDirectly: "business_decision.act_directly",

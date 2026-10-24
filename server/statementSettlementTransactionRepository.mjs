@@ -1,4 +1,5 @@
 import {resolveStatementVarianceHandling} from "../shared/statementVarianceCatalog.js";
+import { createStatementExactPaymentTransaction } from "./statementExactPaymentTransaction.mjs";
 import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../shared/statementPaymentPolicy.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -34,6 +35,7 @@ export function createStatementSettlementTransactionRepository(options = {}) {
 
 export function createLocalStatementSettlementTransactionRepository() {
   return {
+    ...createStatementExactPaymentTransaction({ kind: "local_memory" }),
     kind: "local_memory",
     findSettlementReplay: findLocalSettlementReplay,
 
@@ -94,6 +96,7 @@ export function createPostgresStatementSettlementTransactionRepository(options =
 
   return {
     kind: "postgres",
+    ...createStatementExactPaymentTransaction({ ...options, kind: "postgres" }),
     async findSettlementReplay({scope,idempotencyKey,idempotencyPayload}) {
       const saved=await readPostgresIdempotencyReplay({queryJson,scope,idempotencyKey,payload:idempotencyPayload});
       return saved ? scope==="statement.variance.handle" ? normalizeVarianceTransactionResult(saved) : normalizeWriteOffTransactionResult(saved) : null;

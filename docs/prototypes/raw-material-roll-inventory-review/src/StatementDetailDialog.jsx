@@ -4,8 +4,10 @@ import { downloadOfficeAttachmentContent } from "../../../../src/services/office
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { ReviewDialog } from "./ReviewDialog.jsx";
 import { StatementActionPanel } from "./StatementActionPanel.jsx";
+import { StatementSettlementPanel } from "./StatementSettlementPanel.jsx";
 import { evidenceTime, financeSessionKey, hasFinancePermission, money } from "./finance-dialog-model.js";
 import { requireApiResult, useFinanceDialogAction } from "./useFinanceDialogAction.js";
+import { statementVarianceLabel } from "../../../../shared/statementVarianceCatalog.js";
 import "./finance-dialogs.css";
 
 export function StatementDetailDialog(props) {
@@ -67,7 +69,7 @@ function StatementDetailSession({ statementId, authState, onClose, onUpdated }) 
     });
   }
   return <ReviewDialog labelledBy="statement-detail-title" className="finance-dialog" onClose={close}>
-    <header><div><span>{statementId}</span><h2 id="statement-detail-title">对账明细</h2><p>{detail ? `${detail.customerName || detail.customerId} · ${detail.period || "账期待维护"} · ${detail.status}` : "读取当前账单"}</p></div><button aria-label="关闭对账明细" disabled={busy} type="button" onClick={close}>×</button></header>
+    <header><div><span>{statementId}</span><h2 id="statement-detail-title">对账明细</h2><p>{detail ? `${detail.customerName || detail.customerId} · ${detail.period || "账期待维护"} · ${detail.status === "已核销" ? "已结清" : detail.status}` : "读取当前账单"}</p></div><button aria-label="关闭对账明细" disabled={busy} type="button" onClick={close}>×</button></header>
     <div className="finance-dialog-content" aria-busy={loading || busy}>
       {notice ? <p className="finance-notice" role="status">{notice}</p> : null}
       {loading ? <p role="status">正在读取账单明细…</p> : loadError ? <div role="alert"><p>{loadError}</p><button type="button" onClick={refresh}>重新读取</button></div> : detail ? <>
@@ -76,10 +78,11 @@ function StatementDetailSession({ statementId, authState, onClose, onUpdated }) 
           {detail.statementLines.length ? <div className="finance-table-scroll"><table><thead><tr><th>订单 / 产品</th><th>规格</th><th>送货 / 计费数量</th><th>金额</th></tr></thead><tbody>{detail.statementLines.map(row => <tr key={row.statementLineId}><td>{row.orderNo}<br />{row.productName}</td><td>{row.goodsSpec || "未提供"}</td><td>{row.deliveredQty} / {row.chargeableQty}</td><td>{money(row.finalAmount)}</td></tr>)}</tbody></table></div> : <p className="finance-muted">这张账单没有可读取的关联明细。</p>}
         </section>
         <section><div className="finance-section-heading"><h3>办理对账</h3><button type="button" disabled={busy} onClick={exportStatement}>下载对账文件</button></div>
-          <div className="finance-tabs" role="group" aria-label="对账办理动作">{[["payment", "登记累计实收"], ["send", "登记已发送"], ["confirmation", "登记客户确认"]].map(([key, label]) => <button type="button" key={key} disabled={busy} aria-pressed={active === key} onClick={() => setActive(key)}>{label}</button>)}</div>
-          <StatementActionPanel key={`${active}-${detail.revision}-${retry}`} detail={detail} authState={authState} mode={active} onBusyChange={setBusy} onSaved={saved} onRefresh={refresh} />
+          <div className="finance-tabs" role="group" aria-label="对账办理动作">{[["payment", "登记累计实收"], ["send", "登记已发送"], ["confirmation", "登记客户确认"], ["exact", "足额款结清"], ["variance", "差额处理"], ["writeoff", "授权结算与核销"]].map(([key, label]) => <button type="button" key={key} disabled={busy} aria-pressed={active === key} onClick={() => setActive(key)}>{label}</button>)}</div>
+          {["exact", "variance", "writeoff"].includes(active) ? <StatementSettlementPanel key={`${active}-${detail.revision}-${retry}`} detail={detail} authState={authState} mode={active} onBusyChange={setBusy} onSaved={saved} onRefresh={refresh} /> : <StatementActionPanel key={`${active}-${detail.revision}-${retry}`} detail={detail} authState={authState} mode={active} onBusyChange={setBusy} onSaved={saved} onRefresh={refresh} />}
         </section>
         <section><h3>实收登记记录</h3><p className="finance-muted">每条为当时登记的本期累计实收，不能把这些记录再相加。</p>{detail.payments.length ? <div className="finance-table-scroll"><table><thead><tr><th>登记时间</th><th>累计实收</th><th>经办人</th><th>依据</th></tr></thead><tbody>{detail.payments.map(row => <tr key={row.paymentRecordId}><td>{evidenceTime(row.paidAt)}</td><td>{money(row.amount)}</td><td>{row.operatorId || "未提供"}</td><td>{row.remark || "未填写"}</td></tr>)}</tbody></table></div> : <p className="finance-muted">尚无实收登记记录。</p>}</section>
+        <section><h3>差额与结清记录</h3>{(detail.varianceRecords ?? []).map(row => <article className="finance-history" key={row.varianceRecordId}><strong>{statementVarianceLabel(row.handlingResult)} · {money(row.amount)}</strong><p>{row.reason} · 经办 {row.operatorId || "未提供"}</p></article>)}{(detail.writeOffRecords ?? []).map(row => <article className="finance-history" key={row.statementWriteOffRecordId}><strong>{row.handlingResult}</strong><p>应收 {money(row.receivableSnapshot)} · 累计实收 {money(row.receivedSnapshot)} · 当时差额 {money(row.varianceSnapshot)}</p><p>{evidenceTime(row.createdAt)} · 经办 {row.recordedBy || "未提供"} · {row.settlementKind === "office_exact_payment" ? "到账和客户凭证已分别核对留存" : "独立决定凭据已留存"}</p></article>)}{!(detail.varianceRecords?.length || detail.writeOffRecords?.length) ? <p className="finance-muted">尚无差额处理或结清记录。</p> : null}</section>
         <details><summary>发送、客户确认与凭证</summary>
           {(detail.sendRecords ?? []).map(row => <article className="finance-history" key={row.sendRecordId}><strong>发送给 {row.sentTo || "未记录接收人"}</strong><p>{evidenceTime(row.sentAt)} · {row.channel} · {row.remark || "未填写说明"}</p></article>)}
           {(detail.confirmationRecords ?? []).map(row => <article className="finance-history" key={row.confirmationRecordId}><strong>{row.confirmedByCustomer || "客户"}的回复</strong><p>{evidenceTime(row.confirmedAt)} · {row.content}</p></article>)}

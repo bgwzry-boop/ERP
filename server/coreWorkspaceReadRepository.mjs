@@ -43,6 +43,7 @@ export const coreWorkspaceCollectionKeys = Object.freeze([
   "varianceRecords",
   "statementSendRecords",
   "statementConfirmationRecords",
+  "statementWriteOffRecords",
   "operationLogs",
 ]);
 
@@ -88,6 +89,7 @@ const sourceTables = Object.freeze({
   varianceRecords: "variance_records",
   statementSendRecords: "statement_send_records",
   statementConfirmationRecords: "statement_confirmation_records",
+  statementWriteOffRecords: "statement_write_off_records",
   operationLogs: "operation_logs",
 });
 
@@ -230,6 +232,15 @@ export function normalizeCoreWorkspaceState(value) {
     varianceRecords: rows.varianceRecords.map(toVarianceRecord),
     statementSendRecords: rows.statementSendRecords.map(toStatementSendRecord),
     statementConfirmationRecords: rows.statementConfirmationRecords.map(toStatementConfirmationRecord),
+    statementWriteOffRecords: rows.statementWriteOffRecords.map(row => ({
+      id: clean(row.id), statementWriteOffRecordId: clean(row.id), statementId: clean(row.statement_id),
+      receivableSnapshot: number(row.receivable_snapshot), receivedSnapshot: number(row.received_snapshot),
+      varianceSnapshot: number(row.variance_snapshot), writeOffAmount: number(row.write_off_amount),
+      handlingResult: clean(row.handling_result), businessDecisionId: clean(row.business_decision_id),
+      recordedBy: clean(row.recorded_by), revision: integer(row.revision, 1),
+      operationLogId: clean(row.operation_log_id), createdAt: timestamp(row.created_at),
+      settlementKind: clean(row.settlement_kind), receiptConfirmation: object(row.receipt_confirmation_json),
+    })),
     operationLogs: rows.operationLogs.map(toOperationLog),
   };
 }

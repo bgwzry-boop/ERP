@@ -15,12 +15,17 @@ export async function handleStatementWriteRoutes({
 }) {
   if (method !== "POST") return false;
 
-  const match = url.pathname.match(/^\/api\/statements\/([^/]+)\/(preview|mark-sent|send-receipt|customer-confirmation|payments|variance|write-off)$/);
+  const match = url.pathname.match(/^\/api\/statements\/([^/]+)\/(preview|mark-sent|send-receipt|customer-confirmation|payments|variance|write-off|exact-payment-settle)$/);
   if (!match) return false;
 
   const statementId = decodeURIComponent(match[1]);
   const action = match[2];
   const routes = {
+    "exact-payment-settle": {
+      permission: writeActionPermissions.settleStatementExactPayment,
+      run: operatorId => statementFinancialCommandService.settleExactPayment({ workspace, statementId, body, operatorId,
+        actionPermissions: permissionContext?.actionPermissions ?? [] }),
+    },
     preview: {
       permission: writeActionPermissions.previewStatement,
       run: (operatorId) => statementCommunicationCommandService.previewStatement({ workspace, statementId, body, operatorId }),
