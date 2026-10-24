@@ -3,9 +3,9 @@ Last updated: 2026-10-24 (98-item triage and local P1 corrections; no new releas
 
 ## Immediate Work
 
-1. Preserve the seven locally verified P1 correction groups, newer features and historical financial/payroll snapshots; continue the remaining P1 scopes below. Use the [98-item follow-up](docs/development/erp-unresolved-and-decisions-20261024.zh-CN.md) as the ordered work and decision index.
-2. Continue the remaining P1 scopes: office formal quotes/authorized order prices, grouped print pricing, mixed packages with replacement labels, exact office settlement and finance actions, formal-order editing/voiding, and hold renewal/release/conversion. Keep server-side safeguards while adding the current complete-review interfaces.
-3. Complete the remaining legacy file-level scopes and retain the old 59 uncommitted entries until individually reviewed; never replace newer work with a whole old branch.
+1. Preserve the existing seven P1 corrections and the six R4 scopes, including newer features, immutable prices and financial/payroll history. The [98-item follow-up](docs/development/erp-unresolved-and-decisions-20261024.zh-CN.md) remains the work and decision index; the [R4 record](docs/development/p1-rules-r4-validation-20261024.zh-CN.md) records exact local verification rather than a release claim.
+2. Before ordinary or grouped order correction, void active paper/printing through the existing workflow; reject linked real material consumption and other executed facts. Keep explicit multi-batch/gift allocation blocks rather than guessing quantities. Validate real role/device use after controlled integration.
+3. Continue the 13 P2 groups and one P3 group in priority order, including legacy file-level scopes and the old 59 uncommitted entries; review each before any cleanup. Resolve D03 data scope, D04 after-sales scope and D05 formal payroll effective dates/exceptions in their own scope.
 4. Gather real printing/scan, source-page, material-issue and reconciliation evidence when equipment is ready. Payroll and whole-ERP readiness remain separately gated. Only a dedicated release task promotes a clean pushed commit with the exact target lock.
 
 ## Release Sequence

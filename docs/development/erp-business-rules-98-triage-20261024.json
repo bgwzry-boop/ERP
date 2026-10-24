@@ -6,18 +6,19 @@
   "reviewedCodeCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
   "localTaskBranch": "codex/p1-integration-20261023",
   "currentBatchIds": [
-    "P1-01",
-    "P1-02",
-    "P1-03",
-    "P1-04",
-    "P1-05",
-    "P1-12",
-    "P1-13"
+    "P1-11",
+    "P1-06",
+    "P1-07",
+    "P1-08",
+    "P1-09",
+    "P1-10"
   ],
   "mainReleaseCheck": {
     "result": "passed",
     "checks": "21/21",
-    "log": ".erp-local-storage/p1-rules-r3-20261024/release-identity.log"
+    "baselineCommit": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
+    "log": ".erp-local-storage/p1-r4-20261024/logs/release-identity.log",
+    "sha256": "1d38efc380d6d0ad89f579e73948398fa6780b300845037e1bfb80bdae2aab84"
   },
   "countMeaning": "98是业务问题编号；多个编号可指向同一缺陷。工作组不是旧提交或独立bug数量。",
   "statusBoundary": "本地修复与现场验收、发布分开；本轮不部署、不回写线上历史数据。",
@@ -129,9 +130,11 @@
       ],
       "title": "办公室正式报价及有权本单价入口",
       "problem": "拦住缺价零元单解决安全问题，但办公室手工特殊单的正式报价、普通单有权临时议价输入尚未接齐，不能据此称下单链完整。",
-      "nextAction": "接服务端有效特殊型号规则、已确认材料价版本及普通/特殊订单的正式授权本单价；缺来源继续保留草稿，不用客户端金额或猜测价格放行。",
+      "nextAction": "完成本地复核与代码交接，后续按受控发布及真实岗位/设备要求验收。",
       "verification": "合法办公室特殊单能以真实报价确认，小程序锁价不受影响，价格缺失或越权修改仍拒绝。",
-      "status": "待整改"
+      "status": "本地专项与整套验证通过，未部署；办公室特殊单正式报价和有权本单价已接当前新入口。",
+      "rectification": "服务端正式报价按草稿版本与输入摘要冻结；已确认材料来源、特殊型号规则、通用发布价与有权本单议价分开，小程序锁价和历史价保留。",
+      "validation": "合法特殊单确认、缺材料/价源阻断、四位单价、改价权限与原因、双击/弱网原请求、留货关联手工草稿及PG冷读通过。"
     },
     {
       "id": "P1-06",
@@ -141,9 +144,11 @@
       ],
       "title": "同内容同尺寸印刷合组计价",
       "problem": "现有逐行阶梯计价不等于合组计价；符合合组条件的多行可能多算印刷费。",
-      "nextAction": "按已确认的内容、尺寸和可合组边界建立计价组与不可变报价依据；已锁定正式订单不自动重算。",
+      "nextAction": "完成本地复核与代码交接；按受控发布和真实岗位验收。未知多批或部分赠品减量继续阻断，另行明确分配方案。",
       "verification": "同组及不同组、分色、阶梯边界、改单、跨来源与锁价回放。",
-      "status": "待整改"
+      "status": "本地专项、完整数据库及实际4174电脑入口验证通过，未部署；新单合组、未开印同批补单及整组更正已接齐本轮范围。",
+      "rectification": "同客户、明确同内容、同尺寸和印刷面合组，颜色不拆阶梯；未开印同批补单按完整旧组重取阶梯。正式减量沿原冻结单价，明确区分作废一项和显式全组作废，整组原子保存且保留历史。补单查真实印刷耗料、交付时间和有效打印；仅领料或制袋执行不推定开印。历史作废成员不再阻塞剩余完整组补单；不猜多批分配或部分赠品。",
+      "validation": "新单/分色/阶梯、未开印完整补单、减量/单项作废/全组作废、不可变历史、共享库存一次更新、未改成员3000+2000拆分任务守恒、原料消耗竞争、回滚/冷读/原请求回放及真实4174弱网重试通过；补单5kg真实印刷消耗、真实时间、有效打印、旧报价失效、双向数据库竞争、后来耗料后原成功回放、仅领料/仅制袋对照及3→作废1→剩2补单通过。"
     },
     {
       "id": "P1-07",
@@ -153,9 +158,11 @@
       ],
       "title": "混装包更正重印完整链",
       "problem": "已有单明细实包；一包多尺寸颜色的逐项内容、差异修改、重印及旧码失效仍未全接齐。",
-      "nextAction": "先完成同订单内多明细实物装包及数量守恒，再做更正、重印、扫码拒旧码；跨订单混包不擅自开放。",
+      "nextAction": "完成本地复核与代码交接，后续按受控发布及真实岗位/设备要求验收。",
       "verification": "5000个5包、混装逐项、少装多装、重印旧码、司机逐包核验。",
-      "status": "待整改"
+      "status": "本地专项与整套数据库验证通过，未部署；同订单混装包、更正重印、真实逐包扫码及可信挂牌已连通。",
+      "rectification": "一实包一码，按实际逐项装包；更正整组作废旧码。批准实际数量后，当前新纸单须冻结该批准数量及决定；旧纸不能冒用。",
+      "validation": "5000个5包、混装逐项、数量差异批准→新纸可信打印→交库→逐行真实WEX扣库存→原子装车、旧码/漏扫/重复/异单拒绝、五页中文PDF及五个唯一二维码通过。"
     },
     {
       "id": "P1-08",
@@ -166,9 +173,11 @@
       ],
       "title": "新电脑入口缺完整结清和差额操作",
       "problem": "后端与旧入口已有差额、减免、转欠款、核销；当前完整新壳尚未完整接入。D01已确认，但办公室受限足额结清的证据、权限和事务合同仍需补齐。",
-      "nextAction": "为已有明确权限的管理或财务接现有服务、决定证据及冻结快照；另实现办公室证据齐全的足额结清，差额仍走批准。",
+      "nextAction": "完成本地复核与代码交接，后续按受控发布及真实岗位/设备要求验收。",
       "verification": "当前新壳真实API，足额双来源证据、零差额、原因、当前版本、权限拒绝和原请求重试。",
-      "status": "待整改"
+      "status": "本地专项与整套验证通过，未部署；新电脑入口已接受限足额结清及有权差额/减免/转欠款/核销。",
+      "rectification": "电脑对账详情接齐已有授权差额、减免、转欠款和核销。办公室仅凭两份不同来源、归属本账单且持久保存的到账/客户证据结清当前足额款；零差额，版本锁后重验；差额仍单独审批。",
+      "validation": "真实组件/签名HTTP、办公室无通用核销权限、双证据归属、当前版本、未知结果原请求重试、PG锁等待/回滚及闭期原回执通过。"
     },
     {
       "id": "P1-09",
@@ -179,9 +188,11 @@
       ],
       "title": "正式订单修改作废入口未齐",
       "problem": "服务端已有执行后改量作废保护，但完整新壳的定位、操作与冲突恢复尚未统一。",
-      "nextAction": "接已有订单变更合同，显示影响和前值；实出、装车等后续事实仍阻断普通改写。",
+      "nextAction": "完成本地复核与代码交接，后续按受控发布与真实岗位要求验收；不直接改写执行或已入账历史。",
       "verification": "变更前后读回、已有下游拒绝、并发、取消恢复及失败保留。",
-      "status": "待整改"
+      "status": "本地专项、并发、完整数据库及新电脑入口验证通过，未部署；旧有效纸单和真实原料消耗保护已补齐。",
+      "rectification": "订单池显示当前前值和只读金额预览；按原冻结单价更正，未执行生产/打包数量同步并撤旧排产。有效旧纸/打印/排队作业须先按原流程作废；真实生产、明确关联的正原料消耗、实包、实出或装车阻断直接改写；已入账作废另走财务更正。",
+      "validation": "四位单价、真实金额预览、空值拒绝、弱网原请求、账单外键竞争、旧纸/打印竞争、实际5kg消耗双向等待、完整回滚及冷读通过；合法作废旧纸→10改6→新纸→交库→重新核量→真实6个实出通过。"
     },
     {
       "id": "P1-10",
@@ -192,9 +203,11 @@
       ],
       "title": "留货续期释放转单入口未齐",
       "problem": "服务防线已有，现行新壳的留货新建、续期、释放和转单未形成完整入口。",
-      "nextAction": "沿用真实占用与释放事务补入口，询价与留货明确区分；不从聊天自动占用。",
+      "nextAction": "完成本地复核与代码交接，后续按受控发布及真实岗位/设备要求验收。",
       "verification": "同单重试、过期、延期、转单、释放不影响他单与真实库存守恒。",
-      "status": "待整改"
+      "status": "本地专项与整套验证通过，未部署；留货创建、续期、释放及关联草稿转正式单已接新电脑入口。",
+      "rectification": "客户明确留货申请经人工核对后才占用；转草稿不重复占用，正式确认转换原占用；释放后旧草稿不能确认；迟到刷新不带旧草稿跳转。",
+      "validation": "同请求重试、到期及中国时区、续期、释放、手工草稿报价/确认与来源保留、原占用守恒，以及两次刷新各自跨账号/库存切换的实际组件对照通过。"
     },
     {
       "id": "P2-01",
@@ -383,7 +396,7 @@
       "conflict": "AGENTS允许办公室A/B凭匹配到账和客户证据登记并结清；业务基线要求老板或明确授权账号进行正式收款确认与核销。",
       "question": "已确认：办公室凭匹配到账记录和客户消息/截图，可登记并结清足额款；少付差额保持待批准。",
       "recommendation": "按受限足额结清实现；不为办公室打开通用抹零、减免或经营决定权限。",
-      "status": "负责人已于2026年10月24日确认；专用受限结清入口、证据与权限合同待实现验收",
+      "status": "负责人已确认；受限足额结清权限、双证据、事务与新电脑入口已本地验证，未部署；真实岗位验收仍需完成。",
       "resolution": "办公室可登记并结清证据齐全的足额款，少付差额另审批。"
     },
     {
@@ -588,7 +601,16 @@
           "kind": "测试"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-11"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "服务端正式报价按草稿版本与输入摘要冻结；已确认材料来源、特殊型号规则、通用发布价与有权本单议价分开，小程序锁价和历史价保留。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O04",
@@ -648,7 +670,16 @@
           "kind": "测试"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-10"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "客户明确留货申请经人工核对后才占用；转草稿不重复占用，正式确认转换原占用；释放后旧草稿不能确认；迟到刷新不带旧草稿跳转。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O06",
@@ -708,7 +739,16 @@
           "kind": "实现"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-11"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "服务端正式报价按草稿版本与输入摘要冻结；已确认材料来源、特殊型号规则、通用发布价与有权本单议价分开，小程序锁价和历史价保留。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O08",
@@ -767,7 +807,16 @@
           "kind": "实现"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-11"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "服务端正式报价按草稿版本与输入摘要冻结；已确认材料来源、特殊型号规则、通用发布价与有权本单议价分开，小程序锁价和历史价保留。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O10",
@@ -797,7 +846,16 @@
           "kind": "实现"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-06"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "同客户、明确同内容、同尺寸和印刷面合组，颜色不拆阶梯；未开印同批补单按完整旧组重取阶梯。正式减量沿原冻结单价，明确区分作废一项和显式全组作废，整组原子保存且保留历史。补单查真实印刷耗料、交付时间和有效打印；仅领料或制袋执行不推定开印。历史作废成员不再阻塞剩余完整组补单；不猜多批分配或部分赠品。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O11",
@@ -828,7 +886,16 @@
           "kind": "实现"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-11"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "服务端正式报价按草稿版本与输入摘要冻结；已确认材料来源、特殊型号规则、通用发布价与有权本单议价分开，小程序锁价和历史价保留。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O12",
@@ -858,7 +925,16 @@
           "kind": "测试"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-09"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "订单池显示当前前值和只读金额预览；按原冻结单价更正，未执行生产/打包数量同步并撤旧排产。有效旧纸/打印/排队作业须先按原流程作废；真实生产、明确关联的正原料消耗、实包、实出或装车阻断直接改写；已入账作废另走财务更正。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O13",
@@ -888,7 +964,16 @@
           "kind": "实现"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-09"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "订单池显示当前前值和只读金额预览；按原冻结单价更正，未执行生产/打包数量同步并撤旧排产。有效旧纸/打印/排队作业须先按原流程作废；真实生产、明确关联的正原料消耗、实包、实出或装车阻断直接改写；已入账作废另走财务更正。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "O14",
@@ -1516,7 +1601,16 @@
         "server/services/inventoryIntentCommandService.mjs:49",
         "server/services/inventoryIntentCommandService.mjs:143"
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-10"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "客户明确留货申请经人工核对后才占用；转草稿不重复占用，正式确认转换原占用；释放后旧草稿不能确认；迟到刷新不带旧草稿跳转。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "M20",
@@ -1550,7 +1644,16 @@
         "docs/development/legacy-remaining-review-closeout-20261023.json:62",
         "docs/prototypes/raw-material-roll-inventory-review/src/DesktopFulfillmentOperations.jsx:125"
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-07"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "一实包一码，按实际逐项装包；更正整组作废旧码。批准实际数量后，当前新纸单须冻结该批准数量及决定；旧纸不能冒用。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "M22",
@@ -1773,7 +1876,16 @@
           "note": "按statement_variance及authorizationAmount准备有效决定"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-08"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "电脑对账详情接齐已有授权差额、减免、转欠款和核销。办公室仅凭两份不同来源、归属本账单且持久保存的到账/客户证据结清当前足额款；零差额，版本锁后重验；差额仍单独审批。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "F04",
@@ -1969,7 +2081,16 @@
           "note": "已存在差额后端命令"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-08"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "电脑对账详情接齐已有授权差额、减免、转欠款和核销。办公室仅凭两份不同来源、归属本账单且持久保存的到账/客户证据结清当前足额款；零差额，版本锁后重验；差额仍单独审批。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "F10",
@@ -2910,7 +3031,16 @@
           "kind": "规则或实现"
         }
       ],
-      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+      "rectificationR4": {
+        "workIds": [
+          "P1-11"
+        ],
+        "status": "本地验证通过，未部署",
+        "summary": "服务端正式报价按草稿版本与输入摘要冻结；已确认材料来源、特殊型号规则、通用发布价与有权本单议价分开，小程序锁价和历史价保留。",
+        "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+        "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md"
+      }
     },
     {
       "id": "R15",
@@ -3005,8 +3135,8 @@
       "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
     }
   ],
-  "correctedCodeCommit": "bad04bd9b38244c2f376c69e29de51d7481d1a0a",
-  "verificationCandidateCommit": "eb47d838b54ea8e5cf5a26e4dcf04fd0f057e635",
+  "correctedCodeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+  "verificationCandidateCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
   "correctionCommits": [
     "eb47d838b54ea8e5cf5a26e4dcf04fd0f057e635",
     "bad04bd9b38244c2f376c69e29de51d7481d1a0a",
@@ -3018,81 +3148,212 @@
     "1efd62c062125d44260c904fd6e5682464d0ec30",
     "e9bb088ec12759b0cd36933acea0b585340985a5",
     "d8be296a954d9bf4d2df4d7977785227e89db8fd",
-    "a2ff5b9a247a826d13c7be269520c37a35d89ba1"
+    "a2ff5b9a247a826d13c7be269520c37a35d89ba1",
+    "d68b6783dcdda16e144869cbd45205e943219a03",
+    "e0a02249ff35283f4be38246215d65dc3d9b0ea2",
+    "7efe4a5dbd81c90d758343ca7a2870a80261f7b0",
+    "f6de08eab87192da5f876b96de1d78db6be85420",
+    "c06b609799e4660c26ea17904f3e836b13026908",
+    "1a354948e0edad9e9e851605d8d35ae59d229982",
+    "1861ab3dd50083d03e6881fedce41f15755bf4a4",
+    "bf055701e2c049dd42260dae961b720e79df51ca",
+    "793ac658ac12ff86c65869f33428ea6e08883ccd",
+    "9613513f659a8def9f1339fe1fefbf0ffc5e5aa3",
+    "27fadd6dab51638e29a9e2e6dd294838c04a7821",
+    "faabd3b6737875bf6af21cb6854b0024d52c9413",
+    "8e72fb6cc2386d61625567e7bed4ab6be967ef9b",
+    "92ed149aee720c85c1dfa9bb7e103135c28df6fc",
+    "450b11ab7fc36dfc7ba49674eecd025342395574",
+    "25cb4889defe6b246f2cdf8142457fc995508dac",
+    "660eb8971d9312fcd41afdee0cfa64d5b576393a",
+    "49478b5dd5453a7011da6e3084f3fb27b6451d3a",
+    "a026c5dee952d21251e6b3fae7f49e27905fe390",
+    "8d97011988b2ecbf37217d865f0109d8eca49ccb",
+    "5ec2a283626173c76637167a13aac23e20a30bed",
+    "c408c70faf8a251281970ee4be7b0b2b7350ae95",
+    "e51faa5ef03bea648ae7ab123cb50b45b8c29010",
+    "1e898b970e59a09ce659f01ee07f072f6adea2f1"
   ],
   "validation": {
-    "status": "本地验证通过，未部署",
-    "businessCodeCommit": "bad04bd9b38244c2f376c69e29de51d7481d1a0a",
-    "browserFixtureCommit": "eb47d838b54ea8e5cf5a26e4dcf04fd0f057e635",
-    "checks": {
-      "automated": {
-        "passed": 158,
-        "total": 158
-      },
-      "postgres": "full p1-postgres:check passed, including three R3 database checks",
-      "coreBrowser": {
-        "passed": 10,
-        "total": 10
-      },
-      "reviewBrowser": {
-        "passed": 13,
-        "total": 13
-      },
-      "builds": [
-        "root and budget",
-        "complete review app"
-      ],
-      "previewIdentity": "app-id, desktop navigation, API, local-unreleased and viewport family checks passed",
-      "mainReleaseIdentity": {
-        "passed": 21,
-        "total": 21
-      }
+    "status": "本轮六组明确规则范围本地整改验证通过，未部署",
+    "codeCommit": "1e898b970e59a09ce659f01ee07f072f6adea2f1",
+    "codeCommitMeaning": "最终业务与验证代码快照；随后仅补文档，不代表部署提交",
+    "report": "docs/development/p1-rules-r4-validation-20261024.zh-CN.md",
+    "evidenceDirectory": ".erp-local-storage/p1-r4-20261024/",
+    "automaticChecks": {
+      "result": "passed",
+      "passed": 159,
+      "total": 159,
+      "r4RegisteredScripts": 16
     },
-    "document": {
-      "pages": 13,
-      "visualReview": "all pages inspected; final pages1–8 byte-identical to previously inspected pages; final9–13 inspected directly",
-      "sha256": "0696d90c7a0e097b7e079fbf9b1736722c6c6c9005d8acf1850bd629336df031"
+    "postgres": {
+      "result": "passed",
+      "migrationFiles": 54,
+      "tables": 101,
+      "r4Scripts": 5,
+      "scope": "从空库应用完整当前迁移；隔离临时PostgreSQL事务/并发/回滚/冷读"
     },
-    "evidenceDirectory": ".erp-local-storage/p1-rules-r3-20261024/",
+    "browser": {
+      "result": "passed",
+      "core": 10,
+      "completeReview": 13,
+      "additional": "实际4174整组合组更正、普通改单/留货和实包挂牌；弱网原请求、跨账号/库存迟到刷新"
+    },
+    "builds": {
+      "root": "passed",
+      "completeReview": "passed",
+      "initialGzipKiB": 112.6,
+      "initialGzipBudgetKiB": 150,
+      "officeWorkbenchRawKiB": 413.9,
+      "officeWorkbenchGzipKiB": 117.5
+    },
+    "lint": "passed",
+    "completeReviewIdentity": "passed; app-id/navigation/API/local-unreleased/40-character identity and 390/767/768/1440 bidirectional viewport checks",
     "logs": [
       {
-        "file": "release-identity.log",
+        "file": "logs/release-identity.log",
         "sha256": "1d38efc380d6d0ad89f579e73948398fa6780b300845037e1bfb80bdae2aab84"
       },
       {
-        "file": "checks-158.log",
-        "sha256": "cb1d375dc844d67fa8bdaffe53b30fde2436c02b1c8c03dcaedf6f36d0d8fed3"
+        "file": "logs/checks-159.log",
+        "sha256": "eca48879632adc3a7ba230a33444aff4b6c34057a517c33ecfc57d7516ac6b11"
       },
       {
-        "file": "postgres.log",
-        "sha256": "820eca401184e17dce187c726f5b2bed1a48e427fba2a89021e14a736d7ab7b4"
+        "file": "logs/postgres-full.log",
+        "sha256": "f2258e48544849641490a9d30d17cc5cb224d461ee743ae7ab45111d06e9d3ff"
       },
       {
-        "file": "core-browser-10.log",
-        "sha256": "dab0a591b27896ca0fe1890d4612aa8c4d99273cebf17559bdc6d7d642bf3cb9"
+        "file": "logs/core-browser-10.log",
+        "sha256": "5524d3588c0bb306a589f9359806cb414c99259bc65ed99921c28182677815bf"
       },
       {
-        "file": "review-browser-13.log",
-        "sha256": "115f47e99a38a3f1c98db39a303134ff5bf35d468a63ee46db5c178ec6fdc85c"
+        "file": "logs/complete-review-browser-13.log",
+        "sha256": "b919556387547f090e8c1a2ed4e132328f633f9fd2295ac287ac8efea0056f62"
       },
       {
-        "file": "root-build.log",
-        "sha256": "cca87413c3ce7e6084a4c4348d69cf8321b688aee487e2253c89da5837832af7"
+        "file": "logs/root-build.log",
+        "sha256": "87de8a4afd26a26f79d7c5d8412589e1223ee4e2774c906306bbedfff8fb0b7a"
       },
       {
-        "file": "review-build.log",
-        "sha256": "271b26466a09f81cbc286a3cd9edf0b0b534eb81e4d940a0c194a0c0d2e3dd77"
+        "file": "logs/review-build.log",
+        "sha256": "3913429e720e3fc6b59aa363f5d10b85fa56b719fe024e6e3e98718d61631fb9"
       },
       {
-        "file": "review-identity.log",
+        "file": "logs/lint.log",
+        "sha256": "a27abb0165c9ef6ba6dec3748b680036d323838740c2da415cddb0fc6bdfb8b6"
+      },
+      {
+        "file": "logs/review-identity-code-snapshot.log",
         "sha256": "9ee3c2ab40e980a37b60ebc6a7cc5fa4dabcde7af06c3e60b40229bced18378f"
+      },
+      {
+        "file": "logs/complete-review-print-group.log",
+        "sha256": "1cf84a8185f0e3dee92382a6f1f056f28cecb8abb5974439356da293de053f86",
+        "scope": "前序单独运行的诊断日志；相同脚本已在最终checks-159.log中重新执行并通过"
+      },
+      {
+        "file": "logs/order-hold-desktop.log",
+        "sha256": "03211a8f5de9b489183f95e6a219e15d2dac3d98e1c3eb70dee3fc77fe597473",
+        "scope": "前序单独运行的诊断日志；相同脚本已在最终checks-159.log中重新执行并通过"
+      },
+      {
+        "file": "logs/hold-refresh-ownership.log",
+        "sha256": "1c95704199d9596f917aeacb753e4f624ef35ff62efd4542bff410dc88224446",
+        "scope": "前序单独运行的诊断日志；相同脚本已在最终checks-159.log中重新执行并通过"
       }
     ],
     "limits": [
-      "未部署，未更新canonical或主目录",
-      "隔离合成/签名测试不替代真实岗位和设备验收",
-      "真实售价、业务数据、旧人工分钟和既有工资未被本轮脚本改写",
-      "剩余6组P1仍按编号继续"
+      "未部署，不推进canonical，不修改主目录或线上业务数据",
+      "保留原料新功能、前批七组整改、小程序锁价和历史快照；未删除旧代码原件、缓存或对话",
+      "隔离合成数据与假打印命令不替代实际设备出纸、贴牌、摄像扫码和真实岗位验收",
+      "未知多批或部分赠品减量继续明确阻断，不由系统猜分配",
+      "P2的13组、P3的1组及D03/D04/D05仍在清单；真实短信和全厂工资正式验收未完成"
     ]
-  }
+  },
+  "previousBatchIds": [
+    "P1-01",
+    "P1-02",
+    "P1-03",
+    "P1-04",
+    "P1-05",
+    "P1-12",
+    "P1-13"
+  ],
+  "validationHistory": [
+    {
+      "status": "本地验证通过，未部署",
+      "businessCodeCommit": "bad04bd9b38244c2f376c69e29de51d7481d1a0a",
+      "browserFixtureCommit": "eb47d838b54ea8e5cf5a26e4dcf04fd0f057e635",
+      "checks": {
+        "automated": {
+          "passed": 158,
+          "total": 158
+        },
+        "postgres": "full p1-postgres:check passed, including three R3 database checks",
+        "coreBrowser": {
+          "passed": 10,
+          "total": 10
+        },
+        "reviewBrowser": {
+          "passed": 13,
+          "total": 13
+        },
+        "builds": [
+          "root and budget",
+          "complete review app"
+        ],
+        "previewIdentity": "app-id, desktop navigation, API, local-unreleased and viewport family checks passed",
+        "mainReleaseIdentity": {
+          "passed": 21,
+          "total": 21
+        }
+      },
+      "document": {
+        "pages": 13,
+        "visualReview": "all pages inspected; final pages1–8 byte-identical to previously inspected pages; final9–13 inspected directly",
+        "sha256": "0696d90c7a0e097b7e079fbf9b1736722c6c6c9005d8acf1850bd629336df031"
+      },
+      "evidenceDirectory": ".erp-local-storage/p1-rules-r3-20261024/",
+      "logs": [
+        {
+          "file": "release-identity.log",
+          "sha256": "1d38efc380d6d0ad89f579e73948398fa6780b300845037e1bfb80bdae2aab84"
+        },
+        {
+          "file": "checks-158.log",
+          "sha256": "cb1d375dc844d67fa8bdaffe53b30fde2436c02b1c8c03dcaedf6f36d0d8fed3"
+        },
+        {
+          "file": "postgres.log",
+          "sha256": "820eca401184e17dce187c726f5b2bed1a48e427fba2a89021e14a736d7ab7b4"
+        },
+        {
+          "file": "core-browser-10.log",
+          "sha256": "dab0a591b27896ca0fe1890d4612aa8c4d99273cebf17559bdc6d7d642bf3cb9"
+        },
+        {
+          "file": "review-browser-13.log",
+          "sha256": "115f47e99a38a3f1c98db39a303134ff5bf35d468a63ee46db5c178ec6fdc85c"
+        },
+        {
+          "file": "root-build.log",
+          "sha256": "cca87413c3ce7e6084a4c4348d69cf8321b688aee487e2253c89da5837832af7"
+        },
+        {
+          "file": "review-build.log",
+          "sha256": "271b26466a09f81cbc286a3cd9edf0b0b534eb81e4d940a0c194a0c0d2e3dd77"
+        },
+        {
+          "file": "review-identity.log",
+          "sha256": "9ee3c2ab40e980a37b60ebc6a7cc5fa4dabcde7af06c3e60b40229bced18378f"
+        }
+      ],
+      "limits": [
+        "未部署，未更新canonical或主目录",
+        "隔离合成/签名测试不替代真实岗位和设备验收",
+        "真实售价、业务数据、旧人工分钟和既有工资未被本轮脚本改写",
+        "剩余6组P1仍按编号继续"
+      ]
+    }
+  ]
 }
