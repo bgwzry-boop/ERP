@@ -2,6 +2,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { loadSyntheticOfficeSeed } from "./syntheticOfficeSeed.mjs";
+import { buildSyntheticPublishedPriceSeed } from "./syntheticPublishedPriceSeed.mjs";
 
 export const officeSeedSourceKeys = Object.freeze(["synthetic", "real_sample"]);
 
@@ -40,6 +41,7 @@ export function loadOfficeSeedWorkspace(options = {}) {
   if (source === "synthetic") {
     return {
       ...loadSyntheticOfficeSeed(options.scenarioId),
+      ...(normalizeText(options.runtimeMode).toLowerCase() === "test" ? buildSyntheticPublishedPriceSeed() : {}),
       seedDataset: { source: "synthetic", datasetId: "p0-synthetic-fixtures" },
     };
   }

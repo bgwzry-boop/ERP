@@ -51,10 +51,10 @@ function priceSpecificity(item, line) {
   return score;
 }
 
-function findPriceItem(master, line) {
+export function findMiniappPriceItem(master, line, { requireUnique = false, styleKeys } = {}) {
   const size = normalizeMiniappSize(line.size);
   const requestedHandles = handleCandidates(line.handleId, line.handle).map(lower);
-  const requestedStyles = styleCandidates(line);
+  const requestedStyles = styleKeys ? styleKeys.map(lower) : styleCandidates(line);
   const quantity = Math.max(1, Number(line.quantity) || 1);
   const extendedHandle = line.handleId === "extended" || /加长/.test(clean(line.handle));
   const matchingSize = master.priceItems.filter((item) => normalizeMiniappSize(item.size || item.sizeKey) === size);
@@ -64,7 +64,10 @@ function findPriceItem(master, line) {
     && (!item.styleKey || requestedStyles.includes(lower(item.styleKey)))
     && (!item.minQty || Number(item.minQty) <= quantity)
   ).sort((a, b) => priceSpecificity(b, line) - priceSpecificity(a, line));
-  if (exact[0]) return { item: exact[0], handleFallback: false };
+  if (exact[0]) {
+    if (requireUnique && exact[1] && priceSpecificity(exact[0], line) === priceSpecificity(exact[1], line)) return null;
+    return { item: exact[0], handleFallback: false };
+  }
 
   if (extendedHandle) {
     const regularHandles = handleCandidates("regular").map(lower);
@@ -74,9 +77,43 @@ function findPriceItem(master, line) {
       && (!item.styleKey || requestedStyles.includes(lower(item.styleKey)))
       && (!item.minQty || Number(item.minQty) <= quantity)
     ).sort((a, b) => priceSpecificity(b, line) - priceSpecificity(a, line));
-    if (fallback[0]) return { item: fallback[0], handleFallback: true };
+    if (fallback[0]) {
+      if (requireUnique && fallback[1] && priceSpecificity(fallback[0], line) === priceSpecificity(fallback[1], line)) return null;
+      return { item: fallback[0], handleFallback: true };
+    }
   }
   return null;
+}
+
+export function quoteMiniappCatalogPrice(master, line, match, { preserveUnitPrecision = false } = {}) {
+  const quantity = Math.max(1, Number(line.quantity) || 1);
+  const bagUnitPrice = Number(match.item.bagPrice || 0) + (match.handleFallback ? 0.03 : 0);
+  const colorCount = Math.min(4, Math.max(1, Number(line.printColorCount) || 1));
+  const printing = isPrintingRequired(line);
+  const printingUnit = printing ? printUnitPrice(quantity, line.printSideMode || line.printSide, match.item.printPrice) * colorCount : 0;
+  const requirements = Array.isArray(line.specialRequirements) ? line.specialRequirements : [];
+  const snapUnit = requirements.includes("snap_button") ? 0.1 : 0;
+  const roundUnit = preserveUnitPrecision ? value => Math.round((Number(value) + Number.EPSILON) * 10_000) / 10_000 : roundMoney;
+  const unitPrice = roundUnit(bagUnitPrice + printingUnit + snapUnit);
+  const otherFee = Number(match.item.otherFee || 0);
+  return {
+    priceVersion: `${master.priceTable.bizNo || master.priceTable.id}-v${Number(master.priceTable.versionNo) || 1}`,
+    basePrice: roundUnit(Number(match.item.bagPrice || 0)),
+    handleAddon: match.handleFallback ? 0.03 : 0,
+    printColorCount: printing ? colorCount : 0,
+    printFeePerColor: printing ? roundUnit(printingUnit / colorCount) : 0,
+    printFee: roundUnit(printingUnit),
+    specialRequirementAddon: snapUnit,
+    unitPrice,
+    quantity,
+    amount: roundMoney(unitPrice * quantity + otherFee),
+    excludedFees: ["运费", "税费"],
+    plateFeeIncluded: printing,
+    authoritative: false,
+    note: printing
+      ? "预估金额，私印费用已含制版；运费、税费另计，提交后由工厂复核"
+      : "预估金额；运费、税费另计，提交后由工厂复核",
+  };
 }
 
 function printUnitPrice(quantity, printSide, configuredPrice) {
@@ -489,37 +526,11 @@ export function createPostgresMiniappErpProjectionAdapter(options = {}) {
     },
     async previewQuote(context, line) {
       const master = await loadCatalogMaster(context);
-      const match = findPriceItem(master, line);
+      const match = findMiniappPriceItem(master, line);
       if (!match) {
         throw new MiniappApiError(422, "PRICE_NOT_CONFIGURED", `规格 ${clean(line.size)} 暂无可用价格，请联系工厂`);
       }
-      const quantity = Math.max(1, Number(line.quantity) || 1);
-      const bagUnitPrice = Number(match.item.bagPrice || 0) + (match.handleFallback ? 0.03 : 0);
-      const colorCount = Math.min(4, Math.max(1, Number(line.printColorCount) || 1));
-      const printing = isPrintingRequired(line);
-      const printingUnit = printing ? printUnitPrice(quantity, line.printSideMode || line.printSide, match.item.printPrice) * colorCount : 0;
-      const requirements = Array.isArray(line.specialRequirements) ? line.specialRequirements : [];
-      const snapUnit = requirements.includes("snap_button") ? 0.1 : 0;
-      const unitPrice = roundMoney(bagUnitPrice + printingUnit + snapUnit);
-      const otherFee = Number(match.item.otherFee || 0);
-      return {
-        priceVersion: `${master.priceTable.bizNo || master.priceTable.id}-v${Number(master.priceTable.versionNo) || 1}`,
-        basePrice: roundMoney(Number(match.item.bagPrice || 0)),
-        handleAddon: match.handleFallback ? 0.03 : 0,
-        printColorCount: printing ? colorCount : 0,
-        printFeePerColor: printing ? roundMoney(printingUnit / colorCount) : 0,
-        printFee: roundMoney(printingUnit),
-        specialRequirementAddon: snapUnit,
-        unitPrice,
-        quantity,
-        amount: roundMoney(unitPrice * quantity + otherFee),
-        excludedFees: ["运费", "税费"],
-        plateFeeIncluded: printing,
-        authoritative: false,
-        note: printing
-          ? "预估金额，私印费用已含制版；运费、税费另计，提交后由工厂复核"
-          : "预估金额；运费、税费另计，提交后由工厂复核",
-      };
+      return quoteMiniappCatalogPrice(master, line, match);
     },
     async previewSpecialQuote(context, input) {
       const [master, materialPriceSnapshot] = await Promise.all([

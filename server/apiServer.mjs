@@ -213,7 +213,9 @@ export function createApiServer(options = {}) {
     createStatementExportObjectStorage(effectiveOptions.statementExportObjectStorageOptions);
   const coreWorkspaceReadRepository =
     effectiveOptions.coreWorkspaceReadRepository ??
-    createCoreWorkspaceReadRepository(effectiveOptions.coreWorkspaceReadRepositoryOptions);
+    createCoreWorkspaceReadRepository({ ...effectiveOptions.coreWorkspaceReadRepositoryOptions,
+      ...(runtimeConfig.mode === "test" && workspace.seedDataset?.source === "synthetic"
+        ? { initialState: { priceTables: workspace.priceTables, priceTableItems: workspace.priceTableItems } } : {}) });
   const todoActionRepository =
     effectiveOptions.todoActionRepository ?? createTodoActionRepository(effectiveOptions.todoActionRepositoryOptions);
   const inventoryCorrectionTransactionRepository =

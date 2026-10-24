@@ -105,15 +105,16 @@ export function createCoreWorkspaceReadRepository(options = {}) {
       postgresClient: options.postgresClient,
     });
   }
-  if (mode === "local") return createLocalCoreWorkspaceReadRepository();
+  if (mode === "local") return createLocalCoreWorkspaceReadRepository(options);
   throw new Error(`Unsupported core workspace repository mode: ${mode}`);
 }
 
-export function createLocalCoreWorkspaceReadRepository() {
+export function createLocalCoreWorkspaceReadRepository(options = {}) {
+  const initialState = structuredClone(options.initialState ?? {});
   return {
     kind: "local_memory",
     loadState() {
-      return {};
+      return structuredClone(initialState);
     },
   };
 }

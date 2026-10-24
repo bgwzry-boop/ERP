@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { buildPublishedOrderPriceFixture } from "./helpers/publishedOrderPriceFixture.mjs";
 import { createOrderDraftCommandService } from "../server/services/orderDraftCommandService.mjs";
 import { recognizeOrderConversation } from "../src/lib/orderConversationRecognition.js";
 
@@ -14,7 +15,7 @@ const service = createOrderDraftCommandService({
   buildTodo(_workspace, input) {
     return { handled: false, ...input };
   },
-  confirmDraftOrder({ draftRows, orderLines = [], fulfillments = [] }) {
+  confirmDraftOrder({ draftRows, orderLines = [], fulfillments = [], resolveAmount }) {
     if (confirmationMode === "blocked") {
       return {
         blocked: true,
@@ -28,13 +29,14 @@ const service = createOrderDraftCommandService({
       blocked: false,
       draftStatus: "已生成正式订单",
       orderNo,
-      checkedRows: draftRows.map((row) => ({ ...row, inventory: "可用", amount: 3.4 })),
+      checkedRows: draftRows.map((row) => ({ ...row, inventory: "可用", amount: resolveAmount(row) })),
       newLines: draftRows.map((row, index) => ({
+          ...row,
           id: `${orderNo}-${String(index + 1).padStart(2, "0")}`,
           orderId: orderNo,
           customerId: row.customerId,
           qty: row.qty,
-          amount: 3.4,
+          amount: resolveAmount(row),
           status: "待出库",
         })),
       newFulfillments: draftRows.map((row, index) => ({
@@ -657,6 +659,7 @@ function buildWorkspace() {
     lines: [],
   };
   return {
+    ...buildPublishedOrderPriceFixture(),
     sampleText: "张三服饰 30*38红10个 明天自提",
     customers: [{ id: "C001", name: "张三服饰" }],
     inventories: [

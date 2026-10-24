@@ -9,7 +9,7 @@ import {
 } from "./helpers/apiIntegrationTestHarness.mjs";
 import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
-const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, scenarioId: "inventory-intent-api-check" }));
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false, scenarioId: "inventory-intent-api-check" }));
 await server.ready;
 await listenTestServer(server);
 

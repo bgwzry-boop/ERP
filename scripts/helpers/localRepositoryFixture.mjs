@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLocalRuntimeIdentityRepository } from "../../server/runtimeIdentityRepository.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../../server/v1PersistenceProfile.mjs";
+import { buildPublishedOrderPriceFixture } from "./publishedOrderPriceFixture.mjs";
 
 export function withLocalRepositoryFixture(options = {}) {
   const runtimeMode = String(options.runtimeMode ?? process.env.ERP_RUNTIME_MODE ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
@@ -26,6 +27,14 @@ export function withLocalRepositoryFixture(options = {}) {
       mode: repositoryOptions.mode ?? "local",
       allowLocalFixture: true,
     };
+  }
+  if (runtimeMode === "test" && String(options.seedSource ?? process.env.ERP_OFFICE_SEED_SOURCE ?? "synthetic") === "synthetic"
+    && !options.realSampleSeedFile && options.coreWorkspaceReadRepository?.kind === "local_memory") {
+    const repository = options.coreWorkspaceReadRepository;
+    const prices = buildPublishedOrderPriceFixture();
+    fixtureOptions.coreWorkspaceReadRepository = { ...repository, async loadState() {
+      return { ...structuredClone(prices), ...await repository.loadState() };
+    } };
   }
   if (options.activeDriverFixture === true) {
     if (options.runtimeIdentityRepository) throw new Error("activeDriverFixture requires its own isolated identity repository");

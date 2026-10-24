@@ -8,6 +8,7 @@ import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
+import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 
 export function createOrderDraftCommandService(dependencies = {}) {
   const {
@@ -624,17 +625,26 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(cancellationResolution.activeLines);
     if (reviewError) return reviewError;
+    let publishedPricing;
+    if (!miniappPricing) {
+      try { publishedPricing = await loadOrderDraftPublishedPricing(workspace, cancellationResolution.activeLines, now()); }
+      catch (error) {
+        if (error.code !== "ORDER_PRICE_SOURCE_REQUIRED") throw error;
+        return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } };
+      }
+    }
     const holdResolution = resolveTemporaryHoldConversions(workspace, cancellationResolution.activeLines);
     if (holdResolution.error) return holdResolution.error;
     const confirmation = confirmDraftOrder({
       draftRows: cancellationResolution.activeLines,
-      resolveAmount: miniappPricing ? row => miniappPricing.prices.get(row.id)?.amount : undefined,
+      resolveAmount: row => (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
       inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
       orderLines: workspace.orderLines,
       fulfillments: workspace.fulfillments,
       customers: workspace.customers,
     });
     applyMiniappDraftLockedPricing(confirmation, miniappPricing);
+    applyOrderDraftPublishedPricing(confirmation, publishedPricing);
     if (confirmation.blocked) {
       const blockedDraft = buildDraftProjection(previous, {
         id: draftId,
@@ -703,6 +713,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const priceSnapshots = confirmation.newLines.map((line) => ({
       ...toPriceSnapshot(line),
       ...line.confirmedMiniappPrice,
+      ...line.confirmedPublishedPrice,
       priceSnapshotId: `PS-${line.id}`,
       snapshotType: "order_confirm",
       versionNo: 1,
@@ -711,7 +722,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       createdBy: operatorId,
     }));
     try {
-      assertOrderConfirmationPriceSources({ orderLines: confirmation.newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source });
+      assertOrderConfirmationPriceSources({ orderLines: confirmation.newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source });
     } catch (error) {
       return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
     }
@@ -756,6 +767,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       idempotencyPayload: { ...body, operatorId },
       orderDraft: confirmedDraft,
       miniappPriceSource: miniappPricing?.source,
+      publishedPriceSource: publishedPricing?.source,
       expectedDraftRevision: expectedRevision,
       order: buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId),
       orderLines: confirmation.newLines.map((line) => ({ ...line, createdBy: operatorId })),
@@ -869,6 +881,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(cancellationResolution.activeLines);
     if (reviewError) return reviewError;
+    let publishedPricing;
+    if (!miniappPricing) {
+      try { publishedPricing = await loadOrderDraftPublishedPricing(workspace, cancellationResolution.activeLines, now()); }
+      catch (error) {
+        if (error.code !== "ORDER_PRICE_SOURCE_REQUIRED") throw error;
+        return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } };
+      }
+    }
     const splitPlan = buildOrderDraftSplitPlan({
       draftId,
       revision: expectedRevision,
@@ -887,13 +907,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
       const groupLines = group.draftLineIds.map((lineId) => linesById.get(lineId)).filter(Boolean);
       const confirmation = confirmDraftOrder({
         draftRows: groupLines,
-        resolveAmount: miniappPricing ? row => miniappPricing.prices.get(row.id)?.amount : undefined,
+        resolveAmount: row => (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
         inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
         orderLines: rollingOrderNumberRows,
         fulfillments: rollingFulfillments,
         customers: workspace.customers,
       });
       applyMiniappDraftLockedPricing(confirmation, miniappPricing);
+      applyOrderDraftPublishedPricing(confirmation, publishedPricing);
       if (confirmation.blocked) {
         return businessError(409, "ORDER_DRAFT_SPLIT_GROUP_BLOCKED", `${group.groupId}: ${confirmation.toast}`);
       }
@@ -940,6 +961,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const priceSnapshots = newLines.map((line) => ({
       ...toPriceSnapshot(line),
       ...line.confirmedMiniappPrice,
+      ...line.confirmedPublishedPrice,
       priceSnapshotId: `PS-${line.id}`,
       snapshotType: "order_confirm",
       versionNo: 1,
@@ -948,7 +970,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       createdBy: operatorId,
     }));
     try {
-      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source });
+      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source });
     } catch (error) {
       return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
     }
@@ -993,6 +1015,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       idempotencyPayload,
       orderDraft: confirmedDraft,
       miniappPriceSource: miniappPricing?.source,
+      publishedPriceSource: publishedPricing?.source,
       expectedDraftRevision: expectedRevision,
       order: orders[0],
       orders,

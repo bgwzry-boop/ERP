@@ -14,6 +14,7 @@ import {
 import { normalizeOrderDraft } from "./orderDraftRepository.mjs";
 import { normalizeInventoryIntents } from "./inventoryIntentDomain.mjs";
 import { assertOrderConfirmationPriceSources } from "./orderConfirmationPriceSource.mjs";
+import { assertPublishedOrderPriceSource, buildPublishedOrderPriceSourceGuard } from "./orderDraftPublishedPricing.mjs";
 
 export function createOrderConfirmationTransactionRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -59,6 +60,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
         if (!isDeepStrictEqual(source, input.miniappPriceSource)) throw Object.assign(new Error("小程序价格来源已变化"), { code: "ERP_MINIAPP_CONFIRMATION_SOURCE_CONFLICT", statusCode: 409 });
       } else if (input.miniappPriceSource) throw new Error("Unexpected miniapp price source");
       assertOrderConfirmationPriceSources(input);
+      assertPublishedOrderPriceSource(input.workspace, input.publishedPriceSource);
       const orderDraft = buildCommittedOrderDraft(input.orderDraft, input.expectedDraftRevision);
       const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations);
       const shortageCancellationIntents = normalizeInventoryIntents(input.shortageCancellationIntents);
@@ -232,7 +234,7 @@ function buildConfirmOrderTransactionText(input, parameters) {
   if (orderLines.some((line) => !orderIds.has(line.orderId))) {
     throw new Error("Every formal order line must belong to an order in the same confirmation transaction");
   }
-  assertOrderConfirmationPriceSources({ orderLines, priceSnapshots, miniappPriceSource: input.miniappPriceSource });
+  assertOrderConfirmationPriceSources({ orderLines, priceSnapshots, miniappPriceSource: input.miniappPriceSource, publishedPriceSource: input.publishedPriceSource });
   return `
 BEGIN;
 WITH locked_order_draft AS MATERIALIZED (
@@ -250,6 +252,16 @@ order_draft_write_guard AS MATERIALIZED (
     ),
     'ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT'
   ) AS ok
+),
+locked_order_price_tables AS MATERIALIZED (
+  SELECT * FROM price_tables WHERE ${input.publishedPriceSource ? "true" : "false"} ORDER BY id FOR SHARE
+),
+locked_order_price_items AS MATERIALIZED (
+  SELECT * FROM price_table_items WHERE price_table_id = ${parameters.text(input.publishedPriceSource?.priceTable.id ?? "")}
+  ORDER BY id FOR SHARE
+),
+published_price_write_guard AS MATERIALIZED (
+  SELECT erp_require(${buildPublishedOrderPriceSourceGuard(input.publishedPriceSource, parameters)}, 'ERP_ORDER_PRICE_SOURCE_CONFLICT') AS ok
 ),
 miniapp_source_write_guard AS MATERIALIZED (
   SELECT erp_require(${buildMiniappConfirmationSourceGuard(input.miniappPriceSource, { draftId: orderDraft.id, customerId: orderDraft.customerId }, parameters)}, 'ERP_MINIAPP_CONFIRMATION_SOURCE_CONFLICT') AS ok
@@ -284,8 +296,9 @@ updated_order_draft AS (
   FROM order_draft_write_guard AS guard
   CROSS JOIN miniapp_artwork_write_guard AS artwork_guard
   CROSS JOIN miniapp_source_write_guard AS source_guard
+  CROSS JOIN published_price_write_guard AS price_guard
   WHERE draft.id = ${parameters.text(orderDraft.id)}
-    AND guard.ok AND artwork_guard.ok AND source_guard.ok
+    AND guard.ok AND artwork_guard.ok AND source_guard.ok AND price_guard.ok
   RETURNING draft.id, ${orderDraftJsonExpression("draft")} AS result
 ),
 deleted_order_draft_lines AS (
@@ -866,6 +879,7 @@ function toWorkspacePriceSnapshot(snapshot) {
     finalAmount: snapshot.finalAmount,
     amount: snapshot.finalAmount,
     overrideReason: snapshot.overrideReason,
+    sourceEvidence: snapshot.sourceEvidence,
     createdBy: snapshot.createdBy,
     createdAt: snapshot.createdAt,
   };

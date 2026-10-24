@@ -1,4 +1,17 @@
+import { buildPublishedOrderPriceFixture } from "./publishedOrderPriceFixture.mjs";
+
+const publishedPriceFixture = buildPublishedOrderPriceFixture();
+const fixtureSqlText = value => "'" + String(value).replaceAll("'", "''") + "'";
+
 export const postgresLiveBusinessSeedSql = `
+-- Explicit synthetic published price facts for formal-order API tests.
+INSERT INTO price_tables(id,biz_no,name,version_no,status,effective_from)
+VALUES (${fixtureSqlText(publishedPriceFixture.priceTables[0].id)}, ${fixtureSqlText(publishedPriceFixture.priceTables[0].bizNo)}, '合成已发布通用价', 9, 'active', '2020-01-01')
+ON CONFLICT(id) DO UPDATE SET version_no=EXCLUDED.version_no, status=EXCLUDED.status, effective_from=EXCLUDED.effective_from;
+INSERT INTO price_table_items(id,price_table_id,size_key,handle_type,style_key,bag_price,print_price,other_fee,min_qty,enabled)
+VALUES ${publishedPriceFixture.priceTableItems.map(item => `(${[item.id,item.priceTableId,item.sizeKey,item.handleType,item.styleKey].map(fixtureSqlText).join(",")},${item.bagPrice},${item.printPrice},${item.otherFee},NULL,true)`).join(",\n")}
+ON CONFLICT(id) DO UPDATE SET bag_price=EXCLUDED.bag_price, print_price=EXCLUDED.print_price, other_fee=EXCLUDED.other_fee, enabled=EXCLUDED.enabled;
+
 INSERT INTO users (id, login_name, display_name, department)
 VALUES
   ('U-OFFICE-A', 'office.a', '办公室A', 'office'),

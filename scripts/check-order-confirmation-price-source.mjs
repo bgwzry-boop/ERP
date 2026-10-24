@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 import { closeTestServer, getTestServerBaseUrl, listenTestServer, requestJson } from "./helpers/apiIntegrationTestHarness.mjs";
 import { createLockedSpecialPriceDraftFixture } from "./helpers/lockedSpecialPriceFixture.mjs";
+import { buildPublishedOrderPriceFixture } from "./helpers/publishedOrderPriceFixture.mjs";
 
 export function buildPriceSourceWorkspace({ size = "43*51*12", orderType = "custom_special", print = false } = {}) {
   const line = { id: "D-PRICE-01", draftLineId: "D-PRICE-01", customerId: "C-PRICE", customer: "合成价格核对客户", product: print ? "测试定制图案" : "特殊尺寸空白袋", productName: print ? "测试定制图案" : "特殊尺寸空白袋", orderType, size, color: "红色", bagColor: "红色", handle: "普通提", handleType: "普通提", style: "空白袋", print: print ? "是" : "否", printFlag: print, qty: 100, fulfillment: "自提", fulfillmentMethod: "自提", latest: "2026-11-01", latestNeededAt: "2026-11-01", printSide: print ? "单面" : "非印刷", printColor: print ? "黑色" : "非印刷", artworkStatus: print ? "已上传" : "非印刷" };
@@ -30,10 +31,13 @@ export async function checkOrderConfirmationPriceSource() {
     for (const key of ["orderLines", "productionTasks", "fulfillments", "inventoryReservations", "priceSnapshots", "operationLogs"]) assert.equal(workspace[key].length, 0, key);
   }
   const workspace = buildPriceSourceWorkspace({ size: "30*38*10", orderType: "stock" });
+  Object.assign(workspace, buildPublishedOrderPriceFixture({ bagPrice: 0.9 }));
   const response = await service.confirmOrderDraft({ workspace, draftId: "D-PRICE", operatorId: "U-PRICE", body: { expectedRevision: 1, idempotencyKey: "known-price", lines: workspace.orderDrafts[0].lines } });
   assert.ok(response.response, JSON.stringify(response));
-  assert.equal(response.response.priceSnapshots[0].bagPrice, 0.34);
-  assert.equal(response.response.priceSnapshots[0].finalAmount, 34);
+  assert.equal(response.response.priceSnapshots[0].bagPrice, 0.9);
+  assert.equal(response.response.priceSnapshots[0].finalAmount, 90);
+  assert.equal(response.response.priceSnapshots[0].sourceEvidence.priceTableVersion, 9);
+  assert.equal(workspace.priceSnapshots[0].sourceEvidence.priceVersion, "TEST-PUBLISHED-v9");
 
   const quoted = buildPriceSourceWorkspace();
   quoted.orderDraftRepository = createLockedSpecialPriceDraftFixture();

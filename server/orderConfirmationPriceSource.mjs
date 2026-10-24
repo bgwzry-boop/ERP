@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { assertPublishedOrderPriceSnapshots } from "./orderDraftPublishedPricing.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
 
 const clean = value => String(value ?? "").trim();
@@ -6,7 +7,8 @@ const finite = value => typeof value === "number" && Number.isFinite(value);
 
 // These snapshots are made by a server command, never accepted from a request
 // body. An unknown bag price is not a free order or a print-only quotation.
-export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnapshots = [], miniappPriceSource } = {}) {
+export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnapshots = [], miniappPriceSource, publishedPriceSource } = {}) {
+  assertPublishedOrderPriceSnapshots(publishedPriceSource, orderLines, priceSnapshots);
   for (const line of orderLines) {
     const lineId = clean(line.orderLineId ?? line.id);
     const snapshots = priceSnapshots.filter(row => clean(row.orderLineId ?? row.order_line_id) === lineId);
