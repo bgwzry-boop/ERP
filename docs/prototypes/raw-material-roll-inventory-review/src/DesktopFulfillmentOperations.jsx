@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
 import { completeOfficePackingTask } from "../../../../src/services/officeProductionPackingApiClient.js";
 import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
@@ -69,7 +70,9 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const method = fulfillment.method ?? fulfillment.fulfillmentMethod;
   const packages = parseActualPackageQuantities(packageText);
   const packTotal = packages?.reduce((sum, qty) => sum + qty, 0) ?? 0;
-  const stockPacking = !task && isStockOrderType(fulfillment.orderType ?? line?.orderType) && !fulfillment.actualPackageCount && ["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment.status);
+  const orderType = fulfillment.orderType ?? line?.orderType;
+  const stockOrder = isStockOrderType(orderType);
+  const stockPacking = !task && stockOrder && !fulfillment.actualPackageCount && ["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment.status);
   const canPack = !terminal && !fulfillment.physicalOutboundAt && (task?.status === "待打包" || stockPacking);
   const warehouseResult = paper?.status === "已交库房" ? execution : "已备货";
   const locked = busy || uncertain || Boolean(confirmation);
@@ -120,14 +123,18 @@ function FulfillmentOperations({ fulfillment, formal }) {
     {candidates.error && <p role="alert">{candidates.error}</p>}
     {notice && <p className="fulfillment-operation-notice" role="status">{notice}</p>}
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
-      {canPack && can("packing.complete") && <fieldset disabled={locked}>
+      {canPack && can("packing.complete") && stockOrder && <div>
+        <p>通货可混装，含不足约 1000、来厂自提。逐项登记，并核对包内合计。</p>
+        <MixedPackageWorkbench authState={formal?.authState} fulfillmentId={fulfillment.id ?? fulfillment.fulfillmentId} orderLineId={lineId} onSaved={() => formal?.actions?.refreshAll?.()} onBusyChange={setBusy} />
+      </div>}
+      {canPack && can("packing.complete") && !stockOrder && <fieldset disabled={locked}>
         <legend>登记实际包裹</legend>
         <p>本次应交 {expected.toLocaleString()} 个。先按实物核对，再登记每包数量。</p>
+        <p>定制单不混装，只登记本明细的独立包裹。</p>
         <div className="fulfillment-operation-grid"><label>实际包数<input type="number" min="1" step="1" value={uniformCount} onChange={event => setUniformCount(event.target.value)} /></label><label>每包数量<input type="number" min="1" step="1" value={uniformQty} onChange={event => setUniformQty(event.target.value)} /></label></div>
         <button type="button" onClick={fillUniform}>填入逐包明细</button>
         <label>逐包数量（每行一包，可修改）<textarea rows="4" value={packageText} onChange={event => { setPackageText(event.target.value); setChecked(false); }} placeholder={"例如：\n1000\n1000"} /></label>
         <p>{packages ? `${packages.length} 包，合计 ${packTotal.toLocaleString()} 个` : "请填入实际每包数量"}{packages && packTotal !== expected ? "；与应交数量有差异，保存后需继续核对差异。" : ""}</p>
-        <p>当前仅支持单明细独立装包，混装登记暂未接入。</p>
         <label className="fulfillment-operation-check"><input type="checkbox" checked={checked} onChange={event => setChecked(event.target.checked)} />已按实物核对每包内容、数量及挂牌对应关系</label>
         <button type="button" className="primary" disabled={!packages || !checked} onClick={() => ask("登记实际包裹", completeOfficePackingTask, { packingTaskId: task?.packingTaskId ?? task?.id ?? `PKT-F-${fulfillment.id}`, orderLineId: lineId, fulfillmentId: fulfillment.id, actualPackedQty: packTotal, packageCount: packages.length, packages: packages.map(packedQty => ({ packedQty })) }, `${packages.length} 个独立包裹，合计 ${packTotal} 个；保存后按包裹码打印挂牌。`)}>核对并登记包裹</button>
       </fieldset>}

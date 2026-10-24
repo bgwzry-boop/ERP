@@ -33,7 +33,7 @@ for (const status of closedStatementPaymentStatuses) {
   assert.equal(current.paymentRecords.length, 0);
 }
 const current = workspace();
-const request = { workspace: current, statementId: base.id, operatorId: "U-FINANCE", body: { amount: 50, expectedRevision: 1, idempotencyKey: "cumulative-50" } };
+const request = { workspace: current, statementId: base.id, operatorId: "U-FINANCE", body: { amount: 50, expectedRevision: 1, idempotencyKey: "cumulative-50", remark: "客户少付" } };
 const payment = await service.recordPayment(request);
 assert.equal(current.statements[0].received, 50, "the new cumulative value replaces 20, never adds another 50");
 const replay = await service.recordPayment(request);

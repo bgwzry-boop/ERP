@@ -13,6 +13,7 @@ import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
 import { DesktopFulfillmentOperations } from "./DesktopFulfillmentOperations.jsx";
+import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
 import { FinishedInventoryCorrectionCreate } from "./FinishedInventoryCorrectionCreate.jsx";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -614,8 +615,14 @@ function PeopleMachinesWorkspace({ formal, onNavigate }) {
 
 function PhysicalPackagesPanel({formal,fulfillmentId,orderLineId}) {
   const [open,setOpen]=useState(false),[pending,setPending]=useState(false);
+  const fulfillment = (formal.data?.fulfillments ?? []).find(item => (item.id || item.fulfillmentId) === fulfillmentId);
+  const resolvedLineId = orderLineId || fulfillment?.orderLineId || fulfillment?.lineId;
+  const line = (formal.data?.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === resolvedLineId);
+  if (!isStockOrderType(fulfillment?.orderType ?? line?.orderType)) return null;
+  const initialStockRegistration = !fulfillment?.actualPackageCount && ["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment?.status);
+  if (initialStockRegistration) return null;
   if (!(formal.permissionContext?.actionPermissions || []).some(key=>["packing.read","packing.complete","fulfillment.print"].includes(key))) return null;
-  return <section className="business-detail-section"><button className="secondary-button" type="button" disabled={pending} onClick={()=>setOpen(value=>!value)}>{open?"收起实物包裹":"登记 / 更正实物包裹"}</button>{open?<MixedPackageWorkbench authState={formal.authState} fulfillmentId={fulfillmentId} orderLineId={orderLineId} onSaved={formal.actions.refreshAll} onBusyChange={setPending}/>:null}</section>;
+  return <section className="business-detail-section"><button className="secondary-button" type="button" disabled={pending} onClick={()=>setOpen(value=>!value)}>{open?"收起实物包裹":"登记 / 更正实物包裹"}</button>{open?<MixedPackageWorkbench authState={formal.authState} fulfillmentId={fulfillmentId} orderLineId={resolvedLineId} onSaved={formal.actions.refreshAll} onBusyChange={setPending}/>:null}</section>;
 }
 
 function FulfillmentWorkspace({ formal, onNavigate }) {

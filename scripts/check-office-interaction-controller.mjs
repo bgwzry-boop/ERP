@@ -237,7 +237,8 @@ for (const key of ["attachmentViewer", "masterDataTemplatePanel", "modal", "orde
   await harness.actions.confirmModal({ amount: 80, reason: "银行转账", attachPaymentProof: false });
   assert.equal(harness.statements[0].paymentRecorded, true);
   assert.equal(harness.addedTodos[0].id, "TODO-PAYMENT");
-  assert.match(harness.toast, /少付进入差额待确认/);
+  assert.match(harness.toast, /登记实收和少付差额，并通知老板、财务、管理待阅/);
+  assert.doesNotMatch(harness.toast, /少付进入差额待确认/);
 }
 
 {
