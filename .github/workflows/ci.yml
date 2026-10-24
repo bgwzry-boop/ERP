@@ -21,6 +21,21 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ruby
       - run: npx playwright install --with-deps chromium
       - run: npm ci --prefix docs/prototypes/raw-material-roll-inventory-review
+      - name: Start and verify the complete local review required by browser checks
+        run: |
+          mkdir -p .erp-local-storage/ci
+          setsid npm run review:dev > .erp-local-storage/ci/review.log 2>&1 &
+          printf '%s\n' "$!" > .erp-local-storage/ci/review.pid
+          ready=0
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:4174/ > /dev/null && curl --fail --silent http://127.0.0.1:8787/api/health > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1
+          node scripts/check-complete-review-preview.mjs
       - run: npm test
       - run: npm run test:raw-material
       - run: npm audit --audit-level=high
@@ -36,3 +51,19 @@ jobs:
       - run: npm run db:postgres-live:check
       - run: npm run p1-postgres:check
       - run: npm run object-storage:minio-live:check
+      - name: Stop the task-owned local review
+        if: always()
+        run: |
+          if [ -f .erp-local-storage/ci/review.pid ]; then
+            review_pid=$(cat .erp-local-storage/ci/review.pid)
+            if [[ "$review_pid" =~ ^[0-9]+$ ]]; then
+              kill -- "-$review_pid" 2>/dev/null || true
+            fi
+          fi
+      - name: Retain local review startup evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-review-startup-${{ github.sha }}
+          path: .erp-local-storage/ci/review.log
+          retention-days: 7
