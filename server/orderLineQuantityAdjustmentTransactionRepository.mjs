@@ -2,6 +2,7 @@ import {assertOrderDocumentsVoided,orderMutationDocumentLocksSql,orderMutationDo
 import {assertOrderProductionNotExecuted,applyPendingOrderProductionMutation,orderMutationProductionLocksSql,orderMutationProductionGuardSql,orderMutationProductionUpdatesSql} from "./orderMutationProductionGuard.mjs";
 import { createLocalWorkspaceReceiptStore } from "./localWorkspaceReceiptStore.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
+import { createPrintGroupCorrectionTransactionMethods } from "./orderPrintGroupCorrectionTransaction.mjs";
 import { assertOrderMutationRevision, assertOrderMutationDeliveryNotExecuted, orderDeliveryNotExecutedSql } from "./orderMutationDeliveryGuard.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -35,6 +36,7 @@ export function createLocalOrderLineQuantityAdjustmentTransactionRepository() {
   const receipts = createLocalWorkspaceReceiptStore();
   return {
     kind: "local_memory",
+    ...createPrintGroupCorrectionTransactionMethods(),
 
     findIdempotentReplay(input) {
       return receipts.read(input);
@@ -87,6 +89,7 @@ export function createPostgresOrderLineQuantityAdjustmentTransactionRepository(o
 
   return {
     kind: "postgres",
+    ...createPrintGroupCorrectionTransactionMethods({queryJson,idempotentTransactionJson}),
 
     async findIdempotentReplay(input) {
       const replay = await readPostgresIdempotencyReplay({

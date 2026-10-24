@@ -612,7 +612,7 @@ async function routeGet(context) {
     return sendJson(response, 200, buildOfficeWorkspaceProjection(workspace));
   }
 
-  if (await handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound, permissionContext, requireActionPermission, getPermissionOperatorId, authContext, orderLineMutationCommandService, sendCommandResponse })) return;
+  if (await handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound, permissionContext, requireActionPermission, getPermissionOperatorId, authContext, orderLineMutationCommandService, orderPrintGroupCorrectionService, sendCommandResponse })) return;
 
   if (
     await handleProductionReadRoutes({
@@ -1180,6 +1180,7 @@ async function routeWrite(context) {
       getPermissionOperatorId,
       orderDraftCommandService,
       orderLineMutationCommandService,
+      orderPrintGroupCorrectionService,
       sendCommandResponse,
     })
   ) {
@@ -1388,6 +1389,7 @@ const {
   masterDataMachineCommandService,
   orderDraftCommandService,
   orderLineMutationCommandService,
+  orderPrintGroupCorrectionService,
   packingCommandService,
   phoneIdentityCommandService,
   printBatchCommandService,

@@ -28,8 +28,12 @@ export function createLocalOrderPoolReadRepository() {
     listOrderLines({ workspace, query = {} }) {
       const filters = normalizeOrderPoolQuery(query);
       const customers = new Map((workspace.customers ?? []).map((customer) => [customer.id, customer]));
+      const groupByLine=new Map();
+      for(const snapshot of [...(workspace.priceSnapshots??[])].sort((a,b)=>(Date.parse(b.createdAt??b.created_at)||0)-(Date.parse(a.createdAt??a.created_at)||0)||Number(b.versionNo??b.version_no)-Number(a.versionNo??a.version_no))){
+        const id=snapshot.orderLineId??snapshot.order_line_id;if(!groupByLine.has(id))groupByLine.set(id,safePrintingPriceGroup(snapshot.sourceEvidence?.officePricingGroup));
+      }
       let items = (workspace.orderLines ?? []).map((line) =>
-        normalizeOrderLineListItem(line, { customer: customers.get(line.customerId) }),
+        normalizeOrderLineListItem({...line,printingPriceGroup:groupByLine.get(line.orderLineId??line.id)??null}, { customer: customers.get(line.customerId) }),
       );
       items = filterLocalOrderLines(items, filters);
       return paginateOrderLines(items, filters);
@@ -337,6 +341,7 @@ SELECT
   COALESCE(customer.name, original.customer_snapshot->>'name', line.customer_id) AS customer_name,
   latest_price.final_amount AS amount,
   latest_price.id AS price_snapshot_id,
+  latest_price.printing_price_group,
   latest_fulfillment.id AS fulfillment_id,
   latest_fulfillment.status AS fulfillment_status,
   latest_fulfillment.method AS latest_fulfillment_method,
@@ -347,7 +352,8 @@ FROM order_lines AS line
 JOIN original_orders AS original ON original.id = line.order_id
 LEFT JOIN customers AS customer ON customer.id = line.customer_id
 LEFT JOIN LATERAL (
-  SELECT snapshot.id, snapshot.final_amount
+  SELECT snapshot.id, snapshot.final_amount,
+    json_build_object('groupId',snapshot.source_evidence_json->'officePricingGroup'->>'groupId','memberCount',snapshot.source_evidence_json->'officePricingGroup'->'memberCount') AS printing_price_group
   FROM price_snapshots AS snapshot
   WHERE snapshot.order_line_id = line.id
   ORDER BY snapshot.created_at DESC, snapshot.version_no DESC, snapshot.id DESC
@@ -463,6 +469,7 @@ function orderLineListItemJsonExpression(alias) {
     'latestNeededAt', ${alias}.latest_needed_at,
     'latest', COALESCE(${alias}.latest_needed_at::TEXT, '待确认'),
     'amount', COALESCE(${alias}.amount, 0),
+    'printingPriceGroup', ${alias}.printing_price_group,
     'financeState', COALESCE(${alias}.finance_state, 'unbilled'),
     'exceptionTags', ${alias}.exception_tags,
     'exceptions', ${alias}.exception_tags,
@@ -521,6 +528,10 @@ function paginateOrderLines(items, filters) {
   };
 }
 
+function safePrintingPriceGroup(value){
+  const groupId=cleanText(value?.groupId),memberCount=Number(value?.memberCount);
+  return groupId&&Number.isSafeInteger(memberCount)&&memberCount>0?{groupId,memberCount}:null;
+}
 function normalizeOrderLineListItem(line, context = {}) {
   if (!line || typeof line !== "object") return null;
   const id = cleanText(line.id ?? line.orderLineId ?? line.order_line_id);
@@ -574,6 +585,7 @@ function normalizeOrderLineListItem(line, context = {}) {
     latestNeededAt,
     latest,
     amount: toFiniteNumber(line.amount ?? line.finalAmount ?? line.final_amount, 0),
+    printingPriceGroup:safePrintingPriceGroup(line.printingPriceGroup??line.printing_price_group),
     financeState: cleanText(line.financeState ?? line.finance_state) || "unbilled",
     exceptionTags,
     exceptions: exceptionTags,

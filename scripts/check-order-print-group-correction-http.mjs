@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { mkdtemp,rm } from "node:fs/promises";
+import {join} from "node:path";
+import {tmpdir} from "node:os";
+import {createApiServer} from "../server/apiServer.mjs";
+import {withLocalRepositoryFixture} from "./helpers/localRepositoryFixture.mjs";
+import {buildPublishedOrderPriceFixture} from "./helpers/publishedOrderPriceFixture.mjs";
+import {listenTestServer,closeTestServer,getTestServerBaseUrl,requestJson} from "./helpers/apiIntegrationTestHarness.mjs";
+const root=await mkdtemp(join(tmpdir(),"erp-print-group-http-"));
+const server=createApiServer(withLocalRepositoryFixture({runtimeMode:"test",runtimeStorageRoot:root,seedSource:"synthetic",applyProductionEnvFile:false,authMode:"prototype",authSecret:randomBytes(32).toString("hex"),fixedPreviewUserId:"U-MANAGER-A",allowLegacyIdentityHeaders:false,allowActionPermissionOverride:false,allowDefaultSeedUser:false,coreWorkspaceReadRepository:{kind:"local_memory",loadState:()=>buildPublishedOrderPriceFixture({bagPrice:.9})}}));
+try{
+ await server.ready;await listenTestServer(server);const base=getTestServerBaseUrl(server);let token;
+ const api=(path,body,method="POST")=>requestJson(base,`/api${path}`,{method,headers:{"content-type":"application/json",...(token?{authorization:`Bearer ${token}`}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+ assert.ok([401,403].includes((await api("/order-lines/missing/print-group",undefined,"GET")).status));
+ token=(await api("/auth/prototype-login",{userId:"U-MANAGER-A"})).body.session.accessToken;
+ const d=await api("/order-drafts/recognize",{customerId:"C003",sourceText:"王五包装 30*38红5000个 明天自提",idempotencyKey:"print-group-create"});assert.equal(d.status,200,JSON.stringify(d.body));
+ const lines=d.body.lines.map(row=>({...row,orderType:"custom_print",product:"合成HTTP稿件袋",productName:"合成HTTP稿件袋",artworkStatus:"已上传",print:"是",printFlag:true,printSide:"单面",printColor:"黑色",printContent:"合成HTTP同稿件",qty:5000}));lines.push({...lines[0],id:`${lines[0].id??lines[0].draftLineId}-02`,draftLineId:`${lines[0].draftLineId}-02`,color:"白色",bagColor:"白色"});
+ const draftId=d.body.draft.draftId,q=await api(`/order-drafts/${draftId}/price-quote`,{lines,expectedRevision:d.body.draft.clientRevision,idempotencyKey:"print-group-price"});assert.equal(q.status,200,JSON.stringify(q.body));
+ const confirm=await api(`/order-drafts/${draftId}/confirm`,{lines,expectedRevision:q.body.quote.clientRevision,pricingQuoteId:q.body.quote.quoteId,idempotencyKey:"print-group-confirm"});assert.equal(confirm.status,200,JSON.stringify(confirm.body));
+ const id=confirm.body.orderLines[0].id,view=await api(`/order-lines/${id}/print-group`,undefined,"GET");assert.equal(view.status,200,JSON.stringify(view.body));assert.equal(view.body.members.length,2);
+ const body={expectedGroupRevision:view.body.groupRevision,mode:"amend",reason:"客户明确减少第一行，保留原单价",members:view.body.members.map((row,i)=>({orderLineId:row.orderLineId,expectedRevision:row.revision,newQty:i?row.qty:2000,void:false}))};
+ const preview=await api(`/order-lines/${id}/print-group-correction-preview`,body);assert.equal(preview.status,200,JSON.stringify(preview.body));assert.equal(preview.body.totals.finalAmount,6720);
+ assert.equal((await api(`/order-lines/${id}/print-group-corrections`,{...body,previewHash:"forged",idempotencyKey:"bad-hash"})).status,409);
+ const command={...body,previewHash:preview.body.previewHash,idempotencyKey:"print-group-correct",finalAmount:0,operatorId:"FORGED"},saved=await api(`/order-lines/${id}/print-group-corrections`,command);assert.equal(saved.status,200,JSON.stringify(saved.body));assert.equal(saved.body.totals.finalAmount,6720);
+ assert.deepEqual((await api(`/order-lines/${id}/print-group-corrections`,command)).body,saved.body);
+ const updated=(await api(`/order-lines/${id}/print-group`,undefined,"GET")).body;assert.ok(updated.members.every(row=>row.revision===2));assert.equal(updated.members[0].printPrice,.06);
+ const cancel={expectedGroupRevision:updated.groupRevision,mode:"void_all",reason:"客户明确取消整组尚未执行订单",members:updated.members.map(row=>({orderLineId:row.orderLineId,expectedRevision:row.revision,newQty:row.qty,void:true}))};
+ const p=await api(`/order-lines/${id}/print-group-correction-preview`,cancel);assert.equal(p.status,200,JSON.stringify(p.body));const cancelCommand={...cancel,previewHash:p.body.previewHash,idempotencyKey:"print-group-void-all"};const v=await api(`/order-lines/${id}/print-group-corrections`,cancelCommand);assert.equal(v.status,200,JSON.stringify(v.body));assert.equal(v.body.totals.finalAmount,0);assert.deepEqual((await api(`/order-lines/${id}/print-group-corrections`,cancelCommand)).body,v.body);
+ console.log("PASS printing group signed HTTP: actual recognition→quote→confirmation→complete group reduction→whole void, authoritative amount/operator and receipt replay");
+}finally{await closeTestServer(server);await rm(root,{recursive:true,force:true});}

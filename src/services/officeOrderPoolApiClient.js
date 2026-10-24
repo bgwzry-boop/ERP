@@ -265,6 +265,8 @@ export function mapApiOrderLineToLocal(value = {}) {
   const inventory = cleanText(value.inventory) || mapReservationToInventoryLabel(value.reservationStatus ?? value.reservation_status);
   const orderType = mapOrderTypeToLocal(value.orderType ?? value.order_type, { printFlag, inventory });
   const exceptions = toStringArray(value.exceptionTags ?? value.exception_tags ?? value.exceptions);
+  const group=value.printingPriceGroup??value.printing_price_group;
+  const printingPriceGroup=cleanText(group?.groupId)&&Number.isSafeInteger(group?.memberCount)&&group.memberCount>0?{groupId:cleanText(group.groupId),memberCount:group.memberCount}:null;
 
   return {
     id,
@@ -299,6 +301,7 @@ export function mapApiOrderLineToLocal(value = {}) {
     latestNeededAt: cleanText(value.latestNeededAt ?? value.latest_needed_at),
     latest: cleanText(value.latest ?? value.latestNeededAt ?? value.latest_needed_at) || "待确认",
     amount: toNumber(value.amount ?? value.finalAmount ?? value.final_amount, 0),
+    printingPriceGroup,
     financeState: mapFinanceStateToLocal(value.financeState ?? value.finance_state),
     exceptionTags: exceptions,
     exceptions,

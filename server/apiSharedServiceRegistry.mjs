@@ -59,6 +59,7 @@ import { createMasterDataMachineCommandService } from "./services/masterDataMach
 import { createMaintenanceTaskCommandService } from "./services/maintenanceTaskCommandService.mjs";
 import { createOrderDraftCommandService } from "./services/orderDraftCommandService.mjs";
 import { createOrderLineMutationCommandService } from "./services/orderLineMutationCommandService.mjs";
+import { createOrderPrintGroupCorrectionService } from "./services/orderPrintGroupCorrectionService.mjs";
 import { createOrderWorkflowProjectionService } from "./services/orderWorkflowProjectionService.mjs";
 import { createPackingCommandService } from "./services/packingCommandService.mjs";
 import { createPhoneIdentityCommandService } from "./services/phoneIdentityCommandService.mjs";
@@ -402,6 +403,7 @@ export function createApiSharedServiceRegistry() {
     toInventoryQuantitySnapshot: buildInventoryQuantitySnapshot,
     toInventoryReservationTransactionSummary,
   });
+  const orderPrintGroupCorrectionService = createOrderPrintGroupCorrectionService();
   const orderDraftCommandService = createOrderDraftCommandService({
     buildCustomerSnapshot,
     buildOperationLog,
@@ -506,6 +508,7 @@ export function createApiSharedServiceRegistry() {
     nextId,
     orderDraftCommandService,
     orderLineMutationCommandService,
+    orderPrintGroupCorrectionService,
     packingCommandService,
     phoneIdentityCommandService,
     printBatchCommandService,

@@ -1,4 +1,6 @@
-export async function handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound, permissionContext, requireActionPermission, getPermissionOperatorId, authContext, orderLineMutationCommandService, sendCommandResponse }) {
+export async function handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound, permissionContext, requireActionPermission, getPermissionOperatorId, authContext, orderLineMutationCommandService, orderPrintGroupCorrectionService, sendCommandResponse }) {
+  const groupMatch=url.pathname.match(/^\/api\/order-lines\/([^/]+)\/print-group$/);
+  if(groupMatch){sendCommandResponse(response,await orderPrintGroupCorrectionService.getPrintGroup({workspace,orderLineId:decodeURIComponent(groupMatch[1])}));return true;}
   if (url.pathname === "/api/order-drafts") {
     const state = workspace.orderDraftRepository?.kind === "postgres"
       ? await workspace.orderDraftRepository.loadState()

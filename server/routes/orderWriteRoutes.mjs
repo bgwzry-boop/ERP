@@ -11,8 +11,16 @@ export async function handleOrderWriteRoutes({
   getPermissionOperatorId,
   orderDraftCommandService,
   orderLineMutationCommandService,
+  orderPrintGroupCorrectionService,
   sendCommandResponse,
 }) {
+  const groupMatch=url.pathname.match(/^\/api\/order-lines\/([^/]+)\/(print-group-correction-preview|print-group-corrections)$/);
+  if(method==="POST"&&groupMatch){
+    const allowed=permissionContext?.actionPermissions??[];
+    if(!allowed.includes("order.quantity.adjust")&&!allowed.includes("order.void")){requireActionPermission(response,permissionContext,"order.quantity.adjust");return true;}
+    const command=groupMatch[2]==="print-group-corrections"?"correctPrintGroup":"previewCorrection";
+    sendCommandResponse(response,await orderPrintGroupCorrectionService[command]({workspace,orderLineId:decodeURIComponent(groupMatch[1]),body,operatorId:getPermissionOperatorId(permissionContext,authContext,""),actionPermissions:allowed}));return true;
+  }
   if (method === "POST" && url.pathname === "/api/order-drafts/recognize") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.recognizeOrderDraft)) return true;
     sendCommandResponse(response, await orderDraftCommandService.recognizeOrderDraft({
