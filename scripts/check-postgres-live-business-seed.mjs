@@ -21,6 +21,8 @@ assert.match(postgresLiveBusinessSeedSql, /INSERT INTO business_decision_authori
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO machines/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO print_templates/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO customers/);
+assert.match(postgresLiveBusinessSeedSql, /INSERT INTO price_tables/);
+assert.match(postgresLiveBusinessSeedSql, /INSERT INTO price_table_items/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO inventory_items/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO order_drafts/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO original_orders/);
@@ -31,9 +33,9 @@ assert.match(postgresLiveBusinessSeedSql, /INSERT INTO packages/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO statements/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO statement_lines/);
 const insertedTableCount = (postgresLiveBusinessSeedSql.match(/^INSERT INTO /gm) ?? []).length;
-assert.equal(insertedTableCount, 17);
+assert.equal(insertedTableCount, 19);
 assert.equal(
-  (postgresLiveBusinessSeedSql.match(/^ON CONFLICT \(id\) DO UPDATE SET/gm) ?? []).length,
+  (postgresLiveBusinessSeedSql.match(/^ON CONFLICT\s*\(id\) DO UPDATE SET/gm) ?? []).length,
   insertedTableCount,
   "every live business fixture table must keep an idempotent primary-key upsert",
 );
