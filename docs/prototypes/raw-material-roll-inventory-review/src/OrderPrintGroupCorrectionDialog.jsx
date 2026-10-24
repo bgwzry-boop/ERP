@@ -48,7 +48,8 @@ function CorrectionForm({ orderLineId, authState, onClose, onSaved, onPendingCha
     readAbort.current = controller;
     setBusy("read"); setError(""); setGroup(null); setPreview(null); setChecked([]);
     const result = await getOfficeOrderPrintGroup({ orderLineId, authState }, { signal: controller.signal });
-    if (!live.current || ticket !== generation.current) return;
+    if (!live.current || ticket !== generation.current || readAbort.current !== controller) return;
+    readAbort.current = null;
     inFlight.current = false; setBusy("");
     if (result.source === "api" && !result.blocked) {
       setGroup(result);
@@ -59,7 +60,17 @@ function CorrectionForm({ orderLineId, authState, onClose, onSaved, onPendingCha
   useEffect(() => {
     live.current = true;
     if (!recovered) void load();
-    return () => { live.current = false; generation.current++; readAbort.current?.abort(); };
+    return () => {
+      live.current = false; generation.current++;
+      // StrictMode replays setup after cleanup. Release only the read owned by
+      // this effect; an unresolved write keeps its original request and lock.
+      const activeRead = readAbort.current;
+      if (activeRead) {
+        readAbort.current = null;
+        activeRead.abort();
+        inFlight.current = false;
+      }
+    };
   }, []);
   useEffect(() => {
     if (!pending) return;

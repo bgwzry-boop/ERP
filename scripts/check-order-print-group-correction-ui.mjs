@@ -92,12 +92,13 @@ assert.equal((await previewOfficeOrderPrintGroupCorrection({ ...request, members
 
 const directory = await mkdtemp(join(tmpdir(), "erp-print-group-ui-"));
 const attempts = [], previews = [], applied = new Map();
-let outcomes = [], releaseHeld, closeCalls = 0;
+let outcomes = [], releaseHeld, releaseFirstWrite, closeCalls = 0;
 const auth = session => ({ session: { accessToken: session }, permissions: { user: { userId: `SYN-${session}` }, actionPermissions: ["order.quantity.adjust", "order.void"] } });
 let server, browser;
 try {
   await build({ stdin: { resolveDir: process.cwd(), loader: "jsx", contents: `import React from 'react';import{createRoot}from'react-dom/client';import{OrderPrintGroupCorrectionDialog}from'./docs/prototypes/raw-material-roll-inventory-review/src/OrderPrintGroupCorrectionDialog.jsx';import'./docs/prototypes/raw-material-roll-inventory-review/src/styles.css';
-const root=createRoot(document.getElementById('root'));window.events=[];window.saved=[];window.groupCloseCount=0;window.mount=(auth)=>root.render(<OrderPrintGroupCorrectionDialog orderLineId="SYN-A" authState={auth} onClose={()=>window.groupCloseCount++} onSaved={result=>{window.saved.push({session:auth.session.accessToken,result});}} onPendingChange={(pending,ownerKey)=>window.events.push({pending,ownerKey,session:auth.session.accessToken})}/>);window.unmount=()=>root.render(null);window.mount(${JSON.stringify(auth("A"))});` },
+const nativeFetch=window.fetch.bind(window);window.strictGroupReads=0;window.fetch=(url,options)=>{if(String(url).endsWith('/print-group')&&++window.strictGroupReads===1)return new Promise(resolve=>{window.releaseStaleGroupRead=()=>{window.staleGroupReadReturned=true;resolve(new Response(${JSON.stringify(JSON.stringify(group))},{status:200,headers:{'content-type':'application/json'}}));};});return nativeFetch(url,options);};
+const root=createRoot(document.getElementById('root'));window.events=[];window.saved=[];window.groupCloseCount=0;window.mount=(auth)=>root.render(<React.StrictMode><OrderPrintGroupCorrectionDialog orderLineId="SYN-A" authState={auth} onClose={()=>window.groupCloseCount++} onSaved={result=>{window.saved.push({session:auth.session.accessToken,result});}} onPendingChange={(pending,ownerKey)=>window.events.push({pending,ownerKey,session:auth.session.accessToken})}/></React.StrictMode>);window.unmount=()=>root.render(null);window.mount(${JSON.stringify(auth("A"))});` },
     outfile: join(directory, "harness.js"), bundle: true, format: "esm", jsx: "automatic", logLevel: "silent",
     alias: { react: join(process.cwd(), "node_modules/react"), "react-dom": join(process.cwd(), "node_modules/react-dom") },
     define: { "import.meta.env": JSON.stringify({ VITE_ERP_API_BASE_URL: "/api", VITE_ERP_RUNTIME_MODE: "strict" }) },
@@ -112,6 +113,7 @@ const root=createRoot(document.getElementById('root'));window.events=[];window.s
       if (req.url.endsWith("/print-group-corrections")) {
         attempts.push({ body, auth: req.headers.authorization, key: req.headers["idempotency-key"] });
         const outcome = outcomes.shift() ?? "ok";
+        if(attempts.length===1)await new Promise(resolve=>{releaseFirstWrite=resolve;});
         if (outcome === "reject") { res.statusCode = 409; res.end(JSON.stringify({ error: { code: "PRINT_GROUP_REVISION_CONFLICT", message: "合成版本已变化" } })); return; }
         const key = `${req.headers.authorization}:${body.idempotencyKey}`;
         const value = applied.get(key) ?? makeReceipt(previews.find(row => row.value.previewHash === body.previewHash).value);
@@ -138,6 +140,7 @@ const root=createRoot(document.getElementById('root'));window.events=[];window.s
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   try { await page.getByLabel("SYN-A 新数量").waitFor(); }
   catch (error) { console.error({ pageErrors, body: await page.locator("body").innerText() }); throw error; }
+  assert.ok(await page.evaluate(()=>window.strictGroupReads>=2),"StrictMode cleanup releases the canceled initial read so replay setup can load again");
   await page.getByLabel("SYN-A 新数量").fill("5001");
   await page.getByLabel("整组更正原因").fill("合成客户减量");
   await page.getByRole("button", { name: "核对整组更正", exact: true }).click();
@@ -162,6 +165,12 @@ const root=createRoot(document.getElementById('root'));window.events=[];window.s
   assert.ok(reviewSize.scroll <= reviewSize.width + 1, "The dialog itself must not overflow the viewport");
   outcomes = ["503", "bad", "409", "ok"];
   await page.getByRole("button", { name: "确认整组更正", exact: true }).evaluate(button => { button.click(); button.click(); });
+  await page.getByRole("button",{name:"正在保存整组更正…",exact:true}).waitFor();
+  while(!releaseFirstWrite)await new Promise(resolve=>setTimeout(resolve,10));
+  await page.evaluate(async()=>{window.releaseStaleGroupRead();await new Promise(resolve=>setTimeout(resolve,30));});
+  assert.equal(await page.getByRole("button",{name:"正在保存整组更正…",exact:true}).isDisabled(),true,"A stale aborted read cannot release a newer write's busy state");
+  assert.equal(await page.getByLabel("SYN-A 新数量").inputValue(),"4000","The late initial read cannot overwrite the current edits");
+  releaseFirstWrite();releaseFirstWrite=null;
   await page.getByRole("button", { name: "按原请求重试", exact: true }).waitFor();
   assert.equal(attempts.length, 1);
   assert.equal(await page.getByLabel("SYN-A 新数量").isDisabled(), true);
@@ -248,8 +257,9 @@ const root=createRoot(document.getElementById('root'));window.events=[];window.s
   assert.equal(previews.at(-1).value.totals.newQty, 5000);
   assert.equal(previews.at(-1).value.totals.finalAmount, 2000);
   assert.deepEqual(pageErrors, []);
-  console.log("PASS print-group client and real dialog with synthetic HTTP: complete/versioned frozen-rate receipts, missing amounts, explicit full-member review, no increases, single-line/whole-group void, combined permissions, duplicate click, durable exact retry after 503/bad-200/409, remount, beforeunload, first rejection and cross-session late response. No real ERP data used.");
+  console.log("PASS StrictMode print-group client/dialog: replayed initial read, stale read cannot release newer write or overwrite edits; complete frozen-rate receipts, explicit full-member review, no increases, member/whole void, permissions, duplicate click, exact retry after 503/bad-200/409, pending remount, beforeunload, first rejection and cross-session late response. No real ERP data used.");
 } finally {
+  releaseFirstWrite?.();
   releaseHeld?.();
   if (browser) await browser.close();
   if (server) await new Promise(resolve => server.close(resolve));

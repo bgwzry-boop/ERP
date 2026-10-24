@@ -47,7 +47,7 @@ try {
   const originals = initialGroup.body.members.map(row => ({ id: row.orderLineId, priceSnapshotId: row.priceSnapshotId, bagPrice: row.bagPrice, printPrice: row.printPrice }));
   const authState = { ...login.body, source: "runtime" };
   await build({ stdin: { resolveDir: process.cwd(), loader: "jsx", contents: `import React from 'react';import{createRoot}from'react-dom/client';import{OrderPrintGroupCorrectionDialog}from'./docs/prototypes/raw-material-roll-inventory-review/src/OrderPrintGroupCorrectionDialog.jsx';import'./docs/prototypes/raw-material-roll-inventory-review/src/styles.css';
-const root=createRoot(document.getElementById('root'));let revision=0;window.receipts=[];window.renderGroup=()=>root.render(<OrderPrintGroupCorrectionDialog key={++revision} orderLineId=${JSON.stringify(anchor)} authState={${JSON.stringify(authState)}} onClose={()=>{}} onSaved={result=>window.receipts.push(result)}/>);window.renderGroup();` },
+const root=createRoot(document.getElementById('root'));let revision=0;window.receipts=[];window.renderGroup=()=>root.render(<React.StrictMode><OrderPrintGroupCorrectionDialog key={++revision} orderLineId=${JSON.stringify(anchor)} authState={${JSON.stringify(authState)}} onClose={()=>{}} onSaved={result=>window.receipts.push(result)}/></React.StrictMode>);window.renderGroup();` },
     outfile: join(directory, "harness.js"), bundle: true, format: "esm", jsx: "automatic", logLevel: "silent",
     alias: { react: join(process.cwd(), "node_modules/react"), "react-dom": join(process.cwd(), "node_modules/react-dom") },
     define: { "import.meta.env": JSON.stringify({ VITE_ERP_API_BASE_URL: "/api", VITE_ERP_RUNTIME_MODE: "strict" }) },
