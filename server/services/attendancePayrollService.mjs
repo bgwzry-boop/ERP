@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
+import {
+  calculateAttendanceWorkMinutes,
+  LEGACY_REVIEWED_ATTENDANCE_MINUTE_VERSION,
+  REVIEWED_ATTENDANCE_MINUTE_VERSION,
+} from "./attendanceWorkMinutes.mjs";
 
 const payrollRunTransitions = Object.freeze({
   draft: new Set(["reviewed"]),
@@ -368,8 +373,17 @@ export function createAttendancePayrollService(dependencies = {}) {
     if (!explanation) {
       throw businessError(400, "ATTENDANCE_REVIEW_EXPLANATION_REQUIRED", "考勤复核必须填写说明。");
     }
-    const adjustedWorkMinutes =
-      status === "adjusted" ? nonNegativeInteger(body.adjustedWorkMinutes, "adjustedWorkMinutes") : null;
+    const sourcePunches = (workspace.attendancePunches ?? [])
+      .filter((punch) => punch.employeeId === employeeId && punch.localWorkDate === workDate)
+      .sort((left, right) => Date.parse(left.punchedAt) - Date.parse(right.punchedAt));
+    // A newly approved review freezes the server-calculated minute value in
+    // the existing review column. Old approvals without that snapshot retain
+    // their original pairwise minutes until an explicit human re-review.
+    const adjustedWorkMinutes = status === "adjusted"
+      ? nonNegativeInteger(body.adjustedWorkMinutes, "adjustedWorkMinutes")
+      : status === "approved"
+        ? calculateAttendanceWorkMinutes(sourcePunches.map((punch) => punch.punchedAt)).workMinutes
+        : null;
     const changedAt = now().toISOString();
     const existing = (workspace.attendanceDayReviews ?? []).find(
       (review) => review.employeeId === employeeId && review.workDate === workDate,
@@ -831,16 +845,27 @@ export function buildAttendanceDays({ workspace, employee, month } = {}) {
     .map(([workDate, punches]) => {
       const sorted = [...punches].sort((left, right) => Date.parse(left.punchedAt) - Date.parse(right.punchedAt));
       const expectedPunchCount = isSilkScreenEmployee(employee) ? 2 : 4;
-      const rawWorkMinutes = pairwiseMinutes(sorted.map((punch) => punch.punchedAt));
+      const minuteEvidence = calculateAttendanceWorkMinutes(sorted.map((punch) => punch.punchedAt));
+      const rawWorkMinutes = minuteEvidence.rawWorkMinutes;
       const review = reviews.get(workDate);
       const reviewStatus = cleanText(review?.status);
-      const adjusted = reviewStatus === "adjusted" && Number.isFinite(Number(review.adjustedWorkMinutes));
+      const hasReviewedMinuteSnapshot = review?.adjustedWorkMinutes !== null &&
+        review?.adjustedWorkMinutes !== undefined && Number.isFinite(Number(review.adjustedWorkMinutes));
+      const adjusted = reviewStatus === "adjusted" && hasReviewedMinuteSnapshot;
+      const approved = reviewStatus === "approved";
       const rejected = reviewStatus === "rejected";
       const workMinutes = rejected
         ? 0
-        : adjusted
+        : adjusted || (approved && hasReviewedMinuteSnapshot)
           ? Math.max(0, Number(review.adjustedWorkMinutes))
-          : rawWorkMinutes;
+          : approved
+            ? rawWorkMinutes
+            : minuteEvidence.workMinutes;
+      const calculationVersion = adjusted || (approved && hasReviewedMinuteSnapshot)
+        ? REVIEWED_ATTENDANCE_MINUTE_VERSION
+        : approved
+          ? LEGACY_REVIEWED_ATTENDANCE_MINUTE_VERSION
+          : minuteEvidence.version;
       const status = rejected
         ? "rejected"
         : reviewStatus === "approved" || reviewStatus === "adjusted"
@@ -856,6 +881,18 @@ export function buildAttendanceDays({ workspace, employee, month } = {}) {
         actualPunchCount: sorted.length,
         rawWorkMinutes,
         workMinutes,
+        minuteCalculation: {
+          ...minuteEvidence,
+          version: calculationVersion,
+          ruleVersion: minuteEvidence.version,
+          calculatedWorkMinutes: minuteEvidence.workMinutes,
+          workMinutes,
+          appliedUnpaidBreakMinutes: !approved && !adjusted && !rejected ? minuteEvidence.unpaidBreakMinutes : 0,
+          reviewStatus,
+          reviewId: cleanText(review?.id),
+          reviewedMinuteSnapshot: adjusted || (approved && hasReviewedMinuteSnapshot),
+          legacyReviewedMinutesPreserved: approved && !hasReviewedMinuteSnapshot,
+        },
         workHours: round(workMinutes / 60, 2),
         status,
         statusLabel: status === "normal"
@@ -918,6 +955,12 @@ function calculatePayrollEstimate({ employee, days, policyVersion, asOf }) {
     netWage: grossWage,
     policyVersionId: policyVersion.id,
     policyVersionLabel: policyVersion.versionLabel,
+    attendanceMinuteEvidence: days.map((day) => ({
+      workDate: day.workDate,
+      rawWorkMinutes: day.rawWorkMinutes,
+      workMinutes: day.workMinutes,
+      calculation: structuredClone(day.minuteCalculation),
+    })),
     asOf: asOf.toISOString(),
     provisional: true,
   };
@@ -1221,18 +1264,6 @@ function precheckBlocker(code, message, count) {
     message,
     count: Math.max(0, Math.trunc(Number(count) || 0)),
   };
-}
-
-function pairwiseMinutes(timestamps = []) {
-  let minutes = 0;
-  for (let index = 0; index + 1 < timestamps.length; index += 2) {
-    const start = Date.parse(timestamps[index]);
-    const end = Date.parse(timestamps[index + 1]);
-    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
-      minutes += Math.round((end - start) / 60000);
-    }
-  }
-  return minutes;
 }
 
 function resolveSeniorityAward(tiers = [], years) {

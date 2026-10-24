@@ -131,6 +131,11 @@ button.payroll-position-row.selected { background: var(--blue-soft); box-shadow:
 .payroll-review-form textarea { width: 100%; min-height: 34px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; font-size: 11px; }
 .payroll-review-form textarea { min-height: 66px; resize: vertical; }
 .payroll-review-form button { min-height: 34px; border: 1px solid var(--line-strong); border-radius: 5px; }
+.payroll-minute-facts { display: grid; gap: var(--erp-space-2); margin: 0; font-size: 11px; }
+.payroll-minute-facts > div { display: flex; justify-content: space-between; gap: var(--erp-space-2); min-width: 0; }
+.payroll-minute-facts dt { color: var(--ink-soft); }
+.payroll-minute-facts dd { margin: 0; font-weight: 650; font-variant-numeric: tabular-nums; }
+.payroll-minute-note { margin: 0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .payroll-adjustment-form { display: grid; gap: 8px; margin-top: 18px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); }
 .payroll-adjustment-form > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .payroll-adjustment-form h3 { margin: 0; font-size: 13px; }
