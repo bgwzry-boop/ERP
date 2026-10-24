@@ -586,8 +586,7 @@ function getRawMaterialActionReason(action) {
   if (action === "confirm_supplier_return_shipment") return "确认暂存卷/件已经交还供应商，完成一次实物库存退厂";
   if (action === "issue_to_machine") return "按卷码扫码出库并记录机台；生产任务可在后续阶段关联";
   if (action === "confirm_consumption") return "确认整卷/整件或部分原材料已被生产消耗，不生成成品数量或成本分摊";
-  if (action === "return_leftover") return "机边余料退回待复核，不自动转可用库存";
-  if (action === "review_leftover") return "余料复核通过后转回可用原材料库存，不做成本分摊";
+  if (action === "return_leftover" || action === "review_leftover") return "整卷进整卷出：机边余料不能退回或复核为可用库存";
   if (action === "generate_cost_draft") return "按已确认消耗和已匹配生产任务生成原材料成本分摊草稿";
   if (action === "confirm_cost_draft") return "复核确认原材料成本草稿为成本快照，损耗和毛利仍需独立流程";
   if (action === "calibrate_loss") return "校准已确认原材料成本快照的损耗，毛利报表仍需独立确认";

@@ -4137,14 +4137,15 @@ Printing step-price grouping:
 
 - manual printing: single-sided content 0.09 CNY/piece, double-sided content 0.13 CNY/piece
 - machine printing: 3000 pieces 0.09 CNY/piece, 5000 pieces 0.08 CNY/piece, 10000 pieces and above 0.06 CNY/piece
-- split by different print content
+- split by different print content; one extra character is a different content
 - split by different size
-- combine only when content and size are the same
-- do not split only because print color or bag body color differs
+- split by different standardized printing-ink colour
+- combine when size, exact print content and standardized printing-ink colour match, even when bag-body colours differ. Example: black, blue, red and green bags, each 1500 pieces with the same white ink and the same content, use the 6000-piece tier
+- single-sided and double-sided content stay separate; different front and back artwork stays separate
 
 Add-on order merge:
 
-- only same customer, same content, same size
+- only same customer, same content, same size and same printing-ink colour
 - only before printing or when it can join the same print batch
 - use combined quantity to calculate the step unit price
 

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { normalizeMiniappSize } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
 import { PRINT_PRICE_TABLE_VERSION } from "../src/domain/priceTable.js";
+import { normalizeFactoryStandardColor } from "../shared/factoryStandardColors.js";
 
 const text = (value) => String(value ?? "").trim();
 export const roundOrderMoney = (value) =>
@@ -20,19 +21,29 @@ export function isPrivatePrinting(row) {
       ["custom_print", "external_print"].includes(type))
   );
 }
+const PRINTING_INK_PLACEHOLDERS = new Set(["待确认", "非印刷", "无印刷", "无", "不印刷", "未印刷"]);
+
 export function printingContent(row) {
-  // Merchandise names and ink colours do not establish an artwork identity.
+  // Merchandise names do not establish an artwork identity.
   // Missing content stays per-line; it must never become an inferred group.
   return text(row.printContent).replace(/\s+/gu, " ");
 }
+export function normalizePrintingInkColor(value) {
+  const compact = String(value ?? "").normalize("NFKC").trim().replace(/[\s·•]+/gu, "");
+  if (!compact || PRINTING_INK_PLACEHOLDERS.has(compact)) return "";
+  return normalizeFactoryStandardColor(compact) || compact;
+}
 export function printingGroupIdentity(row) {
   const content = printingContent(row);
-  if (!content) return null;
+  const inkColor = normalizePrintingInkColor(row.printColor);
+  // Bag-body colour is not part of a printing batch. Missing ink stays per-line.
+  if (!content || !inkColor) return null;
   const side = /双|double/u.test(text(row.printSide)) ? "双面" : "单面";
   return {
     customerId: text(row.customerId),
     size: normalizeMiniappSize(row.size),
     content,
+    inkColor,
     side,
     ...(row.printingScope ? { scope: text(row.printingScope) } : {}),
   };
@@ -44,8 +55,7 @@ export function sharedPrintingUnitPrice(quantity, side) {
   return side === "双面" ? 0.13 : 0.09;
 }
 
-// Colour is deliberately absent from the identity: the accepted rule combines
-// ink colours and bag colours for the same content/size in one printing batch.
+// Same size, exact content and standardized ink share one ladder. Bag colour does not.
 export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
   const groups = new Map();
   for (const [kind, rows] of [
@@ -94,7 +104,7 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
     if (group.relatedOrderLineIds.length && !group.draftLineIds.length)
       throw orderPricingError(
         "ORDER_PRINT_GROUP_NOT_MATCHED",
-        "关联补单必须与本次新单的客户、印刷内容、尺寸和印刷面一致。",
+        "关联补单必须与本次新单的客户、印刷内容、尺寸、印刷油墨色和印刷面一致。",
       );
     group.unitPrice = sharedPrintingUnitPrice(group.quantity, group.side);
     group.memberCount =
@@ -196,7 +206,7 @@ export function assertUnstartedPrintingSupplement(workspace, rows, customerId) {
     ) {
       throw orderPricingError(
         "ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE",
-        "补单合组只允许同客户、同内容同尺寸且尚未开印、未交付和未进入对账的明细；请刷新原单后核对。",
+        "补单合组只允许同客户、同内容、同尺寸、同印刷油墨色且尚未开印、未交付和未进入对账的明细；请刷新原单后核对。",
       );
     }
   }
