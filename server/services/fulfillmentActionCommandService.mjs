@@ -1,4 +1,5 @@
-import { packageAnchorId } from "../../shared/packageContents.js";
+import { resolveWarehouseInstructionQuantity } from "./warehouseInstructionQuantityService.mjs";
+import { packageAnchorId, packageContents, isActivePackage } from "../../shared/packageContents.js";
 import { confirmPackageGroupLoaded } from "./packageGroupLoadService.mjs";
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
 import { normalizeOrderType } from "../../shared/orderRouting.js";
@@ -409,7 +410,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     const executedAt = normalizeExecutionTimestamp(body.executedAt, nowIso(now));
     if (!executedAt) return businessError(422, "WAREHOUSE_EXECUTED_AT_INVALID", "executedAt must be a valid timestamp.");
 
-    const expectedQty = Math.max(0, Number(before.qty ?? before.expectedQty ?? 0));
+    const expectedQty = executionResult === "实物已出库" ? resolveWarehouseInstructionQuantity(workspace,before,paperDocument) : Math.max(0,Number(paperDocument.instructionQty??before.expectedQty??before.qty??0));
     if (["实物已出库", "数量不符"].includes(executionResult) && (
       !["number", "string"].includes(typeof body.actualQty) ||
       (typeof body.actualQty === "string" && !body.actualQty.trim())
@@ -428,6 +429,11 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       return businessError(422, "WAREHOUSE_QUANTITY_MISMATCH_REQUIRED", "数量不符 requires an actual quantity different from the paper instruction.");
     }
 
+    if (executionResult === "实物已出库" && packageAnchorId(before)) {
+      const packages=(workspace.packages??[]).filter(p=>isActivePackage(p)&&p.fulfillmentId===packageAnchorId(before));
+      const packed=packages.flatMap(packageContents).filter(i=>i.fulfillmentId===fulfillmentId).reduce((sum,i)=>sum+Number(i.packedQty),0);
+      if(packed!==actualQty||!packages.length||packages.some(p=>p.status!=="已打印标签"||!(workspace.printRecords??[]).some(r=>(r.id??r.printRecordId)===p.labelPrintRecordId&&["printed","reprinted"].includes(r.status))))return businessError(409,"PACKING_GROUP_WAREHOUSE_LABEL_REQUIRED","包内实物数量须与本次纸单一致，且本组全部挂牌已可信打印成功，才能登记实物出库。");
+    }
     const method = mapFulfillmentMethod(before.method);
     const nextStatus = resolveWarehouseExecutionFulfillmentStatus(executionResult, method);
     const after = {

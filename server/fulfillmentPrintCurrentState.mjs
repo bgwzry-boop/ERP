@@ -1,3 +1,4 @@
+import { packageAnchorId } from "../shared/packageContents.js";
 import { normalizeCoreWorkspaceState } from "./coreWorkspaceReadRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { normalizePrintJobRecord } from "./printJobRepository.mjs";
@@ -92,7 +93,7 @@ export function mergeFulfillmentPrintCurrentState(workspace, snapshot) {
     const paper = (workspace.paperOutboundDocuments ?? []).find(record => (record.paperOutboundDocumentId ?? record.id) === fulfillment.paperOutboundDocumentId);
     const paperPrint = paper && (workspace.printRecords ?? []).find(record => (record.printRecordId ?? record.id) === paper.printRecordId);
     const current = { ...fulfillment, packageRecords: packages,
-      labelsPrinted: ["express_ltl", "快递快运"].includes(fulfillment.method) && hasTrustedCurrentFulfillmentLabel(workspace, fulfillment),
+      labelsPrinted: (["express_ltl", "快递快运"].includes(fulfillment.method)||Boolean(packageAnchorId(fulfillment))) && hasTrustedCurrentFulfillmentLabel(workspace, fulfillment),
       printed: Boolean(paper && paper.status !== "已作废" && ["printed", "reprinted"].includes(paperPrint?.status)),
     };
     workspace.fulfillments = mergeVersioned(workspace.fulfillments ?? [], current);

@@ -1,3 +1,5 @@
+import { packageAnchorId } from "../shared/packageContents.js";
+import { resolveWarehouseInstructionQuantity } from "./services/warehouseInstructionQuantityService.mjs";
 import { orderTypeAliasesFor } from "../shared/orderRouting.js";
 import { acceptsWorkspaceRecordVersion } from "./workspaceRecordVersion.mjs";
 import { hasTrustedWarehousePaper } from "../shared/warehousePaperTrust.js";
@@ -300,6 +302,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       targetId: fulfillmentId,
       resourceLocks: [
         `fulfillment:${fulfillmentId}`,
+        ...((packageAnchorId((input.workspace?.fulfillments??[]).find(f=>(f.fulfillmentId??f.id)===fulfillmentId))||packageAnchorId(input.fulfillment)) ? [`packing-group:${packageAnchorId((input.workspace?.fulfillments??[]).find(f=>(f.fulfillmentId??f.id)===fulfillmentId))||packageAnchorId(input.fulfillment)}`] : []),
         ...(input.finalDeliveryTimeEvidence ? [`carrier-billing-customer:${input.finalDeliveryTimeEvidence.customerId}`] : []),
         ...(checksOutboundInventory(input) ? [`order-line:${input.fulfillment?.orderLineId ?? input.fulfillment?.lineId ?? ""}`] : []),
         ...((input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot) ? [`order-line:${(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot).orderLineId}`] : []),
@@ -520,7 +523,7 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
   return `
 BEGIN;
 WITH locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id
+  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, packing_group_anchor_id, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id
   FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
   FOR UPDATE
@@ -1312,6 +1315,9 @@ function normalizePaperOutboundDocument(record) {
     fulfillmentId,
     printRecordId,
     documentType: String(record.documentType ?? record.document_type ?? "outbound_note").trim() || "outbound_note",
+    instructionQty: optionalInteger(record.instructionQty ?? record.instruction_qty),
+    instructionResolutionId: String(record.instructionResolutionId ?? record.instruction_resolution_id ?? ""),
+    instructionDecisionId: String(record.instructionDecisionId ?? record.instruction_decision_id ?? ""),
     documentVersion: Math.max(1, toFiniteInteger(record.documentVersion ?? record.document_version ?? 1)),
     status: String(record.status ?? "待打印确认").trim() || "待打印确认",
     printedBy: String(record.printedBy ?? record.printed_by ?? "").trim(),
@@ -1928,7 +1934,7 @@ function statementDateContains(statement, date) {
 
 function buildLockedWarehouseExecutionPaperDocumentSql(execution, parameters) {
   if (!execution) return "SELECT NULL::text AS id, NULL::integer AS revision, NULL::text AS status, NULL::integer AS document_version WHERE false";
-  return `SELECT document.id, document.revision, document.status, document.document_version, document.fulfillment_id, record.status AS print_status
+  return `SELECT document.id, document.revision, document.status, document.document_version, document.fulfillment_id,document.instruction_qty,document.instruction_resolution_id,document.instruction_decision_id,document.created_at, record.status AS print_status
 FROM paper_outbound_documents AS document JOIN print_records AS record ON record.id = document.print_record_id
 WHERE document.id = ${parameters.text(execution.paperOutboundDocumentId)}
   AND document.fulfillment_id = ${parameters.text(execution.fulfillmentId)}
@@ -1943,7 +1949,21 @@ function buildWarehouseExecutionGuardSql(execution, parameters) {
     AND (SELECT revision FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentRevision)}
     AND (SELECT print_status FROM locked_execution_paper_document) IN ('printed', 'reprinted')
     AND (SELECT status FROM locked_execution_paper_document) ${execution.result === "已备货" ? "NOT IN ('已作废', 'voided')" : "= '已交库房'"}
-    AND (SELECT document_version FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentVersion)}`;
+    AND (SELECT document_version FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentVersion)}
+    ${execution.result === "实物已出库" ? `AND (SELECT COALESCE(p.instruction_qty,f.expected_qty) FROM locked_execution_paper_document p CROSS JOIN locked_fulfillment f)=${parameters.integer(execution.actualQty)}
+    AND (COALESCE((SELECT packing_group_anchor_id FROM locked_fulfillment),'')='' OR (
+     (SELECT sum((item->>'packedQty')::bigint) FROM packages p CROSS JOIN LATERAL jsonb_array_elements(p.contents_json) item WHERE p.fulfillment_id=(SELECT packing_group_anchor_id FROM locked_fulfillment) AND p.status NOT IN('已作废','已失效','voided','invalidated') AND item->>'fulfillmentId'=(SELECT id FROM locked_fulfillment))=${parameters.integer(execution.actualQty)}
+     AND NOT EXISTS(SELECT 1 FROM packages p LEFT JOIN print_records r ON r.id=p.label_print_record_id WHERE p.fulfillment_id=(SELECT packing_group_anchor_id FROM locked_fulfillment) AND p.status NOT IN('已作废','已失效','voided','invalidated') AND (p.status<>'已打印标签' OR r.status IS NULL OR r.status NOT IN('printed','reprinted')))))
+    AND (NOT EXISTS(SELECT 1 FROM locked_execution_paper_document WHERE instruction_resolution_id IS NOT NULL OR instruction_decision_id IS NOT NULL)
+      AND (SELECT expected_qty FROM locked_fulfillment)=${parameters.integer(execution.actualQty)}
+      AND (SELECT COALESCE(actual_qty,expected_qty)=expected_qty AND status NOT IN ('数量差异待处理','待补货','无法出库','送货异常') FROM locked_fulfillment)
+      AND NOT EXISTS(SELECT 1 FROM fulfillment_exceptions e WHERE e.fulfillment_id=(SELECT id FROM locked_fulfillment) AND e.exception_type='quantity_mismatch' AND e.status NOT IN('已解决','已作废'))
+      OR EXISTS(SELECT 1 FROM locked_execution_paper_document p JOIN fulfillment_quantity_variance_resolutions r ON r.id=p.instruction_resolution_id JOIN business_decision_records d ON d.id=p.instruction_decision_id CROSS JOIN locked_fulfillment f
+       WHERE f.status NOT IN ('数量差异待处理','待补货','无法出库','送货异常') AND r.fulfillment_id=f.id AND r.business_decision_id=d.id AND r.expected_qty=f.expected_qty AND r.actual_qty=f.actual_qty AND r.actual_qty=${parameters.integer(execution.actualQty)} AND r.resolution_result IN('按实际数量出库','赠送数量')
+       AND r.created_at<=p.created_at AND d.business_type='fulfillment' AND d.business_id=f.id AND d.decision_scope='fulfillment_quantity_variance' AND d.status='active'
+       AND NOT EXISTS(SELECT 1 FROM fulfillment_quantity_variance_resolutions newer WHERE newer.fulfillment_id=f.id AND (newer.created_at>r.created_at OR (newer.created_at=r.created_at AND newer.id>r.id)))
+       AND NOT EXISTS(SELECT 1 FROM fulfillment_exceptions e WHERE e.fulfillment_id=f.id AND e.exception_type='quantity_mismatch' AND e.status NOT IN('已解决','已作废'))
+       FOR SHARE OF r,d))` : ""}`;
 }
 
 function buildWritePaperOutboundDocumentSql(document, parameters) {
@@ -1954,6 +1974,9 @@ function buildWritePaperOutboundDocumentSql(document, parameters) {
   print_record_id,
   document_type,
   document_version,
+  instruction_qty,
+  instruction_resolution_id,
+  instruction_decision_id,
   status,
   printed_by,
   printed_at,
@@ -1972,6 +1995,9 @@ function buildWritePaperOutboundDocumentSql(document, parameters) {
   ${parameters.text(document.printRecordId)},
   ${parameters.text(document.documentType)},
   ${parameters.integer(document.documentVersion)},
+  ${parameters.nullableInteger(document.instructionQty)},
+  ${parameters.nullableText(document.instructionResolutionId)},
+  ${parameters.nullableText(document.instructionDecisionId)},
   ${parameters.text(document.status)},
   ${parameters.nullableText(document.printedBy)},
   ${parameters.nullableTimestamp(document.printedAt)},
@@ -2443,6 +2469,9 @@ function paperOutboundDocumentJsonExpression(alias) {
     'fulfillmentId', ${alias}.fulfillment_id,
     'printRecordId', ${alias}.print_record_id,
     'documentType', ${alias}.document_type,
+    'instructionQty', ${alias}.instruction_qty,
+    'instructionResolutionId', ${alias}.instruction_resolution_id,
+    'instructionDecisionId', ${alias}.instruction_decision_id,
     'documentVersion', ${alias}.document_version,
     'status', ${alias}.status,
     'printedBy', ${alias}.printed_by,
@@ -2698,6 +2727,7 @@ function assertLocalFulfillmentOperationalBounds(input) {
     if (!paper || (paper.paperOutboundDocumentId ?? paper.id) !== execution.paperOutboundDocumentId || Number(paper.revision) !== Number(execution.paperDocumentRevision)
       || Number(paper.documentVersion) !== Number(execution.paperDocumentVersion) || !hasTrustedWarehousePaper(paper, print, id)
       || (execution.result !== "已备货" && paper.status !== "已交库房")) throw fulfillmentConflict(current.revision);
+    if(execution.result==="实物已出库"&&resolveWarehouseInstructionQuantity(input.workspace,current,paper)!==Number(execution.actualQty))throw fulfillmentConflict(current.revision);
   }
   if (input.finalDeliveryTimeEvidence) {
     const evidence = input.finalDeliveryTimeEvidence;

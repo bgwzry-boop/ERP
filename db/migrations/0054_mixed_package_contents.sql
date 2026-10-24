@@ -23,7 +23,7 @@ BEGIN
     IF total<>NEW.packed_qty THEN RAISE EXCEPTION 'MIXED_PACKAGE_QUANTITY_MISMATCH'; END IF;
   END IF;
   IF TG_OP='UPDATE' AND (NEW.contents_json IS DISTINCT FROM OLD.contents_json OR NEW.packed_qty<>OLD.packed_qty OR
-    (OLD.status NOT IN ('已作废','已失效','voided','invalidated') AND NEW.status IN ('已作废','已失效','voided','invalidated'))) THEN
+    (OLD.status NOT IN ('已作废','已失效','voided','invalidated') AND NEW.status IN ('已作废','已失效','voided','invalidated')) OR (jsonb_array_length(OLD.contents_json)>0 AND OLD.status='已打印标签' AND NEW.status<>'已打印标签')) THEN
     IF EXISTS(SELECT 1 FROM fulfillment_records f WHERE (f.id=OLD.fulfillment_id OR EXISTS(SELECT 1 FROM jsonb_array_elements(OLD.contents_json) i WHERE i->>'fulfillmentId'=f.id))
       AND (f.physical_outbound_at IS NOT NULL OR f.loaded_at IS NOT NULL OR f.final_delivery_at IS NOT NULL OR f.delivered_at IS NOT NULL))
     THEN RAISE EXCEPTION 'ERP_MIXED_PACKAGE_DOWNSTREAM_CONFLICT'; END IF;
@@ -32,3 +32,8 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER packages_mixed_contents_guard BEFORE INSERT OR UPDATE ON packages FOR EACH ROW EXECUTE FUNCTION erp_validate_mixed_package();
+
+-- A quantity exception authorizes only a newly printed instruction tied to its durable decision.
+ALTER TABLE paper_outbound_documents ADD COLUMN instruction_qty integer CHECK (instruction_qty IS NULL OR instruction_qty>0);
+ALTER TABLE paper_outbound_documents ADD COLUMN instruction_resolution_id text REFERENCES fulfillment_quantity_variance_resolutions(id);
+ALTER TABLE paper_outbound_documents ADD COLUMN instruction_decision_id text REFERENCES business_decision_records(id);

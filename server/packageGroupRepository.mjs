@@ -50,7 +50,7 @@ export function createPackageGroupRepository({ queryJson, idempotentTransactionJ
         status:"配送中",loadedAt:input.loadedAt,operationLogId:input.operationLogId};
       if (postgres) {
         const saved=await idempotentTransactionJson(buildPostgresIdempotencyRequest({scope:scope('load'),idempotencyKey:input.idempotencyKey,payload:input.payload,operatorId:input.operatorId,targetType:"fulfillment",targetId:input.anchorId,
-          resourceLocks:result.fulfillmentIds.map(id=>`fulfillment:${id}`),query:buildPackageGroupLoadQuery(input,result)}));
+          resourceLocks:[`packing-group:${input.anchorId}`,...result.fulfillmentIds.map(id=>`fulfillment:${id}`)],query:buildPackageGroupLoadQuery(input,result)}));
         const current=await createPostgresCoreWorkspaceReadRepository({queryJson}).loadState();input.workspace.fulfillments=current.fulfillments;input.workspace.operationLogs=current.operationLogs;return saved;
       }
       if(JSON.stringify(packageGroupLoadSnapshot(input.workspace,input.anchorId))!==JSON.stringify(input.snapshot))conflict();
@@ -66,7 +66,7 @@ export function createPackageGroupRepository({ queryJson, idempotentTransactionJ
         const query = buildReplacePackageGroupQuery(input,result);
         const saved = await idempotentTransactionJson(buildPostgresIdempotencyRequest({ scope:scope(input.action),idempotencyKey:input.idempotencyKey,payload:input.payload,
           operatorId:input.operatorId,targetType:"fulfillment",targetId:input.anchorId,
-          resourceLocks:[`packing-order:${input.orderId}`,...input.snapshot.fulfillments.map(row=>`fulfillment:${row.id}`),...input.snapshot.lines.map(row=>`order-line:${row.id}`)],query }));
+          resourceLocks:[`packing-group:${input.anchorId}`,`packing-order:${input.orderId}`,...input.snapshot.fulfillments.map(row=>`fulfillment:${row.id}`),...input.snapshot.lines.map(row=>`order-line:${row.id}`)],query }));
         const current = await createPostgresCoreWorkspaceReadRepository({queryJson}).loadState();
         for (const key of ["fulfillments","packages","orderLines","packingTasks","printRecords","paperOutboundDocuments","todos","operationLogs","fulfillmentExceptions"]) input.workspace[key]=current[key];
         return saved;

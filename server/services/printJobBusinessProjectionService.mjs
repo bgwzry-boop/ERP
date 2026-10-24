@@ -1,4 +1,4 @@
-import { isActivePackage } from "../../shared/packageContents.js";
+import { isActivePackage, packageAnchorId } from "../../shared/packageContents.js";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 
 export function createPrintJobBusinessProjectionService({
@@ -280,6 +280,17 @@ function evaluateFulfillmentLabelTrust(workspace, { fulfillment, printRecord, is
 }
 
 export function hasTrustedCurrentFulfillmentLabel(workspace, fulfillment) {
+  if(packageAnchorId(fulfillment)) {
+    const anchorId=packageAnchorId(fulfillment),anchor=(workspace.fulfillments??[]).find(f=>(f.id??f.fulfillmentId)===anchorId);
+    if(!anchor)return false;
+    const packages=listFulfillmentPackages(workspace,anchor);
+    if(!packages.length)return false;
+    const recordId=packages[0].labelPrintRecordId;
+    const record=(workspace.printRecords??[]).find(r=>(r.printRecordId??r.id)===recordId&&r.targetType==="fulfillment"&&r.targetId===anchorId&&r.documentType==="package_label"&&["printed","reprinted"].includes(r.status));
+    const snapshot=normalizePackageSnapshot(record?.packageSnapshot);
+    return Boolean(record&&snapshot.length===packages.length&&packages.every(p=>p.status==="已打印标签"&&p.labelPrintRecordId===recordId&&snapshot.some(s=>s.packageId===p.packageId&&Number(p.revision)===Number(s.revision)+1)));
+  }
+
   if (normalizeFulfillmentMethod(fulfillment?.method) !== "express_ltl") return true;
   const fulfillmentId = normalizeText(fulfillment?.fulfillmentId ?? fulfillment?.id);
   const currentPrintRecord = [...(workspace?.printRecords ?? [])]

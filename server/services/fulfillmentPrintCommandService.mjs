@@ -1,3 +1,4 @@
+import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
 import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
 import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
@@ -47,6 +48,8 @@ export function createFulfillmentPrintCommandService({
     if (!documentType) {
       return businessError(422, "FULFILLMENT_DOCUMENT_TYPE_INVALID", "The requested print document type is not valid for this fulfillment method.");
     }
+    if(packageAnchorId(before)&&documentType==="express_ltl_label")return businessError(409,"PACKING_GROUP_PACKAGE_LABEL_REQUIRED","本包组请使用实物包裹挂牌入口，按当前逐包明细打印独立包码。");
+    if(!packageAnchorId(before)&&documentType==="package_label")return businessError(409,"PACKING_GROUP_REGISTRATION_REQUIRED","请先按实物登记包组和逐包明细，再打印内部挂牌。");
     const printableBody = {
       ...normalizedPrintBody,
       documentType,
@@ -237,6 +240,7 @@ export function createFulfillmentPrintCommandService({
       voidedAt,
     };
     const fulfillment = before.targetType === "fulfillment" ? findFulfillment(workspace, before.targetId) : null;
+    if(fulfillment&&packageAnchorId(fulfillment)&&(workspace.fulfillments??[]).some(f=>packageAnchorId(f)===packageAnchorId(fulfillment)&&(f.physicalOutboundAt||f.loadedAt||f.finalDeliveryAt||f.deliveredAt))&&(workspace.packages??[]).some(p=>isActivePackage(p)&&p.fulfillmentId===packageAnchorId(fulfillment)&&p.labelPrintRecordId===printRecordId))return businessError(409,"PACKING_GROUP_DOWNSTREAM_LOCKED","包组已经实物出库或装车，不能作废当前挂牌，请办公室按异常流程处理。");
     const paperOutboundDocument = fulfillment
       ? findPaperOutboundDocumentByPrintRecord(workspace, before.printRecordId ?? before.id)
       : null;
@@ -434,6 +438,7 @@ function buildPaperOutboundDocument({ workspace, fulfillment, printRecord, docum
     printRecordId: printRecord.printRecordId,
     documentType,
     documentVersion,
+    ...captureWarehouseInstruction(workspace,fulfillment),
     status: "待打印确认",
     printedBy: operatorId,
     printedAt: "",
