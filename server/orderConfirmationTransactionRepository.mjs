@@ -13,6 +13,7 @@ import {
 } from "./idempotency.mjs";
 import { normalizeOrderDraft } from "./orderDraftRepository.mjs";
 import { normalizeInventoryIntents } from "./inventoryIntentDomain.mjs";
+import { assertOrderConfirmationPriceSources } from "./orderConfirmationPriceSource.mjs";
 
 export function createOrderConfirmationTransactionRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -57,6 +58,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
         const source = validateMiniappConfirmationSource(sources, { draftId: currentDraft.id, customerId: currentDraft.customerId });
         if (!isDeepStrictEqual(source, input.miniappPriceSource)) throw Object.assign(new Error("小程序价格来源已变化"), { code: "ERP_MINIAPP_CONFIRMATION_SOURCE_CONFLICT", statusCode: 409 });
       } else if (input.miniappPriceSource) throw new Error("Unexpected miniapp price source");
+      assertOrderConfirmationPriceSources(input);
       const orderDraft = buildCommittedOrderDraft(input.orderDraft, input.expectedDraftRevision);
       const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations);
       const shortageCancellationIntents = normalizeInventoryIntents(input.shortageCancellationIntents);
@@ -230,6 +232,7 @@ function buildConfirmOrderTransactionText(input, parameters) {
   if (orderLines.some((line) => !orderIds.has(line.orderId))) {
     throw new Error("Every formal order line must belong to an order in the same confirmation transaction");
   }
+  assertOrderConfirmationPriceSources({ orderLines, priceSnapshots, miniappPriceSource: input.miniappPriceSource });
   return `
 BEGIN;
 WITH locked_order_draft AS MATERIALIZED (

@@ -362,8 +362,17 @@ export function projectBagwinPublicStatus(facts, now = new Date()) {
   const allOrdersCancelled = orderStatuses.length > 0 && orderStatuses.every((value) => /已取消|作废|取消/.test(value));
   const allLinesCancelled = lineStatuses.length > 0 && lineStatuses.every((value) => /已取消|作废/.test(value));
   const allOrdersCompleted = orderStatuses.length > 0 && orderStatuses.every((value) => /已完成|已交付|已关闭/.test(value));
-  const allLinesCompleted = lineStatuses.length > 0 && lineStatuses.every((value) => /已完成|已交付|已关闭/.test(value));
-  const allFulfillmentsCompleted = fulfillmentStatuses.length > 0 && fulfillmentStatuses.every((value) => /已完成|已交付/.test(value));
+  const activeLines = lineStatuses.filter(value => !/已取消|作废/.test(value));
+  const activeFulfillments = fulfillmentStatuses.filter(value => !/已取消|作废/.test(value));
+  const allLinesCompleted = activeLines.length > 0 && activeLines.every(value => /已完成|已交付|已关闭/.test(value));
+  const allFulfillmentsCompleted = activeFulfillments.length > 0 && activeFulfillments.every(value => /已完成|已交付/.test(value));
+  const hasOpenFulfillment = activeFulfillments.some(value => !/已完成|已交付/.test(value));
+  // Fulfillments may cover only some lines (delivery method can still be
+  // pending). Their completed subset never completes unfinished order lines.
+  // No-line legacy records retain their explicit completed-order evidence.
+  const completed = !hasOpenFulfillment && (lineStatuses.length > 0
+    ? allLinesCompleted
+    : allOrdersCompleted || (orderStatuses.length === 0 && allFulfillmentsCompleted));
   const isTransporting = statusContains(fulfillmentStatuses, /配送中|运输中|已发车|已揽收/);
   const isReadyForDelivery =
     statusContains(fulfillmentStatuses, /已备货|待出库|已出库|待提货|待自提|待发货|待交付/) ||
@@ -375,7 +384,7 @@ export function projectBagwinPublicStatus(facts, now = new Date()) {
   let status = "confirming";
   if (/rejected/.test(intakeStatus) || /取消|作废|拒绝/.test(draftStatus) || allOrdersCancelled || allLinesCancelled) status = "cancelled";
   else if (/returned/.test(intakeStatus) || /退回|补充/.test(draftStatus)) status = "needs_information";
-  else if (allOrdersCompleted || allLinesCompleted || allFulfillmentsCompleted) status = "completed";
+  else if (completed) status = "completed";
   else if (isTransporting) status = "transporting";
   else if (isReadyForDelivery) status = "delivery";
   else if (isInProductionFlow) status = "production";

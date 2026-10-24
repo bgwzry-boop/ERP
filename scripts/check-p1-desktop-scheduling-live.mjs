@@ -8,6 +8,7 @@ import { chromium, expect } from "@playwright/test";
 import { createApiServer } from "../server/apiServer.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
 import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
+import { createLockedSpecialPriceDraftFixture } from "./helpers/lockedSpecialPriceFixture.mjs";
 import { closeTestServer, getTestServerBaseUrl, listenTestServer, requestJson } from "./helpers/apiIntegrationTestHarness.mjs";
 
 // Read the accepted 4174 UI, but intercept EVERY browser API request before it
@@ -36,6 +37,7 @@ try {
     authSecret: randomBytes(32).toString("hex"), fixedPreviewUserId: "U-MANAGER-A",
     allowLegacyIdentityHeaders: false, allowActionPermissionOverride: false,
     allowDefaultSeedUser: false, phoneRegistrationEnabled: false,
+    orderDraftRepository: createLockedSpecialPriceDraftFixture(),
   }));
   await server.ready;
   await listenTestServer(server);

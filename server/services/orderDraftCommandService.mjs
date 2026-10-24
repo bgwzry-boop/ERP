@@ -7,6 +7,7 @@ import { buildOrderDraftQueuePlan } from "../orderDraftQueueDomain.mjs";
 import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
+import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 
 export function createOrderDraftCommandService(dependencies = {}) {
   const {
@@ -709,6 +710,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
       finalAmount: Number(line.amount ?? 0),
       createdBy: operatorId,
     }));
+    try {
+      assertOrderConfirmationPriceSources({ orderLines: confirmation.newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source });
+    } catch (error) {
+      return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
+    }
     const productionTasks = buildProductionTasks(confirmation.newLines, operatorId);
     const inventoryReservations = buildInventoryReservations(
       workspace,
@@ -941,6 +947,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
       finalAmount: Number(line.amount ?? 0),
       createdBy: operatorId,
     }));
+    try {
+      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source });
+    } catch (error) {
+      return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
+    }
     const productionTasks = buildProductionTasks(newLines, operatorId);
     const inventoryReservations = buildInventoryReservations(
       workspace,
