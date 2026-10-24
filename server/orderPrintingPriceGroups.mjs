@@ -19,20 +19,13 @@ export function isPrivatePrinting(row) {
   );
 }
 export function printingContent(row) {
-  return text(row.printContent || row.product || row.productName).replace(
-    /\s+/gu,
-    " ",
-  );
+  // Merchandise names and ink colours do not establish an artwork identity.
+  // Missing content stays per-line; it must never become an inferred group.
+  return text(row.printContent).replace(/\s+/gu, " ");
 }
 export function printingGroupIdentity(row) {
   const content = printingContent(row);
-  if (
-    !content ||
-    /^(空白袋|定制印刷|客户定制图案|客户定制印刷|定制图案|通货袋|特殊尺寸(?:空白)?袋?)$/u.test(
-      content,
-    )
-  )
-    return null;
+  if (!content) return null;
   const side = /双|double/u.test(text(row.printSide)) ? "双面" : "单面";
   return {
     customerId: text(row.customerId),

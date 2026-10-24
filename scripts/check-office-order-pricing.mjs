@@ -213,6 +213,95 @@ export async function checkOfficePricing() {
     grouped.priceSnapshots[0].sourceEvidence.officePricingGroup.memberCount,
     2,
   );
+  // Same merchandise/ink wording is not evidence of identical artwork.
+  for (const product of ["白印黑", "LOGO袋"]) {
+    const unknown = officePricingWorkspace({ print: true });
+    const line = unknown.orderDrafts[0].lines[0];
+    Object.assign(line, { printContent: "", product, productName: product });
+    unknown.orderDrafts[0].lines.push({
+      ...line,
+      id: "UNKNOWN-CONTENT-2",
+      draftLineId: "UNKNOWN-CONTENT-2",
+    });
+    const unknownQuote = await makeQuote(
+      unknown,
+      {},
+      `unknown-${product === "白印黑" ? "ink" : "logo"}`,
+    );
+    assert.ok(unknownQuote.response, JSON.stringify(unknownQuote));
+    assert.equal(unknownQuote.response.quote.groups.length, 2);
+    assert.deepEqual(
+      unknownQuote.response.quote.groups.map((group) => group.memberCount),
+      [1, 1],
+    );
+    assert.deepEqual(
+      unknownQuote.response.quote.lines.map((line) => line.printPrice),
+      [0.08, 0.08],
+    );
+    assert.deepEqual(
+      unknownQuote.response.quote.lines.map((line) => line.amount),
+      [4900, 4900],
+    );
+    assert.ok(
+      (await confirmQuote(unknown, unknownQuote.response.quote)).response,
+      "Unidentified artwork still allows independently priced lines",
+    );
+  }
+  const productNameOnly = [
+    {
+      ...first,
+      id: "PRODUCT-NAME-ONLY-1",
+      printContent: undefined,
+      product: undefined,
+      productName: "LOGO袋",
+    },
+    {
+      ...first,
+      id: "PRODUCT-NAME-ONLY-2",
+      printContent: " ",
+      product: undefined,
+      productName: "LOGO袋",
+    },
+  ];
+  assert.equal(buildOrderPrintingPriceGroups(productNameOnly).length, 2);
+  const noContentOriginal = officePricingWorkspace({ print: true });
+  Object.assign(noContentOriginal.orderDrafts[0].lines[0], {
+    printContent: "",
+    product: "LOGO袋",
+    productName: "LOGO袋",
+  });
+  const noContentQuote = await makeQuote(noContentOriginal);
+  assert.ok(
+    (await confirmQuote(noContentOriginal, noContentQuote.response.quote))
+      .response,
+  );
+  const noContentOldId = noContentOriginal.orderLines[0].id;
+  noContentOriginal.orderDrafts = [
+    {
+      ...noContentOriginal.orderDrafts[0],
+      status: "待审核",
+      revision: 1,
+      clientRevision: 1,
+      recognitionContext: null,
+      lines: [
+        { ...first, id: "EXPLICIT-NEW-SUP", draftLineId: "EXPLICIT-NEW-SUP" },
+      ],
+    },
+  ];
+  const noContentSupplement = await makeQuote(
+    noContentOriginal,
+    {
+      supplementation: {
+        orderLineIds: [noContentOldId],
+        targetDraftLineId: "EXPLICIT-NEW-SUP",
+        confirmedSameBatch: true,
+        batchReference: "SYNTHETIC-UNKNOWN-BATCH",
+        reason: "不能用商品名猜测旧单稿件",
+      },
+    },
+    "unknown-original-supplement",
+  );
+  assert.equal(noContentSupplement.code, "ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE");
   for (const change of [
     { printContent: "另一个商标" },
     { size: "32*40*10" },
