@@ -285,7 +285,8 @@ const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx"
 const sharedStylesSource = fs.readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const printDocumentStylesSource = fs.readFileSync(new URL("../src/styles/features/print-documents.css", import.meta.url), "utf8");
 const attachmentStylesSource = fs.readFileSync(new URL("../src/styles/features/attachments.css", import.meta.url), "utf8");
-assert.match(officeWorkbenchShellSource, /from "\.\/AppViews\.jsx"/);
+assert.match(officeWorkbenchShellSource, /from "\.\/AppShellViews\.jsx"/);
+assert.doesNotMatch(officeWorkbenchShellSource, /from "\.\/AppViews\.jsx"/, "the shell must not eagerly traverse the business-dialog barrel");
 assert.match(appViewsSource, /from "\.\/ActionModals\.jsx"/);
 assert.match(appViewsSource, /from "\.\/AttachmentViewerModal\.jsx"/);
 assert.match(appViewsSource, /from "\.\/MasterDataImportTemplateModal\.jsx"/);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import PackageLabelsPreview from "../features/printing/PhysicalLabelsPreview.jsx";
+import { PackageLabelsPreview } from "../features/packing/PackageLabelsPreview.jsx";
 import { toFactoryDatetimeLocal } from "../../shared/fulfillmentHandoffTime.js";
 import { createOfficeIdempotencyKey } from "../services/officeApiClientCore.js";
 import { readPrintCommandDraft, savePrintCommandDraft, clearPrintCommandDraft } from "../features/printing/print-command-draft.js";

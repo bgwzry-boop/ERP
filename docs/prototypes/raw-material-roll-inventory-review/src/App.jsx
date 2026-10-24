@@ -500,14 +500,14 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const currentInventorySummary = useMemo(() => summarizeInventory(currentInventoryRolls), [currentInventoryRolls]);
   useEffect(() => {
     const handleHashChange = () => {
-      if (formal.orderEntryWritePending) { window.history.replaceState(null, "", "#order-entry"); return; }
+      if (formal.orderEntryWritePending) { window.history.replaceState(null, "", `#${activeNavId}`); return; }
       const hashNavId = window.location.hash.replace(/^#/, "");
       const nextView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
       if (nextView && visibleViews.includes(nextView)) setView(nextView);
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [visibleViews, formal.orderEntryWritePending]);
+  }, [visibleViews, formal.orderEntryWritePending, activeNavId]);
   const toggleGroup = (groupId) => {
     setExpandedGroups((current) => {
       const next = new Set(current);
@@ -550,7 +550,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
     <Sidebar activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} /><Topbar onCreateOrder={() => navigate("order-entry")} permissionContext={resolvedPermissionContext} />
     <main className={`page${isRawMaterialView ? "" : " business-page"}`}>
       {formal.meta.loading ? <div className="formal-sync-banner">正在读取正式服务器数据…</div> : null}
-      {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">订单操作正在核对，请先确认本次结果；结果未明时按原内容重试。</div> : null}
+      {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">本次操作结果正在核对，请先确认结果；结果未明时按原内容重试。</div> : null}
       {!formal.meta.loading && Object.keys(formal.meta.errors).length ? <div className="formal-sync-banner error">部分正式接口读取失败；失败页面不会回退到静态数据。<button onClick={() => void formal.actions.refreshAll()} type="button">重试</button></div> : null}
       {isRawMaterialView ? <header className="workbench-dock">
         <div className="dock-primary">{visibleRawMaterialViews.includes("卷料库存") ? <InventoryStatusCards summary={currentInventorySummary} /> : null}</div>
