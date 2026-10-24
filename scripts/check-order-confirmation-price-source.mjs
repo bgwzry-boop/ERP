@@ -61,6 +61,21 @@ export async function checkOrderConfirmationPriceSource() {
   assert.ok(buildConfirmOrderTransactionQuery(valid).text);
   const authorized = createLocalOrderConfirmationTransactionRepository().confirmOrder({ ...valid, workspace: buildPriceSourceWorkspace() });
   assert.equal(authorized.priceSnapshots[0].bagPrice, 0.1234);
+  const unjustifiedZero = structuredClone(valid);
+  unjustifiedZero.priceSnapshots[0].finalAmount = 0;
+  unjustifiedZero.orderLines[0].amount = 0;
+  assert.throws(() => buildConfirmOrderTransactionQuery(unjustifiedZero), { code: "ORDER_PRICE_SOURCE_REQUIRED" });
+  assert.throws(() => createLocalOrderConfirmationTransactionRepository().confirmOrder({ ...unjustifiedZero, workspace: buildPriceSourceWorkspace() }), { code: "ORDER_PRICE_SOURCE_REQUIRED" });
+  const waived = structuredClone(unjustifiedZero);
+  waived.priceSnapshots[0].adjustmentAmount = -12.34;
+  waived.priceSnapshots[0].overrideReason = "已授权全额减免并保存业务依据";
+  assert.ok(buildConfirmOrderTransactionQuery(waived).text);
+  const unexplainedWaiver = structuredClone(waived);
+  unexplainedWaiver.priceSnapshots[0].overrideReason = "";
+  assert.throws(() => buildConfirmOrderTransactionQuery(unexplainedWaiver), { code: "ORDER_PRICE_SOURCE_REQUIRED" });
+  const roundedZero = structuredClone(unjustifiedZero);
+  Object.assign(roundedZero.priceSnapshots[0], { bagPrice: 0.0001, chargeableQty: 1 });
+  assert.ok(buildConfirmOrderTransactionQuery(roundedZero).text, "Keep monetary rounding separate from missing prices");
   const gift = structuredClone(valid);
   gift.priceSnapshots[0] = { ...gift.priceSnapshots[0], chargeableQty: 0, finalAmount: 0, overrideReason: "明确赠送，本单不计费" };
   gift.orderLines[0].amount = 0;
@@ -83,7 +98,9 @@ export function checkPublicCompletionProjection() {
     [{ orderStatuses: ["已完成"] }, "completed"],
     [{ orderStatuses: ["已完成"], fulfillmentStatuses: ["待出库"] }, "delivery"],
     [{ fulfillmentStatuses: ["已交付"] }, "completed"],
-    [{ lineStatuses: ["已交付"], fulfillmentStatuses: ["已交付"], productionStatuses: ["制袋中"] }, "completed"],
+    [{ lineStatuses: ["已交付"], fulfillmentStatuses: ["已交付"], productionStatuses: ["制袋中"] }, "production"],
+    [{ lineStatuses: ["已交付"], fulfillmentStatuses: ["已交付"], productionStatuses: ["已完成", "已作废"] }, "completed"],
+    [{ orderStatuses: ["已完成"], productionStatuses: ["异常暂停"] }, "production"],
     [{}, "confirming"],
   ];
   for (const [facts, expected] of cases) assert.equal(projectBagwinPublicStatus(facts).status, expected, JSON.stringify(facts));

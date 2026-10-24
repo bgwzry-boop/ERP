@@ -367,10 +367,11 @@ export function projectBagwinPublicStatus(facts, now = new Date()) {
   const allLinesCompleted = activeLines.length > 0 && activeLines.every(value => /已完成|已交付|已关闭/.test(value));
   const allFulfillmentsCompleted = activeFulfillments.length > 0 && activeFulfillments.every(value => /已完成|已交付/.test(value));
   const hasOpenFulfillment = activeFulfillments.some(value => !/已完成|已交付/.test(value));
+  const hasOpenProduction = productionStatuses.some(value => !/已完成|已交付|已关闭|已取消|作废/.test(value));
   // Fulfillments may cover only some lines (delivery method can still be
   // pending). Their completed subset never completes unfinished order lines.
   // No-line legacy records retain their explicit completed-order evidence.
-  const completed = !hasOpenFulfillment && (lineStatuses.length > 0
+  const completed = !hasOpenFulfillment && !hasOpenProduction && (lineStatuses.length > 0
     ? allLinesCompleted
     : allOrdersCompleted || (orderStatuses.length === 0 && allFulfillmentsCompleted));
   const isTransporting = statusContains(fulfillmentStatuses, /配送中|运输中|已发车|已揽收/);

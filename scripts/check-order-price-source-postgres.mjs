@@ -45,15 +45,22 @@ try {
   assert.equal(denied.code, "ORDER_PRICE_SOURCE_REQUIRED");
   assert.deepEqual(await snapshot(), before, "No business write or consumed draft on refusal");
   const known = { ...saved.draft.lines[0], size: "30*38*10", orderType: "stock" };
+  let confirmedInput;
+  const confirmOrder = workspace.orderConfirmationTransactionRepository.confirmOrder.bind(workspace.orderConfirmationTransactionRepository);
+  workspace.orderConfirmationTransactionRepository.confirmOrder = input => { confirmedInput = input; return confirmOrder(input); };
   const confirmed = await service.confirmOrderDraft({ workspace, draftId: "D-PRICE", operatorId: "U-PRICE", body: { expectedRevision: saved.draft.revision, idempotencyKey: "pg-known-price", lines: [known] } });
   assert.ok(confirmed.response, JSON.stringify(confirmed));
   const lineId = confirmed.response.orderLines[0].id;
   assert.equal(Number((await pool.query("SELECT final_amount FROM price_snapshots WHERE order_line_id=$1", [lineId])).rows[0].final_amount), 34);
+  const beforeUnjustifiedZero = await snapshot();
+  await assert.rejects(confirmOrder({ ...confirmedInput, idempotencyKey: "pg-unjustified-zero", priceSnapshots: confirmedInput.priceSnapshots.map(row => ({ ...row, finalAmount: 0, amount: 0 })) }), { code: "ORDER_PRICE_SOURCE_REQUIRED" });
+  assert.deepEqual(await snapshot(), beforeUnjustifiedZero, "A formally positive price cannot become unexplained zero accounting");
 
   // Synthetic persisted status facts: only the first line has a fulfillment.
   // The second line still produces and has not selected its delivery method.
   await pool.query("UPDATE order_lines SET line_status='已交付' WHERE id=$1", [lineId]);
   await pool.query("UPDATE fulfillment_records SET status='已交付' WHERE order_line_id=$1", [lineId]);
+  await pool.query("UPDATE production_tasks SET task_status='已完成' WHERE order_line_id=$1", [lineId]);
   await pool.query("INSERT INTO order_lines SELECT (jsonb_populate_record(NULL::order_lines, to_jsonb(l) || jsonb_build_object('id','OL-PRICE-PENDING','biz_no','OL-PRICE-PENDING','line_status','制袋中','fulfillment_method','待确认'))).* FROM order_lines l WHERE id=$1", [lineId]);
   await pool.query("INSERT INTO order_intake_submissions(id,biz_no,source_channel,external_submission_id,idempotency_scope,idempotency_key,request_hash,customer_id,status,draft_id) VALUES ('INTAKE-PRICE','WT20261024ABCDEF1234','wechat_mini_program','status-synthetic','bagwin:orders','status-synthetic',repeat('a',64),'C-PRICE','confirmed','D-PRICE')");
   const integration = createBagwinErpIntegrationService({ repository: createPostgresBagwinErpIntegrationRepository({ databaseUrl }) });
@@ -61,6 +68,9 @@ try {
   assert.equal((await queryStatus()).status, "production", "Persisted incomplete line cannot become completed from a fulfillment subset");
   await pool.query("UPDATE order_lines SET line_status='已作废' WHERE id='OL-PRICE-PENDING'");
   assert.equal((await queryStatus()).status, "completed", "Cancelled line does not block the completed active line");
+  await pool.query("UPDATE production_tasks SET task_status='制袋中' WHERE order_line_id=$1", [lineId]);
+  assert.equal((await queryStatus()).status, "production", "An explicit unfinished production fact blocks completion despite delivered lines");
+  await pool.query("UPDATE production_tasks SET task_status='已完成' WHERE order_line_id=$1", [lineId]);
   await pool.query("UPDATE fulfillment_records SET status='配送中' WHERE order_line_id=$1", [lineId]);
   assert.equal((await queryStatus()).status, "transporting", "An unfinished delivery still blocks final completion");
   await pool.query("UPDATE order_lines SET line_status='已作废' WHERE id=$1", [lineId]);

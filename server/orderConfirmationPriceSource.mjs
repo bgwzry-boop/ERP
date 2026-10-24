@@ -34,6 +34,12 @@ export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnap
     const hasRequiredPrice = normalizeOrderType(line.orderType ?? line.order_type) === "external_print"
       ? printPrice > 0 : bagPrice > 0;
     if (!hasRequiredPrice && !explicitGift) throw missingPrice(lineId);
+    if (finalAmount === 0 && chargeableQty > 0) {
+      const adjustment = snapshot.adjustmentAmount ?? snapshot.adjustment_amount ?? 0;
+      const expected = Math.round(((bagPrice + printPrice) * chargeableQty + otherFee + adjustment + Number.EPSILON) * 100) / 100;
+      if (!finite(adjustment) || expected !== 0
+        || (adjustment !== 0 && !clean(snapshot.overrideReason ?? snapshot.override_reason))) throw missingPrice(lineId);
+    }
   }
 }
 
