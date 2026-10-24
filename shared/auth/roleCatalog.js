@@ -30,6 +30,7 @@ const definitions = {
     buttonPermissions: [
       "order.create",
       "order.confirm",
+      "order.price.override",
       "order.save_draft",
       "order.open_pool",
       "order.void",
@@ -76,6 +77,7 @@ const definitions = {
       "order.draft.recognize",
       "order.draft.save",
       "order.confirm",
+      "order.price.override",
       "order.void",
       "order.quantity.adjust",
       "inventory.reservation.create",
@@ -225,6 +227,7 @@ const definitions = {
     buttonPermissions: [
       "order.create",
       "order.confirm",
+      "order.price.override",
       "order.save_draft",
       "order.open_pool",
       "order.void",
@@ -297,6 +300,7 @@ const definitions = {
       "order.draft.recognize",
       "order.draft.save",
       "order.confirm",
+      "order.price.override",
       "order.void",
       "order.quantity.adjust",
       "inventory.reservation.create",

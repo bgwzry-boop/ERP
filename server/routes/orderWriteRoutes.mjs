@@ -45,10 +45,19 @@ export async function handleOrderWriteRoutes({
     return true;
   }
 
+  const priceQuoteMatch = url.pathname.match(/^\/api\/order-drafts\/([^/]+)\/price-quote$/);
+  if (method === "POST" && priceQuoteMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmOrderDraft)) return true;
+    sendCommandResponse(response, await orderDraftCommandService.quoteOrderDraftPrice({ workspace, draftId: decodeURIComponent(priceQuoteMatch[1]), body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, ""), actionPermissions: permissionContext?.actionPermissions ?? [] }));
+    return true;
+  }
+
   const confirmDraftMatch = url.pathname.match(/^\/api\/order-drafts\/([^/]+)\/confirm$/);
   if (method === "POST" && confirmDraftMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmOrderDraft)) return true;
     sendCommandResponse(response, await orderDraftCommandService.confirmOrderDraft({
+      actionPermissions: permissionContext?.actionPermissions ?? [],
       workspace,
       draftId: decodeURIComponent(confirmDraftMatch[1]),
       body,
@@ -97,6 +106,7 @@ export async function handleOrderWriteRoutes({
   if (method === "POST" && splitConfirmMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmOrderDraft)) return true;
     sendCommandResponse(response, await orderDraftCommandService.confirmSplitOrderDraft({
+      actionPermissions: permissionContext?.actionPermissions ?? [],
       workspace,
       draftId: decodeURIComponent(splitConfirmMatch[1]),
       body,

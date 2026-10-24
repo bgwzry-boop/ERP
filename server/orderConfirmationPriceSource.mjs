@@ -7,13 +7,19 @@ const finite = value => typeof value === "number" && Number.isFinite(value);
 
 // These snapshots are made by a server command, never accepted from a request
 // body. An unknown bag price is not a free order or a print-only quotation.
-export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnapshots = [], miniappPriceSource, publishedPriceSource } = {}) {
+export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnapshots = [], miniappPriceSource, publishedPriceSource, officePriceQuote } = {}) {
   assertPublishedOrderPriceSnapshots(publishedPriceSource, orderLines, priceSnapshots);
   for (const line of orderLines) {
     const lineId = clean(line.orderLineId ?? line.id);
     const snapshots = priceSnapshots.filter(row => clean(row.orderLineId ?? row.order_line_id) === lineId);
     if (snapshots.length !== 1) throw missingPrice(lineId);
     const snapshot = snapshots[0];
+    if (officePriceQuote) {
+      const evidence = snapshot.sourceEvidence;
+      const quoted = officePriceQuote.linePrices.find(row => row.draftLineId === evidence?.officeQuoteInput?.id);
+      if (!quoted || evidence.officeQuoteId !== officePriceQuote.id || !isDeepStrictEqual(evidence, quoted.sourceEvidence)
+        || !["bagPrice", "printPrice", "otherFee", "adjustmentAmount", "chargeableQty", "finalAmount", "overrideReason"].every(key => snapshot[key] === quoted[key])) throw missingPrice(lineId);
+    } else if (["office_price_quote", "office_print_group_revision"].includes(snapshot.sourceEvidence?.kind)) throw missingPrice(lineId);
     const bagPrice = snapshot.bagPrice ?? snapshot.bag_price ?? 0;
     const printPrice = snapshot.printPrice ?? snapshot.print_price ?? 0;
     const otherFee = snapshot.otherFee ?? snapshot.other_fee ?? 0;

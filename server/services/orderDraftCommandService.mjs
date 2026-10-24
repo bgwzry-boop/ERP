@@ -9,6 +9,8 @@ import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "..
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
+import { buildOrderPrintingPriceGroups } from "../orderPrintingPriceGroups.mjs";
+import { buildOfficeDraftPricingQuote, officeQuoteProjection, assertOfficeQuoteMatches } from "../orderDraftPricingQuote.mjs";
 
 export function createOrderDraftCommandService(dependencies = {}) {
   const {
@@ -61,6 +63,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     recognizeOrderDraft,
     recognizeOrderDraftQueue,
     saveOrderDraft,
+    quoteOrderDraftPrice,
     restoreShortageCancelledDraftLine,
     linkCrossDraftShortageCancellation,
     confirmOrderDraft,
@@ -345,6 +348,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         body.customerId ?? previous.customerId ?? lines[0]?.customerId,
       ),
       status: body.draftStatus ?? "待审核",
+      recognitionContext: { ...previous.recognitionContext, officePriceQuote: null },
       lines,
       revision: expectedRevision,
       clientRevision: expectedRevision,
@@ -375,6 +379,42 @@ export function createOrderDraftCommandService(dependencies = {}) {
       todos: transaction.todos.map(toTodoSummary),
       operationLogId: transaction.operationLogId,
     });
+  }
+
+  async function quoteOrderDraftPrice({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
+    if (hasInvalidDraftQuantity(body.lines)) return businessError(422, "ORDER_DRAFT_QUANTITY_INVALID", "报价数量须为有效正整数。");
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
+    if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "请先保存有效草稿版本。");
+    const payload = { ...body, operatorId, action: "quote_order_draft_price" };
+    const replay = await workspace.orderDraftRepository.readSaveReceipt?.({ workspace, draftId, idempotencyKey: body.idempotencyKey, idempotencyPayload: payload });
+    if (replay?.draft?.recognitionContext?.officePriceQuote) return success({ quote: officeQuoteProjection(replay.draft.recognitionContext.officePriceQuote), draft: summarizeDraft(replay.draft), operationLogId: replay.operationLogId });
+    const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
+    if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
+    if (Number(previous.revision) !== expectedRevision || /已生成|已确认/u.test(previous.status)) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已变化，请重新读取后报价。");
+    if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) || (await workspace.orderDraftRepository.getMiniappConfirmationSources?.({ workspace, draftId }))?.length) return businessError(409, "MINIAPP_PRICE_LOCKED", "小程序已锁定客户报价，办公室不能通过本单价覆盖。");
+    const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body), previous.lines ?? [], operatorId, nowIso(now));
+    if (!lines.length) return businessError(422, "ORDER_DRAFT_LINES_REQUIRED", "请先填写订单明细。");
+    if (new Set(lines.map(line => line.id)).size !== lines.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    const cancellation = resolveShortageCancellationApplications(workspace, draftId, lines);
+    if (cancellation.error) return cancellation.error;
+    if (!cancellation.activeLines.length) return businessError(422, "ORDER_DRAFT_NO_BILLABLE_LINES", "本草稿已无待下单明细，请核对取消记录，不能生成空报价。");
+    const reviewError = assertNoPendingFieldReviews(cancellation.activeLines);
+    if (reviewError) return reviewError;
+    try {
+      const quote = await buildOfficeDraftPricingQuote({ workspace, draft: previous, rows: cancellation.activeLines, body, operatorId, actionPermissions, now: nowIso(now) });
+      quote.excludedDraftLineIds = cancellation.cancelledDraftLineIds;
+      const draft = buildDraftProjection(previous, { id: draftId, draftId, lines: cancellation.lines,
+        sourceText: body.sourceText ?? previous.sourceText, recognitionContext: { ...previous.recognitionContext, officePriceQuote: quote },
+        revision: expectedRevision, clientRevision: expectedRevision });
+      const operationLog = buildOperationLog(workspace, { id: buildDraftOperationLogId("price-quote", draftId, expectedRevision + 1, body.idempotencyKey),
+        targetType: "order_draft", targetId: draftId, action: "quote_order_draft_price", operatorId,
+        before: { quoteId: previous.recognitionContext?.officePriceQuote?.id ?? null }, after: officeQuoteProjection(quote), reason: "办公室服务端报价与本单价依据" });
+      const saved = await workspace.orderDraftRepository.saveOrderDraft({ workspace, draft, expectedRevision, operationLog, todos: [], idempotencyKey: body.idempotencyKey, idempotencyPayload: payload });
+      return success({ quote: officeQuoteProjection(quote), draft: summarizeDraft(saved.draft), operationLogId: saved.operationLogId });
+    } catch (error) {
+      if (!error.statusCode) throw error;
+      return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } };
+    }
   }
 
   async function restoreShortageCancelledDraftLine({ workspace, draftId, body = {}, operatorId }) {
@@ -578,7 +618,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
   }
 
-  async function confirmOrderDraft({ workspace, draftId, body = {}, operatorId }) {
+  async function confirmOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
     let lines = normalizeDraftRows(body.lines ?? [], workspace, body);
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
@@ -604,6 +644,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if(hasInvalidDraftQuantity(body.lines))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","正式订单数量须为大于零的整数，不能自动取整。");
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
+    if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(previous.status)) return businessError(409, "ORDER_DRAFT_ALREADY_CONFIRMED", "本草稿已生成正式订单，请在订单池核对，不能再次下单。");
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
     if (["mini_program","wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) {
       return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
@@ -625,8 +666,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(cancellationResolution.activeLines);
     if (reviewError) return reviewError;
+    const officePriceQuote = previous.recognitionContext?.officePriceQuote;
+    if (officePriceQuote || body.pricingQuoteId) {
+      try { assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions); }
+      catch (error) { return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } }; }
+    }
     let publishedPricing;
-    if (!miniappPricing) {
+    if (!miniappPricing && !officePriceQuote && buildOrderPrintingPriceGroups(cancellationResolution.activeLines.map(row => ({ ...row, printingScope: row.originalOrderGroupId || previous.id }))).some(group => group.memberCount > 1)) {
+      return businessError(409, "ORDER_PRINT_GROUP_QUOTE_REQUIRED", "同内容同尺寸的多行印刷需先生成合组报价，再确认订单；草稿已保留。");
+    }
+    if (!miniappPricing && !officePriceQuote) {
       try { publishedPricing = await loadOrderDraftPublishedPricing(workspace, cancellationResolution.activeLines, now()); }
       catch (error) {
         if (error.code !== "ORDER_PRICE_SOURCE_REQUIRED") throw error;
@@ -637,7 +686,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (holdResolution.error) return holdResolution.error;
     const confirmation = confirmDraftOrder({
       draftRows: cancellationResolution.activeLines,
-      resolveAmount: row => (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
+      resolveAmount: row => officePriceQuote ? officePriceQuote.linePrices.find(price => price.draftLineId === row.id)?.finalAmount : (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
       inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
       orderLines: workspace.orderLines,
       fulfillments: workspace.fulfillments,
@@ -645,6 +694,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     });
     applyMiniappDraftLockedPricing(confirmation, miniappPricing);
     applyOrderDraftPublishedPricing(confirmation, publishedPricing);
+    applyOfficePricingQuote(confirmation, officePriceQuote);
     if (confirmation.blocked) {
       const blockedDraft = buildDraftProjection(previous, {
         id: draftId,
@@ -714,15 +764,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
       ...toPriceSnapshot(line),
       ...line.confirmedMiniappPrice,
       ...line.confirmedPublishedPrice,
+      ...line.confirmedOfficePrice,
       priceSnapshotId: `PS-${line.id}`,
       snapshotType: "order_confirm",
       versionNo: 1,
-      chargeableQty: Number(line.qty ?? 0),
+      chargeableQty: line.confirmedOfficePrice?.chargeableQty ?? Number(line.qty ?? 0),
       finalAmount: Number(line.amount ?? 0),
       createdBy: operatorId,
     }));
     try {
-      assertOrderConfirmationPriceSources({ orderLines: confirmation.newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source });
+      assertOrderConfirmationPriceSources({ orderLines: confirmation.newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source, officePriceQuote });
     } catch (error) {
       return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
     }
@@ -739,7 +790,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       inventoryReservations,
       operatorId,
     );
-    const todos = buildConfirmationTodos(workspace, confirmation.shortageTodoInputs, operatorId, confirmation.newLines);
+    const todos = buildConfirmationTodos(workspace, pricingReviewTodos(confirmation.shortageTodoInputs, officePriceQuote), operatorId, confirmation.newLines);
     const commandResponse = {
       orderId: confirmation.orderNo,
       orderSummaryStatus: "处理中",
@@ -768,6 +819,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       orderDraft: confirmedDraft,
       miniappPriceSource: miniappPricing?.source,
       publishedPriceSource: publishedPricing?.source,
+      officePriceQuote,
       expectedDraftRevision: expectedRevision,
       order: buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId),
       orderLines: confirmation.newLines.map((line) => ({ ...line, createdBy: operatorId })),
@@ -836,7 +888,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     return success({ splitPlan });
   }
 
-  async function confirmSplitOrderDraft({ workspace, draftId, body = {}, operatorId }) {
+  async function confirmSplitOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
     let lines = normalizeDraftRows(body.lines ?? [], workspace, body);
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
@@ -857,6 +909,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if(hasInvalidDraftQuantity(body.lines))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","正式订单数量须为大于零的整数，不能自动取整。");
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
+    if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(previous.status)) return businessError(409, "ORDER_DRAFT_ALREADY_CONFIRMED", "本草稿已生成正式订单，请在订单池核对，不能再次下单。");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) {
       return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "The draft changed before split confirmation.");
     }
@@ -881,8 +934,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(cancellationResolution.activeLines);
     if (reviewError) return reviewError;
+    const officePriceQuote = previous.recognitionContext?.officePriceQuote;
+    if (officePriceQuote || body.pricingQuoteId) {
+      try { assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions); }
+      catch (error) { return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } }; }
+    }
     let publishedPricing;
-    if (!miniappPricing) {
+    if (!miniappPricing && !officePriceQuote && buildOrderPrintingPriceGroups(cancellationResolution.activeLines.map(row => ({ ...row, printingScope: row.originalOrderGroupId || previous.id }))).some(group => group.memberCount > 1)) {
+      return businessError(409, "ORDER_PRINT_GROUP_QUOTE_REQUIRED", "同内容同尺寸的多行印刷需先生成合组报价，再确认订单；草稿已保留。");
+    }
+    if (!miniappPricing && !officePriceQuote) {
       try { publishedPricing = await loadOrderDraftPublishedPricing(workspace, cancellationResolution.activeLines, now()); }
       catch (error) {
         if (error.code !== "ORDER_PRICE_SOURCE_REQUIRED") throw error;
@@ -907,7 +968,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       const groupLines = group.draftLineIds.map((lineId) => linesById.get(lineId)).filter(Boolean);
       const confirmation = confirmDraftOrder({
         draftRows: groupLines,
-        resolveAmount: row => (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
+        resolveAmount: row => officePriceQuote ? officePriceQuote.linePrices.find(price => price.draftLineId === row.id)?.finalAmount : (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
         inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
         orderLines: rollingOrderNumberRows,
         fulfillments: rollingFulfillments,
@@ -915,6 +976,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       });
       applyMiniappDraftLockedPricing(confirmation, miniappPricing);
       applyOrderDraftPublishedPricing(confirmation, publishedPricing);
+      applyOfficePricingQuote(confirmation, officePriceQuote);
       if (confirmation.blocked) {
         return businessError(409, "ORDER_DRAFT_SPLIT_GROUP_BLOCKED", `${group.groupId}: ${confirmation.toast}`);
       }
@@ -962,15 +1024,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
       ...toPriceSnapshot(line),
       ...line.confirmedMiniappPrice,
       ...line.confirmedPublishedPrice,
+      ...line.confirmedOfficePrice,
       priceSnapshotId: `PS-${line.id}`,
       snapshotType: "order_confirm",
       versionNo: 1,
-      chargeableQty: Number(line.qty ?? 0),
+      chargeableQty: line.confirmedOfficePrice?.chargeableQty ?? Number(line.qty ?? 0),
       finalAmount: Number(line.amount ?? 0),
       createdBy: operatorId,
     }));
     try {
-      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source });
+      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source, officePriceQuote });
     } catch (error) {
       return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
     }
@@ -984,7 +1047,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     );
     const todos = buildConfirmationTodos(
       workspace,
-      confirmations.flatMap((item) => item.confirmation.shortageTodoInputs),
+      pricingReviewTodos(confirmations.flatMap((item) => item.confirmation.shortageTodoInputs), officePriceQuote),
       operatorId,
       newLines,
     );
@@ -1016,6 +1079,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       orderDraft: confirmedDraft,
       miniappPriceSource: miniappPricing?.source,
       publishedPriceSource: publishedPricing?.source,
+      officePriceQuote,
       expectedDraftRevision: expectedRevision,
       order: orders[0],
       orders,
@@ -1156,6 +1220,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
         fulfillment: line.fulfillmentMethod ?? line.fulfillment ?? "待确认",
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),
+        printContent: String(line.printContent ?? "").trim(),
+        specialRequirements: Array.isArray(line.specialRequirements) ? [...new Set(line.specialRequirements.map(String))].sort() : [],
         printSide: mapPrintSide(line.printSide),
         artworkStatus: mapArtworkStatus(line.artworkStatus, printFlag),
         artworkAttachment: normalizeArtworkAttachment(line.artworkAttachment),
@@ -1452,6 +1518,23 @@ export function createOrderDraftCommandService(dependencies = {}) {
       if (!heldQty) return inventory;
       const reserved = Math.max(0, Number(inventory.reserved ?? inventory.reservedQty ?? 0) - heldQty);
       return { ...inventory, reserved, reservedQty: reserved };
+    });
+  }
+
+  function pricingReviewTodos(inputs, quote) {
+    return [...inputs, ...(quote?.linePrices ?? []).filter(price => price.sourceEvidence.override?.managerReviewRequired).map(price => ({
+      type: "本单改价待查看", refType: "order_draft", refId: quote.draftId, ref: quote.draftId, customerId: price.sourceEvidence.officeQuoteInput.customerId,
+      summary: `本单价格已生效，请查看改价依据：${price.overrideReason}`, urgency: "普通", impact: "仅提醒，不阻塞订单生产交付" }))];
+  }
+
+  function applyOfficePricingQuote(confirmation, quote) {
+    if (!quote || confirmation.blocked) return;
+    confirmation.newLines.forEach((line, index) => {
+      const price = quote.linePrices.find(price => price.draftLineId === confirmation.checkedRows[index]?.id);
+      if (!price) throw Object.assign(new Error("报价明细不匹配"), { code: "ORDER_PRICE_QUOTE_CHANGED", statusCode: 409 });
+      line.confirmedOfficePrice = structuredClone(price);
+      line.amount = price.finalAmount;
+      if (price.sourceEvidence.override) line.exceptions = [...new Set([...(line.exceptions ?? []), "本单改价"] )];
     });
   }
 

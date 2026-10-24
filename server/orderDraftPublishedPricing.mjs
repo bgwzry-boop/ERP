@@ -50,7 +50,7 @@ export async function loadOrderDraftPublishedPricing(workspace, lines, at) {
   return { source, prices };
 }
 
-function resolvePublishedRow(source, row) {
+export function resolvePublishedRow(source, row) {
   const type = normalizeOrderType(row.orderType);
   // An arbitrary custom size cannot become a common-goods quote merely by
   // matching a dimension; its formal quotation remains a separate workflow.

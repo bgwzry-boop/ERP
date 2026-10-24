@@ -6,6 +6,7 @@ import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey, readPostgresIdempotencyReplay, buildIdempotencyRequestHash, buildIdempotencyConflictError } from "./idempotency.mjs";
 import { normalizeInventoryIntents } from "./inventoryIntentDomain.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
+import { localOrderPricingMaterialFacts, buildMiniappSpecialMaterialPriceQuery } from "./orderPricingMaterialSource.mjs";
 
 export function createOrderDraftRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -44,6 +45,11 @@ export function createLocalOrderDraftRepository() {
     },
 
     getMiniappConfirmationSources({ workspace, draftId }) {return (workspace?.miniappConfirmationSources??[]).filter(source=>source.draftId===draftId);},
+
+    getOrderPricingMaterialFacts({ workspace, input }) {
+      return { materials: localOrderPricingMaterialFacts(workspace, input), publishedRelease: (workspace.officePricingPublishedReleases ?? [])
+        .find(release => release.status === "published" && Date.parse(release.effectiveFrom) <= Date.now()) ?? null };
+    },
 
     getOrderDraft(input) {
       return normalizeOrderDraft((input.workspace?.orderDrafts ?? []).find((item) => item.id === input.draftId));
@@ -122,6 +128,13 @@ export function createPostgresOrderDraftRepository(options = {}) {
     async getMiniappConfirmationSources({ draftId }) {
       const query = buildMiniappConfirmationSourceQuery(draftId);
       return queryJson(query.text, query.values);
+    },
+
+    async getOrderPricingMaterialFacts({ input }) {
+      const query = buildMiniappSpecialMaterialPriceQuery(input);
+      const materials = await queryJson(query.text, query.values);
+      const publishedRelease = await queryJson("SELECT jsonb_build_object('id',id,'revision',revision,'specialSizePricing',bundle_json->'specialSizePricing') AS result FROM miniapp_price_releases WHERE status='published' AND requested_effective_from<=now() LIMIT 1", []);
+      return { materials, publishedRelease: publishedRelease ?? null };
     },
 
     async getOrderDraft(input) {

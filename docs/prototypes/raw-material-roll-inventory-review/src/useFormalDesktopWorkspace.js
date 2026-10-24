@@ -216,16 +216,17 @@ export function useFormalDesktopWorkspace() {
     return result;
   }, []);
 
-  const recognizeOrderText = useCallback(async (sourceText) => recognizeOfficeDraft({
+  const recognizeOrderText = useCallback(async (sourceText, request = {}) => recognizeOfficeDraft({
     authState: authStateRef.current,
     operatorId,
     sourceText,
     sourceMessages: [],
+    idempotencyKey: request.idempotencyKey,
     customers: [],
     inventories: data.inventoryItems,
   }, readOptions), [data.inventoryItems]);
 
-  const saveOrderDraft = useCallback(async ({ draftId, clientRevision = 0, rows, sourceText }) => saveOfficeDraft({
+  const saveOrderDraft = useCallback(async ({ draftId, clientRevision = 0, rows, sourceText, idempotencyKey }) => saveOfficeDraft({
     authState: authStateRef.current,
     operatorId,
     draftId,
@@ -233,9 +234,10 @@ export function useFormalDesktopWorkspace() {
     draftRows: rows,
     sourceText,
     draftStatus: "待审核",
+    idempotencyKey,
   }, readOptions), []);
 
-  const confirmOrderDraft = useCallback(async ({ draftId, clientRevision = 0, rows, sourceText }) => confirmOfficeDraftViaApi({
+  const confirmOrderDraft = useCallback(async ({ draftId, clientRevision = 0, rows, sourceText, pricingQuoteId, confirmedAffectedOrderLineIds, idempotencyKey }) => confirmOfficeDraftViaApi({
     authState: authStateRef.current,
     operatorId,
     draftId,
@@ -243,6 +245,7 @@ export function useFormalDesktopWorkspace() {
     draftRows: rows,
     sourceText,
     confirmMode: "confirm_now",
+    pricingQuoteId, confirmedAffectedOrderLineIds, idempotencyKey,
   }, readOptions), []);
 
   const updateEmployeeProfile = useCallback(async (review, profile = {}) => {

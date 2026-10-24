@@ -1,3 +1,4 @@
+import { assertLocalOfficePricingQuote, buildOfficePricingConfirmationCtes } from "./orderPricingConfirmation.mjs";
 import { normalizeInventoryHoldTimestamp } from "../shared/inventoryHoldTime.js";
 import { isDeepStrictEqual } from "node:util";
 import { buildMiniappConfirmationSourceGuard, validateMiniappConfirmationSource } from "./miniapp/miniappConfirmationSource.mjs";
@@ -51,7 +52,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
       const expectedDraftRevision = toFiniteInteger(input.expectedDraftRevision);
       const currentDraft = (input.workspace?.orderDrafts ?? []).find((item) => item.id === input.orderDraft?.id);
       const currentRevision = toFiniteInteger(currentDraft?.revision ?? currentDraft?.clientRevision);
-      if (!currentDraft || expectedDraftRevision < 1 || currentRevision !== expectedDraftRevision) {
+      if (!currentDraft || expectedDraftRevision < 1 || currentRevision !== expectedDraftRevision || ["已生成正式订单", "已生成多个正式订单", "已确认"].includes(currentDraft.status)) {
         throw orderDraftConcurrencyError();
       }
       const sources = (input.workspace?.miniappConfirmationSources ?? []).filter(source => source.draftId === currentDraft.id);
@@ -61,6 +62,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
       } else if (input.miniappPriceSource) throw new Error("Unexpected miniapp price source");
       assertOrderConfirmationPriceSources(input);
       assertPublishedOrderPriceSource(input.workspace, input.publishedPriceSource);
+      assertLocalOfficePricingQuote(input.workspace, currentDraft, input.officePriceQuote);
       const orderDraft = buildCommittedOrderDraft(input.orderDraft, input.expectedDraftRevision);
       const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations);
       const shortageCancellationIntents = normalizeInventoryIntents(input.shortageCancellationIntents);
@@ -72,7 +74,11 @@ export function createLocalOrderConfirmationTransactionRepository() {
         orders,
         orderLines: input.orderLines,
         productionTasks: input.productionTasks,
-        priceSnapshots: input.priceSnapshots,
+        priceSnapshots: [...(input.priceSnapshots ?? []), ...(input.officePriceQuote?.relatedRevisions ?? []).map(row => row.nextPrice)],
+        relatedOrderLines: (input.officePriceQuote?.relatedRevisions ?? []).map(revision => {
+          const line = input.workspace.orderLines.find(line => (line.id ?? line.orderLineId) === revision.orderLineId);
+          return { ...line, orderId: line.orderNo ?? line.orderId, revision: revision.expectedRevision + 1, amount: revision.nextPrice.finalAmount, exceptions: [...new Set([...(line.exceptions ?? []), "补单合组价格修订"])] };
+        }),
         fulfillmentRecords: input.fulfillmentRecords,
         inventoryReservations,
         inventoryIntents: [
@@ -88,7 +94,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
         workspace: input.workspace,
         orderDraft: transaction.orderDraft,
         orders: transaction.orders,
-        orderLines: transaction.orderLines,
+        orderLines: [...transaction.orderLines, ...transaction.relatedOrderLines],
         productionTasks: transaction.productionTasks,
         priceSnapshots: transaction.priceSnapshots,
         fulfillmentRecords: transaction.fulfillmentRecords,
@@ -99,6 +105,12 @@ export function createLocalOrderConfirmationTransactionRepository() {
         todos: transaction.todos,
         operationLog: input.operationLog,
       });
+      for (const revision of input.officePriceQuote?.relatedRevisions ?? []) {
+        input.workspace.orderLineChangeRecords ??= [];
+        input.workspace.orderLineChangeRecords.unshift({ id: `CHG-${input.officePriceQuote.id}-${revision.orderLineId}`, orderLineId: revision.orderLineId,
+          changedFields: ["printPrice", "finalAmount", "priceSnapshotId"], before: revision.priorPrice, after: revision.nextPrice,
+          reason: input.officePriceQuote.supplementation.reason, documentReprintRequired: true, changedBy: input.officePriceQuote.operatorId, createdAt: input.officePriceQuote.createdAt });
+      }
       saveLocalIdempotencyReplay(idempotencyResults, input, transaction);
       return transaction;
     },
@@ -133,6 +145,7 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
         resourceLocks: [
           ...(input.orders ?? [input.order]).map((item) => `order:${item?.orderId ?? item?.id ?? ""}`),
           `order-draft:${input.orderDraft?.id ?? input.order?.sourceDraftId ?? ""}`,
+          ...(input.officePriceQuote?.relatedRevisions ?? []).flatMap(row => [`order-line:${row.orderLineId}`, ...row.productionTasks.map(task => `production-task:${task.id}`)]),
           ...(input.inventoryReservations ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
           ...(input.shortageCancellationIntents ?? []).map((item) => `inventory-intent:${item.id ?? item.intentId ?? ""}`),
         ],
@@ -146,7 +159,7 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
         workspace: input.workspace,
         orderDraft: saved.orderDraft,
         orders: saved.orders,
-        orderLines: saved.orderLines,
+        orderLines: [...saved.orderLines, ...saved.relatedOrderLines],
         productionTasks: saved.productionTasks,
         priceSnapshots: saved.priceSnapshots,
         fulfillmentRecords: saved.fulfillmentRecords,
@@ -189,6 +202,7 @@ function buildOrderConfirmationIdempotencyPayload(input = {}) {
     orderLines: input.orderLines,
     productionTasks: input.productionTasks,
     priceSnapshots: input.priceSnapshots,
+    officePriceQuote: input.officePriceQuote,
     fulfillmentRecords: input.fulfillmentRecords,
     inventoryReservations: input.inventoryReservations,
     shortageCancellationIntents: input.shortageCancellationIntents,
@@ -216,7 +230,8 @@ function buildConfirmOrderTransactionText(input, parameters) {
   const order = orders[0] ?? null;
   const orderLines = normalizeOrderLines(input.orderLines ?? [], order?.orderId);
   const productionTasks = normalizeProductionTasks(input.productionTasks ?? [], orderLines);
-  const priceSnapshots = normalizePriceSnapshots(input.priceSnapshots ?? [], orderLines);
+  const priceSnapshots = normalizePriceSnapshots([...(input.priceSnapshots ?? []), ...(input.officePriceQuote?.relatedRevisions ?? []).map(row => row.nextPrice)], orderLines);
+  const publishedPriceSource = input.publishedPriceSource ?? input.officePriceQuote?.baseSource;
   const fulfillmentRecords = normalizeFulfillmentRecords(input.fulfillmentRecords ?? []);
   const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations ?? []);
   const inventoryIntentConversions = inventoryReservations.filter((reservation) => reservation.convertFromTemporaryHold);
@@ -234,11 +249,11 @@ function buildConfirmOrderTransactionText(input, parameters) {
   if (orderLines.some((line) => !orderIds.has(line.orderId))) {
     throw new Error("Every formal order line must belong to an order in the same confirmation transaction");
   }
-  assertOrderConfirmationPriceSources({ orderLines, priceSnapshots, miniappPriceSource: input.miniappPriceSource, publishedPriceSource: input.publishedPriceSource });
+  assertOrderConfirmationPriceSources({ orderLines, priceSnapshots, miniappPriceSource: input.miniappPriceSource, publishedPriceSource: input.publishedPriceSource, officePriceQuote: input.officePriceQuote });
   return `
 BEGIN;
 WITH locked_order_draft AS MATERIALIZED (
-  SELECT id, revision
+  SELECT id, revision, recognition_summary, status
   FROM order_drafts
   WHERE id = ${parameters.text(orderDraft.id)}
   FOR UPDATE
@@ -249,20 +264,22 @@ order_draft_write_guard AS MATERIALIZED (
       SELECT 1
       FROM locked_order_draft
       WHERE revision = ${parameters.integer(expectedDraftRevision)}
+        AND status NOT IN ('已生成正式订单', '已生成多个正式订单', '已确认')
     ),
     'ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT'
   ) AS ok
 ),
 locked_order_price_tables AS MATERIALIZED (
-  SELECT * FROM price_tables WHERE ${input.publishedPriceSource ? "true" : "false"} ORDER BY id FOR SHARE
+  SELECT * FROM price_tables WHERE ${publishedPriceSource ? "true" : "false"} ORDER BY id FOR SHARE
 ),
 locked_order_price_items AS MATERIALIZED (
-  SELECT * FROM price_table_items WHERE price_table_id = ${parameters.text(input.publishedPriceSource?.priceTable.id ?? "")}
+  SELECT * FROM price_table_items WHERE price_table_id = ${parameters.text(publishedPriceSource?.priceTable.id ?? "")}
   ORDER BY id FOR SHARE
 ),
 published_price_write_guard AS MATERIALIZED (
-  SELECT erp_require(${buildPublishedOrderPriceSourceGuard(input.publishedPriceSource, parameters)}, 'ERP_ORDER_PRICE_SOURCE_CONFLICT') AS ok
+  SELECT erp_require(${buildPublishedOrderPriceSourceGuard(publishedPriceSource, parameters)}, 'ERP_ORDER_PRICE_SOURCE_CONFLICT') AS ok
 ),
+${buildOfficePricingConfirmationCtes(input.officePriceQuote, parameters, orderLineJsonExpression)},
 miniapp_source_write_guard AS MATERIALIZED (
   SELECT erp_require(${buildMiniappConfirmationSourceGuard(input.miniappPriceSource, { draftId: orderDraft.id, customerId: orderDraft.customerId }, parameters)}, 'ERP_MINIAPP_CONFIRMATION_SOURCE_CONFLICT') AS ok
 ),
@@ -297,8 +314,9 @@ updated_order_draft AS (
   CROSS JOIN miniapp_artwork_write_guard AS artwork_guard
   CROSS JOIN miniapp_source_write_guard AS source_guard
   CROSS JOIN published_price_write_guard AS price_guard
+  CROSS JOIN office_pricing_write_guard AS office_price_guard
   WHERE draft.id = ${parameters.text(orderDraft.id)}
-    AND guard.ok AND artwork_guard.ok AND source_guard.ok AND price_guard.ok
+    AND guard.ok AND artwork_guard.ok AND source_guard.ok AND price_guard.ok AND office_price_guard.ok
   RETURNING draft.id, ${orderDraftJsonExpression("draft")} AS result
 ),
 deleted_order_draft_lines AS (
@@ -425,6 +443,7 @@ SELECT json_build_object(
   'order', (SELECT result FROM inserted_orders ORDER BY result->>'orderId' LIMIT 1),
   'orders', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderId'), '[]'::json) FROM inserted_orders),
   'orderLines', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_order_lines),
+  'relatedOrderLines', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM updated_pricing_related_lines),
   'productionTasks', (SELECT COALESCE(json_agg(result ORDER BY result->>'productionTaskId'), '[]'::json) FROM inserted_production_tasks),
   'priceSnapshots', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_price_snapshots),
   'fulfillmentRecords', (SELECT COALESCE(json_agg(result ORDER BY result->>'fulfillmentId'), '[]'::json) FROM inserted_fulfillment_records),
@@ -451,6 +470,7 @@ export function normalizeOrderConfirmationTransactionResult(value) {
       order: null,
       orders: [],
       orderLines: [],
+      relatedOrderLines: [],
       productionTasks: [],
       priceSnapshots: [],
       fulfillmentRecords: [],
@@ -471,6 +491,7 @@ export function normalizeOrderConfirmationTransactionResult(value) {
     order,
     orders: orders.length ? orders : order ? [order] : [],
     orderLines,
+    relatedOrderLines: normalizeOrderLines(value.relatedOrderLines ?? []).map(line => ({ ...line, amount: (value.priceSnapshots ?? []).find(price => price.orderLineId === line.orderLineId)?.finalAmount ?? line.amount })),
     productionTasks: normalizeProductionTasks(value.productionTasks ?? value.production_tasks ?? [], orderLines),
     priceSnapshots: normalizePriceSnapshots(value.priceSnapshots ?? value.price_snapshots ?? [], orderLines),
     fulfillmentRecords: normalizeFulfillmentRecords(value.fulfillmentRecords ?? value.fulfillment_records ?? []),
@@ -557,6 +578,7 @@ function normalizeOrderLine(line, fallbackOrderId = "") {
     printColor: String(line.printColor ?? line.print_color ?? "").trim(),
     printSide: String(line.printSide ?? line.print_side ?? "").trim(),
     handleColor: String(line.handleColor ?? line.handle_color ?? "").trim(),
+    revision: Math.max(1, toFiniteInteger(line.revision ?? 1)),
     originalQty: toFiniteInteger(line.originalQty ?? line.original_qty ?? line.qty),
     latestNeededAt: String(line.latestNeededAt ?? line.latest_needed_at ?? line.latest ?? "").trim(),
     fulfillmentMethod: String(line.fulfillmentMethod ?? line.fulfillment_method ?? line.fulfillment ?? "待确认").trim() || "待确认",
@@ -820,6 +842,7 @@ function applyOrderConfirmationWorkspaceMutation({
 function toWorkspaceOrderLine(line) {
   return {
     id: line.orderLineId,
+    revision: line.revision,
     orderNo: line.orderId,
     lineNo: line.orderLineId.split("-").at(-1) ?? "",
     customerId: line.customerId,
@@ -1745,6 +1768,7 @@ function orderJsonExpression(alias) {
 function orderLineJsonExpression(alias) {
   return `json_build_object(
     'orderLineId', ${alias}.id,
+    'revision', ${alias}.revision,
     'bizNo', ${alias}.biz_no,
     'orderId', ${alias}.order_id,
     'customerId', ${alias}.customer_id,
