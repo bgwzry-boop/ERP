@@ -66,8 +66,8 @@ try {
         const response = await route.fetch();
         if (response.ok()) receipts.push(await response.json());
         if (!lost && response.ok()) { lost = true; await route.fulfill({ status: 500, contentType: "application/json", body: '{"code":"SYNTHETIC_LOST_RESPONSE","message":"合成测试：服务器已提交但回执丢失"}' }); }
-        else if (mode === "prepare" && requests.length === 2) await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
-        else if (mode === "prepare" && requests.length === 3) { const receipt = await response.json(); receipt.warehouseOutboundExecution.paperOutboundDocumentId = "POD-FOREIGN"; await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(receipt) }); }
+        else if (requests.length === 2) await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+        else if (requests.length === 3) { const receipt = await response.json(); if (mode === "prepare") receipt.warehouseOutboundExecution.paperOutboundDocumentId = "POD-FOREIGN"; else receipt.finalDeliveryAt = "2026-08-01T01:00:00.000Z"; await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(receipt) }); }
         else await route.fulfill({ response });
       });
       await page.goto(base + "/"); await page.evaluate(({ token, mode }) => { window.testToken = token; window.testMode = mode; }, { token, mode });
@@ -91,11 +91,14 @@ try {
         await page.getByLabel("实际拉走时间（北京时间）").fill("2026-07-31T21:00");
         await page.getByRole("button", { name: "核对快递揽收", exact: true }).click();
         await page.getByRole("button", { name: "确认提交", exact: true }).click();
-        await page.getByRole("button", { name: "重试本次操作", exact: true }).waitFor();
-        await page.getByRole("button", { name: "重试本次操作", exact: true }).click();
+        for (let retry = 0; retry < 3; retry++) {
+          await page.getByRole("button", { name: "重试本次操作", exact: true }).waitFor();
+          assert.equal(await page.getByRole("button", { name: "返回修改", exact: true }).isDisabled(), true);
+          await page.getByRole("button", { name: "重试本次操作", exact: true }).click();
+        }
         await page.getByText("本次交付已结束，保留现有出库与签收记录供核对。", { exact: true }).waitFor();
       }
-      assert.equal(requests.length, mode === "prepare" ? 4 : 2); for (const request of requests.slice(1)) assert.deepEqual(request, requests[0], "unknown result must retry the exact original content and key");
+      assert.equal(requests.length, 4); for (const request of requests.slice(1)) assert.deepEqual(request, requests[0], "unknown result must retry the exact original content and key");
       assert.equal(new Set(receipts.map(receipt => receipt.operationLogId)).size, 1);
       if (mode === "prepare") assert.equal(new Set(receipts.map(receipt => receipt.warehouseOutboundExecution.warehouseOutboundExecutionId)).size, 1);
       if (mode === "carrier") assert.equal(requests[0].actualHandoffAt, "2026-07-31T13:00:00.000Z");

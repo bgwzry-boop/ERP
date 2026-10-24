@@ -645,6 +645,7 @@ const pickupResult = await confirmOfficeFulfillmentPickup(
     authState,
     fulfillment: { ...expressFulfillment, status: "待确认拉走", printed: true },
     operatorId: "U-WAREHOUSE-A",
+    actualHandoffAt: "2026-07-31T13:00:00.000Z",
   },
   {
     fetchImpl: async (url, init) => {
@@ -653,6 +654,7 @@ const pickupResult = await confirmOfficeFulfillmentPickup(
         fulfillmentId: expressFulfillment.id,
         status: "已交付",
         actualQty: 1500,
+        finalDeliveryAt: "2026-07-31T13:00:00.000Z", statementId: "ST-CARRIER-TEST",
         statementCandidate: true,
         inventoryLedgerIds: [],
         operationLogId: "LOG-FULFILLMENT-PICKUP-1",

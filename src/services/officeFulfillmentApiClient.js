@@ -496,17 +496,8 @@ export async function confirmOfficeFulfillmentPickup(input, options = {}) {
       };
     }
 
-    return {
-      source: "api",
-      fulfillmentId: json.fulfillmentId,
-      status: json.status,
-      finalDeliveryStatus: json.finalDeliveryStatus,
-      finalDeliveryAt: json.finalDeliveryAt,
-      statementCandidate: json.statementCandidate,
-      statementId: json.statementId,
-      inventoryDeductionMode: json.inventoryDeductionMode,
-      operationLogId: json.operationLogId,
-    };
+    const { readCarrierHandoffReceipt } = await import("../../shared/carrierHandoffReceipt.js");
+    return readCarrierHandoffReceipt(json, input);
   } catch (error) {
     if (isOfficeApiServerRequired(options)) {
       return buildServerRequiredWriteError("FULFILLMENT_PICKUP_API_UNAVAILABLE", error);
