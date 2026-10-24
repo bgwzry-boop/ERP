@@ -1,3 +1,4 @@
+import { isActivePackage } from "../../shared/packageContents.js";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 
 export function createPrintJobBusinessProjectionService({
@@ -176,7 +177,7 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
     beforePrintRecord.targetType === "fulfillment"
       ? findFulfillment(workspace, beforePrintRecord.targetId)
       : null;
-  const isPackageLabel = documentType === "express_ltl_label";
+  const isPackageLabel = ["express_ltl_label","package_label"].includes(documentType);
   const labelTrust = fulfillment ? evaluateFulfillmentLabelTrust(workspace, { fulfillment, printRecord, isPackageLabel }) : null;
   const physicalPrintConfirmed =
     jobStatus === "printed" && (!labelTrust?.required || labelTrust.trusted === true);
@@ -251,7 +252,7 @@ function formatProjectionFulfillment(fulfillment, plan) {
 
 function evaluateFulfillmentLabelTrust(workspace, { fulfillment, printRecord, isPackageLabel = false }) {
   const required = isPackageLabel;
-  if (required && normalizeFulfillmentMethod(fulfillment.method) !== "express_ltl") return {required,trusted:false,reason:"delivery_method_changed",packages:[]};
+  if (required && printRecord.documentType !== "package_label" && normalizeFulfillmentMethod(fulfillment.method) !== "express_ltl") return {required,trusted:false,reason:"delivery_method_changed",packages:[]};
   if (!required) return { required: false, trusted: true, reason: "not_required", packages: [] };
 
   const packages = listFulfillmentPackages(workspace, fulfillment);
@@ -333,7 +334,7 @@ function isPersistedFulfillmentLabelTrust(workspace, { fulfillment, printRecord 
 function listFulfillmentPackages(workspace, fulfillment) {
   const fulfillmentId = normalizeText(fulfillment?.fulfillmentId ?? fulfillment?.id);
   return (workspace.packages ?? [])
-    .filter((item) => normalizeText(item.fulfillmentId ?? item.fulfillment_id) === fulfillmentId)
+    .filter((item) => isActivePackage(item) && normalizeText(item.fulfillmentId ?? item.fulfillment_id) === fulfillmentId)
     .map((item) => ({ ...item, packageId: normalizeText(item.packageId ?? item.id), revision: normalizeRevision(item.revision) }))
     .filter((item) => item.packageId)
     .sort((left, right) => left.packageId.localeCompare(right.packageId));

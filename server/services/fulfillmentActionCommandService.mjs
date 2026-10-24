@@ -1,3 +1,5 @@
+import { packageAnchorId } from "../../shared/packageContents.js";
+import { confirmPackageGroupLoaded } from "./packageGroupLoadService.mjs";
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
 import { normalizeOrderType } from "../../shared/orderRouting.js";
 import { hasTrustedWarehousePaper } from "../../shared/warehousePaperTrust.js";
@@ -971,6 +973,11 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
   }
 
   async function confirmDriverDeliveryLoaded({ workspace, fulfillmentId, body = {}, operatorId }) {
+    const groupBefore=findFulfillment(workspace,fulfillmentId);
+    if (packageAnchorId(groupBefore)) {
+      const result=await confirmPackageGroupLoaded({workspace,fulfillmentId,body,operatorId});
+      return success({...result,task:await getDriverDeliveryTaskResponseProjection(workspace,{fulfillmentId,operatorId})});
+    }
     const access = validateDriverTaskAccess(workspace, fulfillmentId, operatorId);
     if (access.errorResult) return access.errorResult;
     const before = access.fulfillment;

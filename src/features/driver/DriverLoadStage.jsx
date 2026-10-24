@@ -77,6 +77,7 @@ export function DriverLoadStage({
               <span aria-label={checked ? "已扫码" : "待扫码"}>{checked ? "✓" : "待扫"}</span>
               <strong>{item.labelText}</strong>
               <span>{item.quantityText}</span>
+              {item.contents?.length ? <small>{item.contents.map(part=>[part.size,part.bagColor,part.handleColor&&`提手${part.handleColor}`,`${part.packedQty}个`].filter(Boolean).join(" · ")).join("；")}</small> : null}
               <small title={item.packageId}>{[item.status, item.packageId].filter(Boolean).join(" · ")}</small>
             </label>
           );

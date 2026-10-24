@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { buildPhysicalPackageLabelPdf } from "./physical-package-label-pdf.mjs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -30,7 +31,7 @@ try {
     const bridgeJob = buildBridgeJob({ normalized, mode });
     const submitResult =
       mode === "cups_lp"
-        ? submitCupsLpBridgeJob({ bridgeJob, normalized, options, spoolRoot })
+        ? await submitCupsLpBridgeJob({ bridgeJob, normalized, options, spoolRoot })
         : submitSpoolOnlyBridgeJob({ bridgeJob, spoolRoot });
     process.stdout.write(
       `${JSON.stringify({
@@ -299,7 +300,7 @@ function submitSpoolOnlyBridgeJob({ bridgeJob, spoolRoot }) {
   };
 }
 
-function submitCupsLpBridgeJob({ bridgeJob, normalized, options, spoolRoot }) {
+async function submitCupsLpBridgeJob({ bridgeJob, normalized, options, spoolRoot }) {
   const cupsPrinterName = resolveCupsPrinterName({ normalized, options });
   const cupsAllowlist = normalizeStringList(options.cupsAllowlist ?? process.env.ERP_PRINT_COMMAND_BRIDGE_CUPS_ALLOWLIST);
   if (!cupsAllowlist.length) {
@@ -321,9 +322,16 @@ function submitCupsLpBridgeJob({ bridgeJob, normalized, options, spoolRoot }) {
     fail("PRINT_BRIDGE_CUPS_PRINTER_NOT_ALLOWED", "CUPS printer is outside the bridge allowlist.", 6, { spoolFile });
   }
 
+  let printable;
+  const packageLabel=normalized.documentType === "package_label";
+  try { printable=packageLabel ? await buildPhysicalPackageLabelPdf(normalized.payloadSnapshot?.printTemplate) : buildPrintableText({normalized}); }
+  catch(error) {
+    const failedJob=buildFailedBridgeJob({bridgeJob,errorCode:"PRINT_BRIDGE_PACKAGE_LABEL_RENDER_FAILED",message:error?.message||"Package label rendering failed."});
+    writeBridgeJob({spoolRoot,bridgeJob:failedJob,statusDirectory:"failed"});
+    fail("PRINT_BRIDGE_PACKAGE_LABEL_RENDER_FAILED",failedJob.message,6);
+  }
   const queuedFile = writeBridgeJob({ spoolRoot, bridgeJob, statusDirectory: "queued" });
-  const printable = buildPrintableText({ normalized });
-  const printFile = writeCupsPrintFile({ spoolRoot, bridgeJob, printable });
+  const printFile = writeCupsPrintFile({ spoolRoot, bridgeJob, printable,extension:packageLabel?"pdf":"txt" });
   const command = String(options.cupsCommand ?? process.env.ERP_PRINT_COMMAND_BRIDGE_CUPS_COMMAND ?? "lp").trim();
   const commandArgs = renderCupsCommandArgs({
     template: options.cupsCommandArgsJson ?? process.env.ERP_PRINT_COMMAND_BRIDGE_CUPS_ARGS_JSON,
@@ -478,10 +486,10 @@ function ensureInsideStorageRoot({ storageRoot, spoolRoot }) {
   }
 }
 
-function writeCupsPrintFile({ spoolRoot, bridgeJob, printable }) {
+function writeCupsPrintFile({ spoolRoot, bridgeJob, printable, extension="txt" }) {
   const directory = join(spoolRoot, "documents");
   mkdirSync(directory, { recursive: true });
-  const file = join(directory, `${safeFileSegment(bridgeJob.externalJobId)}.txt`);
+  const file = join(directory, `${safeFileSegment(bridgeJob.externalJobId)}.${extension}`);
   writeFileSync(file, printable, "utf8");
   return file;
 }

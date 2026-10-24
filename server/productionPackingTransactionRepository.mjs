@@ -1,3 +1,4 @@
+import { createPackageGroupRepository } from "./packageGroupRepository.mjs";
 import { getBlockingProductionExceptions } from "../shared/productionExceptionPolicy.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -88,6 +89,7 @@ export function createLocalProductionPackingTransactionRepository() {
   const productionExceptionResults = new Map();
   return {
     kind: "local_memory",
+    ...createPackageGroupRepository(),
 
     findProductionReportIdempotentReplay(input = {}) {
       return readLocalProductionTransactionReplay(productionReportResults, input, "production.report.complete");
@@ -309,6 +311,7 @@ export function createPostgresProductionPackingTransactionRepository(options = {
 
   return {
     kind: "postgres",
+    ...createPackageGroupRepository({ queryJson, idempotentTransactionJson }),
 
     async findProductionReportIdempotentReplay(input = {}) {
       const replay = await readPostgresIdempotencyReplay({

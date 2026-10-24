@@ -31,11 +31,13 @@ export function createPackingCommandService({
       }
       const replay = body.idempotencyKey && await workspace.productionPackingTransactionRepository.findPackingIdempotentReplay?.({ idempotencyKey: body.idempotencyKey, idempotencyPayload: { ...body, packingTaskId, operatorId } });
       if (replay) return success(buildPackingResponse(replay, body));
+      if (["已作废","已取消","closed","voided","canceled"].includes(beforeTask.status)) return businessError(409,"PACKING_TASK_CLOSED","打包任务已经关闭，不能继续建包。");
       if (beforeTask.status === "已完成") return businessError(409, "PACKING_TASK_ALREADY_COMPLETED", "打包任务已完成，请使用包裹更正流程。");
       const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
       if (body.orderLineId != null && body.orderLineId !== orderLineId) return businessError(409, "PACKING_TASK_BINDING_MISMATCH", "打包任务不能改绑订单。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
+      if (["已作废","已取消","已交付","已完成","closed","voided","canceled"].includes(beforeOrderLine.status??beforeOrderLine.lineStatus)) return businessError(409,"PACKING_ORDER_LINE_CLOSED","订单明细已经关闭，不能继续打包。");
       const matching = (workspace.fulfillments ?? []).filter(item => (item.orderLineId ?? item.lineId) === orderLineId);
       const candidates = matching.filter(item => !["已交付","已取消","已作废","已出库","已拉走","配送中"].includes(item.status) && !item.physicalOutboundAt && !item.finalDeliveryAt && !item.deliveredAt && !item.loadedAt);
       const requestedId = body.fulfillmentId;

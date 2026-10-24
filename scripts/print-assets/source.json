@@ -1,0 +1,14 @@
+{
+  "name": "ERP Label Sans SC Regular (derived static instance)",
+  "upstream": "https://github.com/googlefonts/noto-cjk",
+  "commit": "523d033d6cb47f4a80c58a35753646f5c3608a78",
+  "tag": "Sans2.004",
+  "fontPath": "Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf",
+  "licensePath": "LICENSE",
+  "license": "SIL Open Font License 1.1",
+  "fontSha256": "656903c905c78c25b9f5d20832b396e1b46432ff2be64fc6d2921c3735e294a5",
+  "licenseSha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+  "runtimeSubset": "Full TrueType font embedded once per PDF (pdf-lib 1.17.1 / fontkit 1.1.1); fontkit CJK subsetting failed raster acceptance; locl/liga/clig/calt disabled to preserve exact trace-code text; no host fonts or browser needed",
+  "upstreamFontSha256": "d68bafcb48a2707749396aa12bbbd833cb70401f3a9a689fd2902c7e0d295964",
+  "transformation": "fonttools 4.60.1; instantiate wght=400; rename derived family ERP Label Sans SC; scripts/build-package-label-font.py"
+}

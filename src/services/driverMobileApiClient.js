@@ -1,3 +1,4 @@
+import { packageContents } from "../../shared/packageContents.js";
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
 import {
   getLineColorSpecLabel,
@@ -410,6 +411,8 @@ export function mapApiDriverDeliveryTask(value = {}) {
   const packageCount = packageChecklist.length;
   return {
     fulfillmentId,
+    packingGroupAnchorId: String(value.packingGroupAnchorId??""),
+    groupLoadingComplete: value.groupLoadingComplete===true,
     driverTaskId: cleanText(value.driverTaskId ?? value.taskId ?? fulfillmentId) || fulfillmentId,
     driverId: cleanText(value.driverId),
     orderLineId: cleanText(value.orderLineId),
@@ -939,6 +942,7 @@ function normalizeDriverPackageChecklistItem(item = {}, options = {}) {
     (cleanText(options.packageSummary) && packageCount === 1 ? options.packageSummary : `第 ${packageSeq}/${packageCount} 包`);
   return {
     packageId,
+    contents: packageContents(item),
     labelText,
     packageSeq,
     packageCount,

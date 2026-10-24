@@ -12,7 +12,7 @@ function completionEvidence(input) {
     || input.printRecord?.targetType !== "fulfillment" || input.printRecord?.targetId !== fulfillmentId
     || (input.printJob && (input.printJob.printJobId !== evidence.printJobId || input.printJob.printRecordId !== printRecordId
       || input.printJob.targetType !== "fulfillment" || input.printJob.targetId !== fulfillmentId || input.printJob.jobStatus !== "printed"))
-    || input.printRecord?.documentType !== "express_ltl_label"
+    || !["express_ltl_label","package_label"].includes(input.printRecord?.documentType)
     || !["printed", "reprinted"].includes(input.printRecord?.status)
     || !input.packages?.length || input.packages.some(record => record.labelPrintRecordId !== printRecordId || record.status !== "已打印标签")) {
     throw new Error("Current trusted label print evidence is required to complete print todos");

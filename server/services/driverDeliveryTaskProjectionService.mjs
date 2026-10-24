@@ -1,3 +1,4 @@
+import { packageAnchorId, packageContents } from "../../shared/packageContents.js";
 import {
   getLineColorSpecLabel,
   getLinePrintSide,
@@ -31,6 +32,8 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
   const address = firstText(contactSource.address) || "地址待补";
 
   return {
+    packingGroupAnchorId: packageAnchorId(fulfillment),
+    groupLoadingComplete: Boolean(packageAnchorId(fulfillment) && fulfillment.loadedAt),
     driverTaskId: fulfillmentId,
     fulfillmentId,
     driverId: firstText(dispatch.driverId, fulfillment.driverId, options.driverId),
@@ -51,7 +54,7 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
         printRecord?.id,
       ) || "待打印/回填",
     goodsSummary: buildDriverGoodsSummary({ fulfillment, orderLine, qty }),
-    packageSummary: packageCount ? `${packageCount}包` : "无实际包裹记录",
+    packageSummary: packageCount ? `${packageCount}包` : packageAnchorId(fulfillment) && fulfillment.loadedAt ? `同组已装车，包裹见主任务 ${packageAnchorId(fulfillment)}` : "无实际包裹记录",
     packageCount,
     packageChecklist,
     qty,
@@ -307,6 +310,7 @@ function toDriverPackageChecklistItem(item = {}, options = {}) {
       : `第 ${packageSeq}/${packageCount} 包`);
   return {
     packageId,
+    contents: packageContents(item),
     labelText,
     packageSeq,
     packageCount,

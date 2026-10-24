@@ -16,6 +16,14 @@ export function buildFulfillmentPrintTemplate(input = {}) {
   const printRecord = input.printRecord ?? {};
   const method = fulfillment.method ?? orderLine?.fulfillment ?? "出库";
   const documentType = input.documentType ?? printRecord.documentType ?? getDocumentType(method);
+  if (documentType === "package_label") {
+    const labels=(input.packageLabelRows??[]).map(row=>({packageId:row.packageId,sequence:row.sequence,packedQty:row.packedQty,
+      barcodeText:row.packageId,contents:row.contents,customerName:firstContactText(snapshot.customerName,snapshot.name,customer.name)}));
+    return {templateId:printRecord.templateId??expressLtlLabelTemplateId,templateVersion:"physical-package-contents-v1",documentType,title:"内部包裹挂牌",priceHidden:true,
+      paper:{name:"80mm 包裹挂牌",widthMm:80,heightMm:100,copies:labels.length,isContinuous:false,copyNames:[]},labels,
+      fields:{fulfillmentId:fulfillment.id??fulfillment.fulfillmentId,packageCount:labels.length},
+      safeguards:["每包一个独立包码","挂牌与实物逐项人工核对","挂牌不含单价和金额","更正后旧包码失效"]};
+  }
   const isExpressLtl = documentType === "express_ltl_label";
   const isFulfillmentNote = !isExpressLtl;
   const packageCount = getPackageCount(fulfillment.packages);
@@ -98,7 +106,7 @@ export function getDocumentType(method) {
 }
 
 export function getTemplateId(documentType) {
-  if (documentType === "express_ltl_label") return expressLtlLabelTemplateId;
+  if (["express_ltl_label","package_label"].includes(documentType)) return expressLtlLabelTemplateId;
   if (documentType === "delivery_note") return deliveryNoteTemplateId;
   return pickupNoteTemplateId;
 }

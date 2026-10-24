@@ -1,3 +1,4 @@
+import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
 import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
@@ -67,6 +68,11 @@ export function createFulfillmentPrintCommandService({
       );
     }
 
+    if (documentType === "package_label" && packageAnchorId(before)) {
+      if (packageAnchorId(before) !== fulfillmentId) return businessError(409,"PACKING_GROUP_USE_ANCHOR","请在包组主任务打印独立包裹挂牌。");
+      const members=workspace.fulfillments.filter(row=>packageAnchorId(row)===fulfillmentId);
+      if (members.some(row=>Number(row.actualQty)!==Number(row.expectedQty??row.qty) && !(workspace.fulfillmentQuantityVarianceResolutions??[]).some(r=>r.fulfillmentId===(row.fulfillmentId??row.id)&&Number(r.expectedQty)===Number(row.expectedQty??row.qty)&&Number(r.actualQty)===Number(row.actualQty)&&["按实际数量出库","赠送数量"].includes(r.resolutionResult)&&!(workspace.fulfillmentExceptions??[]).some(e=>e.fulfillmentId===(row.fulfillmentId??row.id)&&e.exceptionType==="quantity_mismatch"&&!["已解决","已作废"].includes(e.status))))) return businessError(409,"PACKING_QUANTITY_REVIEW_REQUIRED","包组存在数量差异，请办公室核对后再打印。");
+    }
     const printRecord = buildFulfillmentPrintRecord({
       workspace,
       fulfillmentId,
@@ -78,7 +84,7 @@ export function createFulfillmentPrintCommandService({
       buildPrintDeviceSnapshot,
       now,
     });
-    const paperOutboundDocument = printableBody.printAction === "preview" || documentType === "express_ltl_label"
+    const paperOutboundDocument = printableBody.printAction === "preview" || ["express_ltl_label","package_label"].includes(documentType)
       ? null
       : buildPaperOutboundDocument({
           workspace,
@@ -90,7 +96,7 @@ export function createFulfillmentPrintCommandService({
         });
     const orderLine = findOrderLine(workspace, before.lineId ?? before.orderLineId);
     const customer = (workspace.customers ?? []).find((item) => item.id === before.customerId) ?? {};
-    const pricingResult = documentType === "express_ltl_label" ? null : resolveFulfillmentPrintPricing({ workspace, fulfillment: before, orderLine });
+    const pricingResult = ["express_ltl_label","package_label"].includes(documentType) ? null : resolveFulfillmentPrintPricing({ workspace, fulfillment: before, orderLine });
     const printTemplate = buildFulfillmentPrintTemplate({
       fulfillment: before,
       orderLine,
@@ -100,6 +106,7 @@ export function createFulfillmentPrintCommandService({
       action: printableBody.printAction,
       paperNo: printableBody.paperNo,
       pricing: pricingResult?.pricing,
+      packageLabelRows: packageLabelRows((workspace.packages??[]).filter(row=>row.fulfillmentId===fulfillmentId)),
     });
     const printJob = buildPrintJobRecord({
       workspace,
@@ -553,7 +560,7 @@ const supportedPrintActions = new Set(["preview", "first_print", "reprint"]);
 function buildFulfillmentPackageSnapshot(workspace, fulfillment) {
   const fulfillmentId = normalizeText(fulfillment?.fulfillmentId ?? fulfillment?.id);
   return (workspace.packages ?? [])
-    .filter((item) => normalizeText(item.fulfillmentId ?? item.fulfillment_id) === fulfillmentId)
+    .filter((item) => isActivePackage(item) && normalizeText(item.fulfillmentId ?? item.fulfillment_id) === fulfillmentId)
     .map((item) => ({
       packageId: normalizeText(item.packageId ?? item.id),
       revision: normalizeRevision(item.revision),
@@ -571,12 +578,13 @@ function resolveFulfillmentPrintSnapshotRevision(workspace, fulfillment) {
 }
 
 function requiresPackageLabelSnapshot(documentType, printAction) {
-  return printAction !== "preview" && documentType === "express_ltl_label";
+  return printAction !== "preview" && ["express_ltl_label","package_label"].includes(documentType);
 }
 
 function resolveRequestedDocumentType(method, requestedDocumentType, getDefaultDocumentType) {
   const defaultDocumentType = normalizeText(getDefaultDocumentType(method));
   const requested = normalizeText(requestedDocumentType) || defaultDocumentType;
+  if (requested === "package_label") return requested;
   if (defaultDocumentType === "express_ltl_label") {
     return ["express_ltl_label", "outbound_note"].includes(requested) ? requested : "";
   }

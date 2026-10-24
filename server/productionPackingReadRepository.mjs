@@ -1,3 +1,4 @@
+import { isActivePackage } from "../shared/packageContents.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -214,12 +215,12 @@ list_items AS (
       'packages', (
         SELECT COALESCE(json_agg(${packageJsonExpression("pkg")} ORDER BY pkg.package_seq ASC, pkg.id ASC), '[]'::json)
         FROM packages AS pkg
-        WHERE pkg.order_line_id = task.order_line_id
+        WHERE pkg.status NOT IN ('已作废','已失效','voided','invalidated') AND pkg.order_line_id = task.order_line_id
       ),
       'packageCount', (
         SELECT COUNT(*)::int
         FROM packages AS pkg
-        WHERE pkg.order_line_id = task.order_line_id
+        WHERE pkg.status NOT IN ('已作废','已失效','voided','invalidated') AND pkg.order_line_id = task.order_line_id
       ),
       'fulfillment', (
         SELECT ${fulfillmentJsonExpression("fulfillment")}
@@ -434,7 +435,7 @@ selected_order_line AS (
 selected_packages AS (
   SELECT COALESCE(json_agg(${packageJsonExpression("pkg")} ORDER BY pkg.package_seq ASC, pkg.id ASC), '[]'::json) AS result
   FROM packages AS pkg
-  WHERE pkg.order_line_id = (SELECT order_line_id FROM selected_packing_task)
+  WHERE pkg.status NOT IN ('已作废','已失效','voided','invalidated') AND pkg.order_line_id = (SELECT order_line_id FROM selected_packing_task)
 ),
 selected_fulfillment AS (
   SELECT fulfillment.*
@@ -726,7 +727,7 @@ function buildPackingTaskDetailFromWorkspace(workspace = {}, packingTaskId) {
   const orderLineId = cleanText(packingTask.orderLineId ?? packingTask.lineId);
   const orderLine = findOrderLine(workspace, orderLineId);
   const packages = (workspace.packages ?? [])
-    .filter((record) => record.packingTaskId === resolvedPackingTaskId || record.orderLineId === orderLineId)
+    .filter((record) => isActivePackage(record) && (record.packingTaskId === resolvedPackingTaskId || record.orderLineId === orderLineId))
     .map(normalizePackageSummary)
     .filter(Boolean)
     .sort(sortPackageSeqAsc);

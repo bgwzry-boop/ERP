@@ -817,7 +817,7 @@ function toPackingTask(row) {
 }
 
 function toFulfillment(row, orderLine, packageRows, reservations, inventoryById, paperDocuments = [], warehouseExecutions = []) {
-  const packages = packageRows.map(toPackage);
+  const packages = packageRows.filter(row=>!["已作废","已失效","voided","invalidated"].includes(row.status)).map(toPackage);
   const currentPaperDocument = latestRow(paperDocuments);
   const latestWarehouseExecution = latestRow(warehouseExecutions);
   const activeReservation = reservations.find(isActiveReservation);
@@ -926,6 +926,9 @@ function toPackage(row) {
     bizNo: clean(row.biz_no),
     orderLineId: clean(row.order_line_id),
     fulfillmentId: clean(row.fulfillment_id),
+    contents: Array.isArray(row.contents_json) ? row.contents_json : [],
+    packingRevision: integer(row.packing_revision),
+    supersededByBatchId: clean(row.superseded_by_batch_id),
     packageSeq: integer(row.package_seq, 1),
     packageCount: integer(row.package_count, 1),
     packedQty: integer(row.packed_qty),

@@ -1,3 +1,4 @@
+import { isActivePackage } from "../../shared/packageContents.js";
 import { buildFulfillmentShipmentProgress } from "./fulfillmentShipmentProgressService.mjs";
 import { hasTrustedWarehousePaper } from "../../shared/warehousePaperTrust.js";
 import {
@@ -60,7 +61,7 @@ function projectFulfillment(workspace, value) {
   const orderLineId = cleanText(item.lineId ?? item.orderLineId ?? item.order_line_id);
   const orderLine = findOrderLine(workspace, orderLineId);
   const packingTask = list(workspace.packingTasks).find(row => cleanText(row.orderLineId ?? row.lineId) === orderLineId);
-  const actualPackageCount = list(workspace.packages).filter(row => cleanText(row.fulfillmentId ?? row.fulfillment_id) === fulfillmentId).length;
+  const actualPackageCount = list(workspace.packages).filter(row => isActivePackage(row) && cleanText(row.fulfillmentId ?? row.fulfillment_id) === fulfillmentId).length;
   const customerId = cleanText(item.customerId ?? item.customer_id ?? orderLine.customerId ?? orderLine.customer_id);
   const customer = findCustomer(workspace, customerId);
   const method = normalizeFulfillmentMethod(item.method ?? item.fulfillmentMethod ?? item.fulfillment_method);
@@ -361,6 +362,7 @@ function isCompleted(status) {
 
 function resolvePackageCount(workspace, { fulfillmentId, orderLineId, explicitCount, packageLabel }) {
   const packageRows = list(workspace.packages).filter((item) => {
+    if(!isActivePackage(item))return false;
     const itemFulfillmentId = cleanText(item.fulfillmentId ?? item.fulfillment_id);
     if (itemFulfillmentId) return itemFulfillmentId === fulfillmentId;
     return orderLineId && cleanText(item.orderLineId ?? item.order_line_id) === orderLineId;

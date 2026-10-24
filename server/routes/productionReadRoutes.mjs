@@ -1,3 +1,4 @@
+import { getPackageGroupContext, publicPackageGroupContext } from "../services/packageGroupService.mjs";
 import { canReadOfficePacking, canReadOfficeProduction, getTrustedWorkerMachine, isWorkerTaskVisible, projectWorkerTask } from "../services/businessReadAccessService.mjs";
 
 export async function handleProductionReadRoutes({
@@ -55,6 +56,14 @@ export async function handleProductionReadRoutes({
       200,
       packingWorkerScope ? { ...result, items: result.items.map((item) => projectWorkerTask(item, "packing")) } : result,
     );
+    return true;
+  }
+
+  if (url.pathname === "/api/packing-groups") {
+    await workspace.productionPackingTransactionRepository.refreshPackageGroupWorkspace?.({workspace});
+    sendJson(response,200,publicPackageGroupContext(getPackageGroupContext(workspace,{
+      fulfillmentId:url.searchParams.get("fulfillmentId") || undefined,orderLineId:url.searchParams.get("orderLineId") || undefined,
+    })));
     return true;
   }
 

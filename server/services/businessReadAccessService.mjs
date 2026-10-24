@@ -2,7 +2,7 @@
 export const businessReadPolicies = Object.freeze([
   [/^\/api\/order-(?:drafts|lines)(?:\/|$)/, ["order.read"]],
   [/^\/api\/(?:production-tasks|production-schedules)(?:\/|$)/, ["production.read"]],
-  [/^\/api\/packing-tasks(?:\/|$)/, ["packing.read"]],
+  [/^\/api\/(?:packing-tasks|packing-groups)(?:\/|$)/, ["packing.read"]],
   [/^\/api\/inventory(?:\/|$)/, ["inventory.read"]],
   [/^\/api\/fulfillments(?:\/|$)/, ["fulfillment.read"]],
   [/^\/api\/statements(?:\/|$)/, ["statement.preview"]],

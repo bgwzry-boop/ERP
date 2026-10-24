@@ -1,3 +1,4 @@
+import { replacePackageGroup } from "../services/packageGroupService.mjs";
 export async function handleProductionWriteRoutes({
   method,
   url,
@@ -92,6 +93,9 @@ export async function handleProductionWriteRoutes({
     },
   }[url.pathname];
   if (queueRoute) return runRoute(queueRoute);
+
+  const groupMatch = url.pathname.match(/^\/api\/packing-groups\/([^/]+)\/replace$/);
+  if (groupMatch) return runRoute({permission:writeActionPermissions.completePacking,run:async operatorId=>({response:await replacePackageGroup({workspace,fulfillmentId:decodeURIComponent(groupMatch[1]),body,operatorId})})});
 
   const packingCompleteMatch = url.pathname.match(/^\/api\/packing-tasks\/([^/]+)\/complete$/);
   if (!packingCompleteMatch) return false;

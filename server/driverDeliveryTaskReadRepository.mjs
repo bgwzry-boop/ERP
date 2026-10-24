@@ -1,3 +1,4 @@
+import { packageAnchorId, packageContents } from "../shared/packageContents.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -184,6 +185,8 @@ function driverDeliveryTaskProjectionSql(driverId) {
   const contactField = (keys, fallback) => `CASE WHEN COALESCE(${capturedContact}) IS NOT NULL THEN COALESCE(${keys.map(key => `NULLIF(BTRIM(fulfillment.customer_snapshot->>'${key}'), '')`).join(', ')}) ELSE ${fallback} END`;
   return `
 SELECT
+  fulfillment.packing_group_anchor_id,
+  fulfillment.loaded_at IS NOT NULL AS group_loading_complete,
   fulfillment.id AS fulfillment_id,
   fulfillment.id AS driver_task_id,
   active_dispatch.driver_id AS driver_id,
@@ -358,7 +361,7 @@ LEFT JOIN LATERAL (
   ORDER BY field_test.checked_at DESC NULLS LAST, field_test.created_at DESC, field_test.id DESC
   LIMIT 1
 ) AS latest_device_field_test ON true
-WHERE fulfillment.method = '送货'`;
+WHERE fulfillment.method = '送货' AND (fulfillment.packing_group_anchor_id='' OR fulfillment.packing_group_anchor_id=fulfillment.id OR fulfillment.loaded_at IS NOT NULL)`;
 }
 
 function driverDeliveryTaskOrderBySql(alias) {
@@ -374,6 +377,8 @@ function driverDeliveryTaskOrderBySql(alias) {
 
 function driverDeliveryTaskJsonExpression(alias) {
   return `(jsonb_build_object(
+    'packingGroupAnchorId', ${alias}.packing_group_anchor_id,
+    'groupLoadingComplete', ${alias}.group_loading_complete,
     'driverTaskId', ${alias}.driver_task_id,
     'fulfillmentId', ${alias}.fulfillment_id,
     'driverId', ${alias}.driver_id,
@@ -465,6 +470,7 @@ function driverPackageChecklistSql(alias) {
         AND package_item.status NOT IN ('已作废','已失效','voided','invalidated')`;
   return `COALESCE((
       SELECT jsonb_agg(jsonb_build_object(
+        'contents', package_row.contents_json,
         'packageId', package_row.id,
         'labelText', CONCAT('第 ', package_row.package_seq::TEXT, '/', package_row.driver_package_count::TEXT, ' 包'),
         'packageSeq', package_row.package_seq,
@@ -525,8 +531,10 @@ export function normalizeDriverDeliveryTask(value = {}) {
   const packageCount = Math.max(0, toFiniteInteger(value.packageCount, parsePackageCount(value.packageSummary)));
   const qty = Math.max(0, toFiniteInteger(value.qty ?? value.actualQty ?? value.expectedQty, 0));
   const status = mapDriverDeliveryStatus(value.status ?? value.fulfillmentStatus);
-  const packageSummary = packageCount ? `${packageCount}包` : "无实际包裹记录";
+  const packageSummary = packageCount ? `${packageCount}包` : value.packingGroupAnchorId && value.groupLoadingComplete ? `同组已装车，包裹见主任务 ${value.packingGroupAnchorId}` : "无实际包裹记录";
   return {
+    packingGroupAnchorId: cleanText(value.packingGroupAnchorId),
+    groupLoadingComplete: value.groupLoadingComplete===true,
     driverTaskId: cleanText(value.driverTaskId ?? fulfillmentId) || fulfillmentId,
     fulfillmentId,
     driverId: cleanText(value.driverId),
@@ -603,7 +611,7 @@ function buildLocalDriverDeliveryTasks(workspace, options = {}) {
   return (workspace.fulfillments ?? [])
     .filter(
       (fulfillment) =>
-        fulfillment.method === "送货" && isFulfillmentAssignedToDriver(workspace, fulfillment, driverId),
+        fulfillment.method === "送货" && (!packageAnchorId(fulfillment)||packageAnchorId(fulfillment)===(fulfillment.id??fulfillment.fulfillmentId)||fulfillment.loadedAt) && isFulfillmentAssignedToDriver(workspace, fulfillment, driverId),
     )
     .map((fulfillment, index) =>
       buildLocalDriverDeliveryTask(workspace, fulfillment, {
@@ -707,6 +715,7 @@ function normalizeDriverPackageChecklistItem(item = {}, options = {}) {
     (cleanText(options.packageSummary) && packageCount === 1 ? cleanText(options.packageSummary) : `第 ${packageSeq}/${packageCount} 包`);
   return {
     packageId,
+    contents: packageContents(item),
     labelText,
     packageSeq,
     packageCount,
