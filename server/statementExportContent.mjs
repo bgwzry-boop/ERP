@@ -24,6 +24,7 @@ export function assertStatementExportContent(exportFile, buffer) {
   if (key.includes("/sha256/") && !address) throw integrityError();
   if (address && (address[1] !== address[2].slice(0, 2) || actualDigest !== `sha256:${address[2]}`)) throw integrityError();
 
+  let legacyTextDigestAccepted = false;
   for (const digest of [exportFile?.contentDigest, exportFile?.metadata?.contentDigest]) {
     if (digest === undefined || digest === null || digest === "") continue;
     if (typeof digest !== "string" || !/^(?:sha256:)?[a-f0-9]{64}$/.test(digest)) throw integrityError();
@@ -34,10 +35,13 @@ export function assertStatementExportContent(exportFile, buffer) {
     const legacyDatabaseDigest = exportFile?.storageProvider === "database" && exportFile?.contentEncoding === "base64" &&
       typeof exportFile.content === "string" && inline && expected === statementExportContentDigest(Buffer.from(exportFile.content, "utf8"));
     if (!legacyDatabaseDigest) throw integrityError();
+    legacyTextDigestAccepted = true;
   }
   for (const length of [exportFile?.contentLength, exportFile?.metadata?.contentLength]) {
     if (length === undefined || length === null) continue;
-    if (!Number.isSafeInteger(length) || length < 0 || length !== buffer.length) throw integrityError();
+    // That historical database writer also recorded the verified base64 text length.
+    const legacyTextLength = legacyTextDigestAccepted && length === Buffer.byteLength(exportFile.content, "utf8");
+    if (!Number.isSafeInteger(length) || length < 0 || (length !== buffer.length && !legacyTextLength)) throw integrityError();
   }
   return buffer;
 }

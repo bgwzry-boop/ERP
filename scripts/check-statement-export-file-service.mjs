@@ -186,6 +186,20 @@ assert.deepEqual(frozenFile, originalFile, "failed downloads never rewrite froze
 const legacyDatabase = { ...exportFile, contentDigest: statementExportContentDigest(Buffer.from(exportFile.content, "utf8")) };
 assert.equal((await getDownload({ ...fallbackWorkspace, statementExportRepository: { async findExportFileByToken() { return legacyDatabase; } } })).response.body, exportFile.content,
   "legacy database-only base64-text digests remain readable against the same frozen workbook");
+const legacyTextLength = Buffer.byteLength(exportFile.content, "utf8");
+assert.notEqual(legacyTextLength, expectedBytes.length, "legacy fixture must distinguish text length from decoded workbook length");
+const legacyLengthFile = { ...legacyDatabase, metadata: { ...legacyDatabase.metadata, contentLength: legacyTextLength } };
+const databaseDownload = file => getDownload({ ...fallbackWorkspace, statementExportRepository: { async findExportFileByToken() { return file; } } });
+assert.equal((await databaseDownload(legacyLengthFile)).response.body, exportFile.content,
+  "verified legacy database text digest permits its matching historical text length");
+await assert.rejects(() => databaseDownload({ ...legacyLengthFile, metadata: { ...legacyLengthFile.metadata, contentLength: legacyTextLength + 1 } }), integrityError);
+await assert.rejects(() => databaseDownload({ ...legacyLengthFile, content: Buffer.from("changed legacy workbook").toString("base64") }), integrityError);
+for (const storageProvider of ["object_storage", "local_fs"]) {
+  await assert.rejects(() => getDownload(downloadWorkspace({ ...legacyLengthFile, storageProvider })), integrityError,
+    "legacy text digest/length exceptions are never valid for object or local-file sources");
+}
+await assert.rejects(() => databaseDownload({ ...legacyLengthFile, contentDigest: statementExportContentDigest(expectedBytes) }), integrityError,
+  "a current decoded-byte digest cannot authorize an old text-length exception");
 const normalized = normalizeStatementExportFile({ ...exportFile, contentDigest: "" });
 assert.equal(normalized.contentDigest, statementExportContentDigest(expectedBytes), "new repository digests identify decoded workbook bytes");
 await assert.rejects(() => service.storeExportFile({ statementExportObjectStorage: {
