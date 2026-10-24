@@ -337,7 +337,8 @@ for (const newQty of [6.9, '6.9', Number.MAX_SAFE_INTEGER + 1, -1, Infinity]) {
 console.log('PASS invalid quantity adjustments are rejected before finance/inventory persistence.');
 
 {
- await service.voidOrderLine({workspace:buildWorkspace(),orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{voidedAt:'1999-01-01T00:00:00Z'}});
+ const unbilled=buildWorkspace();unbilled.statementLines=[];
+ const voidResult=await service.voidOrderLine({workspace:unbilled,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{voidedAt:'1999-01-01T00:00:00Z'}});assert.ok(voidResult.response);
  const voidInput=calls.void.at(-1);
  assert.equal(voidInput.orderLine.voidedAt,'2026-07-11T12:00:00.000Z');
  assert.equal(voidInput.orderLineChangeRecord.createdAt,'2026-07-11T12:00:00.000Z');

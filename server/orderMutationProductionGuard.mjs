@@ -1,4 +1,4 @@
-const pending = new Set(["待排产","待开始","已排产","待丝印","待制袋","未开始","已发布","排队中"]);
+const pending = new Set(["待排产","待开始","已排产","丝印已排产","制袋已排产","印刷已排产","待丝印","待制袋","未开始","已发布","排队中"]);
 const terminal = new Set(["已取消","已作废"]);
 const invalidPackages = new Set(["已取消","已作废","已失效","已替代","voided","invalidated"]);
 const lineIdOf = row => row?.orderLineId ?? row?.lineId ?? row?.order_line_id;
@@ -34,7 +34,7 @@ export function orderMutationProductionLocksSql(lineId) {
 }
 export function orderMutationProductionGuardSql(lineId) {
   return `AND erp_require(
-    NOT EXISTS (SELECT 1 FROM locked_mutation_production WHERE task_status NOT IN ('待排产','待开始','已排产','待丝印','待制袋','未开始','已发布','排队中','已取消','已作废'))
+    NOT EXISTS (SELECT 1 FROM locked_mutation_production WHERE task_status NOT IN ('待排产','待开始','已排产','丝印已排产','制袋已排产','印刷已排产','待丝印','待制袋','未开始','已发布','排队中','已取消','已作废'))
     AND NOT EXISTS (SELECT 1 FROM workshop_reports WHERE order_line_id = ${lineId})
     AND NOT EXISTS (SELECT 1 FROM locked_mutation_packing WHERE actual_packed_qty > 0 OR status IN ('已完成','打包中'))
     AND NOT EXISTS (SELECT 1 FROM locked_mutation_packages WHERE status NOT IN ('已取消','已作废','已失效','已替代','voided','invalidated')),

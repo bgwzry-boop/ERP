@@ -45,6 +45,7 @@ try {
   await dialog.getByLabel('订单新数量').fill('35');await dialog.getByLabel('变更原因').fill('隔离验证客户补量');
   await dialog.getByRole('button',{name:'核对变更',exact:true}).click();
   await expect(dialog.getByRole('region',{name:'订单变更最终核对'})).toContainText('11.90');
+  await page.screenshot({path:join(output,'order-mutation-review.png'),fullPage:true});
   assert.equal(attempts.length,0);
   await dialog.getByRole('button',{name:'返回修改',exact:true}).click();assert.equal(attempts.length,0,'cancel review sends no mutation');
   await dialog.getByRole('button',{name:'核对变更',exact:true}).click();
@@ -69,6 +70,7 @@ try {
   const holds=page.getByRole('region',{name:'留货与转单'});
   await holds.getByRole('button',{name:'核对并留货',exact:true}).click();
   await holds.getByLabel('留货到期时间').fill('2099-07-13T19:30');await holds.getByLabel('留货操作原因').fill('隔离验证实际客户留货');await holds.getByRole('button',{name:'核对创建留货',exact:true}).click();
+  await page.screenshot({path:join(output,'hold-review.png'),fullPage:true});
   await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();
   await expect(page.getByRole('dialog').getByRole('button',{name:'按原内容重试',exact:true})).toBeEnabled();
   await page.getByRole('dialog').getByRole('button',{name:'按原内容重试',exact:true}).click();

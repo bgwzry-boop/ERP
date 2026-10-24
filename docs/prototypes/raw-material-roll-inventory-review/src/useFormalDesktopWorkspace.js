@@ -90,7 +90,14 @@ function replaceEmployeeReview(items, review) {
 export function useFormalDesktopWorkspace() {
   const [authState, setAuthState] = useState(null);
   const [entryDraftId, focusOrderDraft] = useState("");
-  const [orderEntryWritePending, setOrderEntryWritePending] = useState(false);
+  const [entryWriteGuard, setEntryWriteGuard] = useState({ pending: false, ownerKey: "", session: "" });
+  const orderEntryWritePending = entryWriteGuard.pending && entryWriteGuard.session === authState?.session?.accessToken;
+  const setOrderEntryWritePending = useCallback((pending, ownerKey) => {
+    if (!ownerKey) return;
+    setEntryWriteGuard(current => pending
+      ? { pending: true, ownerKey, session: authStateRef.current?.session?.accessToken || "" }
+      : current.ownerKey === ownerKey ? { pending: false, ownerKey: "", session: "" } : current);
+  }, []);
   const authStateRef = useRef(null);
   const [data, setData] = useState(emptyData);
   const [meta, setMeta] = useState({ loading: true, errors: {}, lastSyncedAt: "" });

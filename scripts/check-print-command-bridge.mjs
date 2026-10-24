@@ -272,7 +272,9 @@ const paperOutput=readFileSync(join(storageRoot, "print-command-bridge", "docume
 assert.match(paperOutput,/客户：合成客户/);
 assert.match(paperOutput,/明细：.*合成袋/);
 assert.match(paperOutput,/本次出库：405个/);
-assert.match(paperOutput,/金额：¥360/);
+assert.match(paperOutput,/金额：¥145\.8(?:\n|$)/);
+assert.match(paperOutput,/计费数量：405个/);
+assert.doesNotMatch(paperOutput,/金额：¥360(?:\n|$)/,'A 405/1000 split must not print the whole-order 360 amount');
 
 const cupsStatusResult = runBridge({
   args: ["--storage-root", storageRoot, "--action", "status", "--external-job-id", cupsDirectOutput.externalJobId],

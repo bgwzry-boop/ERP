@@ -38,7 +38,7 @@ try {
   const id = 'OL-LIVE-PROD-001';
   await pool.query("UPDATE order_lines SET line_status='待出库' WHERE id=$1",[id]);
   await pool.query("INSERT INTO fulfillment_records(id,biz_no,order_line_id,customer_id,method,expected_qty,status,created_by) VALUES ('F-GUARD','F-GUARD',$1,'C-LIVE-REPO','送货',80,'待出库','U-OFFICE-A')",[id]);
-  const snapshot = async () => (await pool.query("SELECT jsonb_build_object('orders',(SELECT jsonb_agg(t) FROM order_lines t),'deliveries',(SELECT jsonb_agg(t) FROM fulfillment_records t),'logs',(SELECT jsonb_agg(t) FROM operation_logs t),'changes',(SELECT jsonb_agg(t) FROM order_line_change_records t),'tasks',(SELECT jsonb_agg(t) FROM production_tasks t),'packing',(SELECT jsonb_agg(t) FROM packing_tasks t),'schedules',(SELECT jsonb_agg(t) FROM production_schedule_records t)) AS value")).rows[0].value;
+  const snapshot = async () => (await pool.query("SELECT jsonb_build_object('orders',(SELECT jsonb_agg(t) FROM order_lines t),'deliveries',(SELECT jsonb_agg(t) FROM fulfillment_records t),'logs',(SELECT jsonb_agg(t) FROM operation_logs t),'changes',(SELECT jsonb_agg(t) FROM order_line_change_records t),'tasks',(SELECT jsonb_agg(t) FROM production_tasks t),'packing',(SELECT jsonb_agg(t) FROM packing_tasks t),'schedules',(SELECT jsonb_agg(t) FROM production_schedule_records t),'statementLines',(SELECT jsonb_agg(t) FROM statement_lines t),'statements',(SELECT jsonb_agg(t) FROM statements t)) AS value")).rows[0].value;
   const builders = [buildVoidOrderLineTransactionQuery,buildAdjustOrderLineQuantityTransactionQuery];
   for (const build of builders) {
     for (const facts of ["status='配送中'", "status='待出库',loaded_at=now()", "status='待出库',physical_outbound_at=now()", "status='待出库',final_delivery_at=now()", "status='待出库',delivered_at=now()"]) {
@@ -136,6 +136,10 @@ try {
     } finally {await worker.query('ROLLBACK');if(pending)await pending;await editor.query('ROLLBACK');worker.release();editor.release();}
     await pool.query("UPDATE production_tasks SET task_status='已排产' WHERE id='TASK-MUTATION'");
   }
+  await pool.query("INSERT INTO statement_lines(id,statement_id,order_line_id,delivered_qty,chargeable_qty,amount,final_amount) VALUES ('SL-MUTATION','ST-LIVE-REPO-001',$1,80,80,27.2,27.2)",[id]);
+  const billed=await snapshot(),billQuery=buildVoidOrderLineTransactionQuery({orderLine:{orderLineId:id,orderId:'ORD-LIVE-PROD-001',customerId:'C-LIVE-REPO',lineStatus:'已关闭',originalQty:80,revision:1},expectedOrderLineRevision:1,fulfillmentRecords:[],orderLineChangeRecord:{changeRecordId:'CHANGE-BILLED',orderLineId:id,changedFields:['status'],before:{},after:{},reason:'audit',changedBy:'U-OFFICE-A'},operationLog:{id:'LOG-BILLED',targetType:'order_line',targetId:id,action:'audit',operatorId:'U-OFFICE-A'}}),billedClient=await pool.connect();
+  try {await billedClient.query('BEGIN');await assert.rejects(billedClient.query(billQuery.text.replace(/^BEGIN;/,'').replace(/COMMIT;\s*$/,''),billQuery.values),/ERP_ORDER_LINE_HAS_STATEMENT/);} finally{await billedClient.query('ROLLBACK');billedClient.release();}
+  assert.deepEqual(await snapshot(),billed,'Ordinary void cannot leave a persisted receivable behind a closed order');
   console.log('PASS PostgreSQL 16: both mutation queries reject five executed-delivery facts even when omitted from update payload; transaction snapshots unchanged; unexecuted controls succeed; verified delivery and production-start row-lock races reject stale mutations; pending task/packing quantities and schedule cancellation remain atomic.');
 } finally {
   if(pool) await pool.end();
