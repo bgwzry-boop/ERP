@@ -52,7 +52,7 @@ V1 needs account-based permissions rather than hard-coded person names. Permissi
 
 Every person who actually logs into ERP must use an individual account. V1 must not use shared person or machine accounts. Business decision-makers and paper-based physical executors who do not currently log in still remain identifiable employee/decision/executor master data; the system must not invent a terminal merely to force a login role.
 
-Employee and machine maintenance must default to formally imported accounts. Seed users may appear only in an explicitly labeled demonstration view, must never count toward role readiness or release gates, and must not mask an empty formal-account state.
+Employee and machine maintenance defaults to accounts linked to formal ERP employees. Formal onboarding uses personally verified phone registration followed by administrator identity review, employee linkage and role assignment. Previously imported password accounts retain compatibility and audit history, not a second default onboarding path. Seed users appear only in a labeled demonstration view, never count toward role readiness, and must not mask an empty formal-account state.
 
 Different roles should have different permissions, such as office staff, production supervisor, silk-screen worker, bag-making worker, helper / packing worker, driver, HR / personnel, and management.
 
@@ -508,7 +508,7 @@ Temporary-leave evidence should stay lightweight in V1. HR only needs to mark `v
 
 Work time should be calculated and stored at minute precision. Payroll export can display it as hours or another format matching the existing payroll spreadsheet.
 
-For ordinary employees, the lunch break from 12:00 to 13:00 is eating / rest time. It is outside work time and should not count as paid punch-clock hours.
+For ordinary employees, derived paid minutes exclude only the actual work-segment overlap with the factory-local 12:00–13:00 unpaid lunch interval. On 2026-10-24 the owner explicitly clarified that silk-screen workers receive no fixed lunch deduction: they follow actual work and explicitly reviewed actual rest. Authorized staff may optionally review a normal silk-screen day to record actual rest; do not invent a break, force every normal day through review, or auto-approve extra punches. Keep raw punches, raw paired minutes, existing human-confirmed minute snapshots and generated payroll history; corrections use the explicit review/payroll-revision flow.
 
 Payroll exports should display work time as hours with 2 decimal places by default, while retaining minute-level detail internally for traceability of temporary leave, make-up punches, and exceptions.
 
@@ -3487,7 +3487,9 @@ The owner has confirmed the formal display name `徐鹏浩`, personally holds th
 
 High-risk formal identities such as the `ERP-0001` management + finance owner account require server-authoritative identity confirmation before account enablement. Confirmation records the authenticated operator, server time, and reason and binds the exact formal display name plus the complete reviewed role set at that time. Any later name or role change invalidates it. Identity confirmation does not authorize account enablement or password issuance; single and batch enablement must validate it before writing, and one missing or stale confirmation aborts the whole batch without partial accounts.
 
-Finance-related permissions are configured separately: payment entry, payment confirmation, statement generation/sending, variance handling, debt viewing, and boss-review access. Office staff prepare statements and enter payment clues/evidence; the owner uses the third computer and the management+finance account for formal receipt/write-off and major variance confirmation unless another login account is explicitly authorized.
+On 2026-10-24 the owner confirmed a restricted office exact-payment settlement path. Office A/B may record and formally settle a fully paid statement only after the server verifies the current receivable, cumulative receipt, zero difference, revision, authenticated operator, and durable matching payment-channel evidence plus the customer message or screenshot. An audio alert or client checkbox alone is insufficient. Underpayment remains open for a separately authorized decision; exact settlement grants no general variance, allowance, write-off or management decision authority. This dedicated UI, permission and transaction path remains implementation/acceptance work, not a claim of deployment.
+
+Formal employee onboarding was also confirmed on 2026-10-24: the employee verifies their own mobile number and registers without business permissions; an administrator reviews the identity, binds the stable ERP employee profile and assigns positions/roles before permissions take effect. Legacy administrator-created subaccounts and existing accounts retain compatibility/audit history but are not a competing default employee path. Real verified SMS integration and controlled release/acceptance remain separate prerequisites; no bulk enablement or automatic role grant is authorized.
 
 `Payment entry` and `payment confirmation` must be separated. Office staff can record that the customer said payment was made, upload a screenshot, record that the payment speaker announced money received, or enter an on-site payment clue. Formal `payment arrival confirmation / write-off` must be completed by an account with payment-confirmation permission.
 

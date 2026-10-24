@@ -1,0 +1,3098 @@
+{
+  "schema": "erp-business-rules-98-triage-v1",
+  "date": "2026-10-24",
+  "catalogCount": 98,
+  "canonicalBaseline": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
+  "reviewedCodeCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a",
+  "localTaskBranch": "codex/p1-integration-20261023",
+  "currentBatchIds": [
+    "P1-01",
+    "P1-02",
+    "P1-03",
+    "P1-04",
+    "P1-05",
+    "P1-12",
+    "P1-13"
+  ],
+  "mainReleaseCheck": {
+    "result": "passed",
+    "checks": "21/21",
+    "log": ".erp-local-storage/p1-rules-r3-20261024/release-identity.log"
+  },
+  "countMeaning": "98是业务问题编号；多个编号可指向同一缺陷。工作组不是旧提交或独立bug数量。",
+  "statusBoundary": "本地修复与现场验收、发布分开；本轮不部署、不回写线上历史数据。",
+  "works": [
+    {
+      "id": "P1-01",
+      "priority": "P1",
+      "relatedIds": [
+        "O03",
+        "O07",
+        "O11",
+        "R14"
+      ],
+      "title": "缺少价格来源仍生成零元正式订单",
+      "problem": "特殊尺寸空白袋100个，没有已验证价格来源仍可生成零金额正式订单、排产任务及履约占位。缺价不是赠品。",
+      "nextAction": "缺价在正式确认与事务边界明确拒绝；保留已验证小程序锁价、有效价格和有依据的零计费，草稿不丢失。",
+      "verification": "服务、正式确认链、事务及小程序锁价回归。",
+      "status": "本地验证通过，未部署；缺少可靠价格时保留草稿并明确拒绝正式确认，不再生成无依据零元订单。",
+      "validation": "缺价和无依据零价在服务、HTTP、事务及PostgreSQL边界拒绝且无业务写入；可靠小程序锁价仍为495的合成对照通过。"
+    },
+    {
+      "id": "P1-02",
+      "priority": "P1",
+      "relatedIds": [
+        "O22"
+      ],
+      "title": "部分交付被显示为整单完成",
+      "problem": "同单一行已交付、另一行仍制袋，只看现有已完成履约可将小程序整单误标已完成。",
+      "nextAction": "有效订单行及其生产、交付事实全部完成才显示整单完成；一行取消不取消全单。",
+      "verification": "混合行状态、部分交付、取消、未完成生产与历史摘要兼容。",
+      "status": "本地验证通过，未部署；按全部有效订单行、生产和交付事实汇总整单状态。",
+      "validation": "混合行、部分交付、单行取消、仍在生产、活跃履约和历史摘要兼容通过；未结束的有效行不显示整单完成。"
+    },
+    {
+      "id": "P1-03",
+      "priority": "P1",
+      "relatedIds": [
+        "M27"
+      ],
+      "title": "仓库手机任务与备货门槛混淆",
+      "problem": "排队、失败、作废纸单也能进入手机任务；真实打印成功但纸单未到时，反而无法登记已备货。",
+      "nextAction": "只凭真实成功的当前纸单开放任务；纸到前可登记备货；最终实出仍必须收纸、核单并通过库存校验。",
+      "verification": "失败及作废不见任务、成功可备货、无纸实出拒绝、重印旧纸失效。",
+      "status": "本地验证通过，未部署；失败、排队及作废打印不再开放仓库任务；真实打印后纸到前可登记备货，实出仍验当前纸单。",
+      "validation": "实际组件/签名HTTP、打印作废竞争、数据库回滚和冷读通过；缺失或错误回执保留原内容和提交编号，未实际打印不放行。"
+    },
+    {
+      "id": "P1-04",
+      "priority": "P1",
+      "relatedIds": [
+        "M28"
+      ],
+      "title": "次日确认覆盖实际提走日期",
+      "problem": "月底夜间提走、次月早晨确认时，系统把实际交付和确认都记为次月，可能进入错误账期。",
+      "nextAction": "显式填写实际提走时间，服务端单独保留确认时间；实际日期选账期，幂等及数据库边界一致。",
+      "verification": "跨日跨月、未来时间、前置状态、重复请求、旧回执及数据库持久化。",
+      "status": "本地验证通过，未部署；实际拉走时间与系统确认时间分开保存，按实际日期归账。",
+      "validation": "跨日跨月、非中国时区默认值、未来/前置时间拒绝、关闭账期竞争和精确重试通过；旧成功请求仍可回放，库存不重复扣。"
+    },
+    {
+      "id": "P1-05",
+      "priority": "P1",
+      "relatedIds": [
+        "F15"
+      ],
+      "title": "普通员工跨午休多计薪及丝印规则区分",
+      "problem": "普通员工08—12:30、13:30—18四卡原算540分钟，应排除与固定午休交集30分钟后为510。丝印两卡不固定扣午休，原汇编未区分这一点，本次按负责人D06确认纠正。",
+      "nextAction": "普通员工按真实工作段排除12—13交集；丝印按实际工作及经复核的真实休息计薪，不固定扣1小时。原打卡、原配对、人工分钟及既有工资快照保留；六卡仍按现行异常规则复核。",
+      "verification": "普通四卡510、丝印两卡600不固定扣、丝印实休人工分钟、工厂时区、拒绝零计薪、复核冷读与历史不变。",
+      "status": "本地验证通过，未部署；普通员工扣真实工作段与12—13午休的交集；丝印不固定扣除，按实际休息复核。",
+      "validation": "普通四卡540→510，丝印两卡600保持600、经复核实际休息后575；实际页面、数据库冷读和并发通过，原始打卡、旧人工分钟及既有工资保留。"
+    },
+    {
+      "id": "P1-12",
+      "priority": "P1",
+      "relatedIds": [
+        "O09",
+        "O07"
+      ],
+      "title": "办公室正式单仍使用旧静态价格",
+      "problem": "隔离合成场景将有效ERP价格设为0.90元，30×38×10普通提空白袋手工100个仍采用旧P0的0.34元，金额34而非90；未改真实售价。",
+      "nextAction": "正式确认及拆单消费有效ERP发布价，不能用静态P0覆盖；缺失或冲突明确阻断，小程序锁价和已确认历史订单保持原价。",
+      "verification": "有效版本、规格与客户范围、失效冲突、原始来源及价格快照，真实服务/API/数据库读回。",
+      "status": "本地验证通过，未部署；办公室正式确认与拆单使用当前有效ERP发布价，保留单价精度并区别覆膜金银。",
+      "validation": "隔离合成对照0.90×100=90、0.1234×100=12.34、金银1.20×100=120；缺价、空款式金银、变价及损坏读合同拒绝，客户端价不采信。未修改真实售价，历史及小程序锁价保留。"
+    },
+    {
+      "id": "P1-13",
+      "priority": "P1",
+      "relatedIds": [
+        "F01"
+      ],
+      "title": "对账列表把历史欠款当本期金额",
+      "problem": "完整预览列表丢掉服务端本期已收等字段，用本期应收减历史欠款推算已收，且差额栏显示历史欠款，可能误导核账。",
+      "nextAction": "读链完整保留本期应收、已收、未收、历史欠款、累计欠款和独立差额；直接显示权威金额，缺失标待核实，不推算、不改账。",
+      "verification": "服务投影到selector再到真实列表及详情；含历史欠款、部分收款、缺失字段及真实零值对照。",
+      "status": "本地验证通过，未部署；本期实收、差额与历史欠款分别取服务端金额，缺失不推算。",
+      "validation": "源服务摘要→API选择器→根映射→实际桌面组件链及独立复核通过；缺失、空白、false、非法值显示待核实并阻断收款核对，真实0正常；浏览器填表缺金额时0次新增提交。不改写账目。"
+    },
+    {
+      "id": "P1-11",
+      "priority": "P1",
+      "relatedIds": [
+        "O03",
+        "O07",
+        "O09",
+        "O11",
+        "R14"
+      ],
+      "title": "办公室正式报价及有权本单价入口",
+      "problem": "拦住缺价零元单解决安全问题，但办公室手工特殊单的正式报价、普通单有权临时议价输入尚未接齐，不能据此称下单链完整。",
+      "nextAction": "接服务端有效特殊型号规则、已确认材料价版本及普通/特殊订单的正式授权本单价；缺来源继续保留草稿，不用客户端金额或猜测价格放行。",
+      "verification": "合法办公室特殊单能以真实报价确认，小程序锁价不受影响，价格缺失或越权修改仍拒绝。",
+      "status": "待整改"
+    },
+    {
+      "id": "P1-06",
+      "priority": "P1",
+      "relatedIds": [
+        "O10"
+      ],
+      "title": "同内容同尺寸印刷合组计价",
+      "problem": "现有逐行阶梯计价不等于合组计价；符合合组条件的多行可能多算印刷费。",
+      "nextAction": "按已确认的内容、尺寸和可合组边界建立计价组与不可变报价依据；已锁定正式订单不自动重算。",
+      "verification": "同组及不同组、分色、阶梯边界、改单、跨来源与锁价回放。",
+      "status": "待整改"
+    },
+    {
+      "id": "P1-07",
+      "priority": "P1",
+      "relatedIds": [
+        "M21"
+      ],
+      "title": "混装包更正重印完整链",
+      "problem": "已有单明细实包；一包多尺寸颜色的逐项内容、差异修改、重印及旧码失效仍未全接齐。",
+      "nextAction": "先完成同订单内多明细实物装包及数量守恒，再做更正、重印、扫码拒旧码；跨订单混包不擅自开放。",
+      "verification": "5000个5包、混装逐项、少装多装、重印旧码、司机逐包核验。",
+      "status": "待整改"
+    },
+    {
+      "id": "P1-08",
+      "priority": "P1",
+      "relatedIds": [
+        "F09",
+        "F03"
+      ],
+      "title": "新电脑入口缺完整结清和差额操作",
+      "problem": "后端与旧入口已有差额、减免、转欠款、核销；当前完整新壳尚未完整接入。D01已确认，但办公室受限足额结清的证据、权限和事务合同仍需补齐。",
+      "nextAction": "为已有明确权限的管理或财务接现有服务、决定证据及冻结快照；另实现办公室证据齐全的足额结清，差额仍走批准。",
+      "verification": "当前新壳真实API，足额双来源证据、零差额、原因、当前版本、权限拒绝和原请求重试。",
+      "status": "待整改"
+    },
+    {
+      "id": "P1-09",
+      "priority": "P1",
+      "relatedIds": [
+        "O12",
+        "O13"
+      ],
+      "title": "正式订单修改作废入口未齐",
+      "problem": "服务端已有执行后改量作废保护，但完整新壳的定位、操作与冲突恢复尚未统一。",
+      "nextAction": "接已有订单变更合同，显示影响和前值；实出、装车等后续事实仍阻断普通改写。",
+      "verification": "变更前后读回、已有下游拒绝、并发、取消恢复及失败保留。",
+      "status": "待整改"
+    },
+    {
+      "id": "P1-10",
+      "priority": "P1",
+      "relatedIds": [
+        "M19",
+        "O05"
+      ],
+      "title": "留货续期释放转单入口未齐",
+      "problem": "服务防线已有，现行新壳的留货新建、续期、释放和转单未形成完整入口。",
+      "nextAction": "沿用真实占用与释放事务补入口，询价与留货明确区分；不从聊天自动占用。",
+      "verification": "同单重试、过期、延期、转单、释放不影响他单与真实库存守恒。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-01",
+      "priority": "P2",
+      "relatedIds": [
+        "O04"
+      ],
+      "title": "外加工印刷独立闭环",
+      "problem": "外加工计量、人工确认价格和实印计费的完整执行入口仍未证明齐全。",
+      "nextAction": "补独立加工链，不创建本厂制袋库存，不混入普通袋价。",
+      "verification": "独立价格依据、实印数量、返工及交付对账。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-02",
+      "priority": "P2",
+      "relatedIds": [
+        "O16"
+      ],
+      "title": "丝印个人认领和个人队列",
+      "problem": "机台任务发布已在；个人原子认领及完整个人排序合同仍缺。",
+      "nextAction": "按固定人员与机台约束补领取、释放、交接和实际执行人审计。",
+      "verification": "两人同时领取只能一人成功、旧客户端不能抢占或覆盖。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-03",
+      "priority": "P2",
+      "relatedIds": [
+        "O23"
+      ],
+      "title": "生产和打包并行记录",
+      "problem": "当前最终完工才建打包任务；提前实物分包、分阶段累计和完整通知回执待补。",
+      "nextAction": "保留人工提前通知；增加生产中真实包记录及最终守恒，不把准备物流等同可提货。",
+      "verification": "生产未完已有部分实包、最终核量、未包完不能提走及通知回执。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-04",
+      "priority": "P2",
+      "relatedIds": [
+        "O24"
+      ],
+      "title": "换模专用工单",
+      "problem": "通用维修不能替代计划换模时点、前后模具、排程联动与分级提醒。",
+      "nextAction": "补专用换模任务、技工领取、改期及现场回执；普通换模不套维修强制照片。",
+      "verification": "计划时间变更、取消、未完成提醒与有原因继续生产。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-05",
+      "priority": "P2",
+      "relatedIds": [
+        "O20"
+      ],
+      "title": "多做少做和赠送提示统一",
+      "problem": "差异和异常已有；阈值、赠送及收费在各阶段展示与联动仍需核齐。",
+      "nextAction": "在已有数量和金额合同上统一提示；超产不自动收费、赠品不重复计费。",
+      "verification": "实际、计费和赠送独立，多做少做在生产、打包、交付一致。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-06",
+      "priority": "P2",
+      "relatedIds": [
+        "F25",
+        "R11",
+        "M26"
+      ],
+      "title": "窄电脑及手机失败恢复",
+      "problem": "800px电脑壳仍有横向溢出；司机换图、弱网续传及部分大列表分页继续完善。",
+      "nextAction": "保持现有风格，补结构性窄屏布局、失败保留与当前对象恢复；不靠缩小字号掩盖问题。",
+      "verification": "800px/桌面/真手机、弱网换单、后台恢复、全部记录可查。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-07",
+      "priority": "P2",
+      "relatedIds": [
+        "M22"
+      ],
+      "title": "旧出库打印样式定稿",
+      "problem": "卷标、挂牌和客户送货单用途已分开；旧软件参考版式与现行订单字段还需最终落版。",
+      "nextAction": "按现行锁价订单信息调整客户单，内部挂牌继续不含任何价格字段。",
+      "verification": "实际纸张出纸、金额数量及分页；挂牌无财务字段并能扫码。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-08",
+      "priority": "P2",
+      "relatedIds": [
+        "M15",
+        "R13"
+      ],
+      "title": "完整成本分摊和重算",
+      "problem": "当前只对来源完整、确认消耗且匹配任务的数据构建待复核草稿，完整自动分摊仍缺。",
+      "nextAction": "区分估算、实际批次、任务分摊与最终利润；来源变化留新依据，不手改结果凑毛利。",
+      "verification": "吨价换算、缺任务阻断或跳过有提示、分摊守恒及版本追溯。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-09",
+      "priority": "P2",
+      "relatedIds": [
+        "R04",
+        "R06"
+      ],
+      "title": "历史后续范围和59项未提交文件",
+      "problem": "497条已建立范围核对；46条后续与9条限定核对仍有任务。旧目录59项未提交不在提交核对内。",
+      "nextAction": "逐文件判断有效修复和引用，保留原件与备份；不能直接删除、覆盖或按数量算遗漏功能。",
+      "verification": "具体路径、现行规则、迁移结果、排除理由与可恢复证据。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-10",
+      "priority": "P2",
+      "relatedIds": [
+        "F06"
+      ],
+      "title": "结清后的正式财务更正入口",
+      "problem": "闭期禁重开保护已修；后续补款、退款或账单更正的正式入口尚不完整。",
+      "nextAction": "使用独立有审计的后续处理，不解除闭期保护或回填普通收款表单。",
+      "verification": "历史快照保留、当前账期归属、审批、重复请求不重记。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-11",
+      "priority": "P2",
+      "relatedIds": [
+        "F08"
+      ],
+      "title": "售后完整流程",
+      "problem": "目前主要记录质量/售后线索，完整补发换货退款、责任与成本流尚未形成。",
+      "nextAction": "先按D04确定首期范围，单据及金额分别审批；不得由线索自动退款或扣工资。",
+      "verification": "原订单和实物凭据、审批权限、数量金额及责任分离。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-12",
+      "priority": "P2",
+      "relatedIds": [
+        "F14"
+      ],
+      "title": "客户仓库车间数据范围",
+      "problem": "功能权限和已有本人考勤、指定司机/机台限制，不等于全域行级隔离已完成。",
+      "nextAction": "按D03逐域明确范围，再让每个读写查询消费同一服务端范围合同。",
+      "verification": "列表、详情、导出、附件与写入均不能跨出授权范围。",
+      "status": "待整改"
+    },
+    {
+      "id": "P2-13",
+      "priority": "P2",
+      "relatedIds": [
+        "F02",
+        "F11"
+      ],
+      "title": "本人手机号注册的正式接入",
+      "problem": "D02已确认正式员工自注册后由管理员审核分岗；可选后台已有但当前注册关闭，真实短信和正式入口尚未验收。",
+      "nextAction": "统一本人验证、待审核无权限、关联员工和分岗流程；保留历史账号，不代注册、不批量启用、不用测试短信冒充真实验证。",
+      "verification": "真实短信、重复手机拒绝、管理员审核、分岗生效、无岗位拒绝业务与账号撤销。",
+      "status": "待整改"
+    },
+    {
+      "id": "P3-01",
+      "priority": "P3",
+      "relatedIds": [
+        "M01",
+        "R12"
+      ],
+      "title": "自动采购参考和经营异常雷达",
+      "problem": "手工采购已有；完整可信推荐、厂家分组分发及只读经营分析仍属后续。",
+      "nextAction": "先补真实库存、消耗、安全参数与证据，再给参考区间和不确定性；由人决定采购，不自动发单。",
+      "verification": "数据不足不给确定量，所有建议可追原单且不写库存或财务。",
+      "status": "待整改"
+    }
+  ],
+  "ownerDecisions": [
+    {
+      "id": "D01",
+      "priority": "P1",
+      "relatedIds": [
+        "F03",
+        "F09"
+      ],
+      "title": "办公室能否正式结清足额款",
+      "conflict": "AGENTS允许办公室A/B凭匹配到账和客户证据登记并结清；业务基线要求老板或明确授权账号进行正式收款确认与核销。",
+      "question": "已确认：办公室凭匹配到账记录和客户消息/截图，可登记并结清足额款；少付差额保持待批准。",
+      "recommendation": "按受限足额结清实现；不为办公室打开通用抹零、减免或经营决定权限。",
+      "status": "负责人已于2026年10月24日确认；专用受限结清入口、证据与权限合同待实现验收",
+      "resolution": "办公室可登记并结清证据齐全的足额款，少付差额另审批。"
+    },
+    {
+      "id": "D06",
+      "priority": "P1",
+      "relatedIds": [
+        "F15"
+      ],
+      "title": "丝印实际休息如何计薪",
+      "conflict": "原汇编将普通员工固定午休外推给两卡丝印；旧生产规则已有丝印区别，须按本次明确选择纠正。",
+      "question": "已确认：丝印不固定扣午休，按真实工作及经复核的休息时间计薪；普通员工仍排除12—13固定午休交集。",
+      "recommendation": "区分考勤岗位规则，丝印可按实际休息自选复核，不自动扣1小时、不强制全厂逐日复核、不回写历史工资。",
+      "status": "负责人已于2026年10月24日确认；本轮按该口径修复并验证",
+      "resolution": "丝印不固定扣午休，按真实工作及经复核的休息时间计薪。"
+    },
+    {
+      "id": "D02",
+      "priority": "P2",
+      "relatedIds": [
+        "F02",
+        "F11"
+      ],
+      "title": "员工账号的正式开通方式",
+      "conflict": "管理员创建子账号与员工手机号自注册待分配岗位两套流程并存，当前自注册关闭。",
+      "question": "已确认：本人验证手机号注册，管理员审核身份并关联员工、分配岗位后生效；注册本身无业务权限。",
+      "recommendation": "统一正式员工入口；保留历史账号和审计，不批量创建、启用或开放未经验证的短信注册。",
+      "status": "负责人已于2026年10月24日确认；真实短信接入及正式入口待验收",
+      "resolution": "员工手机号注册，管理员审核并分配岗位。"
+    },
+    {
+      "id": "D05",
+      "priority": "P1工资放行前",
+      "relatedIds": [
+        "F17",
+        "F18",
+        "F20"
+      ],
+      "title": "工资政策有效期和历史例外",
+      "conflict": "工资表中的岗位名称、时薪与日薪口径已有来源，但正式生效日期及临时或早期例外仍待财务确认。",
+      "question": "采用工资表哪一版、从哪个自然月生效，哪些岗位或时段存在已批准例外？",
+      "recommendation": "沿用已提供的工资表和版本化政策；不再要求重述已确认费率，不由代码补默认日期或倍率。",
+      "status": "正式工资生成前由财务确认"
+    },
+    {
+      "id": "D03",
+      "priority": "P2",
+      "relatedIds": [
+        "F14"
+      ],
+      "title": "是否及怎样限制业务数据范围",
+      "conflict": "现行已确认功能权限，尚无全域客户、仓库、车间数据隔离范围。",
+      "question": "今后哪些岗位只能看本车间、本仓库或指定客户，哪些需要跨域查看？",
+      "recommendation": "列岗位与业务对象范围表，再逐域接服务端校验；这是后续范围决定，不阻塞本轮其余已定修复。",
+      "status": "后续分域实施前确认"
+    },
+    {
+      "id": "D04",
+      "priority": "P2",
+      "relatedIds": [
+        "F08"
+      ],
+      "title": "售后首期做到哪一步",
+      "conflict": "不自动退款、不自动补发、不自动扣工资已有明确底线；完整售后仍为后续范围。",
+      "question": "首期只登记与跟进客诉，还是同时包含审批后的补发、换货和退款？各类决定由谁批准？",
+      "recommendation": "先把记录与审批凭据完整接上，再逐项开放库存或资金动作。",
+      "status": "售后实施前确认"
+    }
+  ],
+  "acceptanceGates": [
+    {
+      "priority": "P1上线前",
+      "title": "原料真实闭环",
+      "relatedIds": "M02—M14 M16 M17",
+      "required": "真实厂家单及独立留出样本、逐页来源、颜色映射、整卷实物、标签出纸贴卷扫码、领料与月结；标签机未准备的既有边界不变。"
+    },
+    {
+      "priority": "P1上线前",
+      "title": "实包打印和司机现场",
+      "relatedIds": "M18 M20 M23—M26 F26",
+      "required": "真实包裹、重扫他单拒绝、纸张与打印回执、手机水印/签字或未签原因、弱网和办公室实际看图。"
+    },
+    {
+      "priority": "P1上线前",
+      "title": "价格与订单到对账",
+      "relatedIds": "O01 O02 O06 O08 O09 O14 O17 O18 O21 F01 F04 F05 F07 F28",
+      "required": "真实有效价格版本、各类订单分流、正式排程、合格数量、实际交付及累计收款；已有本地保护继续保留。"
+    },
+    {
+      "priority": "P1工资放行前",
+      "title": "全厂考勤与工资",
+      "relatedIds": "F10—F13 F16—F24",
+      "required": "真实人员日期和工资岗位、考勤来源授权与映射、完整闭月导入、有效政策、正式账号与财务复核；一人试点不等于全厂。"
+    },
+    {
+      "priority": "P1上线前",
+      "title": "生产资源和恢复能力",
+      "relatedIds": "R05 R07 R16 R17",
+      "required": "生产认证与正式存储、真实周期备份/异地副本、业务和附件恢复、岗位设备证据及受控发布；不扩大raw_material首发范围。"
+    },
+    {
+      "priority": "P2现场资料",
+      "title": "生产和设备参数",
+      "relatedIds": "O15 O19 R15",
+      "required": "真实机台协议、点位、班次、换模与计数复位。参数未核实前不把试算当承诺。"
+    },
+    {
+      "priority": "P2实际值",
+      "title": "人员厂家和纸张",
+      "relatedIds": "R10 M06 M22",
+      "required": "真实出生/入职与岗位资料、新厂家单据样本、打印纸张及版式现场确认。这些是资料和验收，不是未定业务原则。"
+    },
+    {
+      "priority": "持续检查",
+      "title": "界面和版本回归",
+      "relatedIds": "R01—R03 R08 R09 R18",
+      "required": "身份21项检查、完整4174入口、不同容器与手机、库存结构和输入防误操作。治理已实施，不重新算作未修代码。"
+    }
+  ],
+  "items": [
+    {
+      "id": "O01",
+      "question": "是否印刷能否直接决定通货、库存和生产路线？",
+      "priority": "P1",
+      "category": "仅待验收",
+      "reviewFinding": "类型、库存和生产路线已有现行共享判定；本次未发现新路由回退。",
+      "nextAction": "按四类订单加印刷通货验证，保留现有路由。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "DECISIONS.md",
+          "locator": "Product, Order And Inventory",
+          "kind": "现行规则"
+        },
+        {
+          "path": "shared/orderRouting.js",
+          "locator": "L29—66 normalizeOrderType / requiresProductionOrderType / inferOrderType",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-p1-order-delivery-integration.mjs",
+          "locator": "L21—36 通货缺货与特殊尺寸识别",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O02",
+      "question": "标准通货缺货时，能否只停在缺货提示而不进入生产？",
+      "priority": "P1",
+      "category": "仅待验收",
+      "reviewFinding": "缺货通货建待排产任务已实现；不能把未现场验收重复算作未修bug。",
+      "nextAction": "真实缺货同单有货明细联测。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "locator": "4.2 正式确认",
+          "kind": "现行目标规则"
+        },
+        {
+          "path": "shared/orderRouting.js",
+          "locator": "L47—51 requiresProductionOrderType",
+          "kind": "实现"
+        },
+        {
+          "path": "server/services/orderDraftCommandService.mjs",
+          "locator": "L702—756 正式确认事务 / L1312 buildProductionTasks",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O03",
+      "question": "特殊尺寸生产完工是否必须先建通货库存才能交货？",
+      "priority": "P1",
+      "category": "确有实现缺口",
+      "reviewFinding": "特殊尺寸免通货库存保护已有；另发现无价格来源特殊单仍能正式确认0元，关联新问题P1-O-PRICE-SOURCE。",
+      "nextAction": "先修缺价格阻断，保留特殊尺寸生产直接交付。",
+      "workIds": [
+        "P1-01",
+        "P1-11"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "DECISIONS.md",
+          "locator": "Product, Order And Inventory：Custom sizes remain order-only",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/services/productionReportingCommandService.mjs",
+          "locator": "L651—657 customSpecial 分支",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-p1-order-delivery-integration.mjs",
+          "locator": "L8—18 无库存特殊尺寸完工和打包",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O04",
+      "question": "订单从哪里来和货怎么交付是否属于同一分类？外加工如何处理？",
+      "priority": "P2",
+      "category": "确有实现缺口",
+      "reviewFinding": "来源与交付概念分开；外加工完整执行/人工单价/实印计费闭环未证明已接齐，普通报工明确拒绝外加工。",
+      "nextAction": "列独立加工服务闭环，不恢复普通制袋库存路径。",
+      "workIds": [
+        "P2-01"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/conversation/legacy-thread-context.md",
+          "locator": "Order Sources / External Processing Printing Order；历史问题来源",
+          "kind": "历史追溯"
+        },
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L1074—1078 外加工计价",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/productionReportingCommandService.mjs",
+          "locator": "L529—534 外加工不创建成品库存",
+          "kind": "实现边界"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O05",
+      "question": "微信群的询问、办公室回复和正式下单能否全部累计成订单？",
+      "priority": "P2",
+      "category": "入口待补",
+      "reviewFinding": "询库存与正式下单识别及意图已有；留货全流程新入口仍不齐。",
+      "nextAction": "接新建/续期/释放/转单界面；不要改已明确询库存规则。",
+      "workIds": [
+        "P1-10"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L197—201 微信意图与跨草稿取消",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/orderDraftQueueDomain.mjs",
+          "locator": "buildOrderDraftQueuePlan / 意图上下文分离",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-order-conversation-recognition.mjs",
+          "locator": "L18—66 询库存、回复和留货案例",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O06",
+      "question": "一天内同一客户多次发送，或多客户批量识别，应该怎样拆原始订单？",
+      "priority": "P2",
+      "category": "仅待验收",
+      "reviewFinding": "独立来源队列、确认后追加新原始订单已有；未找到新的混客户问题。",
+      "nextAction": "真实脱敏多源批量核对及重复提交验收。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L192—194、L197、L199 独立来源和追加规则",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/services/orderDraftCommandService.mjs",
+          "locator": "L207—304 分队列建草稿",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-order-draft-queue-api.mjs",
+          "locator": "队列API回归",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O07",
+      "question": "识别结果或界面显示有货，是否可以直接变成正式订单？",
+      "priority": "P1",
+      "category": "确有实现缺口",
+      "reviewFinding": "字段与库存重新检查已有，但正式确认链不拦无价格来源0金额；关联P1-O-PRICE-SOURCE。",
+      "nextAction": "价格来源不确定就拒绝确认，保持草稿，不新增库存/生产/履约。",
+      "workIds": [
+        "P1-01",
+        "P1-12",
+        "P1-11"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "locator": "4.1 / 4.2 识别与正式确认",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/orderDraftCommandService.mjs",
+          "locator": "L624—672 字段审核、确认阻断和保存版本",
+          "kind": "实现"
+        },
+        {
+          "path": "shared/orderDraftFieldReview.mjs",
+          "locator": "审核证据合并与阻断",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O08",
+      "question": "小程序下单金额与ERP确认金额不一致，应以哪个来源为准？",
+      "priority": "P1",
+      "category": "仅待验收",
+      "reviewFinding": "小程序原来源、数量规格与锁价凭据守卫已有；不能为补手工订单价格问题破坏此分支。",
+      "nextAction": "真实双系统逐行核金额，保留旧锁价订单。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "DECISIONS.md",
+          "locator": "Product, Order And Inventory：ERP sole authority / separate databases",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/miniapp/miniappDraftLockedPricing.mjs",
+          "locator": "L15—65 原客户、规格、数量、报价快照",
+          "kind": "实现"
+        },
+        {
+          "path": "server/services/orderDraftCommandService.mjs",
+          "locator": "L606—636 / L702—710 锁价确认与快照",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O09",
+      "question": "还要给每个客户配置价格表1、2、3吗？临时议价会改全厂价吗？",
+      "priority": "P2",
+      "category": "已复现发布价未被正式确认使用 / 本单议价入口待补",
+      "reviewFinding": "隔离合成对照中，ERP表0.90元的手工100个订单仍确认旧P0价0.34、金额34；另有权本单价输入合同尚未接齐。一厂一表原则已定，不是只缺现场验收。",
+      "nextAction": "先修P1-12发布价来源，再补P1-11办公室正式报价与有权本单价，不从客户端直接接受价格。",
+      "workIds": [
+        "P1-12",
+        "P1-11"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L304—306 一厂一表与分类键",
+          "kind": "现行规则"
+        },
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L242 / L257 / L367—368 本单改价与快照",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/orderWorkflowProjectionService.mjs",
+          "locator": "L24—38 toPriceSnapshot",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O10",
+      "question": "印刷阶梯按单行颜色算，还是同内容同尺寸合并算？旧价数字还能直接用吗？",
+      "priority": "P1",
+      "category": "确有实现缺口",
+      "reviewFinding": "逐行印刷价未实现同内容同尺寸合组；两行5000按0.08计800，可合组10000应按0.06计600。",
+      "nextAction": "明确组来源、稿件内容身份、印前补单版本后分阶段做；不在本轮盲目实现跨订单重定价。",
+      "workIds": [
+        "P1-06"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L2660—2680 现行阶梯及合并条件",
+          "kind": "业务规则"
+        },
+        {
+          "path": "src/domain/priceTable.js",
+          "locator": "L92—106 / L132—141 当前逐行计价边界",
+          "kind": "实现边界"
+        },
+        {
+          "path": "server/miniapp/erpPriceReleaseService.mjs",
+          "locator": "L69—125 发布版本完整性",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O11",
+      "question": "订单数量与报价数字可以自动取整、空值当零吗？",
+      "priority": "P1",
+      "category": "确有实现缺口",
+      "reviewFinding": "订单正整数和小程序数值校验已有；缺价格0金额可确认仍存在，关联P1-O-PRICE-SOURCE。",
+      "nextAction": "不能一律禁止0元：区分无来源、已授权本单价和有明示依据的赠品/不计费。",
+      "workIds": [
+        "P1-01",
+        "P1-11"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L367—368 金额快照与规则版本",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/orderDraftCommandService.mjs",
+          "locator": "L602 hasInvalidDraftQuantity",
+          "kind": "实现"
+        },
+        {
+          "path": "server/miniapp/miniappDraftLockedPricing.mjs",
+          "locator": "L39—45 锁定报价数字校验",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O12",
+      "question": "客户说不要缺货那一项、后来又恢复，能直接改历史订单吗？",
+      "priority": "P2",
+      "category": "入口待补",
+      "reviewFinding": "取消/恢复及跨草稿客户守卫已有；完整新界面定位、冲突与恢复尚需连通验证。",
+      "nextAction": "补入口，不重复询问取消和恢复规则。",
+      "workIds": [
+        "P1-09"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L199—201 缺货取消、跨草稿关联与恢复",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/services/orderDraftCommandService.mjs",
+          "locator": "L378 restoreShortageCancelledDraftLine / L474 linkCrossDraftShortageCancellation / L501—507 客户核对",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-order-draft-command-service.mjs",
+          "locator": "取消和恢复专项",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O13",
+      "question": "正式订单改量或作废，在生产、实出、装车以后还能直接操作吗？",
+      "priority": "P1",
+      "category": "入口待补",
+      "reviewFinding": "执行后改量作废服务端和数据库保护已有；完整评审入口未接齐，真实业务只能靠分散界面。",
+      "nextAction": "按已有接口接改量、作废、快照冲突及未知失败保留。",
+      "workIds": [
+        "P1-09"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L237 / L640 已执行后历史保护",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/orderMutationDeliveryGuard.mjs",
+          "locator": "L1—26 实际执行状态与时间",
+          "kind": "实现"
+        },
+        {
+          "path": "server/services/orderLineMutationCommandService.mjs",
+          "locator": "L156 / L239—303 改量保护与事务",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O14",
+      "question": "每单谁安排？系统建议或代录，是否等于已经正式发布生产？",
+      "priority": "P1",
+      "category": "仅待验收",
+      "reviewFinding": "电脑排产发布、业务决定凭据和事务已有，本次无证据要求重做排产。",
+      "nextAction": "真实决定人与代录人、发布前后任务可见性联测。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "locator": "2.4 决定人与操作人 / 7 排产和生产执行",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/productionSchedulingCommandService.mjs",
+          "locator": "L37—174 publishSchedule 与决定证据事务",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-production-schedule-decision-ui.mjs",
+          "locator": "排产确认界面",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O15",
+      "question": "小单多、换模慢的工厂，是否应按长甘特图和颜色自动排？",
+      "priority": "P2",
+      "category": "需现场参数与验收",
+      "reviewFinding": "机台队列、调序、转机已有；旧机型表、班次与换模时长不能当实时产能。",
+      "nextAction": "现场维护机台能力与产能，不用缺省生成精确交期。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/conversation/legacy-thread-context.md",
+          "locator": "Scheduling Rules / Bag-Making Machine Capability Table / Work Hours",
+          "kind": "历史业务来源"
+        },
+        {
+          "path": "AGENTS.md",
+          "locator": "L279 进度数据不足显示低置信",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/services/productionMachineQueueReadService.mjs",
+          "locator": "机台队列读取合同",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O16",
+      "question": "四名丝印工怎样认领与排序，办公室发布机台任务就算完整实现了吗？",
+      "priority": "P2",
+      "category": "确有实现缺口",
+      "reviewFinding": "现行个人原子认领规则已定；本次检索生产服务未发现完整claim/个人队列命令，普通发布不能冒充。",
+      "nextAction": "独立规划个人认领事务和入口，不在P1修bug中扩建整套。",
+      "workIds": [
+        "P2-02"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L227—233 固定员工、认领与丝印明细",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/services/productionSchedulingCommandService.mjs",
+          "locator": "L65—79、L152—174 普通发布合同，不能证明认领",
+          "kind": "实现边界"
+        },
+        {
+          "path": "scripts/check-production-scheduling-command-service.mjs",
+          "locator": "现有排程专项，不含完整个人认领验收",
+          "kind": "测试边界"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O17",
+      "question": "丝印报完，能直接变成成品库存和待打包吗？",
+      "priority": "P1",
+      "category": "仅待验收",
+      "reviewFinding": "丝印完成明确下游制袋、无成品入库且防重复任务已有本地补强。",
+      "nextAction": "现场执行丝印到制袋链，不放松工序门禁。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L274 正式定制确认创建任务及履约 / L277 机器数边界",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/services/productionReportingCommandService.mjs",
+          "locator": "L540—645 丝印完成、下游任务与无库存效果",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-p1-order-delivery-integration.mjs",
+          "locator": "L30—37 丝印不提前打包",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O18",
+      "question": "跨天每天报产量，能每天入库，最后再累计入一遍吗？",
+      "priority": "P2",
+      "category": "仅待验收",
+      "reviewFinding": "日报无库存/预留/打包效果、最终完工一次性落地已有。",
+      "nextAction": "跨日重试与最终数量验证；日报小数自动截断可列后续输入加固。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "locator": "7 排产和生产执行：每日进度与最终报工",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/productionReportingCommandService.mjs",
+          "locator": "L60—149 日报和无库存事实 / L510—518 完工重试保护",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-production-reporting-command-service.mjs",
+          "locator": "日报与最终报工回归",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O19",
+      "question": "机器计数、合格数量、打包数量和计费数量能共用一个产量字段吗？",
+      "priority": "P2",
+      "category": "需现场参数与验收",
+      "reviewFinding": "机台动作与合格/交付/计费独立保存已有；真实机器自动采集尚无验收证据。",
+      "nextAction": "设备协议和点位只读验收，不直接自动入库。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L277—282 机器计数、历史表与材料毛利边界",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/services/productionReportingCommandService.mjs",
+          "locator": "L66—128 / L542—601 机器动作与合格分开",
+          "kind": "实现"
+        },
+        {
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "locator": "3 核心业务对象和不可混用数据",
+          "kind": "业务规则"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O20",
+      "question": "少做或多做是否都算正常完成？超量会自动补单或收费吗？",
+      "priority": "P2",
+      "category": "确有实现缺口",
+      "reviewFinding": "实际差异与异常待办已有；多做阈值和免费赠送在各阶段的统一提示/收费联动仍需核齐。",
+      "nextAction": "以既定4999+50/51和5000+100/101验收，不借超量自动收费或补单。",
+      "workIds": [
+        "P2-05"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/conversation/legacy-thread-context.md",
+          "locator": "Quantity Reporting Rules",
+          "kind": "历史确认来源"
+        },
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L356 / L465 / L1301 合格、赠送、少量处理",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/productionReportingCommandService.mjs",
+          "locator": "L570—615 实际差异单独标记和待办",
+          "kind": "实现边界"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O21",
+      "question": "办公室看过成品图后，工人换图，旧页面还能批准吗？",
+      "priority": "P1",
+      "category": "仅待验收",
+      "reviewFinding": "照片归属、当前附件/版本及幂等保护已有；真机和客户通知验收不等于再建照片功能。",
+      "nextAction": "换图并发与人工通知回执联测。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L386 附件归属 / L1503—1512 客户通知人工执行",
+          "kind": "业务规则"
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "locator": "L119—146 附件、版本与重拍原因 / L170—203 通知待办",
+          "kind": "实现"
+        },
+        {
+          "path": "scripts/check-production-photo-review-ui.mjs",
+          "locator": "当前图片版本界面",
+          "kind": "测试"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O22",
+      "question": "内部待排产、异常暂停或取消一行，应该怎样显示给小程序客户？",
+      "priority": "P1",
+      "category": "确有实现缺口",
+      "reviewFinding": "部分行生产中但已有履约均完成时，公共投影错误回completed；关联P1-O-PUBLIC-COMPLETE。",
+      "nextAction": "优先以完整订单/明细事实判断，防稀疏履约集合把整单报完成。",
+      "workIds": [
+        "P1-02"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "L314 双层状态与取消聚合",
+          "kind": "现行规则"
+        },
+        {
+          "path": "server/miniapp/bagwinErpIntegrationService.mjs",
+          "locator": "L354—391 projectBagwinPublicStatus",
+          "kind": "实现"
+        },
+        {
+          "path": "server/services/productionSchedulingCommandService.mjs",
+          "locator": "L75—79 发布机台校验",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O23",
+      "question": "刚出合格样品、生产完工与打包完成之间，何时通知客户，能否边生产边打包？",
+      "priority": "P2",
+      "category": "确有实现缺口",
+      "reviewFinding": "图审/待通知待办已有；生产最终完成才建打包任务，未见分阶段实包及累计确认完整合同。",
+      "nextAction": "单列并行实际包装增量设计；既定最终实包和库存保护不得删除。",
+      "workIds": [
+        "P2-03"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L1503—1512 合格成品先人工通知、包装统计后待提货",
+          "kind": "业务规则；真实用户讨论019efe68 L4293"
+        },
+        {
+          "path": "server/services/productionReportingCommandService.mjs",
+          "locator": "L711—723 当前最终完工时建立待打包任务，不能证明并行部分实包",
+          "kind": "实现边界"
+        },
+        {
+          "path": "server/services/productionFinishedGoodsPhotoCommandService.mjs",
+          "locator": "L170—203 图审产生待通知客户待办",
+          "kind": "实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "O24",
+      "question": "换模由谁决定时间，怎样派到技工页面并取得现场回执？",
+      "priority": "P2",
+      "category": "确有实现缺口",
+      "reviewFinding": "通用维修有dueAt/技工/待办/回执，但类型不含换模且完工强制照片；专用换模任务与排程提醒未接齐。",
+      "nextAction": "后续专用换模类型与排程关联，不把普通报修改名当完成。",
+      "workIds": [
+        "P2-04"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "L1103—1115 换模工单、任务池、前置提醒与改期",
+          "kind": "业务规则；真实用户讨论019efe68 L12401"
+        },
+        {
+          "path": "server/services/maintenanceTaskCommandService.mjs",
+          "locator": "L5—7 仅三类设备任务；L18—65 dueAt与可选技工；L104—140 完工强制图片；L190—209 通用待办",
+          "kind": "实现边界"
+        },
+        {
+          "path": "src/features/maintenance/MaintenanceMobilePage.jsx",
+          "locator": "L264—294 任务详情、最晚处理与回执；L336—338 三类设备入口",
+          "kind": "入口实现边界"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M01",
+      "question": "原料采购参考由系统决定还是由人下单？",
+      "priority": "P2",
+      "category": "missing-code-and-entry",
+      "reviewFinding": "按厂家每日推荐、复制与分发审计尚属规划；人确认采购已存在",
+      "nextAction": "按厂家每日推荐、复制与分发审计尚属规划；人确认采购已存在",
+      "workIds": [
+        "P3-01"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:181",
+        "docs/product/requirements.zh-CN.md:1988",
+        "server/services/rawMaterialCommandService.mjs:410"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M02",
+      "question": "办公室设备录单与手机拍单是否是两套库存？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:137",
+        "DECISIONS.md:90",
+        "src/features/raw-materials/RawMaterialInboundPage.jsx:81"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M03",
+      "question": "一张厂家单有两三页时怎样拍？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:31",
+        "AGENTS.md:32",
+        "src/features/raw-materials/RawMaterialMobileReceiving.jsx:339"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M04",
+      "question": "核对某卷时怎样确认看到的是原单的正确页面？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:31",
+        "AGENTS.md:154",
+        "server/services/rawMaterialOcrParserService.mjs:248"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M05",
+      "question": "OCR识别完成能否立即入库或生成应付？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:31",
+        "server/services/rawMaterialOcrParserService.mjs:214",
+        "server/services/rawMaterialOcrParserService.mjs:912"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M06",
+      "question": "不同厂家格式和默认规格能不能统一猜测？",
+      "priority": "P2",
+      "category": "business-sample-and-field",
+      "reviewFinding": "未定义厂家版式须真实样本确认，不能猜测适配",
+      "nextAction": "未定义厂家版式须真实样本确认，不能猜测适配",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:141",
+        "AGENTS.md:146",
+        "server/services/rawMaterialOcrParserService.mjs:72"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M07",
+      "question": "厂家票面颜色与厂内颜色如何对应？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:33",
+        "AGENTS.md:34",
+        "shared/factoryStandardColors.js:11"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M08",
+      "question": "核对一次颜色是否会自动学习并覆盖规则？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:35",
+        "server/services/rawMaterialSupplierColorMappingService.mjs:57",
+        "src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx:145"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M09",
+      "question": "手机核对返回后不想保留这张单怎样处理？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:36",
+        "DECISIONS.md:54",
+        "server/services/rawMaterialInboundCommandService.mjs:53"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M10",
+      "question": "一行厂家明细包含多卷时怎样建卷和确认重量？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:154",
+        "AGENTS.md:42",
+        "server/services/rawMaterialOcrParserService.mjs:973"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M11",
+      "question": "原料卷标上应放什么，二维码编码什么？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:145",
+        "AGENTS.md:146",
+        "src/domain/rawMaterialRollLabel.js:10"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M12",
+      "question": "打印了标签是否等于这卷已可用？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "DECISIONS.md:73",
+        "AGENTS.md:289",
+        "server/services/rawMaterialInboundCommandService.mjs:176"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M13",
+      "question": "卷料库存应显示哪些卷、按什么查找？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:42",
+        "AGENTS.md:43",
+        "shared/rawMaterialRollInventory.js:153"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M14",
+      "question": "领料是否必须先有生产任务，能否拆卷或余料退库？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "DECISIONS.md:72",
+        "docs/development/raw-material-first-release-handoff-2026-07-18.zh-CN.md#1. 已确认的首发范围",
+        "src/domain/rawMaterialWholeRollPolicy.js:63"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M15",
+      "question": "领卷、机台计数和成本毛利是一回事吗？",
+      "priority": "P2",
+      "category": "partial-code-and-field",
+      "reviewFinding": "已确认消耗成本草稿存在；完整机台/任务分摊与最终利润仍未完成",
+      "nextAction": "已确认消耗成本草稿存在；完整机台/任务分摊与最终利润仍未完成",
+      "workIds": [
+        "P2-08"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "DECISIONS.md:67",
+        "docs/development/p1-remediation-closeout-20261023.json:63",
+        "server/rawMaterialCostMarginActionService.mjs:108"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M16",
+      "question": "厂家纸质退货单和实物退厂如何避免重复扣减？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:142",
+        "AGENTS.md:143",
+        "server/services/rawMaterialSupplierReturnReconciliationService.mjs:147"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M17",
+      "question": "入库、供应商月结、应付和付款能否一键合并？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:295",
+        "docs/product/requirements.zh-CN.md:2769",
+        "src/domain/rawMaterialSupplierStatementImport.js:496"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M18",
+      "question": "成品有在库数量就一定能出库吗？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "DECISIONS.md:60",
+        "docs/development/legacy-remaining-review-closeout-20261023.json:24",
+        "server/fulfillmentActionTransactionRepository.mjs:585"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M19",
+      "question": "留货到期、延期、转单与重复释放怎么处理？",
+      "priority": "P1-followup",
+      "category": "missing-entry",
+      "reviewFinding": "留货服务防线已在；完整新界面新建续期释放转单入口未接齐",
+      "nextAction": "留货服务防线已在；完整新界面新建续期释放转单入口未接齐",
+      "workIds": [
+        "P1-10"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "docs/development/legacy-remaining-review-closeout-20261023.json:62",
+        "server/services/inventoryIntentCommandService.mjs:49",
+        "server/services/inventoryIntentCommandService.mjs:143"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M20",
+      "question": "打包用计划数量还是实际数量，提交两次会不会多出包码？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:266",
+        "AGENTS.md:273",
+        "server/services/packingCommandService.mjs:33"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M21",
+      "question": "5000个装5包或不同尺寸颜色混装一包应怎样登记？",
+      "priority": "P1-product-gap",
+      "category": "missing-code-and-entry",
+      "reviewFinding": "单明细实包已在，混装逐项内容、更正重印与旧码失效全链未完成；不是本轮新复现bug",
+      "nextAction": "单明细实包已在，混装逐项内容、更正重印与旧码失效全链未完成；不是本轮新复现bug",
+      "workIds": [
+        "P1-07"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "docs/development/p1-remediation-closeout-20261023.json:328",
+        "docs/development/legacy-remaining-review-closeout-20261023.json:62",
+        "docs/prototypes/raw-material-roll-inventory-review/src/DesktopFulfillmentOperations.jsx:125"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M22",
+      "question": "原料卷标、内部包裹挂牌与旧出库送货单是不是一种单？",
+      "priority": "P2",
+      "category": "partial-entry-and-field",
+      "reviewFinding": "三类模板边界已有；旧出库版式定稿与混装更正仍缺，真机耗材未验收",
+      "nextAction": "三类模板边界已有；旧出库版式定稿与混装更正仍缺，真机耗材未验收",
+      "workIds": [
+        "P2-07"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "docs/product/requirements.zh-CN.md:310",
+        "docs/product/requirements.zh-CN.md:329",
+        "src/domain/printTemplates.js:57"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M23",
+      "question": "打印预览、已发送与物理打印成功怎样区分？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "DECISIONS.md:68",
+        "server/services/fulfillmentPrintCommandService.mjs:26",
+        "server/services/printJobLifecycleService.mjs:436"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M24",
+      "question": "司机能不能按推算包数或一键全部核对装车？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "docs/development/p1-remediation-closeout-20261023.json:119",
+        "DECISIONS.md:69",
+        "server/services/fulfillmentActionCommandService.mjs:1833"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M25",
+      "question": "送达必须上传哪些照片，客户没签怎么办？",
+      "priority": "P1-field-gate",
+      "category": "implemented-field-acceptance-pending",
+      "reviewFinding": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "nextAction": "当前规则和本地实现已有，仍缺真实岗位、设备、实物或财务验收；本轮未再次全链运行，不把历史缺口写成当前漏洞",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        "docs/development/p1-remediation-closeout-20261023.json:126",
+        "docs/product/requirements.zh-CN.md:136",
+        "server/services/fulfillmentActionCommandService.mjs:1069"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M26",
+      "question": "送达后退回补拍或处理司机异常，会不会再次扣库存、覆盖原证据？",
+      "priority": "P2",
+      "category": "partial-recovery-and-field",
+      "reviewFinding": "后端证据复核与异常恢复已补；断网换图/续传完整恢复仍待专项，未另行复现新漏洞",
+      "nextAction": "后端证据复核与异常恢复已补；断网换图/续传完整恢复仍待专项，未另行复现新漏洞",
+      "workIds": [
+        "P2-06"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "docs/product/requirements.zh-CN.md:137",
+        "docs/product/requirements.zh-CN.md:138",
+        "server/services/driverDeliveryExceptionResolutionPolicy.mjs:21"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M27",
+      "question": "库房必须等纸单到了才能在手机看到任务和开始备货吗？",
+      "priority": "P1-now",
+      "category": "current-reproduced-code-defect",
+      "reviewFinding": "排队失败作废纸单仍进手机任务；成功打印后纸单未到不能回录已备货",
+      "nextAction": "排队失败作废纸单仍进手机任务；成功打印后纸单未到不能回录已备货",
+      "workIds": [
+        "P1-03"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "AGENTS.md:182",
+        "src/features/warehouse/WarehouseMobilePage.jsx:94",
+        "server/services/fulfillmentActionCommandService.mjs:382"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "M28",
+      "question": "快递快运放到待提货区就算交付吗，夜间拉走怎样次日确认？",
+      "priority": "P1-now",
+      "category": "current-reproduced-code-defect",
+      "reviewFinding": "次日确认覆盖夜间实际提走日期并用次日选账期，缺独立实际时间入口",
+      "nextAction": "次日确认覆盖夜间实际提走日期并用次日选账期，缺独立实际时间入口",
+      "workIds": [
+        "P1-04"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        "docs/product/requirements.zh-CN.md:358",
+        "docs/product/requirements.zh-CN.md:388",
+        "server/services/fulfillmentActionCommandService.mjs:570"
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F01",
+      "question": "累计实收、本期未收和历史欠款怎样登记，避免重复相加？",
+      "priority": "P1",
+      "category": "对账显示源错误已复现 / 真实岗位验收待做",
+      "reviewFinding": "完整预览读链漏传本期已收等金额，列表用本期应收减历史欠款推算已收且把历史欠款作差额；根工作台已有准确金额不代表当前完整入口也正确。",
+      "nextAction": "按P1-13修复权威读链、缺值显示及列表详情，真实财务岗位验收另留证据。",
+      "workIds": [
+        "P1-13"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "line": 187,
+          "note": "五金额、实交/计费和价格快照分别记录；累计20→50口径见本地收尾与回归"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/statementFinancialCommandService.mjs",
+          "line": 50,
+          "note": "recordPayment按当前版本维护账单与付款证据"
+        },
+        {
+          "kind": "测试",
+          "path": "e2e/core-business-flow.spec.mjs",
+          "line": 465,
+          "note": "20→50最终为50的真实隔离HTTP与浏览器回归"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F02",
+      "question": "员工必须由管理员开子账号，还是本人手机号注册后等待分配岗位？",
+      "priority": "P2",
+      "category": "业务规则已确认 / 正式接入和入口待补",
+      "reviewFinding": "负责人已确认员工手机号注册、管理员审核并分配岗位；现自注册关闭，仍缺真实短信及正式入口验收。",
+      "nextAction": "按本人手机号注册主路径接正式短信与审核分岗；不批量启用现有账号。",
+      "workIds": [
+        "P2-13"
+      ],
+      "decisionIds": [
+        "D02"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则及范围冲突",
+          "path": "AGENTS.md",
+          "line": 47,
+          "note": "管理员子账号2026-08-25恢复；并读:185手机自注册目标、:309内部测试关闭，不推定覆盖关系"
+        },
+        {
+          "kind": "实现范围",
+          "path": "server/services/phoneIdentityCommandService.mjs",
+          "line": 161,
+          "note": "可选流程建phone_self_registration身份，roles为空，pending_assignment，业务权限尚未授予"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-phone-identity-api.mjs",
+          "line": 16,
+          "note": "显式开关无验证sender拒绝启动；默认关闭、可选隔离流程与严格边界回归"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F03",
+      "question": "客户少付后，办公室能直接把剩余差额清掉吗？",
+      "priority": "P1",
+      "category": "业务规则已确认 / 缺受限足额结清合同",
+      "reviewFinding": "负责人已确认办公室可登记并结清证据齐全的足额款，差额另审批；代码专用入口、证据与权限事务仍需补，不再列为未决冲突。",
+      "nextAction": "实现受限足额结清并保留差额单独批准，禁止直接放开通用核销。",
+      "workIds": [
+        "P1-08"
+      ],
+      "decisionIds": [
+        "D01"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则及冲突",
+          "path": "AGENTS.md",
+          "line": 180,
+          "note": "到账匹配与少收减免分离；办公室结算范围需同总纲核对"
+        },
+        {
+          "kind": "现行规则及冲突",
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "line": 189,
+          "note": "正式收款/核销角色与经营意见代录边界"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/statementFinancialCommandService.mjs",
+          "line": 175,
+          "note": "按statement_variance及authorizationAmount准备有效决定"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F04",
+      "question": "已批准的差额后来金额变了，还能继续沿用原批准吗？",
+      "priority": "P1",
+      "category": "仅缺部署 / 仅缺现场验收",
+      "reviewFinding": "0052已补金额/客户变动使旧差额批准失效，冷读与旧回执不复活已有隔离PG验证。",
+      "nextAction": "发布时审核0052迁移与数据备份，再验实际金额变更/旧回执/非金额发送三类。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "docs/development/legacy-remaining-review-closeout-20261023.json",
+          "line": 48,
+          "note": "金额变化后旧批准失效"
+        },
+        {
+          "kind": "实现",
+          "path": "db/migrations/0052_statement_variance_handling.sql",
+          "line": 16,
+          "note": "金额或客户快照改变清空variance_handling"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-legacy-settlement-integrity-postgres.mjs",
+          "line": 42,
+          "note": "三种金额变动及原回执重放不得恢复批准"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F05",
+      "question": "实际送出数量包含赠品时，怎样避免多收客户的钱？",
+      "priority": "P1",
+      "category": "仅缺部署 / 仅缺现场验收",
+      "reviewFinding": "实交/计费/赠送独立冷读已补；未发现应再改计费公式的证据。",
+      "nextAction": "统一发布后以经批准赠送样单复查库存、交付和账单三数。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "line": 187,
+          "note": "实交、计费、赠送与订单价格快照分开"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/statementPreviewProjectionService.mjs",
+          "line": 48,
+          "note": "chargeableQty/freeQty独立投影"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-fulfillment-gift-billing-postgres.mjs",
+          "line": 29,
+          "note": "从新仓储冷读后保留实交/计费/赠送数量"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F06",
+      "question": "已经结清或确认欠款的账期，还能用普通收款表单直接覆盖吗？",
+      "priority": "P1",
+      "category": "仅缺部署 / 后续纠错入口待补",
+      "reviewFinding": "闭期累计实收禁重开、历史身份冲突回滚已补；正式后续补款/退款更正入口还不完整。",
+      "nextAction": "先保持闭期保护；分开设计关联原欠款/退款纠正，不通过普通表单重开。",
+      "workIds": [
+        "P2-10"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "shared/statementPaymentPolicy.js",
+          "line": 1,
+          "note": "闭期不允许普通累计实收重开"
+        },
+        {
+          "kind": "实现",
+          "path": "server/statementSettlementTransactionRepository.mjs",
+          "line": 447,
+          "note": "本地历史记录身份碰撞整笔拒绝"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-legacy-settlement-integrity-postgres.mjs",
+          "line": 35,
+          "note": "记录/日志/决定/待办冲突整笔回滚"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F07",
+      "question": "付款截图可以用另一个客户或另一期账单的附件代替吗？",
+      "priority": "P1",
+      "category": "仅缺部署 / 仅缺真实证据验收",
+      "reviewFinding": "付款附件归属/全数组、内容读取及访问审计已补。",
+      "nextAction": "部署后按正式权限抽验跨账单拒绝、原图可读、失败提示和访问审计；不往日志加付款明细。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 180,
+          "note": "到账须与付款身份和耐久证据相匹配"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/statementFinancialCommandService.mjs",
+          "line": 61,
+          "note": "validatePaymentAttachments及付款附件集合"
+        },
+        {
+          "kind": "测试",
+          "path": "e2e/core-business-flow.spec.mjs",
+          "line": 492,
+          "note": "真实附件关联、查看与访问审计"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F08",
+      "question": "记录质量或售后问题，会自动产生补发、退款或扣工资吗？",
+      "priority": "P2",
+      "category": "缺完整业务代码/入口 / 需确认后续售后范围",
+      "reviewFinding": "当前转售后只记录方向并保留异常，未建完整客诉/补发/换货/责任成本闭环；不自动扣工资。",
+      "nextAction": "先维护售后不改库存资金工资的边界；另确定补发/换货、批准、关联出库与责任证据再实现。",
+      "workIds": [
+        "P2-11"
+      ],
+      "decisionIds": [
+        "D04"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 62,
+          "note": "工资调整不得从售后线索推断"
+        },
+        {
+          "kind": "实现",
+          "path": "src/features/production/ProductionExceptionPanel.jsx",
+          "line": 27,
+          "note": "清楚列明转售后不会生成补发/换货及资金变动"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-production-focus.mjs",
+          "line": 1,
+          "note": "生产异常独立面板与交互检查入口"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F09",
+      "question": "后端能处理差额、减免、转欠款和核销，是否等于新工作台已经能完整操作？",
+      "priority": "P1",
+      "category": "缺正式入口",
+      "reviewFinding": "差额/减免/转欠款/核销后端和旧工作台存在，4174完整新入口仍只接累计收款、发送与客户确认。",
+      "nextAction": "在当前新壳接管理/财务已有服务器权限对应操作、冻结快照、原因/决定、版本冲突与原请求重试；办公室操作范围另等F03。",
+      "workIds": [
+        "P1-08"
+      ],
+      "decisionIds": [
+        "D01"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 285,
+          "note": "对账操作跟随当前详情且服务端合同权威"
+        },
+        {
+          "kind": "实现及明确缺口",
+          "path": "docs/development/legacy-remaining-review-closeout-20261023.json",
+          "line": 66,
+          "note": "正式完整入口尚缺哪些财务操作"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/statementFinancialCommandService.mjs",
+          "line": 119,
+          "note": "已存在差额后端命令"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F10",
+      "question": "员工改名、换岗位或离职后，历史考勤工资怎样保持同一人？",
+      "priority": "P2",
+      "category": "仅缺真实人员映射/现场",
+      "reviewFinding": "稳定员工号关联代码已有，未发现按姓名拼考勤的当前路径；真实人员及离职末月仍需核。",
+      "nextAction": "以匿名测试员工变名/转岗验证不换身份，真实员工由负责人维护编号和任职边界。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "DECISIONS.md",
+          "line": 22,
+          "note": "稳定员工号是身份键"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 1161,
+          "note": "按正式员工id查人并投影"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-attendance-payroll-routes.mjs",
+          "line": 52,
+          "note": "本人请求绑定会话员工号"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F11",
+      "question": "导入员工资料，会不会自动替他开通登录和权限？",
+      "priority": "P2",
+      "category": "仅缺真实账号逐人审核 / 关联F02需确认",
+      "reviewFinding": "新增人员不自动启用/赋权共同底线已实现；具体开通路径见F02。",
+      "nextAction": "保持独立资料和账号动作，逐人接受资料后由有权管理员办理；不批量自动启用。",
+      "workIds": [
+        "P2-13"
+      ],
+      "decisionIds": [
+        "D02"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 47,
+          "note": "子账号与人员/工资岗位独立，禁自动开通"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/masterDataSubaccountCommandService.mjs",
+          "line": 85,
+          "note": "新子账号loginEnabled=false且passwordStatus=not_issued"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-master-data-subaccount-command-service.mjs",
+          "line": 51,
+          "note": "初建权限版本与无密码字段"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F12",
+      "question": "管理员可以以后从账号列表再看见之前发过的临时密码吗？",
+      "priority": "P2",
+      "category": "已解决保留回归 / 仅缺真实岗位验收",
+      "reviewFinding": "临时密码仅当次credential可见；列表/持久化不带明文，发放撤会话已有代码测试。",
+      "nextAction": "保留单次返回和重发审计；真实管理员验收后不能把密码另写日志/导出。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 47,
+          "note": "临时密码单独发放，列表不得再现"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/masterDataSubaccountCommandService.mjs",
+          "line": 182,
+          "note": "拆除temporaryPassword后持久化，只本次credential返回"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-master-data-subaccount-command-service.mjs",
+          "line": 106,
+          "note": "当次有密码，subaccount及workspace不存在明文字段"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F13",
+      "question": "分配岗位能否只选业务卡片，又防止两人互相覆盖权限？",
+      "priority": "P2",
+      "category": "已解决保留回归 / 仅缺真实岗位验收",
+      "reviewFinding": "岗位卡片、例外保留、权限版本冲突、状态撤会话已有。",
+      "nextAction": "逐岗位检查真实授权，继续保留例外和旧版本拒绝。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 48,
+          "note": "默认人和岗位优先，保留例外"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/masterDataSubaccountCommandService.mjs",
+          "line": 125,
+          "note": "权限版本比较及修订"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-master-data-subaccount-command-service.mjs",
+          "line": 61,
+          "note": "过期权限版本、组合岗位、例外与会话状态"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F14",
+      "question": "有库房或车间功能权限，是否已证明只能看指定仓库或指定客户的数据？",
+      "priority": "P2",
+      "category": "缺分域scope合同/覆盖 / 需确认数据范围",
+      "reviewFinding": "功能权限不能证明全仓库/客户/车间行级隔离；本人考勤/指定司机/机台等已有局部限制，不能全域外推。",
+      "nextAction": "列实际需要的数据范围，逐读/写/搜索/导出/附件查询消费服务器scope并补越界拒绝用例；先确认新范围。",
+      "workIds": [
+        "P2-12"
+      ],
+      "decisionIds": [
+        "D03"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 47,
+          "note": "明确只治理功能权限，行级范围须查询消费合同"
+        },
+        {
+          "kind": "实现范围",
+          "path": "server/writeActionPermissions.mjs",
+          "line": 1,
+          "note": "现有动作权限目录并非全域行级scope证明"
+        },
+        {
+          "kind": "局部测试边界",
+          "path": "scripts/check-attendance-payroll-routes.mjs",
+          "line": 83,
+          "note": "本人考勤拒绝同事读取，只证明这一局部路径"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F15",
+      "question": "临时离岗再回来、午休、迟到早退和加班，应怎样算工时？",
+      "priority": "P1",
+      "category": "普通员工跨午休多计薪已复现 / 丝印差异已确认",
+      "reviewFinding": "普通跨午休四卡原540分钟应510，是真实未修问题；原汇编把丝印两卡600直接判多计并不准确，负责人本次D06已确认丝印不固定扣午休。",
+      "nextAction": "按P1-05及D06分别处理普通固定午休与丝印实际休息；保留人工分钟、原卡和已生成工资，六卡仍复核。",
+      "workIds": [
+        "P1-05"
+      ],
+      "decisionIds": [
+        "D06"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则及历史口径",
+          "path": "AGENTS.md",
+          "line": 68,
+          "note": "中国工厂自然月、正式来源和财务政策要求；具体多段/午休/迟早/加班来自下列已核历史用户记录"
+        },
+        {
+          "kind": "实现范围",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 833,
+          "note": "默认2/4卡；rawWorkMinutes调用pairwiseMinutes；:1226按排序两两累计，不是独立午休排除规则"
+        },
+        {
+          "kind": "测试范围",
+          "path": "scripts/check-attendance-payroll-service.mjs",
+          "line": 528,
+          "note": "已有异常复核和暂不计薪检查，不作为全部多段午休自动计算验收"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F16",
+      "question": "能否按员工姓名匹配考勤，遇到几条错误先导入其余的？",
+      "priority": "P1",
+      "category": "仅缺真实接入/映射/现场",
+      "reviewFinding": "按外部ID映射、预检不写、正式重验及整批失败代码已有；真实设备API授权和来源未证明。",
+      "nextAction": "取得设备可用源、真实授权与稳定外部ID，先小窗只读预检，再整月正式导入；不改为姓名匹配。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "DECISIONS.md",
+          "line": 29,
+          "note": "只读预检只返回汇总且不写数据"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 272,
+          "note": "正式同步重新拉取并评估后持久化"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-attendance-payroll-service.mjs",
+          "line": 111,
+          "note": "预检无写、映射缺失、越界源记录整批拒绝"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F17",
+      "question": "工资按系统权限岗位还是工资岗位计算？时薪和日薪怎样区分？",
+      "priority": "P1",
+      "category": "仅缺财务有效政策/人员绑定 / 仅缺现场验收",
+      "reviewFinding": "独立工资岗位、时薪/日薪和费率快照代码已有；正式值/有效期及入职资料待财务接收。",
+      "nextAction": "财务接受岗位构成、生效期与每人岗位，年龄/厂龄仍从事实日期推导；不把旧个人字段当正式费率权威。",
+      "workIds": [],
+      "decisionIds": [
+        "D05"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 54,
+          "note": "工资岗位独立，时薪日薪分开"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 888,
+          "note": "按positionRate.mode分别计算且日薪不伪造时薪"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-payroll-position-catalog.mjs",
+          "line": 12,
+          "note": "目录明确hourly/daily模式"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F18",
+      "question": "已经发布的岗位费率或工龄规则，可以原地修改吗？",
+      "priority": "P1",
+      "category": "仅缺正式政策验收",
+      "reviewFinding": "先草稿、同ID发布、不可变、有效期冲突与输入失败关闭已有。",
+      "nextAction": "财务提供正式有效政策；保留旧版本，改变规则建新版本；不自动发布初始政策。",
+      "workIds": [],
+      "decisionIds": [
+        "D05"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 66,
+          "note": "先草稿、政策不可变、显式合法数值"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 415,
+          "note": "首次直发拒绝与已发布不可覆盖"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-attendance-payroll-service.mjs",
+          "line": 237,
+          "note": "政策输入、生效日与发布状态检查"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F19",
+      "question": "异常考勤选择不认可，是继续待审还是暂不计薪？",
+      "priority": "P2",
+      "category": "已解决保留回归 / 仅缺岗位验收",
+      "reviewFinding": "rejected保留原分钟、计薪0且退出待复核已有服务测试。",
+      "nextAction": "修F15时确保rejected始终0，不能把午休扣法误作用成恢复原分钟。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "DECISIONS.md",
+          "line": 31,
+          "note": "rejected为暂不计薪"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 837,
+          "note": "原分钟和确认分钟分别计算"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-attendance-payroll-service.mjs",
+          "line": 536,
+          "note": "rejected/raw242/work0/中文暂不计薪断言"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F20",
+      "question": "半个月考勤已经导入，可以先生成正式全月工资吗？",
+      "priority": "P1",
+      "category": "仅缺整月真实来源/资料/验收",
+      "reviewFinding": "闭月、覆盖、映射、政策、账号、任职与异常门禁已有；不能把半月或未来范围通过。",
+      "nextAction": "在已经闭合的自然月完成全员连续来源及异常、岗位政策/账号后再验；不放松readiness。",
+      "workIds": [],
+      "decisionIds": [
+        "D05"
+      ],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "DECISIONS.md",
+          "line": 28,
+          "note": "月范围fail-closed全部条件"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 149,
+          "note": "只读工资readiness逐条件检查"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-attendance-payroll-service.mjs",
+          "line": 89,
+          "note": "不满足正式持久化/政策/考勤来源时阻断"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F21",
+      "question": "一个员工可以查看考勤和估算工资，是否说明全厂工资已经完成？",
+      "priority": "P2",
+      "category": "仅缺全厂真实验收",
+      "reviewFinding": "单人功能试点不能外推全厂；估算非最终工资。",
+      "nextAction": "保留一人范围，按真实清单逐人接受资料与账号，再独立验正式工资。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 56,
+          "note": "一人试点绝不满足全厂工资就绪"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 211,
+          "note": "当前在职本人账号覆盖仍为正式条件"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-attendance-payroll-routes.mjs",
+          "line": 83,
+          "note": "本人权限不能读同事考勤"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F22",
+      "question": "绩效、请假和其他扣款，谁能改、凭什么改、审过后还能改吗？",
+      "priority": "P1",
+      "category": "仅缺正式财务岗位/证据验收",
+      "reviewFinding": "草稿逐行调整、业务/员工附件归属、前后值及并发冲突已有。",
+      "nextAction": "正式财务以真实依据验调整与修订；不改审后明细、不从售后自动扣款。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 62,
+          "note": "草稿显式调整、依据附件与不可变前后值"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 579,
+          "note": "调整校验、证据及预期旧值"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-payroll-ui-async-state.mjs",
+          "line": 87,
+          "note": "调整附件归属及迟到结果不覆盖新月份"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F23",
+      "question": "两名财务同时生成、审核、锁定或支付，会不会重复或覆盖处理人？",
+      "priority": "P1",
+      "category": "仅缺正式岗位/支付凭据验收",
+      "reviewFinding": "并发草稿一修订、向前状态、首次操作证据保护已有隔离PG检查。",
+      "nextAction": "保持数据库约束，验有权正式账号与支付参考证据；不要仅靠前端禁按钮。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 63,
+          "note": "修订与单向状态、数据库保护"
+        },
+        {
+          "kind": "实现",
+          "path": "server/attendancePayrollRepository.mjs",
+          "line": 97,
+          "note": "并发草稿冲突与状态转换冲突"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/helpers/postgresLiveAttendancePayrollScenario.mjs",
+          "line": 122,
+          "note": "并发状态与只允许合法向前转换"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F24",
+      "question": "工资CSV只是看一眼，为什么也要单独授权和记审计？",
+      "priority": "P1",
+      "category": "仅缺正式授权/导出验收",
+      "reviewFinding": "payroll.export、非草稿、精确修订摘要审计及并发快照拒绝已有。",
+      "nextAction": "在正式工资验收后才批准真实导出；先用合成数据验权限和摘要，不增加工资明细日志。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 64,
+          "note": "正式CSV导出权限与不可变摘要审计"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/attendancePayrollService.mjs",
+          "line": 788,
+          "note": "createPayrollExport记录精确导出事件"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/helpers/postgresLiveAttendancePayrollScenario.mjs",
+          "line": 183,
+          "note": "导出快照并发变化报PAYROLL_EXPORT_SNAPSHOT_CONFLICT"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F25",
+      "question": "是否每个岗位都需要电脑和手机各一套完整ERP？",
+      "priority": "P2",
+      "category": "缺部分双端布局/恢复/分页 / 仅缺岗位真机验收",
+      "reviewFinding": "角色终端分工明确；800px整壳横向溢出380px，手机弱网和服务器分页仍有缺口。",
+      "nextAction": "窄电脑改紧凑布局，手机只保留岗位需要任务；分别补大数据查询及弱网恢复，不扩办公室手机全ERP。",
+      "workIds": [
+        "P2-06"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 174,
+          "note": "A/B对等个人账号、共享任务与办公室手机范围"
+        },
+        {
+          "kind": "实现",
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx",
+          "line": 1,
+          "note": "完整桌面业务壳与分业务入口"
+        },
+        {
+          "kind": "现行缺口",
+          "path": "docs/development/legacy-remaining-review-closeout-20261023.json",
+          "line": 70,
+          "note": "800px整壳溢出及弱网/分页待整改"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F26",
+      "question": "办公室复核交付凭证时，怎样防止看错旧照片或带错未签原因？",
+      "priority": "P1",
+      "category": "仅缺部署 / 仅缺真实手机/岗位验收",
+      "reviewFinding": "照片归属/版本、换单保草稿、迟到结果、复核及未签状态已本地补强。",
+      "nextAction": "发布后真机照片/水印/签字或未签、换图重拍、办公室实际查看与弱网逐项验收。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "src/features/fulfillment/DeliveryEvidenceReviewPanel.jsx",
+          "locator": "L26—56 当前附件预览、换单保护与复核提交",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "scripts/check-delivery-evidence-review-panel.mjs",
+          "locator": "L14—57 失败保留、换单旧响应与复核刷新",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "server/services/fulfillmentActionCommandService.mjs",
+          "locator": "照片与版本归属校验",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F27",
+      "question": "切换员工、月份或账号后，之前慢请求和照片上传回来会不会写到新对象？",
+      "priority": "P1",
+      "category": "仅缺部署 / 已解决保留回归",
+      "reviewFinding": "工资/证据/订单跨对象/月/会话、冻结提交和原请求重试已补。",
+      "nextAction": "统一发布并复验失败后输入保留/原请求、切换后旧响应不污染；设备断网恢复另按真实任务验。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "line": 205,
+          "note": "高风险显示对象后冻结来源，取消不写"
+        },
+        {
+          "kind": "实现",
+          "path": "src/features/payroll/PayrollAttendancePage.jsx",
+          "line": 50,
+          "note": "按账号/会话/月重建，生命周期与请求序号校验"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-payroll-ui-async-state.mjs",
+          "line": 87,
+          "note": "迟到调整/上传/旧月预检不能影响新对象"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "F28",
+      "question": "办公室代录管理人的决定，怎样避免自己变成批准人或证据只消费了一半？",
+      "priority": "P1",
+      "category": "仅缺部署 / 仅缺真实授权维护/验收",
+      "reviewFinding": "决定人与系统操作人分离、金额权威快照、锁后验证、证据单次消费与回滚已本地补强。",
+      "nextAction": "管理维护真实授权、范围额度和有效期；发布后验A/B交接与正式决定，所有角色继续服务器授权。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "kind": "现行规则",
+          "path": "AGENTS.md",
+          "line": 307,
+          "note": "业务固定证据草稿、锁后校验与一次原子事务"
+        },
+        {
+          "kind": "实现",
+          "path": "server/services/businessDecisionEvidenceService.mjs",
+          "line": 66,
+          "note": "决定人、授权快照与操作人独立记录"
+        },
+        {
+          "kind": "测试",
+          "path": "scripts/check-business-decision-financial-postgres.mjs",
+          "line": 44,
+          "note": "等待锁期间金额变化导致旧快照整笔拒绝"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R01",
+      "question": "仓库、预览和服务器看起来不同，究竟哪个才是当前版本？",
+      "priority": "P3",
+      "category": "已解决保留周期检查",
+      "reviewFinding": "canonical/staging/前端API/主目录身份治理已有；父任务本日release:check21/21通过。",
+      "nextAction": "每次修改/接管/发布重新运行，不维护第二个当前目录；生产目标另外核验目标锁。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "deploy/release-policy.json",
+          "locator": "canonicalBranch / stagingUrl",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/development/controlled-release-governance.zh-CN.md",
+          "locator": "唯一事实来源",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R02",
+      "question": "4174为什么有时出现旧页面，窄窗口是否就是手机端？",
+      "priority": "P2",
+      "category": "已解决保留回归 / 仅缺不同容器/手机验收",
+      "reviewFinding": "4174应用身份、视口族回入口及真实handset识别已补并有自动检查。",
+      "nextAction": "每次本地交付review:check；真实设备和容器继续验，不把窄电脑自动叫手机。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "4174 identity and viewport-family rules",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "scripts/check-review-viewport-live-readonly.mjs",
+          "locator": "双向视口切换",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R03",
+      "question": "服务没重启，提交变化后预览会不会仍显示旧版本？",
+      "priority": "P3",
+      "category": "已解决保留周期检查",
+      "reviewFinding": "运行中Git来源/脏状态及HTML身份刷新已有。",
+      "nextAction": "改提交/换服务后保留动态徽标和旧文档刷新检查；来源失败显示未知。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/development/controlled-release-governance.zh-CN.md",
+          "locator": "唯一事实来源 动态Git来源",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "scripts/check-local-preview-identity.mjs",
+          "locator": "预览身份",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R04",
+      "question": "几个聊天并行改代码，能直接把旧目录整包合回来吗？",
+      "priority": "P2",
+      "category": "后续46/9范围清单继续实施",
+      "reviewFinding": "497语义覆盖与611总台账已完成；46条后续范围和9条限定审不等于497整提交全部完成。",
+      "nextAction": "把具体待实现范围归各O/M/F条执行，保持台账指纹；不再重演整个旧树。",
+      "workIds": [
+        "P2-09"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "DECISIONS.md",
+          "locator": "Release Truth",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/development/p1-legacy-integration-ledger-20261023.json",
+          "locator": "semanticReview 与保留的历史判断",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R05",
+      "question": "代码提交或上传服务器后，就能宣布部署完成吗？",
+      "priority": "P1",
+      "category": "仅缺受控发布任务",
+      "reviewFinding": "部署包装/锁/目标身份及staging收尾已有，本整改提交仍未发布。",
+      "nextAction": "只有明确发布任务才将干净已推送候选按精确目标锁发布；staging再推进canonical，生产来自已入staging提交。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/development/controlled-release-governance.zh-CN.md",
+          "locator": "统一部署入口 / staging自动收尾",
+          "kind": "规则或实现"
+        },
+        {
+          "path": ".github/workflows/release-identity.yml",
+          "locator": "canonical推送后的身份检查",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R06",
+      "question": "旧缓存、对话和没提交的文件可以直接删掉精简吗？",
+      "priority": "P2",
+      "category": "需逐文件审核 / 无自动删除授权",
+      "reviewFinding": "旧目录59项未提交内容原样保留，来源未被497提交核对替代。",
+      "nextAction": "单独列文件/引用/唯一证据、可恢复副本和清理范围后决定，运行数据/原图审计不能按缓存删除。",
+      "workIds": [
+        "P2-09"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/development/legacy-remaining-review-closeout-20261023.json",
+          "locator": "preservation / followups",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/conversation/README.md",
+          "locator": "迁移归档范围",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R07",
+      "question": "测试站免登录、菜单齐全，是否可以直接作为全厂正式ERP？",
+      "priority": "P1",
+      "category": "仅缺正式资源/岗位验收 / 已解决保留回归",
+      "reviewFinding": "测试会话后台签名、生产正常认证/PG对象存储/raw_material范围门禁已有。",
+      "nextAction": "继续阻断演示身份连正式业务；正式资源和目标放行独立验，不因测试站有全菜单放开全ERP。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "staging test identity / full-function staging",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "server/services/firstReleaseScopeService.mjs",
+          "locator": "requireProductionFirstReleaseScope",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R08",
+      "question": "订单表还要单独放是否印刷一列吗，输入改动如何防误提交？",
+      "priority": "P2",
+      "category": "仅待验收",
+      "reviewFinding": "录入表实际为订单类型列，详情保存印刷，删除已有确认；未保存与重识别守卫已有相关检查。",
+      "nextAction": "键盘、定位和旧字段切换回归，不重做一套订单表。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "approved high-fidelity order-entry frame / interaction rules",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "src/features/orders",
+          "locator": "订单录入组件目录",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R09",
+      "question": "库存列表为什么不能只看卷码或用一个正常状态标签？",
+      "priority": "P2",
+      "category": "仅待验收",
+      "reviewFinding": "卷宽排序、库存结构及共享色块文字均有实现。",
+      "nextAction": "实库和窄电脑验收；别为了显示重编卷码。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "roll inventory ordering / finished-goods inventory allocation",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "shared/factoryStandardColors.js",
+          "locator": "标准色事实源",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R10",
+      "question": "员工列表、账号和年龄工龄应该怎样展示？",
+      "priority": "P2",
+      "category": "需现场资料与验收",
+      "reviewFinding": "员工主列表和分组详情已接，年龄工龄由档案日期算；真实出生/入职/岗位待维护。",
+      "nextAction": "只追真实资料，不重新问已定展示和员工编号规则。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "employee machine roster / personnel detail groups",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "DECISIONS.md",
+          "locator": "Employee, Attendance And Payroll",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R11",
+      "question": "页面品牌、搜索和字体是不是可以每次重新设计？",
+      "priority": "P2",
+      "category": "确有实现缺口",
+      "reviewFinding": "已确认品牌搜索样式可沿用；完整评审CSS仍将html/body/#root min-width固定1180px。",
+      "nextAction": "修800px整壳布局，别通过缩小文字遮盖380px横向溢出。",
+      "workIds": [
+        "P2-06"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "ERP品牌位 / desktop topbar",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/development/legacy-remaining-review-closeout-20261023.json",
+          "locator": "窄电脑380px溢出边界",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R12",
+      "question": "AI统计、采购建议和自动排产是否可以直接替人写业务数据？",
+      "priority": "P3",
+      "category": "规划待实现",
+      "reviewFinding": "只读经营异常雷达方向已定，完整算法和正式入口是后续，不是当前错账bug。",
+      "nextAction": "核心人工闭环稳定后只读试点。",
+      "workIds": [
+        "P3-01"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "AI经营异常雷达 V2首阶段",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "locator": "项目定位与范围",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R13",
+      "question": "袋子材料成本、批次成本和最终利润是否可以共用一个数？",
+      "priority": "P2",
+      "category": "确有实现缺口",
+      "reviewFinding": "材料消耗来源完整才构建待复核成本草稿；缺任务跳过。完整任务分摊/自动重算/净利润仍未齐。",
+      "nextAction": "补来源覆盖与任务分摊，保留材料毛利未含人工标签。",
+      "workIds": [
+        "P2-08"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "袋子成本和毛利测算",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "server/rawMaterialCostMarginBuilderService.mjs",
+          "locator": "原料成本与毛利草稿构建",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R14",
+      "question": "特殊尺寸、加长提和附加项报价能照抄旧价格表吗？",
+      "priority": "P1",
+      "category": "确有实现缺口",
+      "reviewFinding": "特殊价版本化算法已有，但手工特殊单未接该报价来源仍会0元确认；关联P1-O-PRICE-SOURCE。",
+      "nextAction": "先阻断缺报价，不擅自用默认材料价代替正式已批准价格。",
+      "workIds": [
+        "P1-01",
+        "P1-11"
+      ],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "袋子成本和毛利测算 特殊型号统一规则",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "shared/pricing/special-bag-pricing-rules.json",
+          "locator": "版本化特殊袋规则",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R15",
+      "question": "欧诺设备采集的数据能自动完工、入库或算工资吗？",
+      "priority": "P2",
+      "category": "需设备输入与验收",
+      "reviewFinding": "动作计数不等于产出的边界已定；真实协议、点位、重置/断网实证缺失。",
+      "nextAction": "只读采集试点，不硬造自动完工/计薪。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "docs/product/erp-business-logic-baseline.zh-CN.md",
+          "locator": "7 排产和生产执行",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/product/requirements.zh-CN.md",
+          "locator": "数量报工 / 袋子成本和毛利测算",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R16",
+      "question": "检查通过、页面能打开或显示高完成率，是否就可以交接为全部完成？",
+      "priority": "P1",
+      "category": "仅缺各业务真实岗位设备验收",
+      "reviewFinding": "157组/18PG组/23浏览器为指定旧整改快照；本次只读复现不是全回归重跑，更不是实物验收。",
+      "nextAction": "分别记录代码、入口、发布、现场；真实打印、贴牌、扫码、交付、资金和工资按各自范围签认。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "DECISIONS.md",
+          "locator": "Release Truth",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/development/legacy-remaining-review-closeout-20261023.json",
+          "locator": "validation / boundary",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R17",
+      "question": "有迁移脚本和一份数据库备份，就算恢复能力完成吗？",
+      "priority": "P1",
+      "category": "仅缺真实周期备份/异地副本/业务恢复验收",
+      "reviewFinding": "迁移/恢复工具和八张工资表等检查已有；本地52份迁移不等服务器已执行，结构恢复不等业务可恢复。",
+      "nextAction": "专用恢复验证环境抽查订单/卷料/附件/账务/工资/审计关联，保留恢复点与缺失；正式库不作重置目标。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "Database migration and restore validation / persistence catalog",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "docs/development/v1-production-deployment-recovery.zh-CN.md",
+          "locator": "备份 恢复与数据库迁移",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    },
+    {
+      "id": "R18",
+      "question": "旧聊天、助手建议、当前代码互相不同，修改代码应听谁的？",
+      "priority": "P2",
+      "category": "本轮三项规则已确认 / 持续维护",
+      "reviewFinding": "D01、D02与D06已由负责人选择并写回权威文档，后续规则冲突继续按证据及生效范围核对，不复制旧冲突为待定。",
+      "nextAction": "只对真正冲突提具体范围问题；不要反复广泛发现业务，不按旧助手建议自动替代负责人确认。",
+      "workIds": [],
+      "decisionIds": [],
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "locator": "Before asking business-rule discovery / prototype-specific decisions",
+          "kind": "规则或实现"
+        },
+        {
+          "path": "DECISIONS.md",
+          "locator": "业务与发布决定",
+          "kind": "规则或实现"
+        }
+      ],
+      "reviewedCommit": "c3d509947bdc55458972d6424a8578b4d00fc33a"
+    }
+  ],
+  "correctedCodeCommit": "bad04bd9b38244c2f376c69e29de51d7481d1a0a",
+  "verificationCandidateCommit": "eb47d838b54ea8e5cf5a26e4dcf04fd0f057e635",
+  "correctionCommits": [
+    "eb47d838b54ea8e5cf5a26e4dcf04fd0f057e635",
+    "bad04bd9b38244c2f376c69e29de51d7481d1a0a",
+    "9a41c9783fcf00bfbb10ab1f57e2a31fac946c33",
+    "3f7064708656c903fc485d0cf439cc33e7f1d202",
+    "c8e7519173d021987286a1e4925bb086527d1d8a",
+    "8dad133f1eb94c4ee2938261769fc5a83908268c",
+    "242d8052fe38380dcb495dd7b9ddb4134aedfabe",
+    "1efd62c062125d44260c904fd6e5682464d0ec30",
+    "e9bb088ec12759b0cd36933acea0b585340985a5",
+    "d8be296a954d9bf4d2df4d7977785227e89db8fd",
+    "a2ff5b9a247a826d13c7be269520c37a35d89ba1"
+  ],
+  "validation": {
+    "status": "本地验证通过，未部署",
+    "businessCodeCommit": "bad04bd9b38244c2f376c69e29de51d7481d1a0a",
+    "browserFixtureCommit": "eb47d838b54ea8e5cf5a26e4dcf04fd0f057e635",
+    "checks": {
+      "automated": {
+        "passed": 158,
+        "total": 158
+      },
+      "postgres": "full p1-postgres:check passed, including three R3 database checks",
+      "coreBrowser": {
+        "passed": 10,
+        "total": 10
+      },
+      "reviewBrowser": {
+        "passed": 13,
+        "total": 13
+      },
+      "builds": [
+        "root and budget",
+        "complete review app"
+      ],
+      "previewIdentity": "app-id, desktop navigation, API, local-unreleased and viewport family checks passed",
+      "mainReleaseIdentity": {
+        "passed": 21,
+        "total": 21
+      }
+    },
+    "document": {
+      "pages": 13,
+      "visualReview": "all pages inspected; final pages1–8 byte-identical to previously inspected pages; final9–13 inspected directly",
+      "sha256": "0696d90c7a0e097b7e079fbf9b1736722c6c6c9005d8acf1850bd629336df031"
+    },
+    "evidenceDirectory": ".erp-local-storage/p1-rules-r3-20261024/",
+    "logs": [
+      {
+        "file": "release-identity.log",
+        "sha256": "1d38efc380d6d0ad89f579e73948398fa6780b300845037e1bfb80bdae2aab84"
+      },
+      {
+        "file": "checks-158.log",
+        "sha256": "cb1d375dc844d67fa8bdaffe53b30fde2436c02b1c8c03dcaedf6f36d0d8fed3"
+      },
+      {
+        "file": "postgres.log",
+        "sha256": "820eca401184e17dce187c726f5b2bed1a48e427fba2a89021e14a736d7ab7b4"
+      },
+      {
+        "file": "core-browser-10.log",
+        "sha256": "dab0a591b27896ca0fe1890d4612aa8c4d99273cebf17559bdc6d7d642bf3cb9"
+      },
+      {
+        "file": "review-browser-13.log",
+        "sha256": "115f47e99a38a3f1c98db39a303134ff5bf35d468a63ee46db5c178ec6fdc85c"
+      },
+      {
+        "file": "root-build.log",
+        "sha256": "cca87413c3ce7e6084a4c4348d69cf8321b688aee487e2253c89da5837832af7"
+      },
+      {
+        "file": "review-build.log",
+        "sha256": "271b26466a09f81cbc286a3cd9edf0b0b534eb81e4d940a0c194a0c0d2e3dd77"
+      },
+      {
+        "file": "review-identity.log",
+        "sha256": "9ee3c2ab40e980a37b60ebc6a7cc5fa4dabcde7af06c3e60b40229bced18378f"
+      }
+    ],
+    "limits": [
+      "未部署，未更新canonical或主目录",
+      "隔离合成/签名测试不替代真实岗位和设备验收",
+      "真实售价、业务数据、旧人工分钟和既有工资未被本轮脚本改写",
+      "剩余6组P1仍按编号继续"
+    ]
+  }
+}

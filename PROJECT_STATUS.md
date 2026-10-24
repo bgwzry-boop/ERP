@@ -1,6 +1,6 @@
 # Project Status
 
-Updated: 2026-10-23. Staging, the repository default entry and the owner's main checkout must be proven consistent by the executable gate. V8.306 remains a historical product label, not a deployed release identity.
+Updated: 2026-10-24. Staging, the repository default entry and the owner's main checkout must be proven consistent by the executable gate. V8.306 remains a historical product label, not a deployed release identity.
 
 ## Current Verified Release
 
@@ -13,6 +13,12 @@ Updated: 2026-10-23. Staging, the repository default entry and the owner's main 
 | Local 4174 | `本地修改稿 · 未部署`, app ID `bagwin-complete-review-4174`; never a server release |
 
 Current values come from live frontend/API identities and remote refs, not this document. The pre-governance observation on 2026-10-22 was `955bb6055e1cff44a3b212f21754e7a8dc908c42`, version `staging-20261022-raw-material-r1`, lock `a511759603149771950b90fc9d770e2ad546754cb661d75d5d80e4fcdb35d8d2`; preserve it as history only. A cache-busting query does not prove the response's identity. The [controlled release rules](docs/development/controlled-release-governance.zh-CN.md) govern every conversation and target.
+
+## October 24 Triage And P1 Corrections — Not Deployed
+
+The original 98 questions now map to code defects, missing interfaces, owner decisions and field gates in the [prioritized follow-up](docs/development/erp-unresolved-and-decisions-20261024.zh-CN.md). Owner decisions permit evidence-complete exact office settlement, establish phone self-registration with administrator approval, and exclude fixed lunch deductions for silk-screen workers. Permission and production-entry gaps remain separate from confirmed rules.
+
+This isolated task corrects missing and stale order pricing, premature public completion, trusted warehouse paper, actual carrier-handoff accounting time, role-specific lunch minutes and the complete-review statement amount read chain. Raw evidence, Miniapp locked quotes and historical snapshots remain intact. Integrated evidence and remaining P1 scopes are recorded in the follow-up, without marking whole questions or field acceptance complete. Validation passed 158/158 automated checks, the full P1 database suite and 10/10 core plus 13/13 complete-review browser scenarios; see the [local closeout](docs/development/p1-rules-r3-validation-20261024.zh-CN.md). Main-checkout release identity passed 21/21; no release or canonical advance was performed.
 
 ## October 23 Local Legacy Integration
 

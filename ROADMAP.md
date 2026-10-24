@@ -1,12 +1,13 @@
 # Roadmap
-Last updated: 2026-10-13 (code integration; no new release). V8.306 remains a historical product label.
+Last updated: 2026-10-24 (98-item triage and local P1 corrections; no new release). V8.306 remains a historical product label.
 
 ## Immediate Work
 
-1. Complete the backed-up integration branch from deployed Staging, default, PR #2 and the original local line; validate dependencies, raw-material contracts, live stores and browser flows.
-2. Push one draft integration candidate for review without merging default or deploying. Keep the original PR #2 and all archive-tagged branches.
-3. After the owner prepares the label printer, collect real delivery-note, label/scan, issue and supplier-reconciliation evidence. Refresh raw-material-first gates using actual resources.
-4. Run payroll and full-ERP acceptance separately, then let a dedicated approved release task promote a clean immutable commit and exact release lock.
+1. Preserve the seven locally verified P1 correction groups, newer features and historical financial/payroll snapshots; continue the remaining P1 scopes below. Use the [98-item follow-up](docs/development/erp-unresolved-and-decisions-20261024.zh-CN.md) as the ordered work and decision index.
+2. Continue the remaining P1 scopes: office formal quotes/authorized order prices, grouped print pricing, mixed packages with replacement labels, exact office settlement and finance actions, formal-order editing/voiding, and hold renewal/release/conversion. Keep server-side safeguards while adding the current complete-review interfaces.
+3. Complete the remaining legacy file-level scopes and retain the old 59 uncommitted entries until individually reviewed; never replace newer work with a whole old branch.
+4. Gather real printing/scan, source-page, material-issue and reconciliation evidence when equipment is ready. Payroll and whole-ERP readiness remain separately gated. Only a dedicated release task promotes a clean pushed commit with the exact target lock.
+
 ## Release Sequence
 | Priority | Scope | Completion condition |
 | --- | --- | --- |
@@ -32,7 +33,7 @@ D49 accepted inputs: the owner is confirmed as `徐鹏浩`, retains management, 
 ## V2 Deferred
 
 - Enterprise WeChat archive ingestion and automatic replies.
-- Payroll, attendance, full HR, after-sales responsibility and performance deductions.
+- Formal whole-factory attendance/payroll rollout and full HR remain separate from existing code capability and the one-person pilot; complete after-sales responsibility and approved payroll adjustments require their own accepted scope.
 - The first AI/BI priority is an owner/management `AI operating-anomaly radar`, not generic report prose: detect customer reorder-cycle deviations; bag-product seasonality/lifecycle, inventory pressure, and `recommended replenishment range / do-not-exceed` limits; raw-material demand, shortage/overbuy, supplier lead-time, and purchasing risk; and machine/capacity anomalies. Show observed-versus-baseline evidence, forecast intervals, confidence, impact, possible causes, and deep links; keep deterministic metrics authoritative and AI read-only. Cash-flow, customer concentration, fulfillment bottleneck, margin-erosion, and data-quality insights follow on the same evidence contract. Automatic scheduling/purchasing, route optimization, and deep cost/margin allocation—including task/order-level payroll allocation—remain later work after formal production reporting is stable.
 
 V1/V2 scope still requires formal owner signoff before release.
