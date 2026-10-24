@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getRolePermissionSet } from "../../../../shared/auth/roleCatalog.js";
+import { getRolePermissionSet, resolvePermissionAssignment } from "../../../../shared/auth/roleCatalog.js";
+import { getVisibleRoleNavigationItems } from "../../../../src/app/navigation.js";
+import { handleAttendancePayrollReadRoutes } from "../../../../server/routes/attendancePayrollRoutes.mjs";
+import { createRequestAuthorizationService } from "../../../../server/services/requestAuthorizationService.mjs";
+import { writeActionPermissions } from "../../../../server/writeActionPermissions.mjs";
 import {
   defaultPermissionContext,
   getDefaultWorkspaceView,
@@ -41,14 +45,86 @@ test("office navigation is derived from the signed-in account permission context
   assert(!itemIds.includes("accounts"));
   assert(!itemIds.includes("purchase-advice"));
   assert(!itemIds.includes("finance-todos"));
+  assert(!itemIds.includes("payroll-attendance"));
+  assert.equal(hasEffectivePermission(defaultPermissionContext, "payroll.preview"), false);
   assert.deepEqual(getVisibleRawMaterialViews(defaultPermissionContext), ["卷料库存", "收货录入"]);
   assert.deepEqual(getVisibleWorkspaceViews(defaultPermissionContext), [
     "公共待办", "订单录入", "订单池", "收货录入", "卷料库存", "生产任务", "打包/标签",
-    "打印与设备", "出库交付", "无纺布袋", "覆膜袋", "对账收款", "供应商月结", "工资核算", "客户档案", "成品资料",
+    "打印与设备", "出库交付", "无纺布袋", "覆膜袋", "对账收款", "供应商月结", "客户档案", "成品资料",
     "员工机台",
   ]);
   assert.equal(getDefaultWorkspaceView(defaultPermissionContext), "卷料库存");
   assert.equal(hasEffectivePermission(defaultPermissionContext, "order.create"), true);
+});
+
+for (const roleKey of ["finance", "management"]) {
+  test(`${roleKey} payroll navigation requires the account's effective payroll permission`, () => {
+    const account = permissionContextFor(roleKey, roleKey);
+    assert(account.actionPermissions.includes("payroll.preview"));
+    assert(visibleItemIds(account).includes("payroll-attendance"));
+    assert(getVisibleWorkspaceViews(account).includes("工资核算"));
+
+    const denied = {
+      ...account,
+      ...resolvePermissionAssignment({ roles: [roleKey], denyPermissions: ["payroll.preview"] }),
+    };
+    assert(!visibleItemIds(denied).includes("payroll-attendance"));
+    assert(!getVisibleWorkspaceViews(denied).includes("工资核算"));
+    assert(getVisibleRoleNavigationItems(denied).some((item) => item.key === "attendanceMobile"));
+  });
+}
+
+test("self-attendance remains available to operational roles without granting coworker attendance or payroll", async () => {
+  for (const roleKey of ["office", "warehouse", "finance", "management", "technical_operations", "maintenance", "driver", "workshop", "packing"]) {
+    const account = permissionContextFor(roleKey, roleKey);
+    assert(getVisibleRoleNavigationItems(account).some((item) => item.key === "attendanceMobile"), `${roleKey} keeps its own attendance entry`);
+    const noSelfPermission = {
+      ...account,
+      ...resolvePermissionAssignment({ roles: [roleKey], denyPermissions: ["attendance.self.read"] }),
+    };
+    assert(!getVisibleRoleNavigationItems(noSelfPermission).some((item) => item.key === "attendanceMobile"), `${roleKey} needs an effective self-attendance permission`);
+    const selfOnly = {
+      ...account,
+      buttonPermissions: [],
+      actionPermissions: ["attendance.self.read"],
+    };
+    assert(!visibleItemIds(selfOnly).includes("payroll-attendance"), `${roleKey} self permission cannot expose payroll`);
+
+    for (const [path, expectedStatus] of [
+      ["/api/attendance/me?employeeId=ERP-OTHER", 200],
+      ["/api/attendance/employees/ERP-OTHER", 403],
+      ["/api/payroll/workbench", 403],
+    ]) {
+      const replies = [];
+      const serviceCalls = [];
+      const sendJson = (_response, status, body) => replies.push({ status, body });
+      const { requireActionPermission } = createRequestAuthorizationService({ sendJson });
+      const runtimeUser = { userId: account.user.userId, employeeId: `ERP-${roleKey}` };
+      const handled = await handleAttendancePayrollReadRoutes({
+        url: new URL(path, "http://erp.test"),
+        response: {},
+        workspace: { users: [runtimeUser] },
+        permissionContext: selfOnly,
+        authContext: { userId: runtimeUser.userId },
+        writeActionPermissions,
+        requireActionPermission,
+        attendancePayrollService: {
+          buildOwnAttendance({ authContext }) {
+            serviceCalls.push(authContext.user.employeeId);
+            return { employeeId: authContext.user.employeeId };
+          },
+          buildEmployeeAttendance() { assert.fail("Self permission must not reach coworker attendance"); },
+          buildPayrollWorkbench() { assert.fail("Self permission must not reach payroll"); },
+        },
+        sendJson,
+      });
+      assert.equal(handled, true);
+      assert.equal(replies.length, 1);
+      assert.equal(replies[0].status, expectedStatus, `${roleKey}: ${path}`);
+      assert.deepEqual(serviceCalls, expectedStatus === 200 ? [runtimeUser.employeeId] : []);
+      if (expectedStatus === 403) assert.equal(replies[0].body.requiredPermission, "payroll.preview");
+    }
+  }
 });
 
 test("finance account sees finance work without raw-material execution menus", () => {
