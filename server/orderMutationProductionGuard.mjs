@@ -2,15 +2,35 @@ const pending = new Set(["待排产","待开始","已排产","丝印已排产","
 const terminal = new Set(["已取消","已作废"]);
 const invalidPackages = new Set(["已取消","已作废","已失效","已替代","voided","invalidated"]);
 const lineIdOf = row => row?.orderLineId ?? row?.lineId ?? row?.order_line_id;
+// Only explicit historical issue/task associations identify an order; a shared machine never does.
+export function hasOrderRawMaterialConsumption(workspace, id) {
+  return (workspace.rawMaterialInbounds ?? []).some(inbound => (inbound.rawMaterialConsumptionRecords ?? []).some(record => {
+    if (!(Number(record.consumedWeightKg) > 0 || Number(record.consumedQuantity) > 0)) return false;
+    const issue = (inbound.rawMaterialIssueRecords ?? []).find(row => row.issueRecordId === record.issueRecordId && row.rollId === record.rollId);
+    const taskId = record.productionTaskId || issue?.productionTaskId;
+    return record.productionTaskOrderLineId === id || issue?.productionTaskOrderLineId === id
+      || Boolean(taskId && (workspace.productionTasks ?? []).some(task => (task.productionTaskId ?? task.id) === taskId && lineIdOf(task) === id));
+  }));
+}
+export function orderRawMaterialConsumptionAbsentSql(lineId) {
+  return `NOT EXISTS(SELECT 1 FROM raw_material_inbounds inbound
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(inbound.payload_json->'rawMaterialConsumptionRecords','[]'::jsonb)) consumed
+    LEFT JOIN LATERAL (SELECT issue FROM jsonb_array_elements(COALESCE(inbound.payload_json->'rawMaterialIssueRecords','[]'::jsonb)) issue
+      WHERE issue->>'issueRecordId'=consumed->>'issueRecordId' AND issue->>'rollId'=consumed->>'rollId' LIMIT 1) matched ON true
+    WHERE (CASE WHEN consumed->>'consumedWeightKg' ~ '^[0-9]+([.][0-9]+)?$' THEN (consumed->>'consumedWeightKg')::numeric ELSE 0 END > 0
+      OR CASE WHEN consumed->>'consumedQuantity' ~ '^[0-9]+([.][0-9]+)?$' THEN (consumed->>'consumedQuantity')::numeric ELSE 0 END > 0)
+    AND (consumed->>'productionTaskOrderLineId'=${lineId} OR matched.issue->>'productionTaskOrderLineId'=${lineId}
+      OR EXISTS(SELECT 1 FROM production_tasks task WHERE task.id=COALESCE(NULLIF(consumed->>'productionTaskId',''),matched.issue->>'productionTaskId') AND task.order_line_id=${lineId})))`;
+}
 export function hasOrderProductionExecution(workspace, id) {
-  return (workspace.productionTasks??[]).some(row=>lineIdOf(row)===id&&!pending.has(row.taskStatus??row.status)&&!terminal.has(row.taskStatus??row.status)) ||
+  return hasOrderRawMaterialConsumption(workspace, id) || (workspace.productionTasks??[]).some(row=>lineIdOf(row)===id&&!pending.has(row.taskStatus??row.status)&&!terminal.has(row.taskStatus??row.status)) ||
     (workspace.workshopReports??[]).some(row=>lineIdOf(row)===id) ||
     (workspace.packingTasks??[]).some(row=>lineIdOf(row)===id&&(Number(row.actualPackedQty??0)>0||["已完成","打包中"].includes(row.status))) ||
     (workspace.packages??[]).some(row=>!invalidPackages.has(row.status)&&(lineIdOf(row)===id||(row.contents??row.contentsJson??row.contents_json??row.items??[]).some(item=>lineIdOf(item)===id)));
 }
 export function assertOrderProductionNotExecuted(input) {
   const id=input.orderLine?.orderLineId??input.orderLine?.id;
-  if(hasOrderProductionExecution(input.workspace,id))throw Object.assign(new Error("本单已有生产报工或实际包裹，不能直接改量或作废。"),{code:"ERP_ORDER_PRODUCTION_ALREADY_EXECUTED",statusCode:409});
+  if(hasOrderProductionExecution(input.workspace,id))throw Object.assign(new Error("本单已有实际原料消耗、生产报工或实际包裹，不能直接改量或作废。"),{code:"ERP_ORDER_PRODUCTION_ALREADY_EXECUTED",statusCode:409});
 }
 export function applyPendingOrderProductionMutation(workspace,line,mode) {
   const id=line.orderLineId??line.id;
@@ -35,6 +55,7 @@ export function orderMutationProductionLocksSql(lineId) {
 export function orderMutationProductionGuardSql(lineId) {
   return `AND erp_require(
     NOT EXISTS (SELECT 1 FROM locked_mutation_production WHERE task_status NOT IN ('待排产','待开始','已排产','丝印已排产','制袋已排产','印刷已排产','待丝印','待制袋','未开始','已发布','排队中','已取消','已作废'))
+    AND ${orderRawMaterialConsumptionAbsentSql(lineId)}
     AND NOT EXISTS (SELECT 1 FROM workshop_reports WHERE order_line_id = ${lineId})
     AND NOT EXISTS (SELECT 1 FROM locked_mutation_packing WHERE actual_packed_qty > 0 OR status IN ('已完成','打包中'))
     AND NOT EXISTS (SELECT 1 FROM locked_mutation_packages WHERE status NOT IN ('已取消','已作废','已失效','已替代','voided','invalidated')),
