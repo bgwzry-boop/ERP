@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { normalizeOrderType } from "../../../../shared/orderRouting.js";
@@ -16,22 +17,114 @@ const privatePrint = (line) =>
     ["custom_print", "external_print"].includes(
       normalizeOrderType(line.orderType),
     ));
-const draftIdentity = (draft) => draft?.id || draft?.draftId || "";
+const draftIdentity = (item) =>
+  item?.id || item?.draftId || item?.draft?.id || item?.draft?.draftId || "";
+function editableDraft(item) {
+  if (!item) return null;
+  if (!item.draft) return item;
+  return {
+    ...item.draft,
+    id: draftIdentity(item),
+    lines: item.rows ?? item.draft.lines ?? [],
+  };
+}
 
-// A selected reserve-to-order draft owns its independent editing instance. The
-// parent keys this component by session and entryDraftId as well.
+// The queue is a separate read model, not a complete draft directory. A hold
+// conversion can navigate to an accepted manual draft outside that queue.
 export default function OrderPricingEntryWorkspace({
   formal,
   onNavigate,
   quoteDraft = quoteOfficeOrderDraft,
+  loadDraft = getOfficeDraft,
 }) {
-  const selected =
-    formal.data.orderDrafts.find(
-      (draft) => draftIdentity(draft) === formal.entryDraftId,
-    ) || (!formal.entryDraftId ? formal.data.orderDrafts[0] : null);
-  const identity = `${formal.authState?.session?.accessToken || ""}:${formal.entryDraftId || draftIdentity(selected)}`;
-  if (formal.entryDraftId && !selected)
-    return <div role="status">正在读取所选订单草稿，请刷新核对后继续。</div>;
+  const selectedId = formal.entryDraftId || "";
+  const session = formal.authState?.session?.accessToken || "";
+  const selectionKey = `${session}:${selectedId}`;
+  const queued = (formal.data.orderDrafts ?? []).find(
+    (item) => draftIdentity(item) === selectedId,
+  );
+  const [directState, setDirectState] = useState(null);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const direct = directState?.key === selectionKey ? directState : null;
+  const cachedDraft = direct?.draft ?? null;
+  const needsRead = !!selectedId && !queued && !cachedDraft;
+  useEffect(() => {
+    if (!needsRead) return;
+    let active = true;
+    const controller = new AbortController();
+    setDirectState({
+      key: selectionKey,
+      status: "loading",
+      draft: null,
+      error: "",
+    });
+    Promise.resolve()
+      .then(() =>
+        loadDraft(
+          { authState: formal.authState, draftId: selectedId },
+          { serverRequired: true, signal: controller.signal },
+        ),
+      )
+      .then((result) => {
+        if (!active) return;
+        const draft = editableDraft(result.item);
+        if (
+          result.source !== "api" ||
+          result.blocked ||
+          !draft ||
+          draftIdentity(draft) !== selectedId ||
+          !Array.isArray(draft.lines ?? draft.rows)
+        ) {
+          setDirectState({
+            key: selectionKey,
+            status: "error",
+            draft: null,
+            error:
+              result.error?.message ||
+              "没有读取到所选订单草稿，请核对权限和草稿编号后重试。",
+          });
+          return;
+        }
+        setDirectState({
+          key: selectionKey,
+          status: "ready",
+          draft,
+          error: "",
+        });
+      })
+      .catch(() => {
+        if (active)
+          setDirectState({
+            key: selectionKey,
+            status: "error",
+            draft: null,
+            error: "所选订单草稿暂时读取失败，请重试。",
+          });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [selectionKey, selectedId, session, needsRead, loadDraft, readAttempt]);
+  const selected = selectedId
+    ? cachedDraft || editableDraft(queued)
+    : editableDraft(formal.data.orderDrafts?.[0]);
+  const identity = `${session}:${selectedId || draftIdentity(selected)}`;
+  if (selectedId && !selected) {
+    if (direct?.status === "error")
+      return (
+        <div role="alert">
+          <p>{direct.error}</p>
+          <button
+            type="button"
+            onClick={() => setReadAttempt((value) => value + 1)}
+          >
+            重新读取所选草稿
+          </button>
+        </div>
+      );
+    return <div role="status">正在读取所选订单草稿…</div>;
+  }
   return (
     <OrderPricingEditor
       key={identity}
@@ -43,6 +136,7 @@ export default function OrderPricingEntryWorkspace({
     />
   );
 }
+
 function OrderPricingEditor({
   formal,
   onNavigate,

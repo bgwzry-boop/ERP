@@ -552,6 +552,8 @@ function mapQueuedDraftRecord(draft, inventories) {
     fulfillmentMethod: line.fulfillment,
     latestNeededAt: line.latest,
     printFlag: line.print === "是",
+    printContent: line.printContent,
+    specialRequirements: line.specialRequirements,
     printColor: line.printColor,
     printSide: line.printSide,
     artworkStatus: line.artworkStatus,
