@@ -1,4 +1,4 @@
-export async function handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound }) {
+export async function handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound, permissionContext, requireActionPermission, getPermissionOperatorId, authContext, orderLineMutationCommandService, sendCommandResponse }) {
   if (url.pathname === "/api/order-drafts") {
     const state = workspace.orderDraftRepository?.kind === "postgres"
       ? await workspace.orderDraftRepository.loadState()
@@ -45,6 +45,15 @@ export async function handleOrderReadRoutes({ url, response, workspace, sendJson
       200,
       await workspace.orderPoolReadRepository.listOrderLines({ workspace, query: url.searchParams }),
     );
+    return true;
+  }
+
+  const previewMatch = url.pathname.match(/^\/api\/order-lines\/([^/]+)\/quantity-preview$/);
+  if (previewMatch) {
+    if (!requireActionPermission(response, permissionContext, "order.quantity.adjust")) return true;
+    sendCommandResponse(response, await orderLineMutationCommandService.previewOrderLineQuantity({workspace,
+      orderLineId:decodeURIComponent(previewMatch[1]), body:{newQty:Number(url.searchParams.get("newQty")),expectedRevision:Number(url.searchParams.get("expectedRevision"))},
+      operatorId:getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A")}));
     return true;
   }
 

@@ -148,6 +148,8 @@ export async function adjustOfficeOrderLineQuantity(input = {}, options = {}) {
       body: {
         idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
         orderLineId: safeOrderLineId,
+        expectedRevision: input.expectedRevision,
+        expectedFinalAmount: input.expectedFinalAmount,
         newQty: safeNewQty,
         reason: mapQuantityAdjustmentReasonToApi(reason),
         reasonText: reasonText || mapQuantityAdjustmentReasonText(reason),
@@ -201,6 +203,7 @@ export async function voidOfficeOrderLine(input = {}, options = {}) {
       body: {
         idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
         orderLineId: safeOrderLineId,
+        expectedRevision: input.expectedRevision,
         reason: mapVoidReasonToApi(reason),
         reasonText: reasonText || mapVoidReasonText(reason),
         operatorId,
@@ -266,6 +269,7 @@ export function mapApiOrderLineToLocal(value = {}) {
   return {
     id,
     orderLineId: id,
+    revision: Number.isSafeInteger(value.revision) && value.revision > 0 ? value.revision : null,
     orderId: cleanText(value.orderId ?? value.order_id ?? orderNo),
     orderNo,
     lineNo,
@@ -685,4 +689,15 @@ function cleanText(value) {
 function toNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+export async function previewOfficeOrderQuantity(input, options = {}) {
+  try {
+    const query = new URLSearchParams({newQty:String(input.newQty),expectedRevision:String(input.expectedRevision)});
+    const response = await requestOrderPoolApi(`/order-lines/${encodeURIComponent(input.orderLineId)}/quantity-preview?${query}`, {...options,authState:input.authState});
+    const value = await readJson(response);
+    if (!response.ok) return {source:"api_error",blocked:true,error:toApiError(value,response.status,"改量预览失败。")};
+    if (value?.orderLineId !== input.orderLineId || value?.revision !== input.expectedRevision || value?.newQty !== input.newQty || value?.readOnly !== true || !Number.isFinite(value?.finalAmount) || !Number.isFinite(value?.previousAmount) || value.previousAmount<0 || value.finalAmount<0) return {source:"api_error",blocked:true,error:{code:"ORDER_QUANTITY_PREVIEW_INVALID",message:"预览回执不完整，请重新核对。"}};
+    return {...value,source:"api"};
+  } catch(error) { return buildServerRequiredWriteError("ORDER_QUANTITY_PREVIEW_UNAVAILABLE",error); }
 }

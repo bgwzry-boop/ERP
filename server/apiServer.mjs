@@ -612,7 +612,7 @@ async function routeGet(context) {
     return sendJson(response, 200, buildOfficeWorkspaceProjection(workspace));
   }
 
-  if (await handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound })) return;
+  if (await handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound, permissionContext, requireActionPermission, getPermissionOperatorId, authContext, orderLineMutationCommandService, sendCommandResponse })) return;
 
   if (
     await handleProductionReadRoutes({

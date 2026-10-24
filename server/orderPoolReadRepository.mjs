@@ -1,5 +1,4 @@
 import { resolveStoreMode } from "./storeMode.mjs";
-import { calculateLinePricing } from "../src/domain/priceTable.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 
@@ -57,11 +56,10 @@ export function createLocalOrderPoolReadRepository() {
       const operationLogs = (workspace.operationLogs ?? []).filter(
         (log) => log.targetId === orderLine.id || log.targetId === orderLine.orderId,
       );
-      const pricing = calculateLinePricing({
-        ...orderLine,
-        print: orderLine.printFlag ? "是" : orderLine.print,
-        qty: orderLine.qty,
-      });
+      const priceSnapshot = [...(workspace.priceSnapshots ?? [])]
+        .filter(row => (row.orderLineId ?? row.order_line_id) === orderLine.id)
+        .sort((a,b) => (Date.parse(b.createdAt ?? b.created_at ?? '') || 0) - (Date.parse(a.createdAt ?? a.created_at ?? '') || 0)
+          || Number(b.versionNo ?? b.version_no ?? 0)-Number(a.versionNo ?? a.version_no ?? 0))[0];
       return normalizeOrderLineDetail({
         orderLine,
         originalOrder: {
@@ -73,16 +71,8 @@ export function createLocalOrderPoolReadRepository() {
           createdBy: originalOrder.createdBy ?? orderLine.createdBy ?? "",
           createdAt: originalOrder.createdAt ?? orderLine.createdAt ?? "",
         },
-        priceSnapshot: {
-          orderLineId: orderLine.id,
-          bagPrice: pricing.bagPrice,
-          printPrice: pricing.printPrice,
-          otherFee: 0,
-          amount: orderLine.amount,
-          finalAmount: orderLine.amount,
-          chargeableQty: orderLine.qty,
-          priceVersion: pricing.priceVersion,
-        },
+        priceSnapshot: priceSnapshot ?? { orderLineId: orderLine.id, amount: orderLine.amount,
+          finalAmount: orderLine.amount, chargeableQty: orderLine.qty },
         production: [],
         inventory,
         fulfillment,
@@ -317,6 +307,7 @@ function buildOrderLineProjectionSql(where) {
 SELECT
   line.id,
   line.biz_no,
+  line.revision,
   line.order_id,
   line.customer_id,
   line.product_name,
@@ -442,6 +433,7 @@ function orderLineListItemJsonExpression(alias) {
   return `json_build_object(
     'id', ${alias}.id,
     'orderLineId', ${alias}.id,
+    'revision', ${alias}.revision,
     'orderId', ${alias}.order_id,
     'orderNo', ${alias}.order_no,
     'lineNo', split_part(${alias}.biz_no, '-', array_length(string_to_array(${alias}.biz_no, '-'), 1)),
@@ -552,6 +544,7 @@ function normalizeOrderLineListItem(line, context = {}) {
   return {
     id,
     orderLineId: id,
+    revision: Math.max(1, toFiniteInteger(line.revision, 1)),
     orderId,
     orderNo: cleanText(line.orderNo ?? line.order_no ?? orderId),
     lineNo: cleanText(line.lineNo ?? line.line_no) || id.split("-").at(-1) || "",

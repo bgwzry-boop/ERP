@@ -1,0 +1,12 @@
+.inventory-holds-workbench { margin-block: 20px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; }
+.inventory-holds-workbench h4 { margin: 18px 0 10px; font-size: 14px; }
+.inventory-holds-workbench p { line-height: 1.6; overflow-wrap: anywhere; }
+.hold-record { padding-block: 12px; border-bottom: 1px solid var(--line); }
+.hold-record-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.inventory-holds-workbench button { min-height: 38px; padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink); background: var(--surface); font: inherit; }
+.inventory-holds-workbench button.primary { background: var(--blue); border-color: var(--blue); color: white; }
+.inventory-holds-workbench button:disabled { opacity: .5; cursor: not-allowed; }
+.inventory-holds-workbench :is(button,input,textarea):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.hold-edit-form label { display: grid; gap: 6px; margin-block: 12px; }
+.hold-edit-form :is(input,textarea) { min-width: 0; width: 100%; min-height: 40px; font: inherit; padding: 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink); background: var(--surface); }
+@media(max-width:767px) { .inventory-holds-workbench button { min-height:44px; } }

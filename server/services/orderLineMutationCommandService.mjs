@@ -1,3 +1,4 @@
+import {hasOrderProductionExecution} from "../orderMutationProductionGuard.mjs";
 import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
 import { hasExecutedDelivery } from "../orderMutationDeliveryGuard.mjs";
 
@@ -31,9 +32,11 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
   return {
     voidOrderLine,
     adjustOrderLineQuantity,
+    previewOrderLineQuantity,
   };
 
-  async function voidOrderLine({ workspace, orderLineId, body = {}, operatorId }) {
+  async function voidOrderLine({ workspace: targetWorkspace, orderLineId, body = {}, operatorId }) {
+    const workspace = await readCurrentMutationWorkspace(targetWorkspace);
     const before = findOrderLine(workspace, orderLineId);
     if (!before) return notFound("ORDER_LINE_NOT_FOUND");
     if (body.orderLineId && body.orderLineId !== orderLineId) {
@@ -47,11 +50,15 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       idempotencyPayload,
     });
     if (replay) return success(buildVoidResponse(orderLineId, replay));
+    const stale = validateReviewedRevision(before, body);
+    if (stale) return stale;
+    const groupGuard = validatePrintGroupMutation(workspace, orderLineId);
+    if (groupGuard) return groupGuard;
     if (!isVoidableOrderLine(before, workspace)) {
       return businessError(
         409,
         "ORDER_LINE_NOT_VOIDABLE",
-        "Delivered, closed, or production-started order lines cannot be voided directly.",
+        "本单已关闭或已有实际生产、出库或送货，不能直接作废。",
       );
     }
 
@@ -61,6 +68,7 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       ...before,
       orderLineId: before.orderLineId ?? before.id,
       orderId: before.orderId ?? before.orderNo,
+      revision: Number(before.revision ?? 1) + 1,
       lineStatus: "已关闭",
       status: "已关闭",
       exceptionTags: appendUniqueText(before.exceptionTags ?? before.exceptions ?? [], "订单已作废"),
@@ -119,7 +127,7 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       reason,
     });
     const transaction = await workspace.orderLineVoidTransactionRepository.voidOrderLine({
-      workspace,
+      workspace: targetWorkspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload,
       expectedOrderLineRevision: Number(before.revision ?? 1),
@@ -135,7 +143,8 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
     return success(buildVoidResponse(orderLineId, transaction));
   }
 
-  async function adjustOrderLineQuantity({ workspace, orderLineId, body = {}, operatorId }) {
+  async function adjustOrderLineQuantity({ workspace: targetWorkspace, orderLineId, body = {}, operatorId }) {
+    const workspace = await readCurrentMutationWorkspace(targetWorkspace);
     const before = findOrderLine(workspace, orderLineId);
     if (!before) return notFound("ORDER_LINE_NOT_FOUND");
     if (body.orderLineId && body.orderLineId !== orderLineId) {
@@ -149,11 +158,15 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       idempotencyPayload,
     });
     if (replay) return success(buildQuantityAdjustmentResponse(orderLineId, replay));
+    const stale = validateReviewedRevision(before, body);
+    if (stale) return stale;
+    const groupGuard = validatePrintGroupMutation(workspace, orderLineId);
+    if (groupGuard) return groupGuard;
     if (!isVoidableOrderLine(before, workspace)) {
       return businessError(
         409,
         "ORDER_LINE_QUANTITY_NOT_ADJUSTABLE",
-        "Delivered, closed, or production-started order lines cannot be quantity-adjusted directly.",
+        "本单已关闭或已有实际生产、出库或送货，不能直接改量。",
       );
     }
 
@@ -191,15 +204,17 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       adjustedAt,
     });
     if (financialChange.error) return financialChange;
+    if (body.expectedFinalAmount !== undefined && (!Number.isFinite(body.expectedFinalAmount) || roundMoney(body.expectedFinalAmount) !== financialChange.priceSnapshot.finalAmount)) return businessError(409, "ORDER_LINE_REVIEW_AMOUNT_CHANGED", "改量金额已变化，请重新核对后确认，尚未修改订单。");
     const afterOrderLine = {
       ...before,
       orderLineId: before.orderLineId ?? before.id,
       orderId: before.orderId ?? before.orderNo,
+      revision: Number(before.revision ?? 1) + 1,
       originalQty: newQty,
       qty: newQty,
       amount: financialChange.priceSnapshot.finalAmount,
-      lineStatus: before.lineStatus ?? before.status ?? "待出库",
-      status: before.status ?? before.lineStatus ?? "待出库",
+      lineStatus: (workspace.productionTasks??[]).some(task=>(task.orderLineId??task.lineId)===orderLineId&&!["已取消","已作废"].includes(task.taskStatus??task.status))?"待排产":before.lineStatus ?? before.status ?? "待出库",
+      status: (workspace.productionTasks??[]).some(task=>(task.orderLineId??task.lineId)===orderLineId&&!["已取消","已作废"].includes(task.taskStatus??task.status))?"待排产":before.status ?? before.lineStatus ?? "待出库",
       exceptionTags: before.exceptionTags ?? before.exceptions ?? [],
       exceptions: before.exceptions ?? before.exceptionTags ?? [],
     };
@@ -279,7 +294,7 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       reason,
     });
     const transaction = await workspace.orderLineQuantityAdjustmentTransactionRepository.adjustOrderLineQuantity({
-      workspace,
+      workspace: targetWorkspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload,
       expectedOrderLineRevision: Number(before.revision ?? 1),
@@ -304,6 +319,25 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
         fallbackStatus: afterOrderLine.lineStatus,
       }),
     );
+  }
+
+  async function previewOrderLineQuantity({ workspace: source, orderLineId, body = {}, operatorId }) {
+    const workspace = await readCurrentMutationWorkspace(source);
+    const before = findOrderLine(workspace, orderLineId);
+    if (!before) return notFound("ORDER_LINE_NOT_FOUND");
+    const stale = validateReviewedRevision(before, body);
+    if (stale) return stale;
+    const groupGuard = validatePrintGroupMutation(workspace, orderLineId);
+    if (groupGuard) return groupGuard;
+    if (!isVoidableOrderLine(before, workspace)) return businessError(409, "ORDER_LINE_QUANTITY_NOT_ADJUSTABLE", "本单已有生产或实际交付，不能直接改量。");
+    const newQty = Number(body.newQty);
+    const previousQty = getOrderLineOriginalQty(before);
+    if (!Number.isSafeInteger(newQty) || newQty <= 0 || newQty === previousQty) return businessError(422, "VALIDATION_ERROR", "请填写与原数量不同的正整数。");
+    const value = buildFinancialChange(workspace, {orderLine: before, orderLineId, previousQty, newQty, operatorId, reason:"改量预览", adjustedAt:nowIso(now)});
+    if (value.error) return value;
+    return success({orderLineId, revision:Number(before.revision ?? 1), previousQty, newQty,
+      previousAmount:Number(findLatestPriceSnapshot(workspace,orderLineId)?.finalAmount ?? before.amount), finalAmount:value.priceSnapshot.finalAmount,
+      priceSnapshotId:value.priceSnapshot.priceSnapshotId, readOnly:true});
   }
 
   function buildVoidResponse(orderLineId, transaction) {
@@ -611,6 +645,7 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
 
 function isVoidableOrderLine(orderLine, workspace) {
   const status = String(orderLine.status ?? orderLine.lineStatus ?? "").trim();
+  if (hasOrderProductionExecution(workspace,orderLine.id??orderLine.orderLineId)) return false;
   if (!status || status.includes("已关闭") || status.includes("已取消") || status.includes("已交付")) return false;
   if (status.includes("丝印") || status.includes("制袋") || status.includes("打包")) return false;
   const orderLineId = orderLine.id ?? orderLine.orderLineId;
@@ -640,6 +675,14 @@ function findLatestPriceSnapshot(workspace, orderLineId) {
   if (sorted.some(snapshot => (Date.parse(snapshot.createdAt ?? snapshot.created_at ?? "") || 0) === latestTime &&
     (snapshot.snapshotType ?? snapshot.snapshot_type) !== latestType)) return { ambiguous: true };
   return latest;
+}
+
+function validatePrintGroupMutation(workspace, orderLineId) {
+  const latest = findLatestPriceSnapshot(workspace, orderLineId);
+  const group = (latest?.sourceEvidence ?? latest?.source_evidence)?.officePricingGroup;
+  if (Number(group?.memberCount) > 1) return businessError(409, "ORDER_PRINT_GROUP_REQUOTE_REQUIRED",
+    "本单参加了多条订单合组印刷报价。请先按整组重新核价，再改量或移除成员，不能只改本行而保留其他行旧阶梯价。");
+  return null;
 }
 
 function getNextQuantityAdjustmentPriceVersion(workspace, orderLineId) {
@@ -764,4 +807,18 @@ function businessError(statusCode, code, message) {
 
 function requireFunction(value, name) {
   if (typeof value !== "function") throw new TypeError(`${name} must be a function`);
+}
+
+async function readCurrentMutationWorkspace(workspace) {
+  if (workspace.coreWorkspaceReadRepository?.kind !== "postgres") return workspace;
+  const state = await workspace.coreWorkspaceReadRepository.loadState();
+  const keys = ["orderLines", "fulfillments", "priceSnapshots", "inventories", "inventoryReservations", "statementLines", "statements", "productionTasks", "workshopReports", "packingTasks", "packages"];
+  if (keys.some(key => !Array.isArray(state?.[key]))) throw Object.assign(new Error("订单事实读取不完整，请重试，未修改业务数据。"), {code:"ORDER_MUTATION_SOURCE_UNAVAILABLE",statusCode:503});
+  return {...workspace, ...state};
+}
+function validateReviewedRevision(before, body) {
+  if (body.expectedRevision === undefined) return null;
+  if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision <= 0) return businessError(422, "EXPECTED_REVISION_REQUIRED", "请重新读取有效订单版本。");
+  if (body.expectedRevision !== Number(before.revision ?? 1)) return businessError(409, "ORDER_LINE_REVISION_CONFLICT", "订单已被其他人更新，请重新读取并核对，输入已保留。");
+  return null;
 }

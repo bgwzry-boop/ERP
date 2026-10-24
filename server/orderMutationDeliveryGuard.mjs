@@ -24,3 +24,9 @@ export function orderDeliveryNotExecutedSql(alias) {
     AND ${alias}.final_delivery_at IS NULL
     AND ${alias}.delivered_at IS NULL`;
 }
+
+export function assertOrderMutationRevision(input) {
+  const id = input.orderLine?.orderLineId ?? input.orderLine?.id;
+  const current = input.workspace?.orderLines?.find(line => (line.orderLineId ?? line.id) === id);
+  if (!current || Number(current.revision ?? 1) !== Number(input.expectedOrderLineRevision ?? input.orderLine?.revision ?? 1)) throw Object.assign(new Error("订单版本已变化，未执行本次修改。"), {statusCode:409,code:"ORDER_LINE_REVISION_CONFLICT"});
+}

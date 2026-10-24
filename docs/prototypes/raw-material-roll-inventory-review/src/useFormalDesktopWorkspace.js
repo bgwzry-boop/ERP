@@ -89,6 +89,7 @@ function replaceEmployeeReview(items, review) {
 
 export function useFormalDesktopWorkspace() {
   const [authState, setAuthState] = useState(null);
+  const [entryDraftId, focusOrderDraft] = useState("");
   const authStateRef = useRef(null);
   const [data, setData] = useState(emptyData);
   const [meta, setMeta] = useState({ loading: true, errors: {}, lastSyncedAt: "" });
@@ -314,6 +315,7 @@ export function useFormalDesktopWorkspace() {
   }, []);
 
   const actions = useMemo(() => ({
+    focusOrderDraft,
     confirmEmployeeIdentity,
     confirmOrderDraft,
     enableEmployeeAccount,
@@ -328,6 +330,7 @@ export function useFormalDesktopWorkspace() {
 
   return {
     actions,
+    entryDraftId,
     authState,
     data,
     meta,

@@ -1,6 +1,7 @@
+import {assertOrderProductionNotExecuted,applyPendingOrderProductionMutation,orderMutationProductionLocksSql,orderMutationProductionGuardSql,orderMutationProductionUpdatesSql} from "./orderMutationProductionGuard.mjs";
 import { createLocalWorkspaceReceiptStore } from "./localWorkspaceReceiptStore.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
-import { assertOrderMutationDeliveryNotExecuted, orderDeliveryNotExecutedSql } from "./orderMutationDeliveryGuard.mjs";
+import { assertOrderMutationRevision, assertOrderMutationDeliveryNotExecuted, orderDeliveryNotExecutedSql } from "./orderMutationDeliveryGuard.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import {
@@ -42,6 +43,8 @@ export function createLocalOrderLineQuantityAdjustmentTransactionRepository() {
       const replay = receipts.read(input);
       if (replay) return replay;
       assertOrderMutationDeliveryNotExecuted(input);
+      assertOrderMutationRevision(input);
+      assertOrderProductionNotExecuted(input);
       const transaction = normalizeOrderLineQuantityAdjustmentTransactionResult({
         orderLine: input.orderLine,
         fulfillmentRecords: input.fulfillmentRecords,
@@ -193,6 +196,7 @@ locked_order_delivery_facts AS MATERIALIZED (
   ORDER BY fulfillment.id
   FOR UPDATE OF fulfillment
 ),
+${orderMutationProductionLocksSql(parameters.text(orderLine.orderLineId))}
 fulfillment_updates AS MATERIALIZED (
   ${buildFulfillmentUpdatesSql(fulfillmentRecords, parameters)}
 ),
@@ -249,6 +253,7 @@ write_guard AS MATERIALIZED (
       SELECT 1 FROM locked_order_delivery_facts AS delivery
       WHERE NOT (${orderDeliveryNotExecutedSql("delivery")})
     ), 'ERP_ORDER_DELIVERY_ALREADY_EXECUTED')
+    ${orderMutationProductionGuardSql(parameters.text(orderLine.orderLineId))}
     AND
     erp_require(
       EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(expectedOrderLineRevision)}),
@@ -307,6 +312,7 @@ write_guard AS MATERIALIZED (
       'ERP_STATEMENT_CONCURRENCY_CONFLICT'
     ) AS ok
 ),
+${orderMutationProductionUpdatesSql(parameters.text(orderLine.orderLineId),"quantity",parameters.integer(orderLine.originalQty))}
 updated_order_line AS (
   UPDATE order_lines
   SET
@@ -470,6 +476,7 @@ function applyOrderLineQuantityAdjustmentWorkspaceMutation(input) {
   if (!workspace) return;
   const orderLine = toWorkspaceOrderLine(input.orderLine);
   if (orderLine) {
+    applyPendingOrderProductionMutation(workspace,orderLine,"quantity");
     workspace.orderLines = upsertById(workspace.orderLines ?? [], orderLine);
   }
   const fulfillmentRecords = (input.fulfillmentRecords ?? []).map(toWorkspaceFulfillment).filter(Boolean);

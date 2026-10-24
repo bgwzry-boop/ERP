@@ -38,7 +38,7 @@ try {
   const id = 'OL-LIVE-PROD-001';
   await pool.query("UPDATE order_lines SET line_status='待出库' WHERE id=$1",[id]);
   await pool.query("INSERT INTO fulfillment_records(id,biz_no,order_line_id,customer_id,method,expected_qty,status,created_by) VALUES ('F-GUARD','F-GUARD',$1,'C-LIVE-REPO','送货',80,'待出库','U-OFFICE-A')",[id]);
-  const snapshot = async () => (await pool.query("SELECT jsonb_build_object('orders',(SELECT jsonb_agg(t) FROM order_lines t),'deliveries',(SELECT jsonb_agg(t) FROM fulfillment_records t),'logs',(SELECT jsonb_agg(t) FROM operation_logs t),'changes',(SELECT jsonb_agg(t) FROM order_line_change_records t)) AS value")).rows[0].value;
+  const snapshot = async () => (await pool.query("SELECT jsonb_build_object('orders',(SELECT jsonb_agg(t) FROM order_lines t),'deliveries',(SELECT jsonb_agg(t) FROM fulfillment_records t),'logs',(SELECT jsonb_agg(t) FROM operation_logs t),'changes',(SELECT jsonb_agg(t) FROM order_line_change_records t),'tasks',(SELECT jsonb_agg(t) FROM production_tasks t),'packing',(SELECT jsonb_agg(t) FROM packing_tasks t),'schedules',(SELECT jsonb_agg(t) FROM production_schedule_records t)) AS value")).rows[0].value;
   const builders = [buildVoidOrderLineTransactionQuery,buildAdjustOrderLineQuantityTransactionQuery];
   for (const build of builders) {
     for (const facts of ["status='配送中'", "status='待出库',loaded_at=now()", "status='待出库',physical_outbound_at=now()", "status='待出库',final_delivery_at=now()", "status='待出库',delivered_at=now()"]) {
@@ -94,7 +94,49 @@ try {
       }
     }
   }
-  console.log('PASS PostgreSQL 16: both mutation queries reject five executed-delivery facts even when omitted from update payload; transaction snapshots unchanged; unexecuted controls succeed; verified row-lock races reject stale mutations after loading commits.');
+  // Status labels may lag behind production; the persisted production facts still govern edits.
+  await pool.query("INSERT INTO production_tasks(id,biz_no,order_line_id,task_type,planned_qty,task_status,published_schedule_id,created_by) VALUES ('TASK-MUTATION','TASK-MUTATION',$1,'制袋',80,'已排产','SCHEDULE-MUTATION','U-OFFICE-A')",[id]);
+  await pool.query("INSERT INTO packing_tasks(id,biz_no,order_line_id,planned_qty,status) VALUES ('PACK-MUTATION','PACK-MUTATION',$1,80,'待打包')",[id]);
+  await pool.query("INSERT INTO production_schedule_records(id,biz_no,production_task_id,order_line_id,machine_id,schedule_status) VALUES ('SCHEDULE-MUTATION','SCHEDULE-MUTATION','TASK-MUTATION',$1,'M-MUTATION','active')",[id]);
+  for(const [index,build] of builders.entries()) {
+    const q=build({orderLine:{orderLineId:id,orderId:'ORD-LIVE-PROD-001',customerId:'C-LIVE-REPO',lineStatus:index===0?'已关闭':'待排产',originalQty:70,revision:1},expectedOrderLineRevision:1,fulfillmentRecords:[],orderLineChangeRecord:{changeRecordId:'CHANGE-MUTATION',orderLineId:id,changedFields:['original_qty'],before:{originalQty:80},after:{originalQty:70},reason:'audit',changedBy:'U-OFFICE-A'},operationLog:{id:'LOG-MUTATION',targetType:'order_line',targetId:id,action:'audit',operatorId:'U-OFFICE-A'}});
+    const sql=q.text.replace(/^BEGIN;/,'').replace(/COMMIT;\s*$/,'');
+    const before=await snapshot(),c=await pool.connect();
+    try {
+      await c.query('BEGIN');await c.query(sql,q.values);
+      const task=(await c.query("SELECT * FROM production_tasks WHERE id='TASK-MUTATION'")).rows[0];
+      assert.equal(task.task_status,index===0?'已作废':'待排产');assert.equal(task.published_schedule_id,null);
+      assert.equal(task.planned_qty,index===0?80:70);assert.equal(task.revision,2);
+      const packing=(await c.query("SELECT * FROM packing_tasks WHERE id='PACK-MUTATION'")).rows[0];
+      assert.equal(packing.status,index===0?'已作废':'待打包');assert.equal(packing.planned_qty,index===0?80:70);
+      assert.equal((await c.query("SELECT schedule_status FROM production_schedule_records WHERE id='SCHEDULE-MUTATION'")).rows[0].schedule_status,index===0?'canceled':'superseded');
+    } finally {await c.query('ROLLBACK');c.release();}
+    assert.deepEqual(await snapshot(),before);
+    for(const fact of ['report','packing','package']) {
+      if(fact==='report') await pool.query("INSERT INTO workshop_reports(id,production_task_id,order_line_id,process_type,qualified_qty) VALUES ('REPORT-MUTATION','TASK-MUTATION',$1,'制袋',1)",[id]);
+      if(fact==='packing') await pool.query("UPDATE packing_tasks SET actual_packed_qty=1 WHERE id='PACK-MUTATION'");
+      if(fact==='package') await pool.query("INSERT INTO packages(id,biz_no,order_line_id,packed_qty) VALUES ('PACKAGE-MUTATION','PACKAGE-MUTATION',$1,1)",[id]);
+      const persisted=await snapshot(),blocked=await pool.connect();
+      try {await blocked.query('BEGIN');await assert.rejects(blocked.query(sql,q.values),/ERP_ORDER_PRODUCTION_ALREADY_EXECUTED/);} finally{await blocked.query('ROLLBACK');blocked.release();}
+      assert.deepEqual(await snapshot(),persisted,'Executed production rejects every partial order/accounting mutation');
+      if(fact==='report') await pool.query("DELETE FROM workshop_reports WHERE id='REPORT-MUTATION'");
+      if(fact==='packing') await pool.query("UPDATE packing_tasks SET actual_packed_qty=0 WHERE id='PACK-MUTATION'");
+      if(fact==='package') await pool.query("DELETE FROM packages WHERE id='PACKAGE-MUTATION'");
+    }
+    const worker=await pool.connect(),editor=await pool.connect();let pending;
+    try {
+      await worker.query('BEGIN');await worker.query("UPDATE production_tasks SET task_status='生产中' WHERE id='TASK-MUTATION'");
+      await editor.query('BEGIN');await editor.query("SET LOCAL statement_timeout='5s'");
+      const pid=(await editor.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      pending=editor.query(sql,q.values).then(value=>({value}),error=>({error}));let waiting=false;
+      for(let i=0;i<100;i++){waiting=(await pool.query("SELECT wait_event_type='Lock' AS waiting FROM pg_stat_activity WHERE pid=$1",[pid])).rows[0]?.waiting;if(waiting)break;await new Promise(r=>setTimeout(r,10));}
+      assert.equal(waiting,true,'Observe real production-start/edit row lock contention');
+      await worker.query('COMMIT');const started=await snapshot();const outcome=await pending;
+      assert.match(outcome.error?.message??'',/ERP_ORDER_PRODUCTION_ALREADY_EXECUTED/);await editor.query('ROLLBACK');assert.deepEqual(await snapshot(),started);
+    } finally {await worker.query('ROLLBACK');if(pending)await pending;await editor.query('ROLLBACK');worker.release();editor.release();}
+    await pool.query("UPDATE production_tasks SET task_status='已排产' WHERE id='TASK-MUTATION'");
+  }
+  console.log('PASS PostgreSQL 16: both mutation queries reject five executed-delivery facts even when omitted from update payload; transaction snapshots unchanged; unexecuted controls succeed; verified delivery and production-start row-lock races reject stale mutations; pending task/packing quantities and schedule cancellation remain atomic.');
 } finally {
   if(pool) await pool.end();
   docker(['rm','-f',name]);
