@@ -55,13 +55,20 @@ function HoldsForm({item,formal,onNavigate}) {
     const {kind,payload}=attempt.current;let value;
     try{const method={create:createOfficeTemporaryInventoryHold,extend:extendOfficeTemporaryInventoryHold,release:releaseOfficeTemporaryInventoryHold,convert:recognizeOfficeDraft}[kind];value=await method(payload,opts);}catch{value=null;}
     if(!live.current)return;
-    pending.current=false;setBusy(false);
     const draftId=value?.draft?.draftId??value?.draft?.id;
     const valid=value?.source==="api"&&!value.blocked&&value.operationLogId&&(kind!=="convert"||draftId&&value.rows?.length===1&&value.rows[0].sourceHoldId===payload.sourceHoldId&&value.rows[0].sourceIntentId===payload.sourceIntentId);
     if(valid){
       setReview(null);attempt.current=null;uncertainRef.current=false;setUncertain(false);setSelected(null);setNotice(kind==="convert"?"已建立关联订单草稿，确认正式订单后才转换原占用，不会重复留货。":"服务器已保存留货操作。");
-      try{await refresh();await formal.actions.refreshAll();if(kind==="convert"){formal.actions.focusOrderDraft(draftId);onNavigate("order-entry");}}catch{setError("操作已保存，列表刷新未完成，请核对服务器记录后继续。");}
+      try{
+        await refresh();
+        if(!live.current)return;
+        await formal.actions.refreshAll();
+        if(!live.current)return;
+        if(kind==="convert"){formal.actions.focusOrderDraft(draftId);onNavigate("order-entry");}
+      }catch{if(live.current)setError("操作已保存，列表刷新未完成，请核对服务器记录后继续。");}
+      finally{if(live.current){pending.current=false;setBusy(false);}}
     }else{
+      pending.current=false;setBusy(false);
       const code=value?.error?.code||"";const unknown=!code||value?.source==="api"||/UNAVAILABLE|UNCONFIRMED|TIMEOUT/.test(code)||Number(value?.error?.status)>=500;
       uncertainRef.current ||= unknown;setUncertain(uncertainRef.current);setError(uncertainRef.current?"结果未确认，原请求已保留，请按原内容重试；不要另建同一留货。":value.error?.message||"留货操作未保存，输入已保留，请重新读取后核对。");
       if(!uncertainRef.current){setReview(null);attempt.current=null;}
