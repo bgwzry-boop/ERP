@@ -47,21 +47,21 @@ assert.deepEqual(
 );
 
 assert.deepEqual(getStatementFinancialSummary(null, customers), {
-  currentReceivable: 0,
-  currentReceived: 0,
-  currentUnpaid: 0,
-  historicalDebt: 0,
-  cumulativeDebt: 0,
+  currentReceivable: null,
+  currentReceived: null,
+  currentUnpaid: null,
+  historicalDebt: null,
+  cumulativeDebt: null,
 });
 
 assert.deepEqual(
   getStatementFinancialSummary({ customerId: "C-CURRENT", receivable: "invalid", received: -20 }, customers),
   {
-    currentReceivable: 0,
-    currentReceived: 0,
-    currentUnpaid: 0,
+    currentReceivable: null,
+    currentReceived: null,
+    currentUnpaid: null,
     historicalDebt: 8_800,
-    cumulativeDebt: 8_800,
+    cumulativeDebt: null,
   },
 );
 

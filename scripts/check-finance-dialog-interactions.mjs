@@ -38,6 +38,7 @@ try {
   const errors = []; page.on("pageerror", error => errors.push(error.message));
   const failedRequests = []; page.on("requestfailed", request => failedRequests.push({ path: new URL(request.url()).pathname, failure: request.failure()?.errorText }));
   let received = 200;
+  let missingFinancialAmounts = false;
   let revision = 3;
   let payments = [];
   let paymentAttempts = [];
@@ -47,7 +48,7 @@ try {
   await page.route("**/api/**", async route => {
     const request = route.request(); const url = new URL(request.url());
     const json = body => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
-    if (url.pathname === "/api/statements/ST-UI" && request.method() === "GET") return json({ id: "ST-UI", customerName: "组件验收客户", customerId: "C-UI", period: "2026-09", receivable: 1000, received, currentUnpaid: 1000 - received, historicalDebt: 0, revision, status: "差额待确认", payments,
+    if (url.pathname === "/api/statements/ST-UI" && request.method() === "GET") return json({ id: "ST-UI", customerName: "组件验收客户", customerId: "C-UI", period: "2026-09", receivable: missingFinancialAmounts ? undefined : 1000, received: missingFinancialAmounts ? undefined : received, currentUnpaid: missingFinancialAmounts ? undefined : 1000 - received, historicalDebt: 0, revision, status: "差额待确认", payments,
       sendRecordId: "SEND-UI", sendRecords: [{ sendRecordId: "SEND-UI", statementId: "ST-UI", sentTo: "实际客户", channel: "wechat", sentAt: "2026-10-01T00:00:00Z" }],
       attachments: [{ attachmentId: "ATT-UI", ownerType: "statement", ownerId: "ST-UI", purpose: "payment_screenshot", hasContent: true, status: "uploaded", fileName: "合成到账凭证.png" }],
       lines: [{ statementLineId: "SL-UI", orderNo: "O-UI", productName: "验收袋", goodsSpec: "35×27 白色", deliveredQty: 1000, chargeableQty: 1000, finalAmount: 1000 }] });
@@ -135,6 +136,19 @@ try {
   assert.match(await page.locator("dialog").innerText(), /不能手动标成已打印/);
   await page.evaluate(() => window.show("print", []));
   await page.getByText("当前账号没有查看打印作业的权限。", { exact: true }).waitFor();
+  missingFinancialAmounts = true;
+  await page.evaluate(() => window.show("statement"));
+  await page.getByText("组件验收客户 · 2026-09").waitFor();
+  assert.equal(await page.locator(".finance-summary dd").first().innerText(), "待核实");
+  assert.equal(await page.getByLabel("本期累计实收（元）").getAttribute("placeholder"), "原累计 待核实");
+  const previousAttempts = paymentAttempts.length;
+  await page.getByLabel("本期累计实收（元）").fill("600");
+  await page.getByLabel("到账及调整依据").fill("合成缺值阻断验收，不能猜测原累计为零");
+  await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").check();
+  await page.getByRole("button", { name: "核对本次登记", exact: true }).click();
+  await page.getByText("账单应收或累计实收金额待核实，请重新读取完整账单后再登记。", { exact: true }).waitFor();
+  assert.equal(await page.locator(".finance-confirm").count(), 0);
+  assert.equal(paymentAttempts.length, previousAttempts, "missing source money must block before a payment POST or confirmation snapshot");
   assert.deepEqual(errors, []);
   console.log("Finance dialog browser interactions passed: cumulative save, same-request network retry, post-save refresh/close, permission denial, real dispatch and no fake completion.");
 } finally {

@@ -1,3 +1,6 @@
+import { optionalFinancialAmount } from "../../shared/financialAmount.js";
+export { optionalFinancialAmount } from "../../shared/financialAmount.js";
+
 export function normalizeStatementCustomerSummary(item) {
   if (!item || typeof item !== "object") return null;
   const statementId = String(item.statementId ?? item.statement_id ?? "").trim();
@@ -6,10 +9,7 @@ export function normalizeStatementCustomerSummary(item) {
     customerId: String(item.customerId ?? item.customer_id ?? "").trim(),
     customerName: String(item.customerName ?? item.customer_name ?? "").trim(),
     settlementCycle: String(item.settlementCycle ?? item.settlement_cycle ?? "").trim(),
-    currentReceivable: Number(item.currentReceivable ?? item.current_receivable ?? 0),
-    debtAmount: optionalFinancialAmount(item.debtAmount ?? item.debt_amount),
-    varianceAmount: optionalFinancialAmount(item.varianceAmount ?? item.variance_amount),
-    overdueAmount: Number(item.overdueAmount ?? item.overdue_amount ?? 0),
+    ...summaryFinancialAmounts({ ...item, currentReceived: item.currentReceived ?? item.current_received ?? item.received ?? item.received_amount }),
     paymentPending: item.paymentPending === true || item.payment_pending === true,
     lastStatementAt: String(item.lastStatementAt ?? item.last_statement_at ?? "").trim(),
     status: String(item.status ?? "current_period").trim(),
@@ -21,17 +21,13 @@ export function normalizeStatementCustomerSummary(item) {
 export function mapLocalStatementCustomerSummary(statement) {
   if (!statement?.id) return null;
   return normalizeStatementCustomerSummary({
-    customerId: statement.customerId,
-    customerName: statement.customerName,
-    settlementCycle: statement.settlementCycle,
+    ...statement,
     currentReceivable: statement.receivable,
-    debtAmount: statement.debtAmount ?? null,
+    currentReceived: statement.received,
     varianceAmount: statement.variance,
     paymentPending: String(statement.status ?? "").includes("收款"),
-    lastStatementAt: statement.lastStatementAt,
     status: mapLocalStatementStatus(statement.status),
     statementId: statement.id,
-    revision: statement.revision,
   });
 }
 
@@ -58,19 +54,14 @@ export function mapStatementCustomerSummaryToLocal(item, localStatement = null) 
   if (!summary) return null;
   return {
     ...(localStatement ?? {}),
+    ...summary,
     id: summary.statementId,
-    customerId: summary.customerId,
-    customerName: summary.customerName,
-    settlementCycle: summary.settlementCycle,
     status: mapStatementSummaryStatus(summary.status),
     receivable: summary.currentReceivable,
+    received: summary.currentReceived,
     variance: summary.varianceAmount,
-    debtAmount: summary.debtAmount,
-    paymentPending: summary.paymentPending,
-    lastStatementAt: summary.lastStatementAt,
     lineIds: Array.isArray(localStatement?.lineIds) ? localStatement.lineIds : [],
     readSummaryStatus: summary.status,
-    revision: summary.revision,
   };
 }
 
@@ -92,9 +83,10 @@ export function normalizeStatementDetail(value, localStatement = null) {
     customerId: String(source.customerId ?? source.customer_id ?? localStatement?.customerId ?? "").trim(),
     status: String(source.status ?? localStatement?.status ?? "待生成").trim(),
     period: String(source.period ?? localStatement?.period ?? "").trim(),
-    receivable: Number(source.receivable ?? localStatement?.receivable ?? 0),
-    received: Number(source.received ?? localStatement?.received ?? 0),
-    variance: Number(source.variance ?? localStatement?.variance ?? 0),
+    receivable: optionalFinancialAmount(source.receivable ?? source.receivableAmount ?? source.receivable_amount ?? source.currentReceivable),
+    received: optionalFinancialAmount(source.received ?? source.receivedAmount ?? source.received_amount ?? source.currentReceived),
+    variance: optionalFinancialAmount(source.variance ?? source.varianceAmount ?? source.variance_amount),
+    ...summaryFinancialAmounts(source),
     lineIds,
     statementLines: lines,
     lineSource: String(wrapper.lineSource ?? ""),
@@ -111,4 +103,7 @@ export function normalizeStatementDetail(value, localStatement = null) {
   };
 }
 
-function optionalFinancialAmount(value) { if(value===null || value===undefined || value==="" || !["number","string"].includes(typeof value))return null;const amount=Number(value);return Number.isFinite(amount) ? amount : null; }
+function summaryFinancialAmounts(source) {
+  return Object.fromEntries(["currentReceivable", "currentReceived", "currentUnpaid", "historicalDebt", "cumulativeDebt", "debtAmount", "varianceAmount", "overdueAmount"]
+    .map(key => [key, optionalFinancialAmount(source[key] ?? source[key.replace(/[A-Z]/gu, letter => `_${letter.toLowerCase()}`)])]));
+}

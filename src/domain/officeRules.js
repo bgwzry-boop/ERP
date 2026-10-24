@@ -1,4 +1,5 @@
 import { getFulfillmentMethodLabel } from "../shared/labels.js";
+import { optionalFinancialAmount } from "../../shared/financialAmount.js";
 import { getPendingDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import {
   FACTORY_STANDARD_COLORS,
@@ -466,17 +467,17 @@ export function getStatementDisplayDebt(statement, customers) {
 export function getStatementFinancialSummary(statement, customers) {
   if (!statement) {
     return {
-      currentReceivable: 0,
-      currentReceived: 0,
-      currentUnpaid: 0,
-      historicalDebt: 0,
-      cumulativeDebt: 0,
+      currentReceivable: null,
+      currentReceived: null,
+      currentUnpaid: null,
+      historicalDebt: null,
+      cumulativeDebt: null,
     };
   }
   const customer = findStatementCustomer(customers, statement.customerId);
   const currentReceivable = nonNegativeFinancialAmount(statement.receivable);
   const currentReceived = nonNegativeFinancialAmount(statement.received);
-  const currentUnpaid = hasSettledStatementBalance(statement)
+  const currentUnpaid = currentReceivable === null || currentReceived === null ? null : hasSettledStatementBalance(statement)
     ? 0
     : Math.max(0, Math.round(currentReceivable * 100) - Math.round(currentReceived * 100)) / 100;
   const historicalDebt = customer ? nonNegativeFinancialAmount(customer.debtAmountSnapshot ?? customer.debt) : null;
@@ -485,7 +486,7 @@ export function getStatementFinancialSummary(statement, customers) {
     currentReceived,
     currentUnpaid,
     historicalDebt,
-    cumulativeDebt: historicalDebt === null ? null : (Math.round(currentUnpaid * 100) + Math.round(historicalDebt * 100)) / 100,
+    cumulativeDebt: historicalDebt === null || currentUnpaid === null ? null : (Math.round(currentUnpaid * 100) + Math.round(historicalDebt * 100)) / 100,
   };
 }
 
@@ -506,8 +507,8 @@ function hasSettledStatementBalance(statement) {
 }
 
 function nonNegativeFinancialAmount(value) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  const amount = optionalFinancialAmount(value);
+  return amount !== null && amount >= 0 ? amount : null;
 }
 
 function findStatementCustomer(customers, customerId) {

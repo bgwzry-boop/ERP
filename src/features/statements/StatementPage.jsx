@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { optionalFinancialAmount } from "../../../shared/financialAmount.js";
 import {
   CheckCircleOutlined,
   FileExcelOutlined,
@@ -55,10 +56,11 @@ export function StatementPage({ authState, currentUser, statements, orderLines, 
     getStatementBucket,
     getStatementFinancialSummary,
     getUiActionState,
-    money,
+    money: formatMoney,
     statementFilterOptions,
     statementMatchesFilters,
   } = helpers;
+  const money = value => optionalFinancialAmount(value) === null ? "待核实" : formatMoney(value);
   const [filters, setFilters] = useState(defaultStatementFilters);
   const [detailTab, setDetailTab] = useState("本期明细");
   const [decisionDraft, setDecisionDraft] = useState(null);

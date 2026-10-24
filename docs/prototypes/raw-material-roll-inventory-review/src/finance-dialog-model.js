@@ -1,15 +1,16 @@
+import { optionalFinancialAmount } from "../../../../src/services/officeStatementSelectors.js";
+
 export function financeSessionKey(id, authState) {
   return JSON.stringify([id, authState?.session?.accessToken, authState?.permissions?.user?.userId,
     [...(authState?.permissions?.actionPermissions ?? [])].sort()]);
 }
-
 export function hasFinancePermission(authState, permission) {
   return authState?.permissions?.actionPermissions?.includes(permission) === true;
 }
 
 export function money(value) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? `¥${amount.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "未提供";
+  const amount = optionalFinancialAmount(value);
+  return amount !== null ? `¥${amount.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "待核实";
 }
 
 export function evidenceTime(value) {
@@ -29,13 +30,15 @@ export function amountInCents(value) {
 }
 
 export function paymentReview(detail, value) {
+  const previous = optionalFinancialAmount(detail.received), receivable = optionalFinancialAmount(detail.receivable);
+  if (previous === null || receivable === null) throw new Error("账单应收或累计实收金额待核实，请重新读取完整账单后再登记。");
   const cents = amountInCents(value);
   return {
     amount: cents / 100,
-    previous: Number(detail.received ?? 0),
-    difference: (cents - Math.round(Number(detail.received ?? 0) * 100)) / 100,
-    unpaid: Math.max(0, Math.round(Number(detail.receivable ?? 0) * 100) - cents) / 100,
-    overpaid: Math.max(0, cents - Math.round(Number(detail.receivable ?? 0) * 100)) / 100,
+    previous,
+    difference: (cents - Math.round(previous * 100)) / 100,
+    unpaid: Math.max(0, Math.round(receivable * 100) - cents) / 100,
+    overpaid: Math.max(0, cents - Math.round(receivable * 100)) / 100,
   };
 }
 

@@ -41,6 +41,7 @@ import "../../../../src/styles/features/master-data.css";
 import { FactoryColorLabel } from "./FactoryColor.jsx";
 import { buildEmployeeProfile } from "./employee-profile.js";
 import { completedBusinessWorkspaceIds } from "./workspaceCoverage.js";
+import { optionalFinancialAmount } from "../../../../src/services/officeStatementSelectors.js";
 
 const formatNumber = (value) => new Intl.NumberFormat("zh-CN").format(Number(value) || 0);
 const optionalNumber = (value) => {
@@ -50,6 +51,7 @@ const optionalNumber = (value) => {
 };
 const quantityText = (value) => value === null ? "待确认" : `${formatNumber(value)}个`;
 const moneyText = (value) => value === null ? "待对账" : money(value);
+const statementMoney = value => optionalFinancialAmount(value) === null ? "待核实" : money(value);
 const customerName = (value, customerNames = new Map()) => {
   if (value && typeof value === "object") return value.customerName || customerNames.get(value.customerId) || value.customerId || "客户待确认";
   return customerNames.get(value) || value || "客户待确认";
@@ -335,9 +337,9 @@ function buildStatementRows(items = []) {
   statementId: statement.statementId || statement.id,
   cells: [
     `${customerName(statement)} · ${statement.settlementCycle || "账期待确认"}`,
-    money(statement.currentReceivable),
-    money(Math.max(0, Number(statement.currentReceivable || 0) - Number(statement.debtAmount || 0))),
-    money(statement.debtAmount),
+    statementMoney(statement.currentReceivable),
+    statementMoney(statement.currentReceived),
+    statementMoney(statement.varianceAmount),
     statementStatusLabel(statement.status),
   ],
   status: statementStatusLabel(statement.status),
@@ -345,8 +347,12 @@ function buildStatementRows(items = []) {
     ["对账单", statement.statementId || statement.id],
     ["客户", customerName(statement)],
     ["结算周期", statement.settlementCycle || "待确认"],
-    ["本期应收", money(statement.currentReceivable)],
-    ["欠款/差异", money(statement.debtAmount)],
+    ["本期应收", statementMoney(statement.currentReceivable)],
+    ["本期累计实收", statementMoney(statement.currentReceived)],
+    ["本期未收", statementMoney(statement.currentUnpaid)],
+    ["本期差额", statementMoney(statement.varianceAmount)],
+    ["历史欠款", statementMoney(statement.historicalDebt)],
+    ["累计欠款", statementMoney(statement.cumulativeDebt)],
     ["最近对账", statement.lastStatementAt || "待确认"],
   ],
   }));
@@ -359,18 +365,18 @@ function buildCustomerRows(orderLines = [], statements = []) {
       id: statement.customerId,
       name: statement.customerName || statement.customerId,
       settlementCycle: statement.settlementCycle || "待确认",
-      receivable: Number(statement.currentReceivable || 0),
+      receivable: statement.currentReceivable,
       status: statementStatusLabel(statement.status),
     });
   }
   for (const line of orderLines) {
-    if (!records.has(line.customerId)) records.set(line.customerId, { id: line.customerId, name: line.customerName || line.customerId, settlementCycle: "待确认", receivable: 0, status: "正常" });
+    if (!records.has(line.customerId)) records.set(line.customerId, { id: line.customerId, name: line.customerName || line.customerId, settlementCycle: "待确认", receivable: null, status: "正常" });
   }
   return [...records.values()].map((item) => ({
     id: item.id,
-    cells: [item.name, item.id, item.settlementCycle, money(item.receivable), item.status],
+    cells: [item.name, item.id, item.settlementCycle, statementMoney(item.receivable), item.status],
     status: item.status,
-    details: [["客户编号", item.id], ["客户名称", item.name], ["结算周期", item.settlementCycle], ["当前应收", money(item.receivable)]],
+    details: [["客户编号", item.id], ["客户名称", item.name], ["结算周期", item.settlementCycle], ["当前应收", statementMoney(item.receivable)]],
   }));
 }
 
