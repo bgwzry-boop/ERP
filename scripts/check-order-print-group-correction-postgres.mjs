@@ -13,6 +13,7 @@ import {createPostgresPoolClient,closeSharedPostgresPools} from "../server/postg
 import {createPostgresOrderPoolReadRepository} from "../server/orderPoolReadRepository.mjs";
 import {mapApiOrderLineToLocal} from "../src/services/officeOrderPoolApiClient.js";
 import {createPostgresRawMaterialInboundRepository} from "../server/rawMaterialInboundRepository.mjs";
+import {createPostgresPrintJobRepository} from "../server/printJobRepository.mjs";
 import {applyRawMaterialInboundAction} from "../server/services/rawMaterialInboundCommandService.mjs";
 const name=`erp-print-group-${process.pid}-${Date.now()}`;
 const docker=args=>{const r=spawnSync("docker",args,{encoding:"utf8"});if(r.status)throw Error(r.stderr||r.stdout);return r.stdout.trim();};
@@ -22,7 +23,7 @@ try{
  for(let i=0;i<60;i++){if(spawnSync("docker",["exec",name,"pg_isready","-h","127.0.0.1","-U","erp"]).status===0)break;await new Promise(r=>setTimeout(r,250));}
  const url=`postgres://erp:erp@127.0.0.1:${docker(["port",name,"5432/tcp"]).split(":").at(-1)}/erp`;pool=new pg.Pool({connectionString:url});const migrations=loadMigrationFiles();validateMigrationSet(migrations);for(const m of migrations)await pool.query(m.sql);await pool.query(postgresLiveBusinessSeedSql);
  await pool.query("INSERT INTO users(id,login_name,display_name) VALUES ('U-PRICE','group-correction.test','合成整组更正');INSERT INTO customers(id,biz_no,name) VALUES ('C-PRICE','C-PRICE','合成整组客户');UPDATE price_table_items SET bag_price=.90 WHERE price_table_id='PT-TEST-PUBLISHED'");
- const w=officePricingWorkspace({print:true});Object.assign(w,{orderDraftRepository:createPostgresOrderDraftRepository({databaseUrl:url}),orderConfirmationTransactionRepository:createPostgresOrderConfirmationTransactionRepository({databaseUrl:url}),coreWorkspaceReadRepository:createPostgresCoreWorkspaceReadRepository({databaseUrl:url}),orderLineQuantityAdjustmentTransactionRepository:createPostgresOrderLineQuantityAdjustmentTransactionRepository({databaseUrl:url})});
+ const w=officePricingWorkspace({print:true});Object.assign(w,{orderDraftRepository:createPostgresOrderDraftRepository({databaseUrl:url}),orderConfirmationTransactionRepository:createPostgresOrderConfirmationTransactionRepository({databaseUrl:url}),coreWorkspaceReadRepository:createPostgresCoreWorkspaceReadRepository({databaseUrl:url}),orderLineQuantityAdjustmentTransactionRepository:createPostgresOrderLineQuantityAdjustmentTransactionRepository({databaseUrl:url}),rawMaterialInboundRepository:createPostgresRawMaterialInboundRepository({databaseUrl:url}),printJobRepository:createPostgresPrintJobRepository({databaseUrl:url})});
  const rawLine=structuredClone(w.orderDrafts[0].lines[0]);let seq=0;
  async function createGroup(memberCount=2){
   const id=`D-GROUP-CORRECTION-${++seq}`;w.currentPricingDraftId=id;
