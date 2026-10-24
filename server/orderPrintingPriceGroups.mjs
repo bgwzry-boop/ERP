@@ -1,3 +1,5 @@
+import {hasExecutedDelivery} from "./orderMutationDeliveryGuard.mjs";
+import {assertOrderDocumentsVoided} from "./orderMutationDocumentGuard.mjs";
 import { createHash } from "node:crypto";
 import { normalizeMiniappSize } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
@@ -101,6 +103,48 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
   return [...groups.values()];
 }
 
+// A roll/machine or an order alone cannot prove which production process ran.
+// Follow only the immutable consumption -> exact issue -> printing-task identity.
+export function hasPrintingMaterialConsumption(workspace, taskIds) {
+  const ids = new Set(taskIds);
+  return (workspace.rawMaterialInbounds ?? []).some(inbound => (inbound.rawMaterialConsumptionRecords ?? []).some(record => {
+    if (!(Number(record.consumedWeightKg) > 0 || Number(record.consumedQuantity) > 0)) return false;
+    const issue = (inbound.rawMaterialIssueRecords ?? []).find(row => row.issueRecordId === record.issueRecordId && row.rollId === record.rollId);
+    return ids.has(record.productionTaskId || issue?.productionTaskId);
+  }));
+}
+export function assertPrintingMaterialsUnconsumed(workspace, taskIds) {
+  if (hasPrintingMaterialConsumption(workspace, taskIds)) throw orderPricingError("ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE", "原印刷任务已有实际原料消耗，不能再按未开印同批补单修改原价；仅领料不等于已开印。");
+}
+export async function refreshPrintingConsumptionFacts(workspace, {required = true} = {}) {
+  if (required && workspace.coreWorkspaceReadRepository?.kind === "postgres") {
+    const state = await workspace.coreWorkspaceReadRepository.loadState();
+    const keys = ["orderLines","priceSnapshots","productionTasks","workshopReports","fulfillments","statementLines","printRecords","paperOutboundDocuments"];
+    if (keys.some(key => !Array.isArray(state?.[key]))) throw orderPricingError("ORDER_PRINT_CONSUMPTION_SOURCE_UNAVAILABLE", "印刷原单和单据读取不完整，尚未修改订单。", 503);
+    for (const [key,value] of Object.entries(state)) if (Array.isArray(value)) workspace[key] = value;
+  }
+  if (required) {
+    if (workspace.printJobRepository?.loadState) {
+      const jobs = await workspace.printJobRepository.loadState();
+      if (!Array.isArray(jobs?.printJobs)) throw orderPricingError("ORDER_PRINT_CONSUMPTION_SOURCE_UNAVAILABLE", "当前打印任务读取不完整，尚未修改订单。", 503);
+      workspace.printJobs = jobs.printJobs;
+    } else if (workspace.coreWorkspaceReadRepository?.kind === "postgres") throw orderPricingError("ORDER_PRINT_CONSUMPTION_SOURCE_UNAVAILABLE", "当前打印任务读取不完整，尚未修改订单。", 503);
+  }
+  if (workspace.rawMaterialInboundRepository?.loadState) {
+    const state = await workspace.rawMaterialInboundRepository.loadState();
+    if (Array.isArray(state?.rawMaterialInbounds)) { workspace.rawMaterialInbounds = state.rawMaterialInbounds; return; }
+  } else if (workspace.coreWorkspaceReadRepository?.kind !== "postgres") return;
+  if (required) throw orderPricingError("ORDER_PRINT_CONSUMPTION_SOURCE_UNAVAILABLE", "印刷实际耗料读取不完整，请重新读取后核对；尚未修改订单。", 503);
+}
+export function printingMaterialConsumptionAbsentSql(taskIdQuery) {
+  return `NOT EXISTS(SELECT 1 FROM raw_material_inbounds inbound
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(inbound.payload_json->'rawMaterialConsumptionRecords','[]'::jsonb)) consumed
+    LEFT JOIN LATERAL (SELECT issue FROM jsonb_array_elements(COALESCE(inbound.payload_json->'rawMaterialIssueRecords','[]'::jsonb)) issue
+      WHERE issue->>'issueRecordId'=consumed->>'issueRecordId' AND issue->>'rollId'=consumed->>'rollId' LIMIT 1) matched ON true
+    WHERE (CASE WHEN consumed->>'consumedWeightKg' ~ '^[0-9]+([.][0-9]+)?$' THEN (consumed->>'consumedWeightKg')::numeric ELSE 0 END > 0
+      OR CASE WHEN consumed->>'consumedQuantity' ~ '^[0-9]+([.][0-9]+)?$' THEN (consumed->>'consumedQuantity')::numeric ELSE 0 END > 0)
+    AND COALESCE(NULLIF(consumed->>'productionTaskId',''),matched.issue->>'productionTaskId') IN (${taskIdQuery}))`;
+}
 export function assertUnstartedPrintingSupplement(workspace, rows, customerId) {
   for (const row of rows) {
     const id = row.id ?? row.orderLineId;
@@ -109,6 +153,8 @@ export function assertUnstartedPrintingSupplement(workspace, rows, customerId) {
         (task.orderLineId ?? task.lineId) === id &&
         /丝印|印刷/u.test(task.taskType),
     );
+    assertPrintingMaterialsUnconsumed(workspace, tasks.map(task => task.id ?? task.productionTaskId));
+    assertOrderDocumentsVoided(workspace, id);
     if (
       row.customerId !== customerId ||
       !isPrivatePrinting(row) ||
@@ -135,21 +181,10 @@ export function assertUnstartedPrintingSupplement(workspace, rows, customerId) {
       (workspace.statementLines ?? []).some(
         (line) => line.orderLineId === id,
       ) ||
-      (workspace.paperOutboundDocuments ?? []).some(
-        (document) =>
-          document.status !== "已作废" &&
-          (document.orderLineId === id ||
-            (workspace.fulfillments ?? []).some(
-              (fulfillment) =>
-                (fulfillment.orderLineId ?? fulfillment.lineId) === id &&
-                (fulfillment.id ?? fulfillment.fulfillmentId) ===
-                  document.fulfillmentId,
-            )),
-      ) ||
       (workspace.fulfillments ?? []).some(
         (fulfillment) =>
           (fulfillment.orderLineId ?? fulfillment.lineId) === id &&
-          /配送中|已交付|已拉走|已自提/u.test(text(fulfillment.status)),
+          (hasExecutedDelivery(fulfillment) || /配送中|已交付|已拉走|已自提/u.test(text(fulfillment.status))),
       )
     ) {
       throw orderPricingError(

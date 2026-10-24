@@ -17,7 +17,10 @@ import {
 import { createPostgresOrderDraftRepository } from "../server/orderDraftRepository.mjs";
 import { createPostgresOrderConfirmationTransactionRepository } from "../server/orderConfirmationTransactionRepository.mjs";
 import { createPostgresCoreWorkspaceReadRepository } from "../server/coreWorkspaceReadRepository.mjs";
-import { closeSharedPostgresPools } from "../server/postgresPoolClient.mjs";
+import { closeSharedPostgresPools,createPostgresPoolClient } from "../server/postgresPoolClient.mjs";
+import {createPostgresRawMaterialInboundRepository} from "../server/rawMaterialInboundRepository.mjs";
+import {createPostgresPrintJobRepository} from "../server/printJobRepository.mjs";
+import {applyRawMaterialInboundAction} from "../server/services/rawMaterialInboundCommandService.mjs";
 const name = `erp-office-quote-${process.pid}-${Date.now()}`;
 const docker = (args) => {
   const r = spawnSync("docker", args, { encoding: "utf8" });
@@ -74,6 +77,8 @@ try {
     createPostgresOrderConfirmationTransactionRepository({ databaseUrl: url });
   workspace.coreWorkspaceReadRepository =
     createPostgresCoreWorkspaceReadRepository({ databaseUrl: url });
+  workspace.rawMaterialInboundRepository=createPostgresRawMaterialInboundRepository({databaseUrl:url});
+  workspace.printJobRepository=createPostgresPrintJobRepository({databaseUrl:url});
   async function saveDraft(lines, key) {
     const prior = workspace.orderDrafts[0];
     const id = `D-PRICE-${key}`;
@@ -149,10 +154,11 @@ try {
   );
   assert.deepEqual(await counts(), before);
   // A concurrent start invalidates the frozen quote at the actual transaction.
-  await pool.query(
-    "UPDATE production_tasks SET task_status='丝印中',revision=revision+1 WHERE order_line_id=$1",
-    [oldLine],
-  );
+  const startingRepository=workspace.orderConfirmationTransactionRepository;
+  workspace.orderConfirmationTransactionRepository={...startingRepository,confirmOrder:async input=>{
+    await pool.query("UPDATE production_tasks SET task_status='丝印中',revision=revision+1 WHERE order_line_id=$1",[oldLine]);
+    return startingRepository.confirmOrder(input);
+  }};
   await assert.rejects(
     confirmQuote(
       workspace,
@@ -163,10 +169,46 @@ try {
     { statusCode: 409 },
   );
   assert.deepEqual(await counts(), before);
+  workspace.orderConfirmationTransactionRepository=startingRepository;
   await pool.query(
     "UPDATE production_tasks SET task_status='待排产',revision=revision-1 WHERE order_line_id=$1",
     [oldLine],
   );
+  const printingTask=(await pool.query("SELECT id FROM production_tasks WHERE order_line_id=$1 AND task_type ~ '丝印|印刷'",[oldLine])).rows[0].id;
+  let rawSequence=0;
+  async function issuedRaw() {
+    const id=`RM-SUP-EXECUTION-${++rawSequence}`,rollId=`${id}-ROLL`,issueRecordId=`${id}-ISSUE`;
+    const inbound={id,revision:1,status:'已入库',unit:'kg',rolls:[{id:rollId,weightKg:10,inventoryStatus:'机边领用',issueRecordId,machineId:'SYNTHETIC-PRINT-MACHINE',productionTaskId:printingTask}],rawMaterialIssueRecords:[{issueRecordId,rollId,machineId:'SYNTHETIC-PRINT-MACHINE',productionTaskId:printingTask,productionTaskOrderLineId:oldLine}]};
+    await pool.query("INSERT INTO raw_material_inbounds(id,status,payload_json,revision) VALUES($1,'已入库',$2::jsonb,1)",[id,JSON.stringify(inbound)]);
+    return {id,rollId};
+  }
+  function pauseCommit() {
+    let release,entered,pid;const enteredPromise=new Promise(r=>entered=r),gate=new Promise(r=>release=r);
+    const client=createPostgresPoolClient({pool:{query:(...args)=>pool.query(...args),async connect(){const c=await pool.connect();pid=(await c.query('SELECT pg_backend_pid() pid')).rows[0].pid;return {query:async(...args)=>{const query=args[0];if((typeof query==='string'?query:query.text)==='COMMIT'){entered();await gate;}return c.query(...args);},release:()=>c.release()};}}});
+    return {client,entered:enteredPromise,release:()=>release(),pid:()=>pid};
+  }
+  async function waitForRealWait(pid) {
+    for(let i=0;i<250;i++){if((await pool.query('SELECT 1 FROM pg_stat_activity WHERE $1::integer=ANY(pg_blocking_pids(pid))',[pid])).rowCount)return;await new Promise(r=>setTimeout(r,10));}
+    throw Error('Expected the actual order-line advisory/row lock wait');
+  }
+  async function consumeRaw(raw,repository,key) {
+    const body={expectedRevision:1,rollId:raw.rollId,consumedWeightKg:5};
+    return repository.applyInboundAction({workspace,inboundId:raw.id,action:'confirm_consumption',body,idempotencyKey:key,idempotencyPayload:body,operatorId:'U-PRICE',decide:({workspace:current,inbounds})=>applyRawMaterialInboundAction({workspace:current,inbounds,inboundId:raw.id,action:'confirm_consumption',body,operatorId:'U-PRICE',serverNow:'2026-10-24T04:00:00Z'})});
+  }
+  // Actual raw writer owns the order lock and has written 5kg, but its commit is paused.
+  const forwardRaw=await issuedRaw(),forwardPause=pauseCommit();
+  const writing=consumeRaw(forwardRaw,createPostgresRawMaterialInboundRepository({postgresClient:forwardPause.client}),'pg-supplement-consuming-first');
+  await forwardPause.entered;
+  const forwardConfirm=confirmQuote(workspace,sup.response.quote,{confirmedAffectedOrderLineIds:[oldLine]},'pg-supplement-consumption-wins').then(value=>({value}),error=>({error}));
+  await waitForRealWait(forwardPause.pid());forwardPause.release();
+  const actualConsumption=await writing;assert.equal(actualConsumption.inbound.rawMaterialConsumptionRecords[0].consumedWeightKg,5);
+  const forward=await forwardConfirm;assert.equal(forward.error?.statusCode,409,'After lock wait the SQL must see committed printing consumption');
+  assert.deepEqual(await counts(),before,'No supplemental order, old-price revision or draft/audit change survives the rejection');
+  assert.equal((await makeQuote(workspace,{supplementation},'pg-after-consumption-quote')).code,'ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE');
+  assert.equal((await confirmQuote(workspace,sup.response.quote,{confirmedAffectedOrderLineIds:[oldLine]},'pg-after-consumption-confirm')).code,'ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE');
+  assert.equal(Number((await pool.query("SELECT payload_json->'rawMaterialConsumptionRecords'->0->>'consumedWeightKg' qty FROM raw_material_inbounds WHERE id=$1",[forwardRaw.id])).rows[0].qty),5,'Rejected price changes preserve the original 5kg evidence');
+  // Only reset this disposable fixture between independent race directions.
+  await pool.query('DELETE FROM raw_material_inbounds WHERE id=$1',[forwardRaw.id]);
   const replayDraft = workspace.orderDrafts.find(
     (d) => d.id === workspace.currentPricingDraftId,
   );
@@ -177,13 +219,23 @@ try {
     confirmedAffectedOrderLineIds: [oldLine],
     idempotencyKey: "office-pricing-confirm-pg-supplement-ok",
   };
-  const confirmed = await confirmQuote(
-    workspace,
-    sup.response.quote,
-    { confirmedAffectedOrderLineIds: [oldLine] },
-    "pg-supplement-ok",
-  );
-  assert.ok(confirmed.response, JSON.stringify(confirmed));
+  // Reverse race: actual supplemental confirmation commits first. A consumption
+  // prepared against the old line revision must roll back, never attach silently.
+  const reverseRaw=await issuedRaw(),confirmationPause=pauseCommit(),normalConfirmation=workspace.orderConfirmationTransactionRepository;
+  workspace.orderConfirmationTransactionRepository=createPostgresOrderConfirmationTransactionRepository({postgresClient:confirmationPause.client});
+  const confirming=confirmQuote(workspace,sup.response.quote,{confirmedAffectedOrderLineIds:[oldLine]},'pg-supplement-ok');
+  await confirmationPause.entered;
+  const staleConsume=consumeRaw(reverseRaw,workspace.rawMaterialInboundRepository,'pg-consume-after-supplement-lock').then(value=>({value}),error=>({error}));
+  await waitForRealWait(confirmationPause.pid());confirmationPause.release();
+  const confirmed=await confirming;assert.ok(confirmed.response,JSON.stringify(confirmed));
+  workspace.orderConfirmationTransactionRepository=normalConfirmation;
+  const reverse=await staleConsume;assert.equal(reverse.error?.statusCode,409,'Stale consume must compare the new original-line revision after waiting');
+  const unconsumed=(await pool.query('SELECT payload_json FROM raw_material_inbounds WHERE id=$1',[reverseRaw.id])).rows[0].payload_json;
+  assert.equal(unconsumed.rawMaterialConsumptionRecords?.length??0,0);assert.equal(unconsumed.rolls[0].weightKg,10);
+  // A new reviewed consumption is legitimate after the completed supplement;
+  // the old exact success must remain replayable ahead of all later facts.
+  const later=await consumeRaw(reverseRaw,workspace.rawMaterialInboundRepository,'pg-later-reviewed-consumption');
+  assert.equal(later.inbound.rawMaterialConsumptionRecords[0].consumedWeightKg,5);
   assert.deepEqual(
     (
       await pool.query("SELECT * FROM price_snapshots WHERE id=$1", [
@@ -324,7 +376,7 @@ try {
       .response,
   );
   console.log(
-    "Office pricing PostgreSQL: persisted server quote, immutable original + atomic cross-order pricing revision/audit, affected acknowledgements, concurrent printing start, exact material-source conflict/rollback and successful special confirmation passed.",
+    "Office pricing PostgreSQL: persisted server quote, immutable original + atomic cross-order pricing revision/audit, affected acknowledgements, concurrent printing start, exact material-source conflict/rollback and successful special confirmation; real printing-consumption versus supplemental confirmation locks in both directions, 5kg retention and later-consumption exact original receipt replay passed.",
   );
 } finally {
   if (pool) await pool.end();

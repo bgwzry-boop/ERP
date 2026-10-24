@@ -146,6 +146,8 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
           ...(input.orders ?? [input.order]).map((item) => `order:${item?.orderId ?? item?.id ?? ""}`),
           `order-draft:${input.orderDraft?.id ?? input.order?.sourceDraftId ?? ""}`,
           ...(input.officePriceQuote?.relatedRevisions ?? []).flatMap(row => [`order-line:${row.orderLineId}`, ...row.productionTasks.map(task => `production-task:${task.id}`)]),
+          ...(input.workspace?.fulfillments ?? []).filter(row => (input.officePriceQuote?.relatedRevisions ?? []).some(member => member.orderLineId === (row.orderLineId ?? row.lineId)))
+            .map(row => row.packingGroupAnchorId ?? row.packing_group_anchor_id).filter(Boolean).map(id => `packing-group:${id}`),
           ...(input.inventoryReservations ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
           ...(input.shortageCancellationIntents ?? []).map((item) => `inventory-intent:${item.id ?? item.intentId ?? ""}`),
         ],
@@ -220,6 +222,7 @@ export function buildConfirmOrderTransactionQuery(input) {
   return {
     text: buildConfirmOrderTransactionText(input, parameters),
     values: parameters.values,
+    orderLineLockIds: (input.officePriceQuote?.relatedRevisions ?? []).map(row => row.orderLineId).sort(),
   };
 }
 

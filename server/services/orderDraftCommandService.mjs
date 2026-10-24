@@ -9,7 +9,7 @@ import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "..
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
-import { buildOrderPrintingPriceGroups } from "../orderPrintingPriceGroups.mjs";
+import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
 import { buildOfficeDraftPricingQuote, officeQuoteProjection, assertOfficeQuoteMatches } from "../orderDraftPricingQuote.mjs";
 
 export function createOrderDraftCommandService(dependencies = {}) {
@@ -668,7 +668,18 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (reviewError) return reviewError;
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
-      try { assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions); }
+      try {
+        assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions);
+        if (officePriceQuote.relatedRevisions.length) {
+          await refreshPrintingConsumptionFacts(workspace);
+          const related = officePriceQuote.relatedRevisions.map(row => {
+            const line = workspace.orderLines.find(line => (line.id ?? line.orderLineId) === row.orderLineId);
+            if (!line) throw Object.assign(new Error("关联原印刷订单已变化，请重新核对。"), {statusCode:409,code:"ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE"});
+            return {...line, printContent:row.priorPrice.sourceEvidence?.officeQuoteInput?.printContent || line.printContent};
+          });
+          assertUnstartedPrintingSupplement(workspace, related, previous.customerId);
+        }
+      }
       catch (error) { return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } }; }
     }
     let publishedPricing;
@@ -936,7 +947,18 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (reviewError) return reviewError;
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
-      try { assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions); }
+      try {
+        assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions);
+        if (officePriceQuote.relatedRevisions.length) {
+          await refreshPrintingConsumptionFacts(workspace);
+          const related = officePriceQuote.relatedRevisions.map(row => {
+            const line = workspace.orderLines.find(line => (line.id ?? line.orderLineId) === row.orderLineId);
+            if (!line) throw Object.assign(new Error("关联原印刷订单已变化，请重新核对。"), {statusCode:409,code:"ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE"});
+            return {...line, printContent:row.priorPrice.sourceEvidence?.officeQuoteInput?.printContent || line.printContent};
+          });
+          assertUnstartedPrintingSupplement(workspace, related, previous.customerId);
+        }
+      }
       catch (error) { return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } }; }
     }
     let publishedPricing;

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createApiServer } from "../server/apiServer.mjs";
+import { createLocalOrderConfirmationTransactionRepository } from "../server/orderConfirmationTransactionRepository.mjs";
 import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 import { buildPublishedOrderPriceFixture } from "./helpers/publishedOrderPriceFixture.mjs";
 import {
@@ -69,6 +70,18 @@ for (const mutate of [
   );
 }
 const storageRoot = await mkdtemp(join(tmpdir(), "erp-office-quote-http-"));
+const localConfirmation = createLocalOrderConfirmationTransactionRepository();
+let liveWorkspace;
+const printer = {
+  id: "PRINTER-HTTP-PRICING",
+  printDeviceId: "PRINTER-HTTP-PRICING",
+  name: "合成办公室打印机",
+  status: "active",
+  driverMode: "system_printer",
+  connectionType: "system_printer",
+  supportedDocumentTypes: ["pickup_note"],
+  defaultDocumentTypes: ["pickup_note"],
+};
 const server = createApiServer(
   withLocalRepositoryFixture({
     runtimeMode: "test",
@@ -81,6 +94,22 @@ const server = createApiServer(
     allowLegacyIdentityHeaders: false,
     allowActionPermissionOverride: false,
     allowDefaultSeedUser: false,
+    orderConfirmationTransactionRepository: {
+      ...localConfirmation,
+      confirmOrder(input) {
+        const result = localConfirmation.confirmOrder(input);
+        liveWorkspace = input.workspace;
+        return result;
+      },
+    },
+    printDeviceRepository: {
+      async listPrintDevices() {
+        return [printer];
+      },
+      async getDefaultPrintDevice() {
+        return printer;
+      },
+    },
     coreWorkspaceReadRepository: {
       kind: "local_memory",
       loadState: () => buildPublishedOrderPriceFixture({ bagPrice: 0.9 }),
@@ -193,8 +222,277 @@ try {
     finish.body.priceSnapshots[0].overrideReason,
     "客户议价，已核对本单成交价",
   );
+
+  const workspaceFacts = () =>
+    structuredClone(
+      Object.fromEntries(
+        [
+          "orderDrafts",
+          "orders",
+          "orderLines",
+          "productionTasks",
+          "priceSnapshots",
+          "fulfillments",
+          "inventories",
+          "inventoryReservations",
+          "inventoryLedgerEntries",
+          "orderLineChangeRecords",
+          "operationLogs",
+          "rawMaterialInbounds",
+          "printRecords",
+          "printJobs",
+          "paperOutboundDocuments",
+        ].map((key) => [key, liveWorkspace[key] ?? []]),
+      ),
+    );
+  const printLines = (draft, content) =>
+    draft.lines.map((row) => ({
+      ...row,
+      orderType: "custom_print",
+      print: "是",
+      printFlag: true,
+      product: content,
+      productName: content,
+      printSide: "单面",
+      printColor: "黑色",
+      printContent: content,
+      artworkStatus: "已上传",
+    }));
+  const originalPrintingOrder = async (key) => {
+    const source = await create(`${key}-original`);
+    const rows = printLines(source, `合成HTTP商标-${key}`);
+    const quote = await api(`/order-drafts/${source.draft.draftId}/price-quote`, {
+      expectedRevision: source.draft.clientRevision,
+      lines: rows,
+      idempotencyKey: `${key}-original-quote`,
+    });
+    assert.equal(quote.status, 200, JSON.stringify(quote.body));
+    const saved = await api(`/order-drafts/${source.draft.draftId}/confirm`, {
+      expectedRevision: quote.body.quote.clientRevision,
+      lines: rows,
+      pricingQuoteId: quote.body.quote.quoteId,
+      idempotencyKey: `${key}-original-confirm`,
+    });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const orderLineId = saved.body.orderLines[0].id;
+    const task = liveWorkspace.productionTasks.find(
+      (row) =>
+        (row.orderLineId ?? row.lineId) === orderLineId &&
+        /丝印|印刷/u.test(row.taskType),
+    );
+    assert.ok(task, "A confirmed printing order has an actual printing task");
+    return { orderLineId, task, content: rows[0].printContent };
+  };
+  const prepareSupplement = async (original, key) => {
+    const source = await create(`${key}-supplement`);
+    const rows = printLines(source, original.content);
+    const body = {
+      expectedRevision: source.draft.clientRevision,
+      lines: rows,
+      supplementation: {
+        orderLineIds: [original.orderLineId],
+        targetDraftLineId: rows[0].draftLineId,
+        confirmedSameBatch: true,
+        batchReference: `HTTP-SAME-BATCH-${key}`,
+        reason: "客户补单，在原印刷批次开印前一同印刷",
+      },
+      idempotencyKey: `${key}-supplement-quote`,
+    };
+    const quote = await api(
+      `/order-drafts/${source.draft.draftId}/price-quote`,
+      body,
+    );
+    assert.equal(quote.status, 200, JSON.stringify(quote.body));
+    assert.equal(quote.body.quote.affectedOrders[0].revisedPrintPrice, 0.06);
+    return {
+      draftId: source.draft.draftId,
+      quote: quote.body.quote,
+      rows,
+      quoteBody: { ...body, expectedRevision: quote.body.quote.clientRevision },
+      confirmBody: {
+        expectedRevision: quote.body.quote.clientRevision,
+        lines: rows,
+        pricingQuoteId: quote.body.quote.quoteId,
+        confirmedAffectedOrderLineIds: [original.orderLineId],
+        idempotencyKey: `${key}-supplement-confirm`,
+      },
+    };
+  };
+  const issueMaterial = async (original, key, task = original.task) => {
+    const inboundId = `RAW-HTTP-${key}`;
+    const rollId = `ROLL-HTTP-${key}`;
+    const taskId = task.id ?? task.productionTaskId;
+    const issueRecordId = `ISSUE-HTTP-${key}`;
+    await liveWorkspace.rawMaterialInboundRepository.createRawMaterialInboundDraft({
+      workspace: liveWorkspace,
+      inbound: {
+        id: inboundId,
+        revision: 1,
+        status: "已入库",
+        unit: "kg",
+        supplierName: "合成原料厂",
+        rolls: [
+          {
+            id: rollId,
+            weightKg: 10,
+            inventoryStatus: "机边领用",
+            issueRecordId,
+            productionTaskId: taskId,
+            machineId: task.machineId || "PRINT-HTTP-01",
+          },
+        ],
+        rawMaterialIssueRecords: [
+          {
+            issueRecordId,
+            rollId,
+            machineId: task.machineId || "PRINT-HTTP-01",
+            productionTaskId: taskId,
+            productionTaskOrderLineId: original.orderLineId,
+            productionTaskMatchStatus: "已匹配",
+          },
+        ],
+      },
+    });
+    return { inboundId, rollId };
+  };
+  const consumeMaterial = async ({ inboundId, rollId }, key) => {
+    const consumed = await api(
+      `/raw-material-inbounds/${inboundId}/confirm-consumption`,
+      {
+        rollId,
+        expectedRevision: 1,
+        consumedWeightKg: 5,
+        idempotencyKey: `${key}-consume`,
+      },
+    );
+    assert.equal(consumed.status, 200, JSON.stringify(consumed.body));
+    assert.equal(
+      consumed.body.inbound.rawMaterialConsumptionRecords[0].consumedWeightKg,
+      5,
+    );
+    assert.equal(
+      (await liveWorkspace.rawMaterialInboundRepository.loadState())
+        .rawMaterialInbounds.find((row) => row.id === inboundId)
+        .rawMaterialConsumptionRecords[0].consumedWeightKg,
+      5,
+      "The signed consumption endpoint persisted a real positive consumption",
+    );
+  };
+  const rejectStaleAndFreshSupplement = async (supplement, key, code) => {
+    liveWorkspace.rawMaterialInbounds = (
+      await liveWorkspace.rawMaterialInboundRepository.loadState()
+    ).rawMaterialInbounds;
+    liveWorkspace.printJobs = (
+      await liveWorkspace.printJobRepository.loadState()
+    ).printJobs;
+    const before = workspaceFacts();
+    const stale = await api(
+      `/order-drafts/${supplement.draftId}/confirm`,
+      supplement.confirmBody,
+    );
+    assert.equal(stale.status, 409, JSON.stringify(stale.body));
+    assert.equal(stale.body.code, code);
+    assert.deepEqual(workspaceFacts(), before, "A stale quote writes no order/price/audit data");
+    const fresh = await api(
+      `/order-drafts/${supplement.draftId}/price-quote`,
+      { ...supplement.quoteBody, idempotencyKey: `${key}-fresh-quote` },
+    );
+    assert.equal(fresh.status, 409, JSON.stringify(fresh.body));
+    assert.equal(fresh.body.code, code);
+    assert.deepEqual(workspaceFacts(), before, "A rejected fresh quote changes no business data");
+  };
+
+  // The original task remains pending: only the real 5kg consumption proves
+  // that printing has executed. A quote obtained before it must also fail.
+  const consumedOriginal = await originalPrintingOrder("print-consumed");
+  const consumedRoll = await issueMaterial(consumedOriginal, "print-consumed");
+  const consumedSupplement = await prepareSupplement(consumedOriginal, "print-consumed");
+  await consumeMaterial(consumedRoll, "print-consumed");
+  await rejectStaleAndFreshSupplement(
+    consumedSupplement,
+    "print-consumed",
+    "ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE",
+  );
+
+  // Merely issuing a roll to the printing task is still eligible; do not
+  // mistake a machine-side location for a positive consumption record.
+  const issuedOriginal = await originalPrintingOrder("issued-only");
+  await issueMaterial(issuedOriginal, "issued-only");
+  const issuedSupplement = await prepareSupplement(issuedOriginal, "issued-only");
+  const issuedConfirmed = await api(
+    `/order-drafts/${issuedSupplement.draftId}/confirm`,
+    issuedSupplement.confirmBody,
+  );
+  assert.equal(issuedConfirmed.status, 200, JSON.stringify(issuedConfirmed.body));
+
+  // A bag-making task/report and material consumption do not prove that the
+  // separate printing task has started. Both phases share the order identity.
+  const bagOriginal = await originalPrintingOrder("bag-only");
+  const bagTask = {
+    ...bagOriginal.task,
+    id: `TASK-BAG-HTTP-${bagOriginal.orderLineId}`,
+    productionTaskId: `TASK-BAG-HTTP-${bagOriginal.orderLineId}`,
+    taskType: "制袋",
+    taskStatus: "制袋中",
+    status: "制袋中",
+    machineId: "BAG-HTTP-01",
+  };
+  liveWorkspace.productionTasks.push(bagTask);
+  liveWorkspace.workshopReports.push({
+    id: `REPORT-BAG-HTTP-${bagOriginal.orderLineId}`,
+    orderLineId: bagOriginal.orderLineId,
+    productionTaskId: bagTask.id,
+    processType: "制袋",
+    actualQty: 10,
+  });
+  const bagRoll = await issueMaterial(bagOriginal, "bag-only", bagTask);
+  await consumeMaterial(bagRoll, "bag-only");
+  const bagSupplement = await prepareSupplement(bagOriginal, "bag-only");
+  const bagConfirmed = await api(
+    `/order-drafts/${bagSupplement.draftId}/confirm`,
+    bagSupplement.confirmBody,
+  );
+  assert.equal(bagConfirmed.status, 200, JSON.stringify(bagConfirmed.body));
+
+  // Legacy status labels cannot hide an actual delivery timestamp.
+  const deliveredOriginal = await originalPrintingOrder("physical-outbound");
+  const deliveredSupplement = await prepareSupplement(deliveredOriginal, "physical-outbound");
+  const deliveredFulfillment = liveWorkspace.fulfillments.find(
+    (row) => (row.orderLineId ?? row.lineId) === deliveredOriginal.orderLineId,
+  );
+  assert.ok(deliveredFulfillment);
+  deliveredFulfillment.status = "待出库";
+  deliveredFulfillment.physicalOutboundAt = new Date().toISOString();
+  await rejectStaleAndFreshSupplement(
+    deliveredSupplement,
+    "physical-outbound",
+    "ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE",
+  );
+
+  // A real signed print command persists its paper, record and queued job.
+  // Supplementation must request explicit voiding instead of hiding them.
+  const printedOriginal = await originalPrintingOrder("active-paper");
+  const printedSupplement = await prepareSupplement(printedOriginal, "active-paper");
+  const printedFulfillment = liveWorkspace.fulfillments.find(
+    (row) => (row.orderLineId ?? row.lineId) === printedOriginal.orderLineId,
+  );
+  const printed = await api(`/fulfillments/${printedFulfillment.id}/print`, {
+    printAction: "first_print",
+    printDeviceId: printer.id,
+    idempotencyKey: "http-supplement-active-paper",
+  });
+  assert.equal(printed.status, 200, JSON.stringify(printed.body));
+  assert.ok(printed.body.printRecord);
+  assert.ok(liveWorkspace.paperOutboundDocuments.some(
+    (row) => row.fulfillmentId === printedFulfillment.id && row.status !== "已作废",
+  ));
+  await rejectStaleAndFreshSupplement(
+    printedSupplement,
+    "active-paper",
+    "ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT",
+  );
   console.log(
-    "Office pricing signed HTTP: anonymous denial; current server price and quote id required; authorized special per-order price/reason/actor; immutable confirm snapshot and client fake-price rejection passed.",
+    "Office pricing signed HTTP: anonymous denial; authoritative quote and audited override; immutable accepted snapshots; real persisted 5kg printing consumption, delivery timestamps and signed active printing reject stale confirmation and fresh supplementation without partial writes; issue-only and bag-making execution/consumption remain eligible passed.",
   );
 } finally {
   await closeTestServer(server);

@@ -10,6 +10,7 @@ import { resolvedOrderPricingMaterialSnapshot } from "./orderPricingMaterialSour
 import {
   buildOrderPrintingPriceGroups,
   assertUnstartedPrintingSupplement,
+  refreshPrintingConsumptionFacts,
   printingGroupIdentity,
   roundOrderMoney as money,
   orderPricingError as fail,
@@ -98,11 +99,7 @@ export async function buildOfficeDraftPricingQuote({
     );
   for (const [key, value] of Object.entries(sourceState))
     if (Array.isArray(value)) workspace[key] = value;
-  if (workspace.rawMaterialInboundRepository?.loadState) {
-    const state = await workspace.rawMaterialInboundRepository.loadState();
-    if (Array.isArray(state?.rawMaterialInbounds))
-      workspace.rawMaterialInbounds = state.rawMaterialInbounds;
-  }
+  await refreshPrintingConsumptionFacts(workspace, {required: Boolean(body.supplementation?.orderLineIds?.length)});
   const overrides = Array.isArray(body.overrides) ? body.overrides : [];
   if (overrides.length && !actionPermissions.includes("order.price.override"))
     throw fail(

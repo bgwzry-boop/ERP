@@ -1,3 +1,5 @@
+import {orderDeliveryNotExecutedSql} from "./orderMutationDeliveryGuard.mjs";
+import {orderMutationDocumentLocksSql,orderMutationDocumentGuardSql} from "./orderMutationDocumentGuard.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { assertPublishedOrderPriceSource } from "./orderDraftPublishedPricing.mjs";
 import {
@@ -6,6 +8,7 @@ import {
 } from "./orderPricingMaterialSource.mjs";
 import {
   assertUnstartedPrintingSupplement,
+  printingMaterialConsumptionAbsentSql,
   orderPricingError,
 } from "./orderPrintingPriceGroups.mjs";
 
@@ -109,6 +112,9 @@ export function buildOfficePricingConfirmationCtes(
   const idSql = ids.length
     ? ids.map((id) => parameters.text(id)).join(",")
     : "''";
+  const documentPrefix = (sql,index) => sql.replace(/\blocked_mutation_\w+\b/g, `supplement${index}_$&`);
+  const documentLocks = revisions.map((row,index) => documentPrefix(orderMutationDocumentLocksSql(parameters.text(row.orderLineId)), index)).join("\n");
+  const documentGuards = revisions.map((_row,index) => documentPrefix(orderMutationDocumentGuardSql(),index)).join("\n");
   const checks =
     revisions
       .map(
@@ -121,8 +127,9 @@ export function buildOfficePricingConfirmationCtes(
       AND (SELECT COALESCE(jsonb_agg(jsonb_build_object('id',t.id,'revision',t.revision,'status',t.task_status) ORDER BY t.id),'[]'::jsonb) FROM locked_pricing_related_tasks t WHERE t.order_line_id=l.id)=${parameters.json([...row.productionTasks].sort((a, b) => a.id.localeCompare(b.id)))}
       AND NOT EXISTS(SELECT 1 FROM locked_pricing_related_tasks t WHERE t.order_line_id=l.id AND t.task_status NOT IN ('待排产','丝印已排产','待开始','未开始'))
       AND NOT EXISTS(SELECT 1 FROM workshop_reports r WHERE r.order_line_id=l.id AND (r.process_type ~ '丝印|印刷' OR r.production_task_id IN (SELECT t.id FROM locked_pricing_related_tasks t WHERE t.order_line_id=l.id)))
+      AND ${printingMaterialConsumptionAbsentSql('SELECT id FROM locked_pricing_related_tasks WHERE order_line_id=l.id')}
       AND NOT EXISTS(SELECT 1 FROM statement_lines s WHERE s.order_line_id=l.id)
-      AND NOT EXISTS(SELECT 1 FROM fulfillment_records f WHERE f.order_line_id=l.id AND (f.status ~ '配送中|已交付|已拉走|已自提' OR EXISTS(SELECT 1 FROM paper_outbound_documents d WHERE d.fulfillment_id=f.id AND d.status<>'已作废')))
+      AND NOT EXISTS(SELECT 1 FROM locked_pricing_related_fulfillments f WHERE f.order_line_id=l.id AND (f.status ~ '配送中|已交付|已拉走|已自提' OR NOT (${orderDeliveryNotExecutedSql('f')})))
   )`,
       )
       .join(" AND ") || "true";
@@ -131,9 +138,12 @@ locked_pricing_raw_inbounds AS MATERIALIZED (SELECT * FROM raw_material_inbounds
 locked_pricing_price_releases AS MATERIALIZED (SELECT * FROM miniapp_price_releases WHERE ${quote?.materialSources?.some((source) => source.facts.publishedRelease) ? "true" : "false"} ORDER BY id FOR SHARE),
 locked_pricing_related_tasks AS MATERIALIZED (SELECT * FROM production_tasks WHERE order_line_id IN (${idSql}) AND task_type ~ '丝印|印刷' ORDER BY id FOR UPDATE),
 locked_pricing_related_prices AS MATERIALIZED (SELECT * FROM price_snapshots WHERE order_line_id IN (${idSql}) ORDER BY id FOR SHARE),
+locked_pricing_related_fulfillments AS MATERIALIZED (SELECT * FROM fulfillment_records WHERE order_line_id IN (${idSql}) ORDER BY id FOR UPDATE),
+${documentLocks}
 office_pricing_write_guard AS MATERIALIZED (
  SELECT erp_require(COALESCE((SELECT recognition_summary->'recognitionContext'->'officePriceQuote' FROM locked_order_draft),'null'::jsonb) IS NOT DISTINCT FROM ${parameters.json(quote ?? null)}
-   AND ${buildOrderPricingMaterialFactsGuard(quote?.materialSources, parameters)} AND (${checks}), 'ERP_ORDER_PRICING_QUOTE_CONFLICT') AS ok
+   AND ${buildOrderPricingMaterialFactsGuard(quote?.materialSources, parameters)} AND (${checks}), 'ERP_ORDER_PRICING_QUOTE_CONFLICT')
+   ${documentGuards} AS ok
 ),
 updated_pricing_related_lines AS (
  UPDATE order_lines l SET revision=l.revision+1, updated_at=now(), exception_tags=array(SELECT DISTINCT unnest(l.exception_tags || ARRAY['补单合组价格修订']))
