@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createAttachmentObjectStorage } from "./attachmentObjectStorage.mjs";
+import { assertStatementExportContent, statementExportContentBuffer } from "./statementExportContent.mjs";
 
 const defaultStatementExportKeyPrefix = "statement-exports";
 const defaultStatementExportContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -19,7 +20,7 @@ export function createStatementExportObjectStorage(options = {}) {
 
     async putExportFile({ exportFile }) {
       const exportFileId = getExportStorageId(exportFile);
-      const buffer = exportContentToBuffer(exportFile);
+      const buffer = statementExportContentBuffer(exportFile);
       const stored = await storage.putObject({
         attachmentId: exportFileId,
         contentDigest: createHash("sha256").update(buffer).digest("hex"),
@@ -50,6 +51,7 @@ export function createStatementExportObjectStorage(options = {}) {
         },
       });
       if (!payload?.buffer) return null;
+      assertStatementExportContent(exportFile, payload.buffer);
       return {
         contentType: payload.contentType || exportFile.contentType || defaultStatementExportContentType,
         buffer: payload.buffer,
@@ -73,14 +75,6 @@ export function normalizeContentDigest(value) {
   const digest = String(value ?? "").trim();
   if (!digest) return "";
   return digest.startsWith("sha256:") ? digest : `sha256:${digest}`;
-}
-
-function exportContentToBuffer(exportFile) {
-  if (Buffer.isBuffer(exportFile?.content)) return exportFile.content;
-  if (exportFile?.content instanceof Uint8Array) return Buffer.from(exportFile.content);
-  if (exportFile?.content instanceof ArrayBuffer) return Buffer.from(exportFile.content);
-  const content = String(exportFile?.content ?? "");
-  return exportFile?.contentEncoding === "base64" ? Buffer.from(content, "base64") : Buffer.from(content, "utf8");
 }
 
 function buildAttachmentStorageOptions(options) {

@@ -5,6 +5,7 @@ import {
   buildStatementExcelWorkbookBase64,
   getStatementExcelTemplateId,
 } from "../../src/domain/statementExcelTemplate.js";
+import { assertStatementExportContent, statementExportContentBuffer, statementExportContentDigest } from "../statementExportContent.mjs";
 
 export function createStatementExportFileService({ buildStatementPreviewLines, now = () => new Date().toISOString() } = {}) {
   requireFunction(buildStatementPreviewLines, "buildStatementPreviewLines");
@@ -43,6 +44,8 @@ export function createStatementExportFileService({ buildStatementPreviewLines, n
       templateId: options.templateId ?? getStatementExcelTemplateId(previewType),
     };
 
+    const content = buildStatementExcelWorkbookBase64(preview, templateContext);
+    const buffer = Buffer.from(content, "base64");
     return {
       exportFileId: options.downloadToken ?? "",
       statementId: statement.id,
@@ -51,20 +54,21 @@ export function createStatementExportFileService({ buildStatementPreviewLines, n
       operationLogId: options.operationLogId ?? "",
       fileName: `statement-${statement.id}-${sanitizeDownloadFileName(customer.name)}${STATEMENT_EXCEL_FILE_EXTENSION}`,
       contentType: STATEMENT_EXCEL_CONTENT_TYPE,
-      content: buildStatementExcelWorkbookBase64(preview, templateContext),
+      content,
       contentEncoding: "base64",
       storageProvider: "database",
       storageKey: "",
-      contentDigest: "",
+      contentDigest: statementExportContentDigest(buffer),
       createdBy: options.createdBy ?? "",
       createdAt,
-      metadata: { ...buildStatementExcelMetadata(preview, templateContext), statementPreviewSnapshot: structuredClone(preview), accountingSnapshot: structuredClone(options.accountingSnapshot ?? null) },
+      metadata: { ...buildStatementExcelMetadata(preview, templateContext), contentLength: buffer.length, statementPreviewSnapshot: structuredClone(preview), accountingSnapshot: structuredClone(options.accountingSnapshot ?? null) },
     };
   }
 
   async function storeExportFile(workspace, exportFile) {
     if (typeof workspace.statementExportObjectStorage?.putExportFile !== "function") return exportFile;
     const storage = await workspace.statementExportObjectStorage.putExportFile({ exportFile });
+    assertStatementExportContent({ ...exportFile, ...storage }, statementExportContentBuffer(exportFile));
     return {
       ...exportFile,
       storageProvider: storage.storageProvider || exportFile.storageProvider,
@@ -75,7 +79,7 @@ export function createStatementExportFileService({ buildStatementPreviewLines, n
         storageProvider: storage.storageProvider || exportFile.storageProvider,
         storageKeyStored: Boolean(storage.storageKey || exportFile.storageKey),
         contentDigest: storage.contentDigest || exportFile.contentDigest,
-        contentLength: storage.contentLength ?? Buffer.byteLength(String(exportFile.content ?? ""), "utf8"),
+        contentLength: storage.contentLength ?? statementExportContentBuffer(exportFile).length,
         contentEncoding: exportFile.contentEncoding || "",
       },
     };
@@ -119,7 +123,13 @@ export function createStatementExportFileService({ buildStatementPreviewLines, n
     if (!exportFile) return notFound("STATEMENT_EXPORT_NOT_FOUND");
 
     const storedContent = await readStoredContent(workspace, exportFile);
+    // A persisted file/object source is authoritative. Missing storage must not
+    // silently return an inline database copy under the same download identity.
+    if (!storedContent && exportFile.storageProvider && exportFile.storageProvider !== "database") {
+      return notFound("STATEMENT_EXPORT_CONTENT_NOT_FOUND");
+    }
     if (!storedContent && !exportFile.content) return notFound("STATEMENT_EXPORT_CONTENT_NOT_FOUND");
+    assertStatementExportContent(exportFile, storedContent?.buffer ?? statementExportContentBuffer(exportFile));
     return {
       response: {
         body: storedContent?.buffer ?? exportFile.content,

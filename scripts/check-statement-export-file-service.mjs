@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createStatementExportFileService } from "../server/services/statementExportFileService.mjs";
+import { statementExportContentDigest } from "../server/statementExportContent.mjs";
+import { normalizeStatementExportFile } from "../server/statementExportRepository.mjs";
 
 const fixedNow = "2026-07-14T09:00:00.000Z";
 const calls = { put: [], read: [], list: [], find: [] };
@@ -50,14 +52,14 @@ const workspace = {
       return {
         storageProvider: "s3",
         storageKey: "private/statements/ST-1.xlsx",
-        contentDigest: "sha256:test-digest",
-        contentLength: 4096,
+        contentDigest: statementExportContentDigest(Buffer.from(input.exportFile.content, "base64")),
+        contentLength: Buffer.from(input.exportFile.content, "base64").length,
       };
     },
     async readExportFile(input) {
       calls.read.push(input);
       return {
-        buffer: Buffer.from("stored-xlsx"),
+        buffer: Buffer.from(input.exportFile.content, "base64"),
         contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       };
     },
@@ -96,9 +98,10 @@ workspace.savedExport = await service.storeExportFile(workspace, exportFile);
 assert.equal(calls.put.length, 1);
 assert.equal(workspace.savedExport.storageProvider, "s3");
 assert.equal(workspace.savedExport.storageKey, "private/statements/ST-1.xlsx");
-assert.equal(workspace.savedExport.contentDigest, "sha256:test-digest");
+const expectedBytes = Buffer.from(exportFile.content, "base64");
+assert.equal(workspace.savedExport.contentDigest, statementExportContentDigest(expectedBytes));
 assert.equal(workspace.savedExport.metadata.storageKeyStored, true);
-assert.equal(workspace.savedExport.metadata.contentLength, 4096);
+assert.equal(workspace.savedExport.metadata.contentLength, expectedBytes.length);
 
 const listResult = await service.listExports({ workspace, statementId: "ST-1" });
 assert.equal(calls.list.length, 1);
@@ -110,7 +113,7 @@ assert.equal(Object.hasOwn(listResult.response.items[0], "content"), false);
 const download = await service.getExportDownload({ workspace, statementId: "ST-1", downloadToken: "DL-ST-1" });
 assert.equal(calls.find.length, 1);
 assert.equal(calls.read.length, 1);
-assert.equal(download.response.body.toString("utf8"), "stored-xlsx");
+assert.deepEqual(download.response.body, expectedBytes);
 assert.equal(download.response.options.contentEncoding, "");
 assert.equal(download.response.options.fileName, exportFile.fileName);
 
@@ -151,6 +154,44 @@ const missingContent = await service.getExportDownload({
 });
 assert.equal(missingContent.code, "STATEMENT_EXPORT_CONTENT_NOT_FOUND");
 
+const integrityError = error => error.statusCode === 409 && error.code === "STATEMENT_EXPORT_CONTENT_INTEGRITY_MISMATCH";
+function downloadWorkspace(file, buffer = expectedBytes) {
+  return {
+    statements: [statement],
+    statementExportRepository: { async findExportFileByToken() { return file; } },
+    statementExportObjectStorage: { async readExportFile() { return buffer === null ? null : { buffer, contentType: file.contentType }; } },
+  };
+}
+const getDownload = current => service.getExportDownload({ workspace: current, statementId: "ST-1", downloadToken: "DL-ST-1" });
+const frozenFile = structuredClone(workspace.savedExport);
+const originalFile = structuredClone(frozenFile);
+await assert.rejects(() => getDownload(downloadWorkspace(frozenFile, Buffer.from("corrupted workbook"))), integrityError);
+for (const changed of [
+  { ...frozenFile, contentDigest: `sha256:${"0".repeat(64)}` },
+  { ...frozenFile, content: "", contentLength: 0 },
+  { ...frozenFile, metadata: { ...frozenFile.metadata, contentDigest: `sha256:${"1".repeat(64)}` } },
+  { ...frozenFile, metadata: { ...frozenFile.metadata, contentLength: expectedBytes.length + 1 } },
+  { ...frozenFile, metadata: { ...frozenFile.metadata, contentLength: String(expectedBytes.length) } },
+  { ...frozenFile, storageKey: `statement-exports/sha256/00/${"0".repeat(64)}` },
+  { ...frozenFile, storageKey: `statement-exports/sha256/ff/${frozenFile.contentDigest.slice(7)}` },
+  { ...frozenFile, storageKey: "statement-exports/sha256/invalid" },
+]) await assert.rejects(() => getDownload(downloadWorkspace(changed)), integrityError);
+const missingObject = await getDownload(downloadWorkspace({ ...frozenFile, storageProvider: "object_storage" }, null));
+assert.equal(missingObject.code, "STATEMENT_EXPORT_CONTENT_NOT_FOUND", "a retained DB copy cannot conceal a missing authoritative object");
+const missingAdapter = downloadWorkspace({ ...frozenFile, storageProvider: "object_storage" });
+delete missingAdapter.statementExportObjectStorage;
+assert.equal((await getDownload(missingAdapter)).code, "STATEMENT_EXPORT_CONTENT_NOT_FOUND");
+assert.deepEqual(frozenFile, originalFile, "failed downloads never rewrite frozen metadata");
+
+const legacyDatabase = { ...exportFile, contentDigest: statementExportContentDigest(Buffer.from(exportFile.content, "utf8")) };
+assert.equal((await getDownload({ ...fallbackWorkspace, statementExportRepository: { async findExportFileByToken() { return legacyDatabase; } } })).response.body, exportFile.content,
+  "legacy database-only base64-text digests remain readable against the same frozen workbook");
+const normalized = normalizeStatementExportFile({ ...exportFile, contentDigest: "" });
+assert.equal(normalized.contentDigest, statementExportContentDigest(expectedBytes), "new repository digests identify decoded workbook bytes");
+await assert.rejects(() => service.storeExportFile({ statementExportObjectStorage: {
+  async putExportFile() { return { storageProvider: "object_storage", contentDigest: `sha256:${"f".repeat(64)}` }; },
+} }, exportFile), integrityError, "a mismatched storage receipt cannot become persisted metadata");
+
 console.log(
-  "Statement export file service checks passed: XLSX construction, safe naming, object storage, redacted summaries, downloads, and missing-content handling are isolated.",
+  "Statement export file service checks passed: frozen XLSX digest/length/key integrity, corrupt or missing object rejection without DB fallback, verified legacy database archives, safe naming and redacted summaries.",
 );

@@ -495,8 +495,9 @@ function normalizeMetadata(value) {
   return value;
 }
 
-function buildContentDigest(content) {
-  return `sha256:${crypto.createHash("sha256").update(String(content), "utf8").digest("hex")}`;
+function buildContentDigest(content, contentEncoding) {
+  const buffer = Buffer.from(String(content), contentEncoding === "base64" ? "base64" : "utf8");
+  return `sha256:${crypto.createHash("sha256").update(buffer).digest("hex")}`;
 }
 
 function normalizeLimit(value) {
