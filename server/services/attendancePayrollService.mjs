@@ -382,7 +382,9 @@ export function createAttendancePayrollService(dependencies = {}) {
     const adjustedWorkMinutes = status === "adjusted"
       ? nonNegativeInteger(body.adjustedWorkMinutes, "adjustedWorkMinutes")
       : status === "approved"
-        ? calculateAttendanceWorkMinutes(sourcePunches.map((punch) => punch.punchedAt)).workMinutes
+        ? calculateAttendanceWorkMinutes(sourcePunches.map((punch) => punch.punchedAt), {
+          excludeLunch: !isSilkScreenEmployee(employee),
+        }).workMinutes
         : null;
     const changedAt = now().toISOString();
     const existing = (workspace.attendanceDayReviews ?? []).find(
@@ -845,7 +847,9 @@ export function buildAttendanceDays({ workspace, employee, month } = {}) {
     .map(([workDate, punches]) => {
       const sorted = [...punches].sort((left, right) => Date.parse(left.punchedAt) - Date.parse(right.punchedAt));
       const expectedPunchCount = isSilkScreenEmployee(employee) ? 2 : 4;
-      const minuteEvidence = calculateAttendanceWorkMinutes(sorted.map((punch) => punch.punchedAt));
+      const minuteEvidence = calculateAttendanceWorkMinutes(sorted.map((punch) => punch.punchedAt), {
+        excludeLunch: !isSilkScreenEmployee(employee),
+      });
       const rawWorkMinutes = minuteEvidence.rawWorkMinutes;
       const review = reviews.get(workDate);
       const reviewStatus = cleanText(review?.status);

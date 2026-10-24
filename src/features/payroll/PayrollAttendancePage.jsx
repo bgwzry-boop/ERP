@@ -108,9 +108,11 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   const canLockPayroll = permissions.has("payroll.lock");
   const canConfirmPayment = permissions.has("payroll.payment.confirm");
   const reviewDays = (employeeAttendance?.days ?? []).filter((day) =>
-    day.status === "pending_review" || day.minuteCalculation?.legacyReviewedMinutesPreserved,
+    day.status === "pending_review" || day.minuteCalculation?.legacyReviewedMinutesPreserved ||
+    day.minuteCalculation?.breakRule === "actual_rest_review",
   );
   const selectedReviewDay = reviewDays.find((day) => day.workDate === reviewForm.workDate);
+  const selectedActualRestReview = selectedReviewDay?.minuteCalculation?.breakRule === "actual_rest_review";
 
   async function refresh({ preserveSelection = true } = {}) {
     const requestVersion = ++refreshSequence.current;
@@ -511,17 +513,17 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
           </section>
           {canReviewAttendance && reviewDays.length ? <form className="payroll-review-form" onSubmit={handleAttendanceReview}>
             <header><h3>复核考勤</h3><span>原始打卡保留不改</span></header>
-            <select aria-label="待复核日期" onChange={(event) => setReviewForm((current) => ({ ...current, workDate: event.target.value }))} required value={reviewForm.workDate}><option value="">选择日期</option>{reviewDays.map((day) => <option key={day.workDate} value={day.workDate}>{day.workDate} · {day.actualPunchCount}/{day.expectedPunchCount}次{day.minuteCalculation?.legacyReviewedMinutesPreserved ? " · 沿用原复核工时" : ""}</option>)}</select>
-            <select aria-label="复核结果" onChange={(event) => setReviewForm((current) => ({ ...current, status: event.target.value }))} value={reviewForm.status}><option value="approved">按打卡及午休规则确认</option><option value="adjusted">调整工时</option><option value="rejected">暂不计薪</option></select>
+            <select aria-label="复核日期" onChange={(event) => setReviewForm((current) => ({ ...current, workDate: event.target.value }))} required value={reviewForm.workDate}><option value="">选择日期</option>{reviewDays.map((day) => <option key={day.workDate} value={day.workDate}>{day.workDate} · {day.actualPunchCount}/{day.expectedPunchCount}次{day.minuteCalculation?.legacyReviewedMinutesPreserved ? " · 沿用原复核工时" : day.status === "normal" ? " · 可按实休复核" : ""}</option>)}</select>
+            <select aria-label="复核结果" onChange={(event) => setReviewForm((current) => ({ ...current, status: event.target.value }))} value={reviewForm.status}><option value="approved">{selectedActualRestReview ? "按真实打卡配对确认" : "按打卡及午休规则确认"}</option><option value="adjusted">{selectedActualRestReview ? "按实际休息复核工时" : "调整工时"}</option><option value="rejected">暂不计薪</option></select>
             {reviewForm.status === "approved" && selectedReviewDay?.minuteCalculation ? <>
               <dl className="payroll-minute-facts" aria-label="本次复核工时依据">
                 <div><dt>打卡配对工时</dt><dd>{formatHours(selectedReviewDay.minuteCalculation.rawWorkMinutes)}</dd></div>
-                <div><dt>不计薪午休</dt><dd>{formatHours(selectedReviewDay.minuteCalculation.unpaidBreakMinutes)}</dd></div>
+                <div><dt>{selectedActualRestReview ? "固定午休扣除" : "不计薪午休"}</dt><dd>{selectedActualRestReview ? "不固定扣除" : formatHours(selectedReviewDay.minuteCalculation.unpaidBreakMinutes)}</dd></div>
                 <div><dt>本次拟确认</dt><dd>{formatHours(selectedReviewDay.minuteCalculation.calculatedWorkMinutes)}</dd></div>
               </dl>
-              <p className="payroll-minute-note">已排除 12:00—13:00 内的午休。保存后保留本次确认工时；已生成的工资不变，更正工资须另建修订。</p>
+              <p className="payroll-minute-note">{selectedActualRestReview ? "丝印不固定扣 12:00—13:00。按真实打卡配对确认；如有实际休息，选择“按实际休息复核工时”，填写最终工时和依据。无实际休息差异时，无需另行逐日复核。" : "已排除 12:00—13:00 内的午休。"}保存后保留本次确认工时；已生成的工资不变，更正工资须另建修订。</p>
             </> : null}
-            {reviewForm.status === "adjusted" ? <p className="payroll-minute-note">人工填写的是最终确认工时，系统不会再扣一次午休。</p> : null}
+            {reviewForm.status === "adjusted" ? <p className="payroll-minute-note">{selectedActualRestReview ? "按实际工作与经复核的休息填写最终工时，并在说明中记录实际休息及核对依据；不预设休息 1 小时。" : ""}人工填写的是最终确认工时，系统不会再扣一次午休。</p> : null}
             {reviewForm.status === "adjusted" ? <input aria-label="调整后工时" min="0" onChange={(event) => setReviewForm((current) => ({ ...current, adjustedHours: event.target.value }))} placeholder="调整后工时（小时）" required step="0.01" type="number" value={reviewForm.adjustedHours} /> : null}
             <textarea aria-label="考勤复核说明" onChange={(event) => setReviewForm((current) => ({ ...current, explanation: event.target.value }))} placeholder="填写漏卡、临时离厂或调整依据" required value={reviewForm.explanation} />
             <button className="primary" disabled={loading || detailLoading || Boolean(actionLoading)} type="submit">保存复核</button>

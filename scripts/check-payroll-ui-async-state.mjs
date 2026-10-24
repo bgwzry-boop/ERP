@@ -79,7 +79,7 @@ try {
   await act(async () => bobUpload.resolve({ blocked: false, attachment: { attachmentId: "BOB-EVIDENCE", fileName: "bob.pdf" } }));
   assert.doesNotMatch(text(), /BOB-EVIDENCE|bob.pdf/);
   assert.equal(host(node => node.type === "div" && node.props.className === "payroll-attendance-days")[0].children.length, 12, "all attendance days remain reachable, including after day eight");
-  await act(async () => byLabel("待复核日期").props.onChange({ target: { value: "2026-08-01" } }));
+  await act(async () => byLabel("复核日期").props.onChange({ target: { value: "2026-08-01" } }));
   assert.match(text(), /按打卡及午休规则确认/);
   assert.match(text(), /打卡配对工时/);
   assert.match(text(), /不计薪午休/);
