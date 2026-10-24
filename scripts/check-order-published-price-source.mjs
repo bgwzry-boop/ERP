@@ -81,6 +81,14 @@ async function checkPublishedPriceService() {
   Object.assign(noMetallic.orderDrafts[0].lines[0], { style: "覆膜金银", product: "覆膜金银袋" });
   noMetallic.priceTableItems = [{ ...noMetallic.priceTableItems[0], sizeKey: "30*37*10", styleKey: "覆膜袋", bagPrice: 0.9 }];
   assert.equal((await confirm(noMetallic)).code, "ORDER_PRICE_SOURCE_REQUIRED", "Missing metallic price must not fall back to plain lamination");
+  for (const [handle, itemHandle] of [["普通提", "普通提"], ["加长提", "普通提"], ["加长提", "加长提"]]) {
+    const blankStyle = pricedWorkspace();
+    Object.assign(blankStyle.orderDrafts[0].lines[0], { style: "覆膜金银", product: "覆膜金银袋", handle, handleType: handle });
+    blankStyle.priceTableItems = [{ ...blankStyle.priceTableItems[0], sizeKey: "30*37*10", styleKey: "", handleType: itemHandle, bagPrice: 0.9 }];
+    const before = businessState(blankStyle);
+    assert.equal((await confirm(blankStyle)).code, "ORDER_PRICE_SOURCE_REQUIRED", `${handle}/${itemHandle}: metallic prices require an explicit matching style`);
+    assert.deepEqual(businessState(blankStyle), before);
+  }
 
   const keyedSize = pricedWorkspace();
   keyedSize.priceTableItems.forEach(item => { if (item.sizeKey === "30*37*10") item.sizeKey = "SIZE-PUBLISHED-3037"; });

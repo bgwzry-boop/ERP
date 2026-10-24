@@ -67,7 +67,7 @@ function resolvePublishedRow(source, row) {
     patternName, patternId,
     printColor: printing ? row.printColor : "", printContent: printing ? row.printContent : "" };
   const match = findMiniappPriceItem(source, line, { requireUnique: true,
-    ...(/金银|metallic/i.test(patternText) ? { styleKeys: ["覆膜金银", "laminated_metallic"] } : {}) });
+    ...(/金银|metallic/i.test(patternText) ? { styleKeys: ["覆膜金银", "laminated_metallic"], requireExplicitStyle: true } : {}) });
   if (!match || ![match.item.bagPrice, match.item.printPrice, match.item.otherFee].every(value => Number.isFinite(value) && value >= 0)) throw publishedOrderPriceError();
   const quote = quoteMiniappCatalogPrice(source, line, match, { preserveUnitPrecision: true });
   const bagPrice = type === "external_print" ? 0 : Math.round((quote.basePrice + quote.handleAddon + Number.EPSILON) * 10_000) / 10_000;

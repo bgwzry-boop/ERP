@@ -134,6 +134,15 @@ try {
   const metallic = await confirmFresh(metallicDraft);
   assert.equal(metallic.response.priceSnapshots[0].finalAmount, 120);
   assert.equal(Number((await pool.query("SELECT final_amount FROM price_snapshots WHERE order_line_id=$1", [metallic.response.orderLines[0].id])).rows[0].final_amount), 120);
+  await pool.query("UPDATE price_table_items SET enabled=false WHERE id='PI-LAM-METALLIC'; INSERT INTO price_table_items(id,price_table_id,size_key,handle_type,style_key,bag_price,enabled) VALUES ('PI-LAM-BLANK-STYLE','PT-PRICE-CURRENT','30*37*10','普通提','',0.9,true)");
+  for (const [index, handle] of ["普通提", "加长提"].entries()) {
+    const blankStyleDraft = await saveFreshDraft(`D-PRICE-METALLIC-BLANK-${index}`, { style: "覆膜金银", product: "覆膜金银袋", productName: "覆膜金银袋", handle, handleType: handle });
+    const before = await snapshot();
+    const beforeDraft = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId: blankStyleDraft.draftId });
+    assert.equal((await confirmFresh(blankStyleDraft)).code, "ORDER_PRICE_SOURCE_REQUIRED", `${handle}: a blank style cannot substitute for a metallic price`);
+    assert.deepEqual(await snapshot(), before);
+    assert.deepEqual(await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId: blankStyleDraft.draftId }), beforeDraft);
+  }
   console.log(`PostgreSQL order price/status checks passed: ${migrations.length} migrations; no-price confirmation leaves draft and all business tables unchanged, published 0.90 persists 90, split 90/180, precise 0.1234 persists 12.34, metallic 1.20 persists 120; missing/changed publication fails closed with no writes, partial delivery/cancellation/active delivery use real repository status facts.`);
 } finally {
   await pool?.end();

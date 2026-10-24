@@ -51,7 +51,7 @@ function priceSpecificity(item, line) {
   return score;
 }
 
-export function findMiniappPriceItem(master, line, { requireUnique = false, styleKeys } = {}) {
+export function findMiniappPriceItem(master, line, { requireUnique = false, styleKeys, requireExplicitStyle = false } = {}) {
   const size = normalizeMiniappSize(line.size);
   const requestedHandles = handleCandidates(line.handleId, line.handle).map(lower);
   const requestedStyles = styleKeys ? styleKeys.map(lower) : styleCandidates(line);
@@ -61,7 +61,7 @@ export function findMiniappPriceItem(master, line, { requireUnique = false, styl
   const exact = matchingSize.filter((item) =>
     colorMatches(item, line)
     && (item.handleType ? requestedHandles.includes(lower(item.handleType)) : !extendedHandle)
-    && (!item.styleKey || requestedStyles.includes(lower(item.styleKey)))
+    && (item.styleKey ? requestedStyles.includes(lower(item.styleKey)) : !requireExplicitStyle)
     && (!item.minQty || Number(item.minQty) <= quantity)
   ).sort((a, b) => priceSpecificity(b, line) - priceSpecificity(a, line));
   if (exact[0]) {
@@ -74,7 +74,7 @@ export function findMiniappPriceItem(master, line, { requireUnique = false, styl
     const fallback = matchingSize.filter((item) =>
       colorMatches(item, line)
       && (!item.handleType || regularHandles.includes(lower(item.handleType)))
-      && (!item.styleKey || requestedStyles.includes(lower(item.styleKey)))
+      && (item.styleKey ? requestedStyles.includes(lower(item.styleKey)) : !requireExplicitStyle)
       && (!item.minQty || Number(item.minQty) <= quantity)
     ).sort((a, b) => priceSpecificity(b, line) - priceSpecificity(a, line));
     if (fallback[0]) {
