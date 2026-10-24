@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { normalizeInventoryHoldTimestamp } from "../../../shared/inventoryHoldTime.js";
+import { toFactoryDatetimeLocal } from "../../../shared/fulfillmentHandoffTime.js";
 import {
   CarOutlined,
   CheckCircleOutlined,
@@ -89,6 +91,9 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
   const restoreVarianceTriggerRef = useRef(false);
   const [finalDeliveryConfirmation, setFinalDeliveryConfirmation] = useState(null);
   const [finalDeliverySubmitting, setFinalDeliverySubmitting] = useState(false);
+  const [actualHandoffLocal, setActualHandoffLocal] = useState("");
+  const [finalDeliveryError, setFinalDeliveryError] = useState("");
+  const [finalDeliveryUncertain, setFinalDeliveryUncertain] = useState(false);
   const finalDeliveryDialogRef = useRef(null);
   const finalDeliveryTriggerRef = useRef(null);
   const restoreFinalDeliveryTriggerRef = useRef(false);
@@ -121,6 +126,13 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
     return getFulfillmentAttentionScore(right) - getFulfillmentAttentionScore(left);
   });
   const selected = visibleFulfillments.find((item) => item.id === selectedId) ?? visibleFulfillments[0] ?? null;
+  const finalContext = `${selected?.id ?? ""}:${authState?.session?.accessToken ?? ""}`;
+  const finalContextRef = useRef(finalContext);
+  finalContextRef.current = finalContext;
+  useEffect(() => {
+    setActualHandoffLocal(""); setFinalDeliveryError(""); setFinalDeliveryConfirmation(null);
+    setFinalDeliverySubmitting(false); setFinalDeliveryUncertain(false);
+  }, [finalContext]);
   const varianceDirectAllowed = authState?.permissions?.actionPermissions?.includes("fulfillment.quantity_variance.direct") === true;
   const fulfillmentViewTabs = FULFILLMENT_VIEWS.map((label) => ({
     label,
@@ -261,6 +273,13 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
 
   function requestFinalDeliveryConfirmation(action) {
     if (finalDeliverySubmitting || finalDeliveryConfirmation) return;
+    const actualHandoffAt = action === "确认已拉走" ? normalizeInventoryHoldTimestamp(actualHandoffLocal) : undefined;
+    if (action === "确认已拉走" && (!actualHandoffAt || Date.parse(actualHandoffAt) < Date.parse(selected.physicalOutboundAt) || Date.parse(actualHandoffAt) > Date.now())) {
+      setFinalDeliveryError("请填写真实拉走时间，不能早于实物出库或晚于现在。");
+      return;
+    }
+    setFinalDeliveryError("");
+    setFinalDeliveryUncertain(false);
     setWriteConflict(null);
     setFinalDeliveryConfirmation({
       action,
@@ -268,6 +287,8 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
       customerName: customerInfo.name,
       goods: selectedGoods,
       idempotencyKey: buildFinalDeliveryIdempotencyKey(selected.id, selected.revision, action),
+      actualHandoffAt,
+      context: finalContext,
     });
   }
 
@@ -290,7 +311,7 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
   }
 
   function returnToFinalDeliveryEdit() {
-    if (finalDeliverySubmitting) return;
+    if (finalDeliverySubmitting || finalDeliveryUncertain) return;
     restoreFinalDeliveryTriggerRef.current = true;
     setFinalDeliveryConfirmation(null);
   }
@@ -299,16 +320,20 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
     if (!finalDeliveryConfirmation || finalDeliverySubmitting) return;
     setFinalDeliverySubmitting(true);
     const snapshot = finalDeliveryConfirmation;
-    const result = await onAction(snapshot.action, snapshot.fulfillment.id, {
-      confirmedFinalDelivery: true,
-      expectedRevision: Number(snapshot.fulfillment.revision ?? 0),
-      idempotencyKey: snapshot.idempotencyKey,
-    });
-    setFinalDeliverySubmitting(false);
-    setFinalDeliveryConfirmation(null);
-    if (result?.error?.code === "BUSINESS_WRITE_CONFLICT" || result?.error?.status === 409) {
-      setWriteConflict(result.error);
-    }
+    try {
+      const result = await onAction(snapshot.action, snapshot.fulfillment.id, {
+        confirmedFinalDelivery: true, expectedRevision: Number(snapshot.fulfillment.revision ?? 0),
+        idempotencyKey: snapshot.idempotencyKey, ...(snapshot.actualHandoffAt ? { actualHandoffAt: snapshot.actualHandoffAt } : {}),
+      });
+      if (finalContextRef.current !== snapshot.context) return;
+      if (result?.source === "api" && !result.blocked) setFinalDeliveryConfirmation(null);
+      else {
+        setFinalDeliveryError(result?.error?.message || "结果尚未确认，请用原内容重试。");
+        setFinalDeliveryUncertain(!result?.error?.status || result.error.status >= 500);
+        if (result?.error?.code === "BUSINESS_WRITE_CONFLICT" || result?.error?.status === 409) setWriteConflict(result.error);
+      }
+    } catch { if (finalContextRef.current === snapshot.context) { setFinalDeliveryError("结果尚未确认，请用原内容重试。"); setFinalDeliveryUncertain(true); } }
+    finally { if (finalContextRef.current === snapshot.context) setFinalDeliverySubmitting(false); }
   }
   return (
     <section className="page-grid split-detail operational-split-workbench fulfillment-workbench">
@@ -469,6 +494,12 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
                 <BusinessDecisionHistoryPanel authState={authState} operatorId={currentUser?.userId} businessType="fulfillment" businessId={selected.id} />
               </section>
             ) : null}
+            {selected.method === "快递快运" && selected.physicalOutboundAt && !selected.finalDeliveryAt && <label>
+              实际拉走时间（北京时间）
+              <input type="datetime-local" step="1" value={actualHandoffLocal} min={toFactoryDatetimeLocal(selected.physicalOutboundAt)} max={toFactoryDatetimeLocal(new Date().toISOString())} disabled={Boolean(finalDeliveryConfirmation) || finalDeliverySubmitting} onChange={event => setActualHandoffLocal(event.target.value)} />
+              <small>按实际拉走日期对账，系统另外记录本次确认时间。</small>
+            </label>}
+            {finalDeliveryError && <p role="alert">{finalDeliveryError}</p>}
             <div className="action-row operational-detail-actions fulfillment-detail-actions">
               {actions.map((item) => {
                 const actionState = getUiActionState("fulfillment", item.label);
@@ -510,13 +541,14 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
                   ["纸质出库单", formatPaperOutboundDocument(finalDeliveryConfirmation.fulfillment)],
                   ["库房实物执行", `${finalDeliveryConfirmation.fulfillment.physicalExecutorEmployeeId || "未记录"} / ${finalDeliveryConfirmation.fulfillment.physicalOutboundAt || "未记录"}`],
                   ["反馈渠道", finalDeliveryConfirmation.fulfillment.latestWarehouseExecution?.feedbackChannel || "未记录"],
+                  ...(finalDeliveryConfirmation.actualHandoffAt ? [["实际拉走（北京时间）", toFactoryDatetimeLocal(finalDeliveryConfirmation.actualHandoffAt).replace("T", " ")], ["系统确认时间", "提交成功后由服务器记录"]] : []),
                   ["系统操作人", currentUser?.displayName || currentUser?.userId],
                   ["预计影响", "确认最终交接、创建对账候选并写入审计；库存已在库房实物出库时扣减，本次不会重复扣减。"],
                 ]} />
                 <div className="action-row">
-                  <button type="button" disabled={finalDeliverySubmitting} onClick={returnToFinalDeliveryEdit}>返回修改</button>
+                  <button type="button" disabled={finalDeliverySubmitting || finalDeliveryUncertain} onClick={returnToFinalDeliveryEdit}>返回修改</button>
                   <button type="button" className="primary-action" disabled={finalDeliverySubmitting} onClick={submitFinalDelivery}>
-                    {finalDeliverySubmitting ? "提交中…" : "确认最终交付"}
+                    {finalDeliverySubmitting ? "提交中…" : finalDeliveryUncertain ? "用原内容重试" : "确认最终交付"}
                   </button>
                 </div>
               </section>

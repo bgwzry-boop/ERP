@@ -259,6 +259,8 @@ const warehouseExecutionResult = await recordOfficeWarehouseOutboundExecution(
         status: "数量差异待处理",
         warehouseOutboundExecution: {
           warehouseOutboundExecutionId: "WEX-F008-1",
+          fulfillmentId: "F008", paperOutboundDocumentId: paperOutboundFulfillment.paperOutboundDocument.paperOutboundDocumentId,
+          paperDocumentVersion: paperOutboundFulfillment.paperOutboundDocument.documentVersion, result: "数量不符",
           physicalExecutorEmployeeId: "ERP-0008",
           authenticatedOperatorId: "U-OFFICE-A",
         },

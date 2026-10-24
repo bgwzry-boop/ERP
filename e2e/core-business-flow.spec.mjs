@@ -1265,6 +1265,7 @@ async function handoffAndRecordPhysicalOutbound(page, request, {
   await navigateToPage(page, "出库交付", "库存交付");
   await page.getByRole("tab", { name: methodTab, exact: true }).click();
   await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
+  if (methodTab !== "自提") await page.getByLabel("实际拉走时间（北京时间）").fill(new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 19));
   await page.getByRole("button", { name: methodTab === "自提" ? "确认最终自提" : "确认已拉走", exact: true }).click();
   const finalDeliveryDialog = page.getByRole("dialog", { name: "确认最终交付" });
   await expect(finalDeliveryDialog).toBeVisible();

@@ -1,4 +1,5 @@
 import { deliveryEvidenceSnapshot } from "../../shared/deliveryEvidenceSnapshot.js";
+import { normalizeInventoryHoldTimestamp } from "../../shared/inventoryHoldTime.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import {
   buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
@@ -271,7 +272,7 @@ export async function recordOfficeWarehouseOutboundExecution(input, options = {}
         actualQty: actualQty === "" || actualQty === undefined ? undefined : Number(actualQty),
         physicalExecutorEmployeeId,
         feedbackChannel,
-        executedAt,
+        executedAt: normalizeInventoryHoldTimestamp(executedAt),
         note,
       },
     });
@@ -279,6 +280,9 @@ export async function recordOfficeWarehouseOutboundExecution(input, options = {}
     if (!response.ok) {
       return { source: "api_error", blocked: true, error: toApiError(json, response.status, "库房回录 API 返回错误。") };
     }
+    const { hasWarehouseExecutionReceipt } = await import("../../shared/warehouseExecutionReceipt.js");
+    if (!hasWarehouseExecutionReceipt(json, input)) return { source: "api_error", blocked: true,
+      error: { code: "WAREHOUSE_EXECUTION_UNCONFIRMED", message: "库房回执不完整或不属于本次任务与纸单，请用原内容重试核对。" } };
     return {
       source: "api",
       fulfillmentId: json.fulfillmentId,
@@ -460,6 +464,7 @@ export async function confirmOfficeFulfillmentPickup(input, options = {}) {
     expectedRevision = fulfillment?.revision,
     idempotencyKey,
     confirmedFinalDelivery = false,
+    actualHandoffAt,
     remark = "",
   } = input;
 
@@ -477,6 +482,7 @@ export async function confirmOfficeFulfillmentPickup(input, options = {}) {
         confirmedFinalDelivery,
         operatorId,
         pickupBatchNo: `P0-${fulfillment.id}`,
+        actualHandoffAt,
         remark,
       },
     });

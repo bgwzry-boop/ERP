@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toFactoryDatetimeLocal } from "../../shared/fulfillmentHandoffTime.js";
 import { createOfficeIdempotencyKey } from "../services/officeApiClientCore.js";
 import { readPrintCommandDraft, savePrintCommandDraft, clearPrintCommandDraft } from "../features/printing/print-command-draft.js";
 import {
@@ -258,6 +259,10 @@ export function ActionModal({
   onClose,
   onConfirm,
 }) {
+  const [warehouseRequest, setWarehouseRequest] = useState(null);
+  const [warehouseSubmitting, setWarehouseSubmitting] = useState(false);
+  const [warehouseUncertain, setWarehouseUncertain] = useState(false);
+  const warehousePending = useRef(false);
   const isPrintCommand = ["print", "printVoid"].includes(modal.type);
   const [printDraft, setPrintDraft] = useState(() => isPrintCommand ? readPrintCommandDraft(modal) : { request: null, error: "" });
   const [printSubmitting, setPrintSubmitting] = useState(false);
@@ -283,7 +288,7 @@ export function ActionModal({
     panel.addEventListener("keydown", keydown);
     return () => { panel.removeEventListener("keydown", keydown); if (previous?.isConnected) previous.focus(); };
   }, []);
-  const fulfillment = printDraft.request?.fulfillment ?? fulfillments.find((item) => item.id === modal.fulfillmentId);
+  const fulfillment = warehouseRequest?.fulfillmentSnapshot ?? printDraft.request?.fulfillment ?? fulfillments.find((item) => item.id === modal.fulfillmentId);
   const fulfillmentDocumentLabel = fulfillment ? getFulfillmentDocumentLabel(fulfillment) : "单据/标签";
   const fulfillmentLine = fulfillment ? findOrderLine(orderLines, fulfillment.lineId ?? fulfillment.orderLineId) : null;
   const printTemplate = printDraft.request?.preview ?? (fulfillment
@@ -366,7 +371,7 @@ export function ActionModal({
   const [warehousePhysicalExecutorEmployeeId, setWarehousePhysicalExecutorEmployeeId] = useState("");
   const [warehouseFeedbackChannel, setWarehouseFeedbackChannel] = useState("当面");
   const [warehouseExecutedAt, setWarehouseExecutedAt] = useState(
-    toDatetimeLocalInputValue(new Date().toISOString(), new Date().toISOString().slice(0, 10)),
+    () => toFactoryDatetimeLocal(new Date().toISOString()),
   );
   const [warehouseActualQty, setWarehouseActualQty] = useState(
     initialWarehouseResult === "无法出库" ? "0" : String(fulfillment?.qty ?? ""),
@@ -487,6 +492,7 @@ export function ActionModal({
       return;
     }
     if (modal.type === "warehouseExecution") {
+      if (warehousePending.current) return;
       const actualQty = warehouseResult === "已备货" ? null : Number(warehouseActualQty);
       const expectedQty = Number(fulfillment?.qty ?? 0);
       if (!warehousePhysicalExecutorEmployeeId.trim()) {
@@ -507,17 +513,17 @@ export function ActionModal({
       }
       if (!warehouseReviewOpen) {
         setAttachmentError("");
+        setWarehouseRequest({ result: warehouseResult, physicalExecutorEmployeeId: warehousePhysicalExecutorEmployeeId.trim(),
+          feedbackChannel: warehouseFeedbackChannel, executedAt: warehouseExecutedAt, actualQty, note: warehouseNote.trim(),
+          idempotencyKey: createOfficeIdempotencyKey(), fulfillmentSnapshot: structuredClone(fulfillment), paperDocumentSnapshot: structuredClone(fulfillment.paperOutboundDocument) });
         setWarehouseReviewOpen(true);
         return;
       }
-      onConfirm({
-        result: warehouseResult,
-        physicalExecutorEmployeeId: warehousePhysicalExecutorEmployeeId.trim(),
-        feedbackChannel: warehouseFeedbackChannel,
-        executedAt: warehouseExecutedAt,
-        actualQty,
-        note: warehouseNote.trim(),
-      });
+      warehousePending.current = true;
+      setWarehouseSubmitting(true);
+      await import("./submitWarehouseExecution.js").then(({ submitWarehouseExecution }) => submitWarehouseExecution({ request: warehouseRequest, onConfirm, mounted: printMounted, pending: warehousePending,
+        setSubmitting: setWarehouseSubmitting, setError: setAttachmentError, setUncertain: setWarehouseUncertain,
+        reset: () => { setWarehouseRequest(null); setWarehouseReviewOpen(false); } })).catch(() => { warehousePending.current = false; setWarehouseSubmitting(false); setAttachmentError("操作未加载完成，请用原内容重试。"); });
       return;
     }
     if (modal.type === "payment" && attachPaymentProof && !paymentProofFile) {
@@ -577,7 +583,7 @@ export function ActionModal({
             <span>业务操作</span>
             <h2>{officeModalTitles[modal.type]}</h2>
           </div>
-          <button className="icon-button" aria-label="关闭业务操作" disabled={printSubmitting || dispatchSubmitting} onClick={onClose}>×</button>
+          <button className="icon-button" aria-label="关闭业务操作" disabled={printSubmitting || dispatchSubmitting || warehouseSubmitting || warehouseUncertain} onClick={onClose}>×</button>
         </div>
         {modal.type === "print" ? (
           <PrintTemplatePreview template={printTemplate} fulfillment={fulfillment} />
@@ -707,7 +713,7 @@ export function ActionModal({
               </label>
               <label>
                 库房反馈结果
-                <select value={warehouseResult} onChange={(event) => {
+                <select disabled={modal.prepareOnly} value={warehouseResult} onChange={(event) => {
                   const next = event.target.value;
                   setWarehouseResult(next);
                   setAttachmentError("");
@@ -715,7 +721,7 @@ export function ActionModal({
                   if (next === "实物已出库") setWarehouseActualQty(String(fulfillment?.qty ?? ""));
                   if (next === "无法出库") setWarehouseActualQty("0");
                 }}>
-                  {['已备货', '实物已出库', '数量不符', '无法出库'].map((item) => <option key={item}>{item}</option>)}
+                  {(modal.prepareOnly ? ['已备货'] : ['已备货', '实物已出库', '数量不符', '无法出库']).map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
               <label>
@@ -730,7 +736,7 @@ export function ActionModal({
               </label>
               <label>
                 实际执行时间
-                <input type="datetime-local" value={warehouseExecutedAt} onChange={(event) => setWarehouseExecutedAt(event.target.value)} />
+                <input type="datetime-local" step="1" value={warehouseExecutedAt} onChange={(event) => setWarehouseExecutedAt(event.target.value)} />
               </label>
               <label>
                 {warehouseResult === "已备货" ? "实际数量" : "实际出库数量"}
@@ -748,7 +754,7 @@ export function ActionModal({
                 <input value={warehouseNote} placeholder="如：只找到 430 个，纸单与实物不符" onChange={(event) => setWarehouseNote(event.target.value)} />
               </label>
               <div className="form-note">
-                库房只按纸单找货并反馈实物结果。数量不符、无法出库只进入异常处理；不能直接改订单、扣库存或创建对账。
+                {modal.prepareOnly ? "当前纸单已打印，可先登记备货；纸单到达并核对后才能登记实物出库。本次不扣库存、不生成对账。" : "库房核对当前纸单与实物后反馈结果。数量不符、无法出库只进入异常处理；不能直接改订单或创建对账。"}
               </div>
               {attachmentError && <div className="form-note" role="alert">{attachmentError}</div>}
             </div>
@@ -911,9 +917,10 @@ export function ActionModal({
           {printDraft.request ? <p className="form-note">已保留第一次提交的单据和内容。重试沿用原请求；关闭后再次进入本操作也可继续。</p> : null}
           {printConflict ? <div className="form-note">数据已变化，请先检查当前打印任务和单据，再重新核对。<button type="button" onClick={() => { clearPrintCommandDraft(modal, printDraft.request); onClose(); }}>结束本次重试并关闭</button></div> : null}
         </div> : null}
+        {modal.type === "warehouseExecution" && warehouseReviewOpen && attachmentError && <p role="alert">{attachmentError}</p>}
         <div className="modal-actions">
-          <button disabled={printSubmitting || dispatchSubmitting} onClick={warehouseReviewOpen && modal.type === "warehouseExecution" ? () => setWarehouseReviewOpen(false) : onClose}>{warehouseReviewOpen && modal.type === "warehouseExecution" ? "返回修改" : isPrintCommand && printDraft.request ? "稍后重试" : "取消"}</button>
-          <button className="primary-action" disabled={dispatchSubmitting || (modal.type === "dispatch" && !dispatchRequest && (driverRoster.loading || !dispatchDriverAvailable)) || (isPrintCommand && (printSubmitting || printConflict || Boolean(printDraft.error)))} onClick={confirm}>{isPrintCommand && printSubmitting ? "正在确认…" : isPrintCommand && printDraft.request ? "用原请求重试" : modal.type === "print" ? modal.action : modal.type === "warehouseExecution" ? warehouseReviewOpen ? "确认回录" : "下一步确认" : modal.type === "paperHandoff" ? "确认交库房" : modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? dispatchSubmitting ? "保存中…" : dispatchRequest ? "用原内容重试" : "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
+          <button disabled={printSubmitting || dispatchSubmitting || warehouseSubmitting || warehouseUncertain} onClick={warehouseReviewOpen && modal.type === "warehouseExecution" ? () => { setWarehouseReviewOpen(false); setWarehouseRequest(null); } : onClose}>{warehouseReviewOpen && modal.type === "warehouseExecution" ? "返回修改" : isPrintCommand && printDraft.request ? "稍后重试" : "取消"}</button>
+          <button className="primary-action" disabled={warehouseSubmitting || dispatchSubmitting || (modal.type === "dispatch" && !dispatchRequest && (driverRoster.loading || !dispatchDriverAvailable)) || (isPrintCommand && (printSubmitting || printConflict || Boolean(printDraft.error)))} onClick={confirm}>{isPrintCommand && printSubmitting ? "正在确认…" : isPrintCommand && printDraft.request ? "用原请求重试" : modal.type === "print" ? modal.action : modal.type === "warehouseExecution" ? warehouseSubmitting ? "保存中…" : warehouseUncertain ? "用原内容重试" : warehouseReviewOpen ? "确认回录" : "下一步确认" : modal.type === "paperHandoff" ? "确认交库房" : modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? dispatchSubmitting ? "保存中…" : dispatchRequest ? "用原内容重试" : "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
         </div>
       </section>
     </div>

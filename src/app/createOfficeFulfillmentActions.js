@@ -226,13 +226,9 @@ export function createOfficeFulfillmentActions({
       openModal({ type: "paperHandoff", fulfillmentId: targetFulfillmentId, action });
       return;
     }
-    if (action === "回录库房结果") {
-      if (!selected.paperOutboundDocument || selected.paperOutboundStatus !== "已交库房") {
-        setToast("当前纸单尚未交库房，不能回录库房实物执行结果。");
-        return;
-      }
-      openModal({ type: "warehouseExecution", fulfillmentId: targetFulfillmentId, action });
-      return;
+    if (["登记库房备货", "回录库房结果"].includes(action)) {
+      const { openWarehouseExecution } = await import("./openWarehouseExecution.js");
+      return openWarehouseExecution({ action, selected, targetFulfillmentId, setToast, openModal });
     }
     if (["确认最终自提", "确认已拉走"].includes(action)) {
       if ((action === "确认最终自提" && selected.method !== "自提") || (action === "确认已拉走" && selected.method !== "快递快运")) {

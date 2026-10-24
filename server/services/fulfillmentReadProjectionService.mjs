@@ -1,4 +1,5 @@
 import { buildFulfillmentShipmentProgress } from "./fulfillmentShipmentProgressService.mjs";
+import { hasTrustedWarehousePaper } from "../../shared/warehousePaperTrust.js";
 import {
   buildDriverGoodsSummary,
   findActiveDriverDeliveryDispatch,
@@ -116,6 +117,8 @@ function projectFulfillment(workspace, value) {
     status,
     revision: nonNegativeInteger(item.revision, 1) || 1,
     printed: ["printed", "reprinted"].includes(cleanText(currentPrintRecord?.status)),
+    warehouseTaskVisible: item.legacyStateReviewRequired !== true && item.legacy_state_review_required !== true && !["已取消", "已作废"].includes(status)
+      && hasTrustedWarehousePaper(paperOutboundDocument, currentPrintRecord, fulfillmentId),
     labelsPrinted,
     labelPrintRecordId: cleanText(latestLabelPrintRecord?.printRecordId ?? latestLabelPrintRecord?.id),
     activePrintRecordId: cleanText(currentPrintRecord?.printRecordId ?? currentPrintRecord?.id),
@@ -196,6 +199,7 @@ function projectFulfillment(workspace, value) {
     ),
     finalDeliveryStatus: cleanText(item.finalDeliveryStatus ?? item.final_delivery_status) || "待最终交付",
     finalDeliveryAt: cleanText(item.finalDeliveryAt ?? item.final_delivery_at),
+    confirmedAt: cleanText(item.confirmedAt ?? item.confirmed_at),
     legacyStateReviewRequired: item.legacyStateReviewRequired === true || item.legacy_state_review_required === true,
     latestWarehouseExecution: latestWarehouseExecution ? projectWarehouseOutboundExecution(latestWarehouseExecution) : null,
   };

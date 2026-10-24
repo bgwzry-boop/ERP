@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createFulfillmentActionCommandService } from "../server/services/fulfillmentActionCommandService.mjs";
 
 const calls = [];
-const fixedNow = new Date("2026-07-11T14:00:00.000Z");
+let fixedNow = new Date("2026-07-11T14:00:00.000Z");
 const service = createFulfillmentActionCommandService({
   businessDecisionEvidenceService: {
     prepareDecision(input) {
@@ -116,6 +116,8 @@ const service = createFulfillmentActionCommandService({
   now: () => fixedNow,
 });
 
+await checkPrintedPreparationBeforePaperHandoff();
+await checkCarrierActualTimeAndAccountingPeriod();
 await checkLegacyDirectFulfillmentActionsAreBlocked();
 await checkPaperHandoffAndWarehouseQuantityMismatch();
 await checkWarehousePhysicalOutboundAndDriverFinalDelivery();
@@ -133,6 +135,47 @@ await checkDriverException();
 console.log(
   "Fulfillment action command service checks passed: paper handoff, warehouse execution, driver final delivery, revision conflicts, office identity, dispatch, evidence, and inventory boundaries are covered.",
 );
+
+async function checkPrintedPreparationBeforePaperHandoff() {
+  const workspace = buildPaperReadyWorkspace();
+  const result = await service.recordWarehouseOutboundExecution({
+    workspace, fulfillmentId: "FUL-001", operatorId: "U-OFFICE-A",
+    body: warehouseExecutionBody(workspace, { result: "已备货", idempotencyKey: "prepared-before-paper" }),
+  });
+  assert.ok(result.response, JSON.stringify(result));
+  assert.equal(workspace.fulfillments[0].paperOutboundStatus, "已打印待交库房");
+  assert.equal(workspace.fulfillments[0].physicalOutboundAt || "", "");
+  assert.deepEqual(calls.at(-1).inventoryLedgerEntries ?? [], []);
+  assert.equal(calls.at(-1).statementCandidate, undefined);
+  const actual = await service.recordWarehouseOutboundExecution({
+    workspace, fulfillmentId: "FUL-001", operatorId: "U-OFFICE-A",
+    body: warehouseExecutionBody(workspace, { result: "实物已出库", actualQty: 100 }),
+  });
+  assert.equal(actual.code, "WAREHOUSE_EXECUTION_PAPER_HANDOFF_REQUIRED");
+}
+
+async function checkCarrierActualTimeAndAccountingPeriod() {
+  const originalNow = fixedNow;
+  fixedNow = new Date("2026-08-01T01:00:00.000Z");
+  try {
+    const workspace = buildPaperReadyWorkspace({ method: "快递快运" });
+    workspace.statements[0].period = "2026-07-01 至 2026-07-31";
+    await handoffCurrentPaperDocument(workspace);
+    await service.recordWarehouseOutboundExecution({
+      workspace, fulfillmentId: "FUL-001", operatorId: "U-OFFICE-A",
+      body: warehouseExecutionBody(workspace, { result: "实物已出库", actualQty: 100, executedAt: "2026-07-31T12:30:00.000Z" }),
+    });
+    const result = await service.updateFulfillmentStatus({
+      workspace, fulfillmentId: "FUL-001", action: "确认已拉走", operatorId: "U-OFFICE-A",
+      body: { expectedRevision: workspace.fulfillments[0].revision, confirmedFinalDelivery: true, actualHandoffAt: "2026-07-31T13:00:00.000Z", idempotencyKey: "carrier-month-close" },
+    });
+    assert.ok(result.response, JSON.stringify(result));
+    assert.equal(calls.at(-1).fulfillment.finalDeliveryAt, "2026-07-31T13:00:00.000Z");
+    assert.equal(calls.at(-1).fulfillment.confirmedAt, fixedNow.toISOString());
+    assert.equal(calls.at(-1).statementCandidate.statement.id, "ST-C001-OPEN");
+    assert.deepEqual(calls.at(-1).inventoryLedgerEntries ?? [], []);
+  } finally { fixedNow = originalNow; }
+}
 
 async function checkLegacyDirectFulfillmentActionsAreBlocked() {
   const workspace = buildWorkspace();
@@ -309,6 +352,7 @@ async function checkPickupAndExpressPhysicalOutboundFinalDelivery() {
       body: {
         expectedRevision: workspace.fulfillments[0].revision,
         confirmedFinalDelivery: true,
+        ...(method === "快递快运" ? { actualHandoffAt: fixedNow.toISOString() } : {}),
         idempotencyKey: `final-delivery-${method}`,
       },
       operatorId: "U-OFFICE-A",

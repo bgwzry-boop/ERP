@@ -59,7 +59,7 @@ function createHarness(overrides = {}) {
     orderLines: [{ id: "O-1", quantity: 100 }],
     permissionContext: overrides.permissionContext ?? {
       user: { displayName: "管理A" },
-      actionPermissions: ["order.void", "fulfillment.print"],
+      actionPermissions: ["order.void", "fulfillment.print", "fulfillment.warehouse.execute"],
       buttonPermissions: ["order.create"],
     },
     printFulfillmentDocument: overrides.printFulfillmentDocument ?? (async (input) => {
@@ -69,7 +69,9 @@ function createHarness(overrides = {}) {
     readFileAsDataUrl: async () => "data:image/png;base64,AA==",
     recordWarehouseExecution: async (input) => {
       calls.push(["warehouseExecution", input]);
-      return { feedback: "库房结果已回录。" };
+      return { source: "api", blocked: false, feedback: "库房结果已回录。", fulfillmentId: input.fulfillment.id, status: "数量差异待处理", operationLogId: "LOG-WEX-HARNESS", warehouseOutboundExecution: {
+        warehouseOutboundExecutionId: "WEX-HARNESS", fulfillmentId: input.fulfillment.id, paperOutboundDocumentId: input.paperOutboundDocument.paperOutboundDocumentId,
+        paperDocumentVersion: input.paperOutboundDocument.documentVersion, result: input.payload.result } };
     },
     saveFulfillmentDispatch: async (input) => {
       calls.push(["dispatch", input]);

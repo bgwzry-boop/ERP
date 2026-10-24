@@ -1,5 +1,7 @@
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
 import { normalizeOrderType } from "../../shared/orderRouting.js";
+import { hasTrustedWarehousePaper } from "../../shared/warehousePaperTrust.js";
+import { normalizeCarrierHandoffTimestamp, carrierFinalDeliveryPayload } from "../../shared/fulfillmentHandoffTime.js";
 import { prepareDriverDeliveryExceptionResolution } from "./driverDeliveryExceptionResolutionPolicy.mjs";
 import { findDeliveryEvidenceRetakeTodo } from "./deliveryEvidenceRetakeTodo.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../../shared/deliveryEvidenceSnapshot.js";
@@ -371,6 +373,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
   async function recordWarehouseOutboundExecution({ workspace, fulfillmentId, body = {}, operatorId }) {
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound("FULFILLMENT_NOT_FOUND");
+    const replay = await workspace.fulfillmentActionTransactionRepository?.findWarehouseExecutionReplay?.({ workspace, fulfillmentId, body, operatorId });
+    if (replay) return success({ fulfillmentId, status: replay.fulfillment.status, warehouseOutboundExecution: replay.warehouseOutboundExecution,
+      statementCandidate: false, operationLogId: replay.operationLogId, replayed: true });
     const revisionError = validateFulfillmentRevision(before, body);
     if (revisionError) return revisionError;
     if (before.legacyStateReviewRequired === true) {
@@ -379,12 +384,17 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     const paperDocument = findPaperOutboundDocument(workspace, fulfillmentId, body.paperOutboundDocumentId);
     const paperDocumentError = validatePaperOutboundDocumentVersion(paperDocument, body);
     if (paperDocumentError) return paperDocumentError;
-    if (paperDocument.status !== "已交库房") {
-      return businessError(409, "WAREHOUSE_EXECUTION_PAPER_HANDOFF_REQUIRED", "Warehouse execution requires the current paper outbound document to be handed to the warehouse first.");
-    }
     const executionResult = normalizeWarehouseExecutionResult(body.result ?? body.executionResult);
     if (!executionResult) {
       return businessError(422, "WAREHOUSE_EXECUTION_RESULT_REQUIRED", "result must be prepared, physical_outbound, quantity_mismatch, or unable_to_outbound.");
+    }
+    const currentPaper = findPaperOutboundDocument(workspace, fulfillmentId);
+    if ((currentPaper?.paperOutboundDocumentId ?? currentPaper?.id) !== (paperDocument.paperOutboundDocumentId ?? paperDocument.id)
+      || !hasTrustedWarehousePaper(paperDocument, findFulfillmentPrintRecord(workspace, paperDocument.printRecordId), fulfillmentId)) {
+      return businessError(409, "WAREHOUSE_CURRENT_PRINT_REQUIRED", "请等待当前出库单真实打印成功；作废、旧版或未打印纸单不能登记库房结果。");
+    }
+    if (executionResult !== "已备货" && paperDocument.status !== "已交库房") {
+      return businessError(409, "WAREHOUSE_EXECUTION_PAPER_HANDOFF_REQUIRED", "Warehouse execution requires the current paper outbound document to be handed to the warehouse first.");
     }
     const physicalExecutorEmployeeId = cleanText(body.physicalExecutorEmployeeId);
     if (!physicalExecutorEmployeeId || !findEmployee(workspace, physicalExecutorEmployeeId)) {
@@ -422,7 +432,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       ...before,
       status: nextStatus,
       actualQty: executionResult === "已备货" ? before.actualQty ?? null : actualQty,
-      paperOutboundStatus: "已交库房",
+      paperOutboundStatus: paperDocument.status === "已交库房" ? "已交库房" : "已打印待交库房",
       paperOutboundDocumentId: paperDocument.paperOutboundDocumentId ?? paperDocument.id,
       physicalOutboundAt: executionResult === "实物已出库" ? executedAt : before.physicalOutboundAt ?? "",
       physicalExecutorEmployeeId: executionResult === "实物已出库" ? physicalExecutorEmployeeId : before.physicalExecutorEmployeeId ?? "",
@@ -551,6 +561,12 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       if (revisionError) return revisionError;
     }
     const method = mapFulfillmentMethod(before.method);
+    const finalPayload = carrierFinalDeliveryPayload({ fulfillmentId, action, body, operatorId });
+    if (method === "express_ltl" && action === "确认已拉走") {
+      const replay = await workspace.fulfillmentActionTransactionRepository?.findCarrierHandoffReplay?.({ workspace, payload: finalPayload, idempotencyKey: body.idempotencyKey });
+      if (replay) return success({ fulfillmentId, status: replay.fulfillment.status, finalDeliveryAt: replay.fulfillment.finalDeliveryAt,
+        confirmedAt: replay.fulfillment.confirmedAt, statementCandidate: Boolean(replay.statement), statementId: replay.statement?.id ?? "", operationLogId: replay.operationLogId, replayed: true });
+    }
     if (method === "delivery") {
       return businessError(409, "FULFILLMENT_DRIVER_DELIVERY_REQUIRED", "送货任务必须由司机送达确认完成最终交付。");
     }
@@ -567,7 +583,12 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       return businessError(409, "FULFILLMENT_FINAL_DELIVERY_ALREADY_CONFIRMED", "该任务已经完成最终交付确认。");
     }
 
-    const completedAt = nowIso(now);
+    const confirmedAt = nowIso(now);
+    const completedAt = method === "express_ltl" ? normalizeCarrierHandoffTimestamp(body.actualHandoffAt) : confirmedAt;
+    if (method === "express_ltl" && (!completedAt || !Number.isFinite(Date.parse(before.physicalOutboundAt)) || Date.parse(completedAt) > Date.parse(confirmedAt)
+      || Date.parse(completedAt) < Date.parse(before.physicalOutboundAt))) {
+      return businessError(422, "CARRIER_HANDOFF_TIME_INVALID", "请填写真实拉走时间，不能晚于现在或早于本次实物出库。");
+    }
     const actualQty = Math.max(0, Math.trunc(Number(before.actualQty ?? before.qty ?? 0)));
     const after = {
       ...before,
@@ -576,7 +597,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       finalDeliveryStatus: "已交付",
       finalDeliveryAt: completedAt,
       deliveredAt: completedAt,
-      confirmedAt: completedAt,
+      confirmedAt,
       confirmedBy: operatorId,
     };
     const statementCandidate = buildFulfillmentStatementCandidate({
@@ -586,6 +607,8 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       actualQty,
       operatorId,
       completedAt,
+      recordedAt: confirmedAt,
+      requireOpenPeriod: method === "express_ltl",
     });
     const operationLog = buildOperationLog(workspace, {
       targetType: "fulfillment",
@@ -599,19 +622,13 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: {
-        fulfillmentId,
-        expectedRevision,
-        action,
-        confirmedFinalDelivery: true,
-        remark: cleanText(body.remark),
-        operatorId,
-      },
+      idempotencyPayload: finalPayload,
+      ...(method === "express_ltl" ? { finalDeliveryTimeEvidence: { actualHandoffAt: completedAt, confirmedAt, physicalOutboundAt: before.physicalOutboundAt, customerId: before.customerId ?? findOrderLine(workspace, before.orderLineId ?? before.lineId)?.customerId } } : {}),
       fulfillment: buildFulfillmentActionRecord(workspace, after, {
         operatorId,
         actualQty,
         deliveredAt: completedAt,
-        confirmedAt: completedAt,
+        confirmedAt,
         confirmedBy: operatorId,
         finalDeliveryStatus: "已交付",
         finalDeliveryAt: completedAt,
@@ -624,6 +641,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       status: transaction.fulfillment?.status ?? after.status,
       finalDeliveryStatus: transaction.fulfillment?.finalDeliveryStatus ?? "已交付",
       finalDeliveryAt: transaction.fulfillment?.finalDeliveryAt ?? completedAt,
+      confirmedAt: transaction.fulfillment?.confirmedAt ?? confirmedAt,
       statementCandidate: Boolean(statementCandidate),
       statementId: transaction.statement?.id ?? statementCandidate?.statement?.id ?? "",
       inventoryDeductionMode: "already_deducted_at_physical_outbound",
@@ -1885,7 +1903,7 @@ function statementContainsDeliveryDate(statement, date) {
     normalizeDateInput(start) === start && normalizeDateInput(end) === end && start <= date && date <= end;
 }
 
-function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine, actualQty, operatorId, completedAt }) {
+function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine, actualQty, operatorId, completedAt, recordedAt = completedAt, requireOpenPeriod = false }) {
   if (!orderLine || !fulfillment) return null;
   const orderLineId = String(orderLine.id ?? orderLine.orderLineId ?? fulfillment.lineId ?? fulfillment.orderLineId ?? "").trim();
   const customerId = String(orderLine.customerId ?? fulfillment.customerId ?? "").trim();
@@ -1906,6 +1924,10 @@ function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine,
 
   const completedDate = normalizeDateInput(completedAt);
   if (!completedDate) throw Object.assign(new Error("交付日期无效，不能自动归入今天的账期。"), {code:"FULFILLMENT_BILLING_DATE_INVALID",statusCode:409});
+  if (requireOpenPeriod && statements.some(statement => statement.customerId === customerId && statementContainsDeliveryDate(statement, completedDate)
+    && (statement.sent === true || !["待生成", "待发送", "本期待对账"].includes(String(statement.status ?? "").trim())))) {
+    throw Object.assign(new Error("实际拉走日期所在账期已发送或关闭，请财务核实后走补记流程，本次未改账。"), { code: "FULFILLMENT_BILLING_PERIOD_CLOSED", statusCode: 409 });
+  }
   const eligibleStatements = statements.filter((statement) =>
     statement.customerId === customerId &&
     statementContainsDeliveryDate(statement, completedDate) &&
@@ -1941,7 +1963,7 @@ function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine,
         sent: false,
         revision: 1,
         createdBy: operatorId,
-        createdAt: completedAt,
+        createdAt: recordedAt,
       };
   return {
     statement,
@@ -1955,7 +1977,7 @@ function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine,
       amount,
       adjustmentAmount: 0,
       finalAmount: amount,
-      createdAt: completedAt,
+      createdAt: recordedAt,
     },
   };
 }

@@ -127,7 +127,7 @@ export function createOfficeInteractionActions({
       if (result?.confirmed === true) closeModal();
       return notifyResult(result);
     }
-    if (activeModal.type !== "dispatch") closeModal();
+    if (!["dispatch", "warehouseExecution"].includes(activeModal.type)) closeModal();
 
     if (activeModal.type === "batchPrintResult") {
       return notifyResult(await confirmBatchPrintResult({ modal: activeModal, payload }));
@@ -157,16 +157,8 @@ export function createOfficeInteractionActions({
     }
 
     if (activeModal.type === "warehouseExecution") {
-      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
-      if (!selected?.paperOutboundDocument) {
-        notify("未找到当前纸单版本，无法回录库房结果。");
-        return null;
-      }
-      return notifyResult(await recordWarehouseExecution({
-        fulfillment: selected,
-        paperOutboundDocument: selected.paperOutboundDocument,
-        payload,
-      }));
+      const { confirmWarehouseExecution } = await import("./confirmWarehouseExecution.js");
+      return notifyResult(await confirmWarehouseExecution({ payload, activeModal, permissionContext, fulfillments, recordWarehouseExecution, getModal, closeModal }));
     }
 
     if (activeModal.type === "mismatch" || activeModal.type === "unable") {

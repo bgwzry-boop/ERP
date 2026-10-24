@@ -246,7 +246,7 @@ async function checkPaperOutboundExecutionTransactionBoundary() {
     inventories: [],
     inventoryReservations: [],
     inventoryLedgers: [],
-    printRecords: [],
+    printRecords: [{ printRecordId: "PR-F003-001", status: "printed", targetId: "F003" }],
     printJobs: [],
     fulfillmentExceptions: [],
     todos: [],

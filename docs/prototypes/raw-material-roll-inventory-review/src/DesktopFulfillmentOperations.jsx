@@ -3,6 +3,9 @@ import { completeOfficePackingTask } from "../../../../src/services/officeProduc
 import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
+import { normalizeInventoryHoldTimestamp } from "../../../../shared/inventoryHoldTime.js";
+import { toFactoryDatetimeLocal } from "../../../../shared/fulfillmentHandoffTime.js";
+import { hasWarehouseExecutionReceipt } from "../../../../shared/warehouseExecutionReceipt.js";
 import "./desktop-fulfillment-operations.css";
 
 export function DesktopFulfillmentOperations({ fulfillment, formal }) {
@@ -40,6 +43,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const [routeDate, setRouteDate] = useState("");
   const [routeNo, setRouteNo] = useState("");
   const [routeSequence, setRouteSequence] = useState("1");
+  const [actualHandoffLocal, setActualHandoffLocal] = useState("");
   const permissions = formal?.permissionContext?.actionPermissions ?? [];
   const can = key => permissions.includes(key);
   const common = { authState: formal?.authState, operatorId: formal?.operatorId, fulfillment };
@@ -67,6 +71,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const packTotal = packages?.reduce((sum, qty) => sum + qty, 0) ?? 0;
   const stockPacking = !task && isStockOrderType(fulfillment.orderType ?? line?.orderType) && !fulfillment.actualPackageCount && ["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment.status);
   const canPack = !terminal && !fulfillment.physicalOutboundAt && (task?.status === "待打包" || stockPacking);
+  const warehouseResult = paper?.status === "已交库房" ? execution : "已备货";
   const locked = busy || uncertain || Boolean(confirmation);
 
   function prepare(label, execute, payload, summary) {
@@ -129,14 +134,14 @@ function FulfillmentOperations({ fulfillment, formal }) {
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
       {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。出库纸单与包裹挂牌分别打印。</p><button type="button" onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print" }, "创建待实际打印的出库单任务；打印完成后才能交库房。")}>创建打印任务</button></fieldset>}
       {can("fulfillment.paper.handoff") && ["已打印", "已重打"].includes(paper?.status) && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
-      {can("fulfillment.warehouse.execute") && paper?.status === "已交库房" && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
+      {can("fulfillment.warehouse.execute") && (fulfillment.warehouseTaskVisible || paper?.status === "已交库房") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
         <legend>库房实际执行</legend>
         <label>执行人<select value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">选择实际执行人</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}</select></label>
         {!employees.length && <p>{candidates.loading ? "正在读取在岗员工…" : "暂无可选在岗员工，请先核对员工档案。"}</p>}
-        <div className="fulfillment-operation-grid"><label>执行结果<select value={execution} onChange={event => setExecution(event.target.value)}>{["已备货", "实物已出库", "数量不符", "无法出库"].map(value => <option key={value}>{value}</option>)}</select></label><label>反馈方式<select value={channel} onChange={event => setChannel(event.target.value)}>{["当面", "电话", "微信", "纸面", "其他"].map(value => <option key={value}>{value}</option>)}</select></label></div>
-        {execution !== "已备货" && <label>实际数量<input type="number" min="0" step="1" value={actualQty} onChange={event => setActualQty(event.target.value)} /></label>}
+        <div className="fulfillment-operation-grid"><label>执行结果<select value={paper?.status === "已交库房" ? warehouseResult : "已备货"} onChange={event => setExecution(event.target.value)}>{(paper?.status === "已交库房" ? ["已备货", "实物已出库", "数量不符", "无法出库"] : ["已备货"]).map(value => <option key={value}>{value}</option>)}</select></label><label>反馈方式<select value={channel} onChange={event => setChannel(event.target.value)}>{["当面", "电话", "微信", "纸面", "其他"].map(value => <option key={value}>{value}</option>)}</select></label></div>
+        {warehouseResult !== "已备货" && <label>实际数量<input type="number" min="0" step="1" value={actualQty} onChange={event => setActualQty(event.target.value)} /></label>}
         <label>说明<textarea rows="2" value={note} onChange={event => setNote(event.target.value)} placeholder="差异、无法出库或需要交接的事项" /></label>
-        <button type="button" className="primary" disabled={!employeeId || (execution !== "已备货" && (actualQty === "" || !Number.isSafeInteger(Number(actualQty)) || Number(actualQty) < 0)) || (["数量不符", "无法出库"].includes(execution) && !note.trim())} onClick={() => ask("登记库房执行", recordOfficeWarehouseOutboundExecution, { paperOutboundDocument: paper, result: execution, actualQty: execution === "已备货" ? undefined : Number(actualQty), physicalExecutorEmployeeId: employeeId, feedbackChannel: channel, executedAt: new Date().toISOString(), note }, `${employees.find(row => row.employeeId === employeeId)?.name}：${execution}${execution === "已备货" ? "" : ` ${actualQty} 个`}。实物出库将由系统按记录更新库存。`)}>核对执行结果</button>
+        <button type="button" className="primary" disabled={!employeeId || (warehouseResult !== "已备货" && (actualQty === "" || !Number.isSafeInteger(Number(actualQty)) || Number(actualQty) < 0)) || (["数量不符", "无法出库"].includes(warehouseResult) && !note.trim())} onClick={() => ask("登记库房执行", recordOfficeWarehouseOutboundExecution, { paperOutboundDocument: paper, result: warehouseResult, actualQty: warehouseResult === "已备货" ? undefined : Number(actualQty), physicalExecutorEmployeeId: employeeId, feedbackChannel: channel, executedAt: new Date().toISOString(), note }, `${employees.find(row => row.employeeId === employeeId)?.name}：${warehouseResult}${warehouseResult === "已备货" ? "" : ` ${actualQty} 个`}。实物出库将由系统按记录更新库存。`)}>核对执行结果</button>
       </fieldset>}
       {method === "送货" && can("fulfillment.dispatch.update") && <fieldset disabled={locked}>
         <legend>安排送货</legend><p>司机在手机逐包扫码装车，并上传送货照片、签字照片或未签原因。</p>
@@ -146,7 +151,16 @@ function FulfillmentOperations({ fulfillment, formal }) {
         <button type="button" disabled={!driverId || !routeDate || !routeNo.trim() || !Number.isSafeInteger(Number(routeSequence)) || Number(routeSequence) < 1} onClick={() => ask("安排送货", updateOfficeFulfillmentDispatch, { driverId, routeDate, routeNo: routeNo.trim(), routeSequence: Number(routeSequence), remark: note }, `${drivers.find(row => row.userId === driverId)?.name}，${routeDate}，车次 ${routeNo}，顺序 ${routeSequence}。`)}>核对并派单</button>
       </fieldset>}
       {fulfillment.physicalOutboundAt && method === "自提" && can("fulfillment.complete") && <button type="button" className="primary" disabled={locked} onClick={() => ask("确认客户自提", completeOfficeFulfillment, { confirmedFinalDelivery: true, actualQty: fulfillment.actualQty ?? expected, remark: note }, "确认客户已实际提走本次货物，完成最终交付。")}>核对客户提货</button>}
-      {fulfillment.physicalOutboundAt && ["快递", "物流", "快递快运"].includes(method) && can("fulfillment.pickup.confirm") && <button type="button" className="primary" disabled={locked} onClick={() => ask("确认快递揽收", confirmOfficeFulfillmentPickup, { confirmedFinalDelivery: true, remark: note }, "确认承运方已实际接收本次货物，完成揽收记录。")}>核对快递揽收</button>}
+      {fulfillment.physicalOutboundAt && ["快递", "物流", "快递快运"].includes(method) && can("fulfillment.pickup.confirm") && <fieldset disabled={locked}>
+        <legend>核对快递揽收</legend>
+        <label>实际拉走时间（北京时间）<input type="datetime-local" step="1" value={actualHandoffLocal} min={toFactoryDatetimeLocal(fulfillment.physicalOutboundAt)} max={toFactoryDatetimeLocal(new Date().toISOString())} onChange={event => setActualHandoffLocal(event.target.value)} /></label>
+        <p>按实际拉走日期进入对账，系统另外记录本次确认时间；放入待提货区不代表已拉走。</p>
+        <button type="button" className="primary" disabled={!actualHandoffLocal} onClick={() => {
+          const actualHandoffAt = normalizeInventoryHoldTimestamp(actualHandoffLocal);
+          if (!actualHandoffAt || Date.parse(actualHandoffAt) < Date.parse(fulfillment.physicalOutboundAt) || Date.parse(actualHandoffAt) > Date.now()) return setNotice("请核对实际拉走时间，不能早于实物出库或晚于现在。");
+          ask("确认快递揽收", confirmOfficeFulfillmentPickup, { confirmedFinalDelivery: true, actualHandoffAt, remark: note }, `确认承运方已实际接收本次货物。实际拉走：${actualHandoffLocal.replace("T", " ")}（北京时间）；另记本次确认时间。`);
+        }}>核对快递揽收</button>
+      </fieldset>}
       {!permissions.some(key => ["packing.complete", "fulfillment.print", "fulfillment.warehouse.execute", "fulfillment.dispatch.update", "fulfillment.complete", "fulfillment.pickup.confirm"].includes(key)) && <p>当前账号仅可查看，请由对应岗位办理。</p>}
     </>}
     {confirmation && <div className="fulfillment-operation-confirm" role="group" aria-label="提交前核对"><strong>{confirmation.label}</strong><p>{confirmation.summary}</p><div><button type="button" disabled={busy || uncertain} onClick={() => setConfirmation(null)}>返回修改</button><button type="button" className="primary" disabled={busy} onClick={() => commit(uncertain)}>{busy ? "正在保存…" : uncertain ? "重试本次操作" : "确认提交"}</button></div></div>}
@@ -160,7 +174,7 @@ export function hasCompleteFulfillmentReceipt(attempt, result) {
   if (result.fulfillmentId !== input.fulfillment?.id) return false;
   if (attempt.execute === printOfficeFulfillment) return Boolean((result.printJobId ?? result.printJob?.printJobId) && (result.printRecord?.printRecordId ?? result.printRecord?.id));
   if (attempt.execute === handoffOfficePaperOutbound) return (result.paperOutboundDocument?.paperOutboundDocumentId ?? result.paperOutboundDocument?.id) === (input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id);
-  if (attempt.execute === recordOfficeWarehouseOutboundExecution) return Boolean(result.warehouseOutboundExecution?.warehouseOutboundExecutionId ?? result.warehouseOutboundExecution?.id);
+  if (attempt.execute === recordOfficeWarehouseOutboundExecution) return hasWarehouseExecutionReceipt(result, input);
   if (attempt.execute === updateOfficeFulfillmentDispatch) return result.dispatch?.driverId === input.driverId;
   return Boolean(result.status);
 }

@@ -8,6 +8,7 @@ import {
 } from "@ant-design/icons";
 import { useMemo, useState } from "react";
 import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
+import { isWarehouseTaskVisible } from "../../../shared/warehousePaperTrust.js";
 
 const MOBILE_VIEWS = [
   ["current", "当前任务", InboxOutlined],
@@ -91,18 +92,18 @@ export function WarehouseMobilePage({
                 <div><dt>库位来源</dt><dd>{selected.zone || selected.source || "待确认"}</dd></div>
               </dl>
               <section className={`warehouse-mobile-next-step${paperReady ? " ready" : ""}`}>
-                <strong>{paperReady ? "下一步：核对纸单与实物" : "下一步：先找货并备货"}</strong>
+                <strong>{paperReady ? "下一步：核对纸单与实物" : selected.status === "已备货" ? "下一步：等待当前纸单核对" : "下一步：先找货并备货"}</strong>
                 <p>{paperReady
                   ? "核对版本、规格和数量一致后提交。"
-                  : "可先备货；拿到当前纸单后提交。"}</p>
+                  : "可先登记备货；纸单到达并核对后再登记实物出库。"}</p>
               </section>
               {paperReady ? (
                 <button className="warehouse-mobile-primary" onClick={() => onAction?.("回录库房结果", selected.id)} type="button">
                   <FileTextOutlined /> 核对纸单并回录结果
                 </button>
               ) : (
-                <button className="warehouse-mobile-primary" disabled type="button">
-                  <FileTextOutlined /> 等待当前纸质出库单
+                <button className="warehouse-mobile-primary" disabled={selected.status === "已备货" || Boolean(selected.physicalOutboundAt)} onClick={() => onAction?.("登记库房备货", selected.id)} type="button">
+                  <FileTextOutlined /> {selected.status === "已备货" ? "已登记备货，等待当前纸质出库单" : "登记已备货"}
                 </button>
               )}
               {(selected.status?.includes("数量") || selected.status?.includes("无法")) ? (
@@ -155,16 +156,6 @@ function FunctionButton({ count, label, onClick }) {
   return <button disabled={!count} onClick={onClick} type="button"><InboxOutlined /><strong>{label}</strong><span>{count} 条</span></button>;
 }
 
-function isWarehouseTaskVisible(item = {}) {
-  if (item.status === "已交付") return Boolean(item.physicalOutboundAt);
-  return Boolean(
-    item.printed ||
-    item.activePrintRecordId ||
-    item.paperOutboundDocument ||
-    ["已打印待交库房", "已交库房"].includes(item.paperOutboundStatus),
-  );
-}
-
 function compareWarehouseTasks(left, right) {
   const attention = (item) => Number(item.status?.includes("数量") || item.status?.includes("无法")) * 10
     + Number(item.paperOutboundStatus === "已交库房") * 4
@@ -175,7 +166,7 @@ function compareWarehouseTasks(left, right) {
 function getWarehouseStep(item) {
   if (!item) return 1;
   if (item.physicalOutboundAt) return 5;
-  if (item.paperOutboundStatus === "已交库房") return 3;
+  if (item.paperOutboundStatus === "已交库房" || item.status === "已备货") return 3;
   if (item.paperOutboundStatus === "已打印待交库房" || item.printed) return 2;
   return 1;
 }

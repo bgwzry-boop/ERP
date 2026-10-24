@@ -1,5 +1,6 @@
 import { orderTypeAliasesFor } from "../shared/orderRouting.js";
 import { acceptsWorkspaceRecordVersion } from "./workspaceRecordVersion.mjs";
+import { hasTrustedWarehousePaper } from "../shared/warehousePaperTrust.js";
 import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
 import { buildPrintTodoRecoveryCtes, recoverLocalPrintTodo, printTodoRecoveryResultSql } from "./fulfillmentPrintTodoRecovery.mjs";
@@ -49,6 +50,12 @@ export function createFulfillmentActionTransactionRepository(options = {}) {
 export function createLocalFulfillmentActionTransactionRepository() {
   return {
     kind: "local_memory",
+    findCarrierHandoffReplay({ workspace, payload, idempotencyKey }) {
+      return resolveExactActionReplay((workspace.operationIdempotencyRecords ?? []).find(row => row.scope === "fulfillment.confirm_carrier_final_handoff" && row.idempotencyKey === normalizeIdempotencyKey(idempotencyKey)), payload, payload.fulfillmentId);
+    },
+    findWarehouseExecutionReplay({ workspace, fulfillmentId, body, operatorId }) {
+      return resolveExactActionReplay((workspace.operationIdempotencyRecords ?? []).find(row => row.scope === "fulfillment.record_warehouse_outbound_execution" && row.idempotencyKey === normalizeIdempotencyKey(body.idempotencyKey)), { ...body, operatorId }, fulfillmentId);
+    },
     findFulfillmentPrintReplay({ workspace, ...request }) {
       const key = normalizeIdempotencyKey(request.body.idempotencyKey);
       if (!key) return null;
@@ -293,6 +300,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       targetId: fulfillmentId,
       resourceLocks: [
         `fulfillment:${fulfillmentId}`,
+        ...(input.finalDeliveryTimeEvidence ? [`carrier-billing-customer:${input.finalDeliveryTimeEvidence.customerId}`] : []),
         ...(checksOutboundInventory(input) ? [`order-line:${input.fulfillment?.orderLineId ?? input.fulfillment?.lineId ?? ""}`] : []),
         ...((input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot) ? [`order-line:${(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot).orderLineId}`] : []),
         ...(input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id
@@ -380,6 +388,18 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
 
   return {
     kind: "postgres",
+    async findCarrierHandoffReplay({ payload, idempotencyKey }) {
+      const key = normalizeIdempotencyKey(idempotencyKey);
+      if (!key) return null;
+      const existing = await queryJson("SELECT json_build_object('requestHash', request_hash, 'response', response_json) AS result FROM operation_idempotency_keys WHERE scope='fulfillment.confirm_carrier_final_handoff' AND idempotency_key=$1", [key]);
+      return resolveExactActionReplay(existing, payload, payload.fulfillmentId);
+    },
+    async findWarehouseExecutionReplay({ fulfillmentId, body, operatorId }) {
+      const key = normalizeIdempotencyKey(body.idempotencyKey);
+      if (!key) return null;
+      const existing = await queryJson("SELECT json_build_object('requestHash', request_hash, 'response', response_json) AS result FROM operation_idempotency_keys WHERE scope='fulfillment.record_warehouse_outbound_execution' AND idempotency_key=$1", [key]);
+      return resolveExactActionReplay(existing, { ...body, operatorId }, fulfillmentId);
+    },
     async findFulfillmentPrintReplay({ workspace, ...request }) {
       const key = normalizeIdempotencyKey(request.body.idempotencyKey);
       if (!key) return null;
@@ -409,6 +429,14 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
     recordFulfillmentAction,
     recordFulfillmentPrint: recordFulfillmentAction,
   };
+}
+
+function resolveExactActionReplay(existing, payload, fulfillmentId) {
+  if (!existing) return null;
+  if (existing.requestHash !== buildIdempotencyRequestHash(payload)) throw buildIdempotencyConflictError();
+  const result = normalizeFulfillmentActionTransactionResult(cloneJson(existing.response));
+  if (result.fulfillment?.fulfillmentId !== fulfillmentId) throw buildIdempotencyConflictError();
+  return { ...result, replayed: true };
 }
 
 function resolvePrintVoidReplay(existing, { printRecordId, body, operatorId }) {
@@ -521,6 +549,9 @@ locked_print_job AS MATERIALIZED (
 locked_execution_paper_document AS MATERIALIZED (
   ${buildLockedWarehouseExecutionPaperDocumentSql(warehouseOutboundExecution, parameters)}
 ),
+locked_carrier_statements AS MATERIALIZED (
+  ${buildLockedCarrierStatementsSql(input, parameters)}
+),
 package_updates AS MATERIALIZED (
   ${buildPackageUpdatesSql(packages, parameters)}
 ),
@@ -568,7 +599,8 @@ fulfillment_write_guard AS MATERIALIZED (
       AND (${operationLog.action === "resolve_driver_delivery_exception" ? `${buildDriverExceptionTodoGuardSql(input,parameters)} AND EXISTS (SELECT 1 FROM locked_driver_exceptions WHERE id=${parameters.text(fulfillmentException?.exceptionId)} AND status=${parameters.text(input.driverExceptionBefore?.status)} AND status NOT IN ('已解决','已作废')) AND ${parameters.text(fulfillment.status)} = (SELECT CASE WHEN (SELECT count(*) FROM locked_driver_exceptions WHERE status NOT IN ('已解决','已作废'))>1 THEN '送货异常' WHEN loaded_at IS NOT NULL THEN '配送中' ELSE '待送货' END FROM locked_fulfillment) AND NOT EXISTS (SELECT 1 FROM operation_logs WHERE id=${parameters.text(operationLog.id)})` : 'TRUE'})
       AND (${buildFulfillmentBillingSnapshotGuard(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot, parameters)}),
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
-  ) ${operationLog.action === "driver_confirm_loaded" ? `AND erp_require_driver_packages(${parameters.text(fulfillment.fulfillmentId)}, ${parameters.text(fulfillment.orderLineId)}, ${parameters.textArray(operationLog.after?.checkedPackageIds ?? [])})` : ""} AS ok
+  ) AND erp_require(${buildCarrierHandoffTimeGuardSql(input, fulfillment, parameters)}, 'ERP_CARRIER_HANDOFF_TIME_CONFLICT')
+    ${operationLog.action === "driver_confirm_loaded" ? `AND erp_require_driver_packages(${parameters.text(fulfillment.fulfillmentId)}, ${parameters.text(fulfillment.orderLineId)}, ${parameters.textArray(operationLog.after?.checkedPackageIds ?? [])})` : ""} AS ok
 ),
 package_write_guard AS MATERIALIZED (
   SELECT erp_require(
@@ -1848,19 +1880,58 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${printRecordJsonExpression("print_records")} AS result`;
 }
 
+function carrierBusinessDate(input) {
+  return new Date(Date.parse(input.finalDeliveryTimeEvidence.actualHandoffAt) + 8 * 3600000).toISOString().slice(0, 10);
+}
+
+function buildLockedCarrierStatementsSql(input, parameters) {
+  if (!input.finalDeliveryTimeEvidence) return "SELECT NULL::text AS id, NULL::integer AS revision, NULL::text AS status, NULL::timestamptz AS last_sent_at WHERE false";
+  const date = carrierBusinessDate(input);
+  return `SELECT id, revision, status, last_sent_at FROM statements
+    WHERE customer_id = ${parameters.text(input.finalDeliveryTimeEvidence.customerId)}
+      AND period_start <= ${parameters.text(date)}::date AND period_end >= ${parameters.text(date)}::date
+    ORDER BY id FOR UPDATE`;
+}
+
+function buildCarrierHandoffTimeGuardSql(input, fulfillment, parameters) {
+  const evidence = input.finalDeliveryTimeEvidence;
+  if (!evidence) return "TRUE";
+  const prior = (input.workspace?.statements ?? []).find(row => row.id === input.statementCandidate?.statement?.id);
+  const statementGuard = prior
+    ? `(SELECT COUNT(*) FROM locked_carrier_statements) = 1 AND EXISTS (SELECT 1 FROM locked_carrier_statements WHERE id = ${parameters.text(prior.id)} AND revision = ${parameters.integer(prior.revision ?? 1)} AND status IN ('待生成','待发送','本期待对账') AND last_sent_at IS NULL)`
+    : `(SELECT COUNT(*) FROM locked_carrier_statements) = 0`;
+  return `EXISTS (SELECT 1 FROM locked_fulfillment WHERE physical_outbound_at = ${parameters.timestamp(evidence.physicalOutboundAt)}
+    AND final_delivery_at IS NULL AND delivered_at IS NULL
+    AND ${parameters.timestamp(evidence.actualHandoffAt)} >= physical_outbound_at
+    AND ${parameters.timestamp(evidence.actualHandoffAt)} <= ${parameters.timestamp(evidence.confirmedAt)}
+    AND ${parameters.timestamp(evidence.actualHandoffAt)} <= CURRENT_TIMESTAMP)
+    AND ${parameters.timestamp(fulfillment.finalDeliveryAt)} = ${parameters.timestamp(evidence.actualHandoffAt)}
+    AND ${parameters.timestamp(fulfillment.confirmedAt)} = ${parameters.timestamp(evidence.confirmedAt)}
+    AND (${statementGuard})`;
+}
+
+function statementDateContains(statement, date) {
+  const [start, end] = String(statement.period ?? "").split(" 至 ");
+  return (statement.periodStart ?? statement.period_start ?? start) <= date && (statement.periodEnd ?? statement.period_end ?? end) >= date;
+}
+
 function buildLockedWarehouseExecutionPaperDocumentSql(execution, parameters) {
   if (!execution) return "SELECT NULL::text AS id, NULL::integer AS revision, NULL::text AS status, NULL::integer AS document_version WHERE false";
-  return `SELECT id, revision, status, document_version
-FROM paper_outbound_documents
-WHERE id = ${parameters.text(execution.paperOutboundDocumentId)}
-FOR UPDATE`;
+  return `SELECT document.id, document.revision, document.status, document.document_version, document.fulfillment_id, record.status AS print_status
+FROM paper_outbound_documents AS document JOIN print_records AS record ON record.id = document.print_record_id
+WHERE document.id = ${parameters.text(execution.paperOutboundDocumentId)}
+  AND document.fulfillment_id = ${parameters.text(execution.fulfillmentId)}
+  AND NOT EXISTS (SELECT 1 FROM paper_outbound_documents AS newer WHERE newer.fulfillment_id = document.fulfillment_id
+    AND (newer.document_version > document.document_version OR (newer.document_version = document.document_version AND newer.created_at > document.created_at)))
+FOR UPDATE OF document, record`;
 }
 
 function buildWarehouseExecutionGuardSql(execution, parameters) {
   if (!execution) return "true";
   return `(SELECT COUNT(*) FROM locked_execution_paper_document) = 1
     AND (SELECT revision FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentRevision)}
-    AND (SELECT status FROM locked_execution_paper_document) = '已交库房'
+    AND (SELECT print_status FROM locked_execution_paper_document) IN ('printed', 'reprinted')
+    AND (SELECT status FROM locked_execution_paper_document) ${execution.result === "已备货" ? "NOT IN ('已作废', 'voided')" : "= '已交库房'"}
     AND (SELECT document_version FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentVersion)}`;
 }
 
@@ -2601,6 +2672,26 @@ function assertLocalFulfillmentOperationalBounds(input) {
  const current=(input.workspace.fulfillments??[]).find(row=>(row.fulfillmentId??row.id)===id);
  if(!current || (current.orderLineId??current.lineId)!==(next.orderLineId??next.lineId)) throw fulfillmentConflict(next.revision);
  const action=input.operationLog?.action;
+  if (input.warehouseOutboundExecution) {
+    const execution = input.warehouseOutboundExecution;
+    const documents = (input.workspace.paperOutboundDocuments ?? []).filter(row => row.fulfillmentId === id)
+      .sort((left, right) => Number(right.documentVersion) - Number(left.documentVersion) || String(right.createdAt).localeCompare(String(left.createdAt)));
+    const paper = documents[0];
+    const print = (input.workspace.printRecords ?? []).find(row => (row.printRecordId ?? row.id) === paper?.printRecordId);
+    if (!paper || (paper.paperOutboundDocumentId ?? paper.id) !== execution.paperOutboundDocumentId || Number(paper.revision) !== Number(execution.paperDocumentRevision)
+      || Number(paper.documentVersion) !== Number(execution.paperDocumentVersion) || !hasTrustedWarehousePaper(paper, print, id)
+      || (execution.result !== "已备货" && paper.status !== "已交库房")) throw fulfillmentConflict(current.revision);
+  }
+  if (input.finalDeliveryTimeEvidence) {
+    const evidence = input.finalDeliveryTimeEvidence;
+    const actual = Date.parse(evidence.actualHandoffAt), recorded = Date.parse(evidence.confirmedAt), physical = Date.parse(current.physicalOutboundAt);
+    if (!Number.isFinite(actual) || !Number.isFinite(recorded) || !Number.isFinite(physical) || actual < physical || actual > recorded
+      || physical !== Date.parse(evidence.physicalOutboundAt) || current.finalDeliveryAt || current.deliveredAt) throw fulfillmentConflict(current.revision);
+    const date = new Date(actual + 8 * 3600000).toISOString().slice(0, 10);
+    const matching = (input.workspace.statements ?? []).filter(row => row.customerId === evidence.customerId && statementDateContains(row, date));
+    if (matching.length > 1 || matching.some(row => row.sent || !["待生成", "待发送", "本期待对账"].includes(row.status)
+      || row.id !== input.statementCandidate?.statement?.id)) throw fulfillmentConflict(current.revision);
+  }
   if (action === "resolve_driver_delivery_exception") {
     const priorTodo = input.driverExceptionTodoBefore;
     const currentTodo = (input.workspace.todos ?? []).find((item) => item.id === priorTodo?.id);

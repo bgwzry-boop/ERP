@@ -193,6 +193,7 @@ export function createOfficeFulfillmentWriteActions({
             expectedRevision: payload.expectedRevision,
             idempotencyKey: payload.idempotencyKey,
             confirmedFinalDelivery: payload.confirmedFinalDelivery === true,
+            actualHandoffAt: payload.actualHandoffAt,
             remark: `${currentUserDisplayName} 在出库 / 交付页确认快递快运拉走`,
           })
         : await fulfillmentApi.completeOfficeFulfillment({
