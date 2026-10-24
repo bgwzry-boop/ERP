@@ -547,25 +547,26 @@ async function checkSupplementExecutionFacts() {
   };
   const consume=(f,taskId=f.task.id)=>applyRawMaterialTraceabilityAction({workspace:f.w,action:'confirm_consumption',before:{...f.before,rolls:f.before.rolls.map(row=>({...row,productionTaskId:taskId})),rawMaterialIssueRecords:f.before.rawMaterialIssueRecords.map(row=>({...row,productionTaskId:taskId}))},body:{rollId:'ROLL-EXECUTION',consumedWeightKg:5},operatorId:'U-PRICE',now:'2026-10-24T04:00:00Z'});
   const businessState=w=>JSON.stringify({lines:w.orderLines,prices:w.priceSnapshots,tasks:w.productionTasks,changes:w.orderLineChangeRecords});
-  for(const stage of ['quote','confirm'])for(const fact of ['printing-consumption','issue-linked-consumption','loadedAt','physicalOutboundAt','finalDeliveryAt','deliveredAt','legacy-pickup','legacy-delivered-label','printed','queued']) {
+  for(const stage of ['quote','confirm'])for(const fact of ['printing-consumption','issue-linked-consumption','loadedAt','physicalOutboundAt','finalDeliveryAt','deliveredAt','legacy-pickup','legacy-delivered-label','direct-line-paper','printed','queued']) {
     const f=await fixture();let quote;
     if(stage==='confirm'){quote=await makeQuote(f.w,{supplementation:f.supplementation},'before-fact');assert.ok(quote.response);}
     if(fact.includes('consumption')){const inbound=consume(f);if(fact==='issue-linked-consumption')delete inbound.rawMaterialConsumptionRecords[0].productionTaskId;f.w.rawMaterialInbounds=[inbound];}
     else if(['loadedAt','physicalOutboundAt','finalDeliveryAt','deliveredAt'].includes(fact))f.w.fulfillments.find(row=>(row.orderLineId??row.lineId)===f.old.id)[fact]='2026-10-24T04:01:00Z';
     else if(fact.startsWith('legacy-'))f.w.fulfillments[0].status=fact==='legacy-pickup'?'已自提':'已交付（历史）';
+    else if(fact==='direct-line-paper')f.w.paperOutboundDocuments=[{orderLineId:f.old.id,status:'已打印待交库'}];
     else if(fact==='printed')f.w.printRecords=[{targetType:'fulfillment',targetId:f.w.fulfillments[0].id,status:'printed'}];
     else f.w.printJobs=[{targetType:'fulfillment',targetId:f.w.fulfillments[0].id,jobStatus:'queued'}];
     const before=businessState(f.w);
     const result=stage==='quote'?await makeQuote(f.w,{supplementation:f.supplementation},`blocked-${fact}`):await confirmQuote(f.w,quote.response.quote,{confirmedAffectedOrderLineIds:[f.old.id]},`blocked-${fact}`);
     assert.equal(result.statusCode,409,`${stage} ${fact}: ${JSON.stringify(result)}`);
-    assert.equal(result.code,['printed','queued'].includes(fact)?'ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT':'ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE');
+    assert.equal(result.code,['direct-line-paper','printed','queued'].includes(fact)?'ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT':'ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE');
     assert.equal(businessState(f.w),before,'Rejected supplements preserve old order, prices, production and change evidence');
   }
   for(const fact of ['issued-only','bag-making-consumption','unlinked-machine','voided-history']) {
     const f=await fixture();f.w.rawMaterialInbounds=[f.before];
     if(fact==='bag-making-consumption'){f.w.productionTasks.push({id:'BAG-EXECUTION',orderLineId:f.old.id,taskType:'制袋',taskStatus:'生产中',plannedQty:5000,revision:1});f.w.rawMaterialInbounds=[consume(f,'BAG-EXECUTION')];}
     if(fact==='unlinked-machine')f.w.rawMaterialInbounds=[{rawMaterialConsumptionRecords:[{consumedWeightKg:5,machineId:'M-EXECUTION',productionTaskOrderLineId:f.old.id}]}];
-    if(fact==='voided-history'){f.w.paperOutboundDocuments=[{fulfillmentId:f.w.fulfillments[0].id,status:'voided'}];f.w.printRecords=[{targetType:'fulfillment',targetId:f.w.fulfillments[0].id,status:'voided'}];f.w.printJobs=[{targetType:'fulfillment',targetId:f.w.fulfillments[0].id,jobStatus:'printed'}];}
+    if(fact==='voided-history'){f.w.paperOutboundDocuments=[{orderLineId:f.old.id,status:'voided'}];f.w.printRecords=[{targetType:'fulfillment',targetId:f.w.fulfillments[0].id,status:'voided'}];f.w.printJobs=[{targetType:'fulfillment',targetId:f.w.fulfillments[0].id,jobStatus:'printed'}];}
     const quote=await makeQuote(f.w,{supplementation:f.supplementation},`allowed-${fact}`);assert.ok(quote.response,`${fact}: ${JSON.stringify(quote)}`);
     const draft=f.w.orderDrafts.find(row=>row.id===f.w.currentPricingDraftId),body={expectedRevision:draft.revision,lines:structuredClone(draft.lines),pricingQuoteId:quote.response.quote.quoteId,confirmedAffectedOrderLineIds:[f.old.id],idempotencyKey:`office-pricing-confirm-allowed-${fact}`};
     const input={workspace:f.w,draftId:draft.id,operatorId:'U-PRICE',actionPermissions:permissions,body};

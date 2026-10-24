@@ -155,6 +155,13 @@ export function assertUnstartedPrintingSupplement(workspace, rows, customerId) {
     );
     assertPrintingMaterialsUnconsumed(workspace, tasks.map(task => task.id ?? task.productionTaskId));
     assertOrderDocumentsVoided(workspace, id);
+    // Historical local paper facts can link directly to a line. Formal PG
+    // papers use the fulfillment FK, but adopting the shared guard must not
+    // discard this existing local evidence contract.
+    if ((workspace.paperOutboundDocuments ?? []).some(document => document.orderLineId === id
+      && !["已作废","已取消","voided","invalidated"].includes(document.status))) {
+      throw orderPricingError("ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT", "请先作废旧单据再改单；改单后重印。");
+    }
     if (
       row.customerId !== customerId ||
       !isPrivatePrinting(row) ||
