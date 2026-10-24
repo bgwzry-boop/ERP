@@ -21,7 +21,7 @@
     "sha256": "1d38efc380d6d0ad89f579e73948398fa6780b300845037e1bfb80bdae2aab84"
   },
   "countMeaning": "98是业务问题编号；多个编号可指向同一缺陷。工作组不是旧提交或独立bug数量。",
-  "statusBoundary": "本地修复与现场验收、发布分开；本轮不部署、不回写线上历史数据。",
+  "statusBoundary": "validation及逐项rectification记录该代码验证时的本地状态；负责人后续授权统一staging发布，当前是否完成以发布锁、线上前端/API、canonical及主目录最终核对为准，不回写历史验证。",
   "works": [
     {
       "id": "P1-01",
@@ -3355,5 +3355,12 @@
         "剩余6组P1仍按编号继续"
       ]
     }
-  ]
+  ],
+  "releaseTracking": {
+    "target": "staging",
+    "version": "staging-20261024-p1-r4",
+    "scopeDocument": "docs/development/staging-p1-r4-release-20261024.zh-CN.md",
+    "sourceVerifiedCandidateCommit": "b4f4b42db7716f918e511360a68cdabb562329c6",
+    "completionAuthority": "controlled-release:deploy/finalize with exact lock and live frontend/API/canonical/main checkout identity; local 4174 is never deployment evidence"
+  }
 }
