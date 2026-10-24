@@ -218,6 +218,26 @@ assert.deepEqual(await service.seedPrintJobs(completeWorkspace), {
 assert.equal(completeWorkspace.persisted.length, 0);
 assert.equal(calls.filter((item) => item.kind === "operationLog").length, 0);
 
+calls.length = 0;
+const databaseWorkspace = buildPrintWorkspace({
+  runtimeConfig: { mode: "test" }, fulfillments: [{ fulfillmentId: "F-DATABASE-ONLY" }],
+});
+assert.deepEqual(await service.seedPrintJobs(databaseWorkspace), {
+  createdCount: 0, createdPrintJobIds: [], skippedReason: "demo_targets_unavailable",
+});
+assert.deepEqual(databaseWorkspace.persisted, []);
+assert.deepEqual(calls, [], "Missing demo targets must not build or persist orphan jobs during database startup");
+
+calls.length = 0;
+const oneTargetWorkspace = buildPrintWorkspace({
+  runtimeConfig: { mode: "test" }, fulfillments: [{ id: "F004" }],
+});
+assert.deepEqual(await service.seedPrintJobs(oneTargetWorkspace), {
+  createdCount: 1, createdPrintJobIds: ["PJ-DEMO-FAILED-RETRY"], skippedReason: "",
+});
+assert.equal(oneTargetWorkspace.persisted[0].printJob.targetId, "F004");
+assert.equal(calls.filter(item => item.kind === "operationLog").length, 1);
+
 for (const dependencyName of [
   "buildOperationLog",
   "buildPrintDeviceSnapshot",
@@ -239,15 +259,16 @@ for (const dependencyName of [
 }
 
 console.log(
-  "demo workspace seed service checks passed: production isolation, task mapping, print-job fidelity, and idempotent demo seeding are locked",
+  "demo workspace seed service checks passed: production isolation, task mapping, authoritative demo targets, print-job fidelity, and idempotent demo seeding are locked",
 );
 
-function buildPrintWorkspace({ runtimeConfig, printJobs = [], printDevices = [labelDevice] } = {}) {
+function buildPrintWorkspace({ runtimeConfig, printJobs = [], printDevices = [labelDevice], fulfillments = [{ id: "F003" }, { fulfillmentId: "F004" }] } = {}) {
   const persisted = [];
   return {
     runtimeConfig,
     printJobs,
     printDevices,
+    fulfillments,
     persisted,
     printJobRepository: {
       async createPrintJob(input) {

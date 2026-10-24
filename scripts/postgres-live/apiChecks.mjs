@@ -23,6 +23,7 @@ import { createPostgresProductionPackingTransactionRepository } from "../../serv
 import { createPostgresProductionScheduleRecordRepository } from "../../server/productionScheduleRecordRepository.mjs";
 import { createPostgresPrintBatchRepository } from "../../server/printBatchRepository.mjs";
 import { createPostgresPrintJobRepository } from "../../server/printJobRepository.mjs";
+import { createPostgresCoreWorkspaceReadRepository } from "../../server/coreWorkspaceReadRepository.mjs";
 import { createPostgresTodoActionRepository } from "../../server/todoActionRepository.mjs";
 import { createPostgresInventoryCorrectionTransactionRepository } from "../../server/inventoryCorrectionTransactionRepository.mjs";
 import { createPostgresInventoryReservationReleaseTransactionRepository } from "../../server/inventoryReservationReleaseTransactionRepository.mjs";
@@ -42,9 +43,10 @@ export async function checkApiWithPostgresRepositories(runtime) {
     liveRuntimeAuthSecret, liveRuntimeUserId, liveRuntimeLoginName, liveRuntimePassword,
     liveOfficeRuntimeUserId, liveOfficeRuntimeLoginName, liveOfficeRuntimePassword,
     liveManagerRuntimeUserId, liveManagerRuntimeLoginName, liveManagerRuntimePassword } = runtime;
-  const printJobRepository = createPostgresPrintJobRepository({ queryJson });
   runtime.orderDraftPool = new Pool({ connectionString: resolveLiveDatabaseUrl(), max: 4, connectionTimeoutMillis: 5_000 });
   const apiPostgresClient = createPostgresPoolClient({ pool: runtime.orderDraftPool });
+  const coreWorkspaceReadRepository = createPostgresCoreWorkspaceReadRepository({ postgresClient: apiPostgresClient });
+  const printJobRepository = createPostgresPrintJobRepository({ postgresClient: apiPostgresClient });
   const orderDraftRepository = createPostgresOrderDraftRepository({
     postgresClient: apiPostgresClient,
   });
@@ -134,6 +136,8 @@ export async function checkApiWithPostgresRepositories(runtime) {
     firstReleaseScope: null,
     authSecret: liveRuntimeAuthSecret,
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
+    coreWorkspaceReadRepository,
+    printJobRepository,
     orderDraftRepository,
     orderConfirmationTransactionRepository,
     printBatchRepository,
@@ -184,6 +188,9 @@ export async function checkApiWithPostgresRepositories(runtime) {
 
   const health = await getJson(baseUrl, "/api/health", { headers });
   postgresAssertions.assertHealth({ health, v1PersistencePostgresRepositoryOptionKeys });
+  assert.equal(queryJson(`SELECT json_build_object('count',count(*)::integer) AS result FROM print_jobs WHERE target_type='fulfillment'
+    AND NOT EXISTS(SELECT 1 FROM fulfillment_records f WHERE f.id=print_jobs.target_id)`).count, 0,
+  "PostgreSQL startup must not create demo print jobs whose authoritative targets do not exist");
   const restartedPendingEmployeeReviews = await getJson(
     baseUrl,
     "/api/master-data/employee-account-reviews?employeeId=EMP-MD-LIVE-001",

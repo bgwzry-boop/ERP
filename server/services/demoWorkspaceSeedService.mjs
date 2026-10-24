@@ -40,6 +40,14 @@ export function createDemoWorkspaceSeedService(dependencies = {}) {
       return { createdCount: 0, createdPrintJobIds: [], skippedReason: "repository_unavailable" };
     }
 
+    // PostgreSQL hydration may replace the synthetic fulfillment collection.
+    // Demo queue examples must never create jobs for targets absent from that
+    // authoritative workspace or make an otherwise healthy API fail at startup.
+    const targetIds = new Set((workspace.fulfillments ?? []).map(item => item.fulfillmentId ?? item.id));
+    if (!["F003", "F004"].some(id => targetIds.has(id))) {
+      return { createdCount: 0, createdPrintJobIds: [], skippedReason: "demo_targets_unavailable" };
+    }
+
     const existingIds = new Set((workspace.printJobs ?? []).map((item) => item.printJobId));
     const labelDevice =
       (await findPrintDevice(workspace, "PRN-LABEL-A")) ??
@@ -84,7 +92,7 @@ export function createDemoWorkspaceSeedService(dependencies = {}) {
 
     const createdPrintJobIds = [];
     for (const printJob of demoJobs) {
-      if (existingIds.has(printJob.printJobId)) continue;
+      if (existingIds.has(printJob.printJobId) || !targetIds.has(printJob.targetId)) continue;
       const operationLog = buildOperationLog(workspace, {
         targetType: "print_job",
         targetId: printJob.printJobId,
