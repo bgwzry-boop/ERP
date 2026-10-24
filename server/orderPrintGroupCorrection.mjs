@@ -26,9 +26,12 @@ export function readPrintGroup(workspace, orderLineId) {
   const anchorPrice = latestGroupPrice(workspace, orderLineId);
   const group = anchorPrice?.sourceEvidence?.officePricingGroup;
   if (!anchor || !group?.groupId || closed(anchor)) fail("PRINT_GROUP_NOT_FOUND", "没有可更正的有效印刷合组。", 404);
-  const facts = (workspace.orderLines ?? []).filter(row => !closed(row)).map(row => ({ line:row, price:latestGroupPrice(workspace, groupLineId(row)) }))
+  const candidateIds=new Set((workspace.priceSnapshots??[]).filter(price=>price.sourceEvidence?.officePricingGroup?.groupId===group.groupId).map(groupLineId));
+  const facts = (workspace.orderLines ?? []).filter(row => !closed(row)&&candidateIds.has(groupLineId(row))).map(row => ({ line:row, price:latestGroupPrice(workspace, groupLineId(row)) }))
     .filter(({price}) => price?.sourceEvidence?.officePricingGroup?.groupId === group.groupId).sort((a,b) => groupLineId(a.line).localeCompare(groupLineId(b.line)));
   if (facts.length !== Number(group.memberCount) || facts.some(({price}) => Number(price.sourceEvidence.officePricingGroup.memberCount) !== facts.length)) fail("PRINT_GROUP_INCOMPLETE", "整组成员或报价修订不完整，请刷新后核对。不可只改其中一行。");
+  const groupIdentity=value=>JSON.stringify([value.groupId,value.customerId,value.size,value.content,value.side,value.scope??null,value.printRuleVersion,value.correctionRevision??0,value.quantity,value.memberCount]);
+  if(facts.some(({line,price})=>line.customerId!==group.customerId||groupIdentity(price.sourceEvidence.officePricingGroup)!==groupIdentity(group))||facts.reduce((sum,{line})=>sum+number(line.originalQty??line.qty),0)!==Number(group.quantity))fail("PRINT_GROUP_INCOMPLETE","当前整组的客户、数量或计价修订依据不一致，请先复核原合组证据。");
   if (Array.isArray(group.orderLineIds) && JSON.stringify([...group.orderLineIds].sort()) !== JSON.stringify(facts.map(({line})=>groupLineId(line)).sort())) fail("PRINT_GROUP_INCOMPLETE", "当前成员与合组证据不一致。");
   const blockers=[];
   const members = facts.map(({line,price}) => {

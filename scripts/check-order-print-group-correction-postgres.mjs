@@ -9,9 +9,11 @@ import {createPostgresOrderDraftRepository} from "../server/orderDraftRepository
 import {createPostgresOrderConfirmationTransactionRepository} from "../server/orderConfirmationTransactionRepository.mjs";
 import {createPostgresCoreWorkspaceReadRepository} from "../server/coreWorkspaceReadRepository.mjs";
 import {createPostgresOrderLineQuantityAdjustmentTransactionRepository} from "../server/orderLineQuantityAdjustmentTransactionRepository.mjs";
-import {closeSharedPostgresPools} from "../server/postgresPoolClient.mjs";
+import {createPostgresPoolClient,closeSharedPostgresPools} from "../server/postgresPoolClient.mjs";
 import {createPostgresOrderPoolReadRepository} from "../server/orderPoolReadRepository.mjs";
 import {mapApiOrderLineToLocal} from "../src/services/officeOrderPoolApiClient.js";
+import {createPostgresRawMaterialInboundRepository} from "../server/rawMaterialInboundRepository.mjs";
+import {applyRawMaterialInboundAction} from "../server/services/rawMaterialInboundCommandService.mjs";
 const name=`erp-print-group-${process.pid}-${Date.now()}`;
 const docker=args=>{const r=spawnSync("docker",args,{encoding:"utf8"});if(r.status)throw Error(r.stderr||r.stdout);return r.stdout.trim();};
 let pool;
@@ -72,5 +74,25 @@ try{
  const splitIds=await createGroup(),spi=await reviewed(await input(splitIds,{quantities:{[splitIds[0]]:2000}}),"pg-late-split-plan");
  w.orderLineQuantityAdjustmentTransactionRepository={...actual,correctPrintGroup:async plan=>{await pool.query("INSERT INTO fulfillment_records(id,biz_no,order_line_id,customer_id,method,expected_qty,status)VALUES($1,$1,$2,'C-PRICE','自提',1000,'待生产')",[`F-LATE-SPLIT-${seq}`,splitIds[0]]);return actual.correctPrintGroup(plan);}};
  assert.equal((await groupCorrectionService.correctPrintGroup(spi)).code,"BUSINESS_WRITE_CONFLICT");assert.equal((await pool.query("SELECT original_qty FROM order_lines WHERE id=$1",[splitIds[0]])).rows[0].original_qty,5000);w.orderLineQuantityAdjustmentTransactionRepository=actual;
- console.log("PASS printing group isolated Postgres: immutable frozen prices, reduction/member/all void, exact/concurrent receipt, late member conflict full rollback, late positive consumption guard, shared inventory single update");
+ // The actual consumption repository holds the same member lock until commit.
+ // The group request waits, then takes a fresh statement snapshot and rejects.
+ const consumeIds=await createGroup(),consumeTask=(await pool.query("SELECT id FROM production_tasks WHERE order_line_id=$1",[consumeIds[1]])).rows[0].id;
+ const consumeReview=await reviewed(await input(consumeIds,{quantities:{[consumeIds[0]]:2000}}),"pg-real-consumption-race");
+ const rawBefore={id:`RAW-GROUP-RACE-${seq}`,revision:1,status:"已入库",unit:"kg",rolls:[{id:"ROLL-GROUP-RACE",weightKg:10,inventoryStatus:"机边领用",issueRecordId:"ISSUE-GROUP-RACE",productionTaskId:consumeTask,machineId:"BAG-03"}],rawMaterialIssueRecords:[{issueRecordId:"ISSUE-GROUP-RACE",rollId:"ROLL-GROUP-RACE",machineId:"BAG-03",productionTaskId:consumeTask,productionTaskOrderLineId:consumeIds[1],productionTaskMatchStatus:"已匹配"}]};
+ await pool.query("INSERT INTO raw_material_inbounds(id,status,payload_json,revision)VALUES($1,'已入库',$2::jsonb,1)",[rawBefore.id,JSON.stringify(rawBefore)]);
+ let enteredConsume,releaseConsume;const consumingEntered=new Promise(r=>enteredConsume=r),consumeGate=new Promise(r=>releaseConsume=r);
+ const pausedPool={query:(...args)=>pool.query(...args),async connect(){const client=await pool.connect();return {query:async(...args)=>{const q=args[0];if((typeof q==="string"?q:q.text)==="COMMIT"){enteredConsume();await consumeGate;}return client.query(...args);},release:()=>client.release()};}};
+ const raw=createPostgresRawMaterialInboundRepository({postgresClient:createPostgresPoolClient({pool:pausedPool})});
+ const rawWorkspace={...w,...await w.coreWorkspaceReadRepository.loadState(),...await raw.loadState(),rawMaterialInboundRepository:raw};
+ const consumptionBody={expectedRevision:1,rollId:"ROLL-GROUP-RACE",consumedWeightKg:5};
+ const consuming=raw.applyInboundAction({workspace:rawWorkspace,inboundId:rawBefore.id,action:"confirm_consumption",body:consumptionBody,idempotencyKey:"group-real-consumption",operatorId:"U-WAREHOUSE-A",decide:({workspace:current,inbounds})=>applyRawMaterialInboundAction({workspace:current,inbounds,inboundId:rawBefore.id,action:"confirm_consumption",body:consumptionBody,operatorId:"U-WAREHOUSE-A",serverNow:"2026-10-24T03:00:00Z"})});
+ const consumeOutcome=consuming.then(value=>({value}),error=>({error}));
+ await Promise.race([consumingEntered,consumeOutcome.then(result=>{throw result.error??Error("Consumption finished before pause");})]);
+ const pendingGroup=groupCorrectionService.correctPrintGroup(consumeReview);let waited=false;
+ try{for(let attempt=0;attempt<150;attempt++){waited=(await pool.query("SELECT count(*)::int n FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT pg_advisory_xact_lock%'")).rows[0].n>0;if(waited)break;await new Promise(r=>setTimeout(r,10));}assert.equal(waited,true,"Whole-group writer waits behind the actual consumption repository");}
+ finally{releaseConsume();}
+ const consumed=await consuming;assert.equal(consumed.inbound.rawMaterialConsumptionRecords[0].consumedWeightKg,5);
+ const rejectedGroup=await pendingGroup;assert.equal(rejectedGroup.code,"BUSINESS_WRITE_CONFLICT",JSON.stringify(rejectedGroup));assert.ok((await pool.query("SELECT original_qty,revision FROM order_lines WHERE id=ANY($1::text[])",[consumeIds])).rows.every(row=>row.original_qty===5000&&row.revision===1));
+ assert.equal((await pool.query("SELECT count(*)::int n FROM price_snapshots WHERE order_line_id=ANY($1::text[])",[consumeIds])).rows[0].n,2);
+ console.log("PASS printing group isolated Postgres: safe list projection, immutable frozen prices, reduction/member/all void, exact/concurrent receipt, full rollback on late member/split changes, shared inventory single update, keep 3000+2000 production/packing/delivery plans, clear old actual/preparation, actual consumption writer holds group request until 5kg commit then rejects without partial writes");
 }finally{if(pool)await pool.end();await closeSharedPostgresPools();spawnSync("docker",["rm","-f",name],{stdio:"ignore"});}
