@@ -195,12 +195,26 @@ export async function buildOfficeDraftPricingQuote({
       const priorGroup = row.priorPrice.sourceEvidence?.officePricingGroup;
       if (!(priorGroup?.memberCount > 1)) continue;
       const members = (workspace.orderLines ?? []).filter(
-        (line) =>
-          latestPrice(workspace, line.id ?? line.orderLineId)?.sourceEvidence
-            ?.officePricingGroup?.groupId === priorGroup.groupId,
+        (line) => {
+          const group=latestPrice(workspace,line.id??line.orderLineId)?.sourceEvidence?.officePricingGroup;
+          // A voided member keeps its immutable group history but is no longer
+          // part of the current batch. Never ask an operator to select it again.
+          return group?.groupId===priorGroup.groupId&&group.memberDisposition!=="voided"&&
+            !line.voidedAt&&!line.voided_at&&!/已关闭|已作废|已取消|已交付|已完成/u.test(clean(line.status??line.lineStatus));
+        },
       );
+      const memberIds=members.map(line=>line.id??line.orderLineId).sort();
+      const sameIds=(left,right)=>Array.isArray(left)&&left.length===right.length&&new Set(left).size===left.length&&[...left].sort().every((id,index)=>id===right[index]);
+      const identity=group=>JSON.stringify([group.groupId,group.customerId,group.size,group.content,group.side,group.quantity,group.memberCount,group.correctionRevision??0]);
       if (
         members.length !== priorGroup.memberCount ||
+        (priorGroup.orderLineIds!==undefined&&!sameIds(priorGroup.orderLineIds,memberIds)) ||
+        members.some(line=>{
+          const group=latestPrice(workspace,line.id??line.orderLineId).sourceEvidence.officePricingGroup;
+          return identity(group)!==identity(priorGroup)||line.customerId!==priorGroup.customerId||
+            (priorGroup.orderLineIds!==undefined&&!sameIds(group.orderLineIds,memberIds));
+        }) ||
+        members.reduce((sum,line)=>sum+Number(line.originalQty??line.qty),0)!==Number(priorGroup.quantity) ||
         members.some(
           (line) => !relatedIds.includes(line.id ?? line.orderLineId),
         )

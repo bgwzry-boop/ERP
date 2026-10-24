@@ -8,9 +8,9 @@ import {createLocalOrderPoolReadRepository} from "../server/orderPoolReadReposit
 import {mapApiOrderLineToLocal} from "../src/services/officeOrderPoolApiClient.js";
 export const groupCorrectionService=createOrderPrintGroupCorrectionService();
 export const groupCorrectionPermissions=["order.quantity.adjust","order.void"];
-export async function groupCorrectionFixture(){
+export async function groupCorrectionFixture({memberCount=2}={}){
   const w=officePricingWorkspace({print:true});
-  w.orderDrafts[0].lines.push({...w.orderDrafts[0].lines[0],id:"D-PRICE-02",draftLineId:"D-PRICE-02",color:"白色"});
+  for(let i=2;i<=memberCount;i++)w.orderDrafts[0].lines.push({...w.orderDrafts[0].lines[0],id:`D-PRICE-0${i}`,draftLineId:`D-PRICE-0${i}`,color:"白色"});
   const q=await makeQuote(w,{},"group-correction"),c=await confirmQuote(w,q.response.quote,{},"group-correction");assert.ok(c.response,JSON.stringify(c));
   Object.assign(w,{orderLineQuantityAdjustmentTransactionRepository:createLocalOrderLineQuantityAdjustmentTransactionRepository(),printJobs:[],paperOutboundDocuments:[],printRecords:[],statementLines:[],workshopReports:[],packingTasks:[],packages:[],productionScheduleRecords:[]});
   return w;
@@ -66,6 +66,23 @@ export async function checkPrintGroupCorrection(){
   split.fulfillments[1].qty=3000;split.fulfillments.push({...split.fulfillments[1],id:"KEEP-DELIVERY-B",qty:2000});
   await saveGroupCorrection(groupCorrectionInput(split,{[split.orderLines[0].id]:{newQty:2000}}),"keep-split-plans");
   for(const collection of ["productionTasks","packingTasks","fulfillments"]){const rows=split[collection].filter(row=>(row.orderLineId??row.lineId)===keepId);assert.deepEqual(rows.map(row=>row.plannedQty??row.qty),[3000,2000],`${collection}: unchanged member keeps its actual split allocation`);}
+  // A voided member remains in history, never in the next batch's active roster.
+  const afterVoid=await groupCorrectionFixture({memberCount:3}),sourceDraftLine=structuredClone(afterVoid.orderDrafts[0].lines[0]),allIds=afterVoid.orderLines.map(row=>row.id);
+  await saveGroupCorrection(groupCorrectionInput(afterVoid,{[allIds[0]]:{void:true}}),"void-before-supplement");
+  const voidedLine=structuredClone(afterVoid.orderLines.find(row=>row.id===allIds[0])),oldPrices=structuredClone(afterVoid.priceSnapshots);
+  afterVoid.orderDrafts=[{...afterVoid.orderDrafts[0],status:"待审核",revision:1,clientRevision:1,recognitionContext:null,lines:[{...sourceDraftLine,id:"D-SUP-AFTER-VOID",draftLineId:"D-SUP-AFTER-VOID"}]}];
+  const supplementation={orderLineIds:allIds.slice(1),targetDraftLineId:"D-SUP-AFTER-VOID",confirmedSameBatch:true,batchReference:"SYNTHETIC-ACTIVE-GROUP",reason:"已作废明细不再生产，其余两行未开印同批追加"};
+  const incomplete=await makeQuote(afterVoid,{supplementation:{...supplementation,orderLineIds:[allIds[1]]}},"voided-group-incomplete");assert.equal(incomplete.code,"ORDER_PRINT_EXISTING_GROUP_REQUIRED");
+  const withVoided=await makeQuote(afterVoid,{supplementation:{...supplementation,orderLineIds:allIds}},"voided-group-closed-selected");assert.equal(withVoided.code,"ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE");
+  const latestActive=afterVoid.priceSnapshots.find(row=>row.orderLineId===allIds[2]&&row.snapshotType==="print_group_correction"),originalMembers=[...latestActive.sourceEvidence.officePricingGroup.orderLineIds];
+  latestActive.sourceEvidence.officePricingGroup.orderLineIds=[allIds[0],allIds[2]];
+  assert.equal((await makeQuote(afterVoid,{supplementation},"voided-group-stale-roster")).code,"ORDER_PRINT_EXISTING_GROUP_REQUIRED");
+  latestActive.sourceEvidence.officePricingGroup.orderLineIds=originalMembers;
+  const next=await makeQuote(afterVoid,{supplementation},"valid-supplement-after-void");assert.ok(next.response,JSON.stringify(next));assert.equal(next.response.quote.affectedOrders.length,2);
+  const final=await confirmQuote(afterVoid,next.response.quote,{confirmedAffectedOrderLineIds:allIds.slice(1)},"valid-supplement-after-void");assert.ok(final.response,JSON.stringify(final));
+  assert.deepEqual(afterVoid.orderLines.find(row=>row.id===allIds[0]),voidedLine,"Historical voided line is never repriced or reopened");
+  for(const oldPrice of oldPrices)assert.deepEqual(afterVoid.priceSnapshots.find(row=>row.id===oldPrice.id),oldPrice,"All prior price snapshots remain immutable");
+  assert.ok(allIds.slice(1).every(id=>afterVoid.orderLines.find(row=>row.id===id).revision===3));
   // A late conflict must reject the complete staged write without changing a member.
   const race=await groupCorrectionFixture(),ri=groupCorrectionInput(race,{[race.orderLines[0].id]:{newQty:2000}}),resolved=previewPrintGroupCorrection(race,ri.orderLineId,ri.body,ri.actionPermissions),plan=buildPrintGroupCorrectionPlan(race,resolved,"U-PRICE");
   race.orderLines[1].revision++;const before=JSON.stringify(race.priceSnapshots);await assert.rejects(race.orderLineQuantityAdjustmentTransactionRepository.correctPrintGroup({...plan,workspace:race,idempotencyKey:"late-conflict",idempotencyPayload:{case:"race"}}),{code:"PRINT_GROUP_REVISION_CONFLICT"});assert.equal(JSON.stringify(race.priceSnapshots),before);assert.equal(race.orderLines[0].qty,5000);

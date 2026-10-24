@@ -24,9 +24,9 @@ try{
  await pool.query("INSERT INTO users(id,login_name,display_name) VALUES ('U-PRICE','group-correction.test','合成整组更正');INSERT INTO customers(id,biz_no,name) VALUES ('C-PRICE','C-PRICE','合成整组客户');UPDATE price_table_items SET bag_price=.90 WHERE price_table_id='PT-TEST-PUBLISHED'");
  const w=officePricingWorkspace({print:true});Object.assign(w,{orderDraftRepository:createPostgresOrderDraftRepository({databaseUrl:url}),orderConfirmationTransactionRepository:createPostgresOrderConfirmationTransactionRepository({databaseUrl:url}),coreWorkspaceReadRepository:createPostgresCoreWorkspaceReadRepository({databaseUrl:url}),orderLineQuantityAdjustmentTransactionRepository:createPostgresOrderLineQuantityAdjustmentTransactionRepository({databaseUrl:url})});
  const rawLine=structuredClone(w.orderDrafts[0].lines[0]);let seq=0;
- async function createGroup(){
+ async function createGroup(memberCount=2){
   const id=`D-GROUP-CORRECTION-${++seq}`;w.currentPricingDraftId=id;
-  await w.orderDraftRepository.saveOrderDraft({workspace:w,draft:{...w.orderDrafts[0],id,draftId:id,bizNo:id,status:"待审核",revision:0,clientRevision:0,recognitionContext:null,lines:[{...rawLine,id:`${id}-01`,draftLineId:`${id}-01`},{...rawLine,id:`${id}-02`,draftLineId:`${id}-02`,color:"白色"}],createdBy:"U-PRICE"},expectedRevision:0,idempotencyKey:`save-${id}`,operationLog:{id:`LOG-${id}`,targetType:"order_draft",targetId:id,action:"save_order_draft",operatorId:"U-PRICE"}});
+  await w.orderDraftRepository.saveOrderDraft({workspace:w,draft:{...w.orderDrafts[0],id,draftId:id,bizNo:id,status:"待审核",revision:0,clientRevision:0,recognitionContext:null,lines:Array.from({length:memberCount},(_,index)=>({...rawLine,id:`${id}-0${index+1}`,draftLineId:`${id}-0${index+1}`,color:index?"白色":rawLine.color})),createdBy:"U-PRICE"},expectedRevision:0,idempotencyKey:`save-${id}`,operationLog:{id:`LOG-${id}`,targetType:"order_draft",targetId:id,action:"save_order_draft",operatorId:"U-PRICE"}});
   const q=await makeQuote(w,{},`pg-group-${seq}`);assert.ok(q.response,JSON.stringify(q));const c=await confirmQuote(w,q.response.quote,{},`pg-group-${seq}`);assert.ok(c.response,JSON.stringify(c));return c.response.orderLines.map(row=>row.id);
  }
  async function input(ids,{mode="amend",voidIds=[],quantities={}}={}){
@@ -94,5 +94,20 @@ try{
  const consumed=await consuming;assert.equal(consumed.inbound.rawMaterialConsumptionRecords[0].consumedWeightKg,5);
  const rejectedGroup=await pendingGroup;assert.equal(rejectedGroup.code,"BUSINESS_WRITE_CONFLICT",JSON.stringify(rejectedGroup));assert.ok((await pool.query("SELECT original_qty,revision FROM order_lines WHERE id=ANY($1::text[])",[consumeIds])).rows.every(row=>row.original_qty===5000&&row.revision===1));
  assert.equal((await pool.query("SELECT count(*)::int n FROM price_snapshots WHERE order_line_id=ANY($1::text[])",[consumeIds])).rows[0].n,2);
- console.log("PASS printing group isolated Postgres: safe list projection, immutable frozen prices, reduction/member/all void, exact/concurrent receipt, full rollback on late member/split changes, shared inventory single update, keep 3000+2000 production/packing/delivery plans, clear old actual/preparation, actual consumption writer holds group request until 5kg commit then rejects without partial writes");
+ // Three original members → one voided → the two surviving members may form
+ // a supplemental batch, while the closed member and all old prices stay intact.
+ const afterVoidIds=await createGroup(3),av=await reviewed(await input(afterVoidIds,{voidIds:[afterVoidIds[0]]}),"pg-void-before-supplement");assert.ok((await groupCorrectionService.correctPrintGroup(av)).response);
+ const historicalLine=(await pool.query("SELECT to_jsonb(line) value FROM order_lines line WHERE id=$1",[afterVoidIds[0]])).rows[0].value;
+ const historicalPrices=(await pool.query("SELECT to_jsonb(price) value FROM price_snapshots price WHERE order_line_id=ANY($1::text[]) ORDER BY id",[afterVoidIds])).rows;
+ const suppId=`D-GROUP-AFTER-VOID-${++seq}`;w.currentPricingDraftId=suppId;
+ await w.orderDraftRepository.saveOrderDraft({workspace:w,draft:{...w.orderDrafts[0],id:suppId,draftId:suppId,bizNo:suppId,status:"待审核",revision:0,clientRevision:0,recognitionContext:null,lines:[{...rawLine,id:`${suppId}-01`,draftLineId:`${suppId}-01`}],createdBy:"U-PRICE"},expectedRevision:0,idempotencyKey:`save-${suppId}`,operationLog:{id:`LOG-${suppId}`,targetType:"order_draft",targetId:suppId,action:"save_order_draft",operatorId:"U-PRICE"}});
+ const supplementBody={orderLineIds:afterVoidIds.slice(1),targetDraftLineId:`${suppId}-01`,confirmedSameBatch:true,batchReference:"PG-ACTIVE-AFTER-VOID",reason:"历史作废保留，当前完整两行未开印同批追加"};
+ assert.equal((await makeQuote(w,{supplementation:{...supplementBody,orderLineIds:[afterVoidIds[1]]}},"pg-after-void-incomplete")).code,"ORDER_PRINT_EXISTING_GROUP_REQUIRED");
+ assert.equal((await makeQuote(w,{supplementation:{...supplementBody,orderLineIds:afterVoidIds}},"pg-after-void-closed-selected")).code,"ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE");
+ const nextQuote=await makeQuote(w,{supplementation:supplementBody},"pg-after-void-quote");assert.ok(nextQuote.response,JSON.stringify(nextQuote));assert.equal(nextQuote.response.quote.affectedOrders.length,2);
+ const nextConfirm=await confirmQuote(w,nextQuote.response.quote,{confirmedAffectedOrderLineIds:afterVoidIds.slice(1)},"pg-after-void-confirm");assert.ok(nextConfirm.response,JSON.stringify(nextConfirm));
+ assert.deepEqual((await pool.query("SELECT to_jsonb(line) value FROM order_lines line WHERE id=$1",[afterVoidIds[0]])).rows[0].value,historicalLine);
+ assert.deepEqual((await pool.query("SELECT to_jsonb(price) value FROM price_snapshots price WHERE id=ANY($1::text[]) ORDER BY id",[historicalPrices.map(row=>row.value.id)])).rows,historicalPrices);
+ assert.ok((await pool.query("SELECT revision FROM order_lines WHERE id=ANY($1::text[])",[afterVoidIds.slice(1)])).rows.every(row=>row.revision===3));
+ console.log("PASS printing group isolated Postgres: safe list projection, immutable frozen prices, reduction/member/all void, exact/concurrent receipt, full rollback on late member/split changes, shared inventory single update, keep 3000+2000 plans, clear old preparation, real 5kg consumption lock race, and 3→void 1→complete surviving 2 supplemental quote/confirmation without changing closed history");
 }finally{if(pool)await pool.end();await closeSharedPostgresPools();spawnSync("docker",["rm","-f",name],{stdio:"ignore"});}
