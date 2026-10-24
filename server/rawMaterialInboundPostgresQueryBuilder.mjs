@@ -1,3 +1,4 @@
+import {consumptionProductionGuardSql} from "./rawMaterialConsumptionProductionGuard.mjs";
 import { buildSupplierReturnTransactionGuard } from "./rawMaterialSupplierReturnTransactionGuard.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { buildRawMaterialInboundOcrInsertTransactionQuery } from "./rawMaterialInboundOcrSupport.mjs";
@@ -64,7 +65,7 @@ export function buildInsertRawMaterialInboundDraftTransactionQuery(inbound, oper
   return buildRawMaterialInboundOcrInsertTransactionQuery(safeInbound, normalizeOperationLog(operationLog));
 }
 
-export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, operationLog = null, { supplierReturnConstraint } = {}) {
+export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, operationLog = null, { supplierReturnConstraint, consumptionConstraints = [] } = {}) {
   const safeInbound = normalizeRawMaterialInbound(inbound);
   if (!safeInbound?.id) throw new Error("raw material inbound id is required");
   const safeOperationLog = normalizeOperationLog(operationLog);
@@ -73,6 +74,7 @@ export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, op
   const parameters = createPostgresParameterBinder();
   const operationLogSql = safeOperationLog ? buildInsertOperationLogSql(safeOperationLog, parameters) : "";
   const supplierReturnGuard = buildSupplierReturnTransactionGuard(parameters, supplierReturnConstraint);
+  const consumptionGuard = consumptionProductionGuardSql(parameters, consumptionConstraints);
   return {
     text: `
 BEGIN;
@@ -83,6 +85,7 @@ WITH locked_inbound AS MATERIALIZED (
   FOR UPDATE
 ),
 ${supplierReturnGuard}
+${consumptionGuard}
 updated_inbound AS (
   UPDATE raw_material_inbounds
   SET
@@ -96,6 +99,7 @@ updated_inbound AS (
   WHERE raw_material_inbounds.id = locked.id
     AND locked.revision = ${parameters.integer(expectedRevision)}
     ${supplierReturnConstraint ? "AND (SELECT ok FROM supplier_return_guard)" : ""}
+    ${consumptionConstraints.length ? "AND (SELECT ok FROM consumption_production_guard)" : ""}
   RETURNING raw_material_inbounds.payload_json
     || jsonb_build_object('revision', raw_material_inbounds.revision) AS result
 ),

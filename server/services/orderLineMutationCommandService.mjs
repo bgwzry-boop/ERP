@@ -1,3 +1,4 @@
+import {hasOrderActiveDocuments} from "../orderMutationDocumentGuard.mjs";
 import {hasOrderProductionExecution} from "../orderMutationProductionGuard.mjs";
 import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
 import { hasExecutedDelivery } from "../orderMutationDeliveryGuard.mjs";
@@ -50,8 +51,10 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       idempotencyPayload,
     });
     if (replay) return success(buildVoidResponse(orderLineId, replay));
+    await refreshMutationGuardSources(workspace);
     const stale = validateReviewedRevision(before, body);
     if (stale) return stale;
+    if (hasOrderActiveDocuments(workspace, orderLineId)) return businessError(409, "ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT", "请先作废旧单据再改单；改单后重印。");
     const groupGuard = validatePrintGroupMutation(workspace, orderLineId);
     if (groupGuard) return groupGuard;
     if (!isVoidableOrderLine(before, workspace)) {
@@ -161,8 +164,10 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       idempotencyPayload,
     });
     if (replay) return success(buildQuantityAdjustmentResponse(orderLineId, replay));
+    await refreshMutationGuardSources(workspace);
     const stale = validateReviewedRevision(before, body);
     if (stale) return stale;
+    if (hasOrderActiveDocuments(workspace, orderLineId)) return businessError(409, "ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT", "请先作废旧单据再改单；改单后重印。");
     const groupGuard = validatePrintGroupMutation(workspace, orderLineId);
     if (groupGuard) return groupGuard;
     if (!isVoidableOrderLine(before, workspace)) {
@@ -233,6 +238,9 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
         orderLineId: fulfillment.orderLineId ?? fulfillment.lineId,
         expectedQty: newQty,
         qty: newQty,
+        actualQty: null,
+        actual_qty: null,
+        status: ["已备货", "待库房备货"].includes(fulfillment.status) ? "待出库" : fulfillment.status,
         confirmedBy: operatorId,
       }));
     const inventoryChange = buildQuantityAdjustmentInventoryChange(workspace, {
@@ -326,10 +334,12 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
 
   async function previewOrderLineQuantity({ workspace: source, orderLineId, body = {}, operatorId }) {
     const workspace = await readCurrentMutationWorkspace(source);
+    await refreshMutationGuardSources(workspace);
     const before = findOrderLine(workspace, orderLineId);
     if (!before) return notFound("ORDER_LINE_NOT_FOUND");
     const stale = validateReviewedRevision(before, body);
     if (stale) return stale;
+    if (hasOrderActiveDocuments(workspace, orderLineId)) return businessError(409, "ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT", "请先作废旧单据再改单；改单后重印。");
     const groupGuard = validatePrintGroupMutation(workspace, orderLineId);
     if (groupGuard) return groupGuard;
     if (!isVoidableOrderLine(before, workspace)) return businessError(409, "ORDER_LINE_QUANTITY_NOT_ADJUSTABLE", "本单已有生产或实际交付，不能直接改量。");
@@ -827,6 +837,15 @@ async function readCurrentMutationWorkspace(workspace) {
   const keys = ["orderLines", "fulfillments", "priceSnapshots", "inventories", "inventoryReservations", "statementLines", "statements", "productionTasks", "workshopReports", "packingTasks", "packages"];
   if (keys.some(key => !Array.isArray(state?.[key]))) throw Object.assign(new Error("订单事实读取不完整，请重试，未修改业务数据。"), {code:"ORDER_MUTATION_SOURCE_UNAVAILABLE",statusCode:503});
   return {...workspace, ...state};
+}
+async function refreshMutationGuardSources(workspace) {
+  if (workspace.coreWorkspaceReadRepository?.kind !== "postgres") return;
+  const raw = await workspace.rawMaterialInboundRepository?.loadState?.();
+  const jobs = await workspace.printJobRepository?.loadState?.();
+  if (!Array.isArray(raw?.rawMaterialInbounds) || !Array.isArray(jobs?.printJobs) || !Array.isArray(workspace.paperOutboundDocuments) || !Array.isArray(workspace.printRecords)) {
+    throw Object.assign(new Error("订单单据或原料消耗读取不完整，请重试，未修改业务数据。"), {code:"ORDER_MUTATION_SOURCE_UNAVAILABLE",statusCode:503});
+  }
+  Object.assign(workspace, raw, jobs);
 }
 function validateReviewedRevision(before, body) {
   if (body.expectedRevision === undefined) return null;

@@ -1,3 +1,4 @@
+import {assertOrderDocumentsVoided,orderMutationDocumentLocksSql,orderMutationDocumentGuardSql} from "./orderMutationDocumentGuard.mjs";
 import {assertOrderProductionNotExecuted,applyPendingOrderProductionMutation,orderMutationProductionLocksSql,orderMutationProductionGuardSql,orderMutationProductionUpdatesSql} from "./orderMutationProductionGuard.mjs";
 import { createLocalWorkspaceReceiptStore } from "./localWorkspaceReceiptStore.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
@@ -45,6 +46,7 @@ export function createLocalOrderLineQuantityAdjustmentTransactionRepository() {
       assertOrderMutationDeliveryNotExecuted(input);
       assertOrderMutationRevision(input);
       assertOrderProductionNotExecuted(input);
+      assertOrderDocumentsVoided(input.workspace, input.orderLine?.orderLineId ?? input.orderLine?.id);
       const transaction = normalizeOrderLineQuantityAdjustmentTransactionResult({
         orderLine: input.orderLine,
         fulfillmentRecords: input.fulfillmentRecords,
@@ -110,6 +112,7 @@ export function createPostgresOrderLineQuantityAdjustmentTransactionRepository(o
             targetId: orderLineId,
             resourceLocks: [
               `order-line:${orderLineId}`,
+              ...(input.fulfillmentRecords ?? []).map(item => item.packingGroupAnchorId ?? item.packing_group_anchor_id).filter(Boolean).map(id=>`packing-group:${id}`),
               ...(input.fulfillmentRecords ?? []).map((item) => `fulfillment:${item.fulfillmentId ?? item.id ?? ""}`),
               ...(input.inventoryReservations ?? []).map((item) => `reservation:${item.reservationId ?? item.id ?? ""}`),
               ...(input.inventoryAdjustments ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
@@ -163,6 +166,7 @@ export function buildAdjustOrderLineQuantityTransactionQuery(input) {
   return {
     text: buildAdjustOrderLineQuantityTransactionText(input, parameters),
     values: parameters.values,
+    orderLineLockIds: [input.orderLine?.orderLineId ?? input.orderLine?.id].filter(Boolean),
   };
 }
 
@@ -197,6 +201,7 @@ locked_order_delivery_facts AS MATERIALIZED (
   FOR UPDATE OF fulfillment
 ),
 ${orderMutationProductionLocksSql(parameters.text(orderLine.orderLineId))}
+${orderMutationDocumentLocksSql(parameters.text(orderLine.orderLineId))}
 fulfillment_updates AS MATERIALIZED (
   ${buildFulfillmentUpdatesSql(fulfillmentRecords, parameters)}
 ),
@@ -254,6 +259,7 @@ write_guard AS MATERIALIZED (
       WHERE NOT (${orderDeliveryNotExecutedSql("delivery")})
     ), 'ERP_ORDER_DELIVERY_ALREADY_EXECUTED')
     ${orderMutationProductionGuardSql(parameters.text(orderLine.orderLineId))}
+    ${orderMutationDocumentGuardSql()}
     AND
     erp_require(
       EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(expectedOrderLineRevision)}),
@@ -960,6 +966,7 @@ function buildUpdateFulfillmentRecordsSql(records, _parameters) {
   return `UPDATE fulfillment_records AS fulfillment
 SET
   expected_qty = updates.expected_qty,
+  actual_qty = NULL,
   status = updates.status,
   confirmed_by = COALESCE(updates.confirmed_by, fulfillment.confirmed_by),
   revision = fulfillment.revision + 1,

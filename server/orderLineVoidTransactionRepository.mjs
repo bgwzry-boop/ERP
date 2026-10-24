@@ -1,3 +1,4 @@
+import {assertOrderDocumentsVoided,orderMutationDocumentLocksSql,orderMutationDocumentGuardSql} from "./orderMutationDocumentGuard.mjs";
 import {assertOrderProductionNotExecuted,applyPendingOrderProductionMutation,orderMutationProductionLocksSql,orderMutationProductionGuardSql,orderMutationProductionUpdatesSql} from "./orderMutationProductionGuard.mjs";
 import { createLocalWorkspaceReceiptStore } from "./localWorkspaceReceiptStore.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
@@ -45,6 +46,7 @@ export function createLocalOrderLineVoidTransactionRepository() {
       assertOrderMutationDeliveryNotExecuted(input);
       assertOrderMutationRevision(input);
       assertOrderProductionNotExecuted(input);
+      assertOrderDocumentsVoided(input.workspace, input.orderLine?.orderLineId ?? input.orderLine?.id);
       if ((input.workspace?.statementLines ?? []).some(line => (line.orderLineId ?? line.order_line_id) === (input.orderLine?.orderLineId ?? input.orderLine?.id)))
         throw Object.assign(new Error("本单已关联账单，请由财务办理独立更正。"), {statusCode:409,code:"ORDER_LINE_HAS_STATEMENT"});
       const transaction = normalizeOrderLineVoidTransactionResult({
@@ -101,6 +103,7 @@ export function createPostgresOrderLineVoidTransactionRepository(options = {}) {
             targetId: orderLineId,
             resourceLocks: [
               `order-line:${orderLineId}`,
+              ...(input.fulfillmentRecords ?? []).map(item => item.packingGroupAnchorId ?? item.packing_group_anchor_id).filter(Boolean).map(id=>`packing-group:${id}`),
               ...(input.fulfillmentRecords ?? []).map((item) => `fulfillment:${item.fulfillmentId ?? item.id ?? ""}`),
               ...(input.inventoryReservations ?? []).map((item) => `reservation:${item.reservationId ?? item.id ?? ""}`),
               ...(input.inventoryAdjustments ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
@@ -179,6 +182,7 @@ locked_order_delivery_facts AS MATERIALIZED (
   FOR UPDATE OF fulfillment
 ),
 ${orderMutationProductionLocksSql(parameters.text(orderLine.orderLineId))}
+${orderMutationDocumentLocksSql(parameters.text(orderLine.orderLineId))}
 fulfillment_updates AS MATERIALIZED (
   ${buildFulfillmentUpdatesSql(fulfillmentRecords, parameters)}
 ),
@@ -216,6 +220,7 @@ write_guard AS MATERIALIZED (
       WHERE NOT (${orderDeliveryNotExecutedSql("delivery")})
     ), 'ERP_ORDER_DELIVERY_ALREADY_EXECUTED')
     ${orderMutationProductionGuardSql(parameters.text(orderLine.orderLineId))}
+    ${orderMutationDocumentGuardSql()}
     AND erp_require(NOT EXISTS(SELECT 1 FROM statement_lines WHERE order_line_id=${parameters.text(orderLine.orderLineId)}), 'ERP_ORDER_LINE_HAS_STATEMENT')
     AND
     erp_require(

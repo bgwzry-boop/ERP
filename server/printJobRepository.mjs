@@ -95,7 +95,8 @@ export function createPostgresPrintJobRepository(options = {}) {
     },
 
     async createPrintJob({ workspace, printJob, operationLog, idempotencyKey, idempotencyPayload }) {
-      const query = buildCreatePrintJobTransactionQuery({ printJob, operationLog });
+      const lineIds = await readPrintJobOrderLineIds(queryJson, printJob);
+      const query = {...buildCreatePrintJobTransactionQuery({ printJob, operationLog }), orderLineLockIds:lineIds};
       const saved = normalizePrintJobTransactionResult(
         await idempotentTransactionJson(
           buildPostgresIdempotencyRequest({
@@ -105,7 +106,7 @@ export function createPostgresPrintJobRepository(options = {}) {
             operatorId: operationLog?.operatorId,
             targetType: "print_job",
             targetId: printJob?.printJobId ?? printJob?.id,
-            resourceLocks: [`print-job:${printJob?.printJobId ?? printJob?.id ?? ""}`],
+            resourceLocks: [`print-job:${printJob?.printJobId ?? printJob?.id ?? ""}`, ...lineIds.map(id=>`order-line:${id}`)],
             query,
           }),
         ),
@@ -120,7 +121,8 @@ export function createPostgresPrintJobRepository(options = {}) {
     },
 
     async updatePrintJob({ workspace, printJob, operationLog, idempotencyKey, idempotencyPayload }) {
-      const query = buildUpdatePrintJobTransactionQuery({ printJob, operationLog });
+      const lineIds = await readPrintJobOrderLineIds(queryJson, printJob, true);
+      const query = {...buildUpdatePrintJobTransactionQuery({ printJob, operationLog }), orderLineLockIds:lineIds};
       const saved = normalizePrintJobTransactionResult(
         await idempotentTransactionJson(
           buildPostgresIdempotencyRequest({
@@ -130,7 +132,7 @@ export function createPostgresPrintJobRepository(options = {}) {
             operatorId: operationLog?.operatorId,
             targetType: "print_job",
             targetId: printJob?.printJobId ?? printJob?.id,
-            resourceLocks: [`print-job:${printJob?.printJobId ?? printJob?.id ?? ""}`],
+            resourceLocks: [`print-job:${printJob?.printJobId ?? printJob?.id ?? ""}`, ...lineIds.map(id=>`order-line:${id}`)],
             query,
           }),
         ),
@@ -581,4 +583,15 @@ function normalizePrintJobLimit(value) {
 
 function getLocalStorageRoot() {
   return process.env.ERP_LOCAL_STORAGE_DIR ?? join(process.cwd(), ".erp-local-storage");
+}
+
+async function readPrintJobOrderLineIds(queryJson, job, existing = false) {
+  if (job?.targetType !== "fulfillment" && job?.targetType !== "order_line") return [];
+  // Updates lock the persisted job target; request metadata cannot choose another order's lock.
+  const target = existing ? `(SELECT target_id FROM print_jobs WHERE id=$1)` : '$1';
+  const value = job.targetType === "order_line"
+    ? await queryJson(`SELECT COALESCE(json_agg(id),'[]'::json) AS result FROM order_lines WHERE id=${target}`, [existing ? job.printJobId ?? job.id : job.targetId])
+    : await queryJson(`SELECT COALESCE(json_agg(DISTINCT order_line_id), '[]'::json) AS result FROM fulfillment_records WHERE id=${target} OR packing_group_anchor_id=${target}`, [existing ? job.printJobId ?? job.id : job.targetId]);
+  if (!Array.isArray(value) || !value.length || value.some(id => typeof id !== 'string' || !id)) throw new Error("Current print target lines are unavailable");
+  return [...new Set(value)].sort();
 }

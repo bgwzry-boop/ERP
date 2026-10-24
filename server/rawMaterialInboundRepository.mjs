@@ -1,3 +1,4 @@
+import {assertConsumptionProductionCurrent,readConsumptionProductionConstraints} from "./rawMaterialConsumptionProductionGuard.mjs";
 import { buildRawMaterialRollListResponse } from "./services/rawMaterialRollReadProjectionService.mjs";
 import { mergeRawMaterialCurrentInbound } from "../shared/rawMaterialCurrentInbound.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -120,6 +121,7 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
       if (!result.inbound) {
         throw Object.assign(new Error(`Raw material inbound not found: ${inboundId}`), { statusCode: 404 });
       }
+      assertConsumptionProductionCurrent(workspace, findRawMaterialInbound(workspace, inboundId), result.inbound);
       const stagedWorkspace = { ...workspace, rawMaterialInbounds: result.inbounds };
       recordLocalRawMaterialActionResult({ ...input, workspace: stagedWorkspace }, result);
       store.save(stagedWorkspace.rawMaterialInbounds, stagedWorkspace.rawMaterialInboundActionReceipts ?? []);
@@ -263,10 +265,14 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
         sourceRevision: sourceReturn?.revision ?? 0,
         weightKg: Math.abs(Number(returnRecord?.weightKg) || 0),
       } : null;
+      const consumptionConstraints = await readConsumptionProductionConstraints(queryJson, findRawMaterialInbound(input.workspace, input.inboundId), result.inbound);
+      if (consumptionConstraints.length && !options.idempotentTransactionJson && !postgresClient?.idempotentTransactionJson) {
+        throw Object.assign(new Error("关联生产任务的原料消耗必须通过具有共享事务锁的数据库执行器。"), {statusCode:503,code:"RAW_MATERIAL_CONSUMPTION_ATOMIC_EXECUTOR_REQUIRED"});
+      }
       const builtQuery = buildUpsertRawMaterialInboundPayloadTransactionQuery(
         { ...result.inbound, revision: result.expectedRevision },
         result.operationLog,
-        { supplierReturnConstraint },
+        { supplierReturnConstraint, consumptionConstraints },
       );
       const saved = normalizeRawMaterialInboundActionResult(
         await idempotentTransactionJson(
@@ -277,8 +283,8 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
             operatorId: input.operatorId,
             targetType: "raw_material_inbound",
             targetId: input.inboundId,
-            resourceLocks: [`raw-material:${input.inboundId}`, ...(sourceReturnInboundId ? [`raw-material:${sourceReturnInboundId}`] : [])],
-            query: builtQuery,
+            resourceLocks: [...consumptionConstraints.map(link=>`order-line:${link.orderLineId}`), `raw-material:${input.inboundId}`, ...(sourceReturnInboundId ? [`raw-material:${sourceReturnInboundId}`] : [])],
+            query: {...builtQuery, orderLineLockIds:consumptionConstraints.map(link=>link.orderLineId)},
           }),
         ),
       );

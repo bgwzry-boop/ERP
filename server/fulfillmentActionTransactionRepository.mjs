@@ -304,6 +304,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
         `fulfillment:${fulfillmentId}`,
         ...((packageAnchorId((input.workspace?.fulfillments??[]).find(f=>(f.fulfillmentId??f.id)===fulfillmentId))||packageAnchorId(input.fulfillment)) ? [`packing-group:${packageAnchorId((input.workspace?.fulfillments??[]).find(f=>(f.fulfillmentId??f.id)===fulfillmentId))||packageAnchorId(input.fulfillment)}`] : []),
         ...(input.finalDeliveryTimeEvidence ? [`carrier-billing-customer:${input.finalDeliveryTimeEvidence.customerId}`] : []),
+        ...((input.printRecord || input.printJob || input.paperOutboundDocument) ? [`order-line:${input.fulfillment?.orderLineId ?? input.fulfillment?.lineId ?? ""}`] : []),
         ...(checksOutboundInventory(input) ? [`order-line:${input.fulfillment?.orderLineId ?? input.fulfillment?.lineId ?? ""}`] : []),
         ...((input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot) ? [`order-line:${(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot).orderLineId}`] : []),
         ...(input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id

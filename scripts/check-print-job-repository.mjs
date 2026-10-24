@@ -129,6 +129,7 @@ async function checkPostgresPrintJobSqlBoundary() {
     postgresClient: {
       queryJson(text, values) {
         calls.push({ kind: "query", text, values });
+        if (/FROM fulfillment_records/.test(text)) return ["OL-CHECK-1"];
         return [{ ...failedJob, revision: 2 }];
       },
       idempotentTransactionJson(request) {
@@ -162,11 +163,19 @@ async function checkPostgresPrintJobSqlBoundary() {
   assert.equal(workspace.printJobs.length, 1);
   assert.equal(workspace.operationLogs.length, 2);
 
-  const createCall = calls[0];
+  const writes = calls.filter(call => call.kind === "idempotent");
+  const targetReads = calls.filter(call => /FROM fulfillment_records/.test(call.text));
+  assert.equal(targetReads.length,2);
+  assert.deepEqual(targetReads[0].values,[printJob.targetId]);
+  assert.deepEqual(targetReads[1].values,[printJob.printJobId]);
+  assert.match(targetReads[1].text,/SELECT target_id FROM print_jobs/);
+  const createCall = writes[0];
   assert.equal(createCall.kind, "idempotent");
   assert.equal(createCall.scope, "print.job.create.pj-check-1");
   assert.equal(createCall.idempotencyKey, "idem-print-job-create-001");
   assert.ok(createCall.resourceLocks.includes("print-job:PJ-CHECK-1"));
+  assert.ok(createCall.resourceLocks.includes("order-line:OL-CHECK-1"));
+  assert.deepEqual(createCall.orderLineLockIds,["OL-CHECK-1"]);
   assert.match(createCall.text, /^BEGIN;/);
   assert.match(createCall.text, /INSERT INTO operation_logs/);
   assert.match(createCall.text, /INSERT INTO print_jobs/);
@@ -177,7 +186,8 @@ async function checkPostgresPrintJobSqlBoundary() {
   assert.match(createCall.text, /COMMIT;/);
   assert.match(createCall.text, /\$\d+::jsonb/);
 
-  const updateCall = calls[1];
+  const updateCall = writes[1];
+  assert.ok(updateCall.resourceLocks.includes("order-line:OL-CHECK-1"));
   assert.equal(updateCall.kind, "idempotent");
   assert.equal(updateCall.scope, "print.job.update.pj-check-1");
   assert.equal(updateCall.idempotencyKey, "idem-print-job-update-001");
@@ -189,7 +199,7 @@ async function checkPostgresPrintJobSqlBoundary() {
   assert.doesNotMatch(updateCall.text, /Driver O''Brien timeout/);
   assert.ok(updateCall.values.includes("Driver O'Brien timeout"));
 
-  const listCall = calls[2];
+  const listCall = calls.find(call => call.kind === "query" && /FROM print_jobs/.test(call.text) && !/FROM fulfillment_records/.test(call.text));
   assert.equal(listCall.kind, "query");
   assert.match(listCall.text, /FROM print_jobs/);
   assert.match(listCall.text, /job_status = \$1::text/);
