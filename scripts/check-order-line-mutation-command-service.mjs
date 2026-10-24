@@ -54,6 +54,7 @@ console.log(
 
 async function checkVoidCommand() {
   const workspace = buildWorkspace();
+  workspace.statementLines = [];
   const result = await service.voidOrderLine({
     workspace,
     orderLineId: "OL-001",
@@ -401,3 +402,38 @@ async function checkExecutedFulfillmentProtection() {
     assert.equal(JSON.stringify(workspace), before);
   }
 }
+
+// Unknown financial facts must not be converted into a valid zero-price adjustment.
+for (const amount of [undefined,null,'', '   ', false, true, NaN]) {
+ const workspace=buildWorkspace();workspace.priceSnapshots=[];workspace.orderLines[0].amount=amount;
+ const writes=calls.quantity.length;
+ for (const method of ['previewOrderLineQuantity','adjustOrderLineQuantity']) {
+   const result=await service[method]({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6}});
+   assert.equal(result.code,'ORDER_LINE_PRICE_INVALID',String(amount));
+ }
+ assert.equal(calls.quantity.length,writes);
+}
+{
+ const workspace=buildWorkspace();workspace.priceSnapshots[0].chargeableQty=8;
+ const result=await service.adjustOrderLineQuantity({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6}});
+ assert.equal(result.code,'ORDER_LINE_BILLING_ALLOCATION_REQUIRED');
+}
+for(const method of ['previewOrderLineQuantity','adjustOrderLineQuantity','voidOrderLine']){
+ const workspace=buildWorkspace();workspace.priceSnapshots[0].sourceEvidence={officePricingGroup:{memberCount:2,groupId:'GROUP-A'}};
+ const result=await service[method]({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6}});
+ assert.equal(result.code,'ORDER_PRINT_GROUP_REQUOTE_REQUIRED');
+}
+console.log('PASS unknown amount, partial/gift billing and multi-member print groups cannot silently become ordinary zero-price or single-line edits.');
+
+{
+ const workspace=buildWorkspace();const writes=calls.void.length;
+ const result=await service.voidOrderLine({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{}});
+ assert.equal(result.code,'ORDER_LINE_HAS_STATEMENT');assert.equal(calls.void.length,writes);
+}
+{
+ const workspace=buildWorkspace();workspace.inventoryReservations=[];workspace.statementLines=[];
+ workspace.productionTasks=[{id:'PROD-PENDING',orderLineId:'OL-001',plannedQty:10,taskStatus:'待排产'}];
+ const result=await service.adjustOrderLineQuantity({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:20}});
+ assert.ok(result.response);assert.equal(calls.quantity.at(-1).orderLine.originalQty,20);assert.equal(calls.quantity.at(-1).inventoryAdjustments.length,0);
+}
+console.log('PASS billed orders cannot be ordinarily voided; unstarted full-production orders can increase without fabricated finished stock.');

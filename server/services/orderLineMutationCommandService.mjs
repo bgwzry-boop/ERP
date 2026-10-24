@@ -61,6 +61,9 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
         "本单已关闭或已有实际生产、出库或送货，不能直接作废。",
       );
     }
+    if ((workspace.statementLines ?? []).some(line => (line.orderLineId ?? line.order_line_id) === orderLineId)) {
+      return businessError(409, "ORDER_LINE_HAS_STATEMENT", "本单已关联账单，请由财务办理独立更正；不能作废订单后遗留原应收。");
+    }
 
     const reason = mapOrderLineVoidReason(body.reason ?? "order_cancelled", body.reasonText);
     const voidedAt = nowIso(now);
@@ -380,17 +383,20 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
   function buildFinancialChange(workspace, input) {
     const latestSnapshot = findLatestPriceSnapshot(workspace, input.orderLineId);
     if (latestSnapshot?.ambiguous) return businessError(409, "ORDER_LINE_PRICE_SOURCE_AMBIGUOUS", "最新价格记录存在无法判定先后的不同来源，请先复核价格依据，未修改数量或账单。");
-    const currentAmount = Number(
-      latestSnapshot?.finalAmount ?? latestSnapshot?.amount ?? input.orderLine.amount ?? 0,
-    );
-    const currentChargeableQty = Number(latestSnapshot?.chargeableQty ?? input.previousQty ?? 0);
-    const otherFee = Number(latestSnapshot?.otherFee ?? 0);
-    const adjustmentAmount = Number(latestSnapshot?.adjustmentAmount ?? 0);
+    const rawAmount = latestSnapshot && Object.hasOwn(latestSnapshot, "finalAmount") ? latestSnapshot.finalAmount
+      : latestSnapshot && Object.hasOwn(latestSnapshot, "amount") ? latestSnapshot.amount : input.orderLine.amount;
+    const numeric = value => ["number", "string"].includes(typeof value) && String(value).trim() ? Number(value) : NaN;
+    const currentAmount = numeric(rawAmount);
+    const currentChargeableQty = numeric(latestSnapshot?.chargeableQty === undefined ? input.previousQty : latestSnapshot.chargeableQty);
+    const otherFee = latestSnapshot?.otherFee === undefined ? 0 : numeric(latestSnapshot.otherFee);
+    const adjustmentAmount = latestSnapshot?.adjustmentAmount === undefined ? 0 : numeric(latestSnapshot.adjustmentAmount);
     const invalidPrice = () => businessError(409, "ORDER_LINE_PRICE_INVALID", "原订单价格或改量金额无效，请先复核价格依据，未修改数量或账单。");
     if (!Number.isSafeInteger(currentChargeableQty) || currentChargeableQty <= 0 ||
       ![currentAmount, otherFee, adjustmentAmount].every(value => Number.isFinite(value) && Math.abs(value) < 1e12) ||
       currentAmount < 0 || otherFee < 0 ||
-      ![latestSnapshot?.bagPrice ?? 0, latestSnapshot?.printPrice ?? 0].every(value => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) < 1e10)) return invalidPrice();
+      ![latestSnapshot?.bagPrice === undefined ? 0 : latestSnapshot.bagPrice, latestSnapshot?.printPrice === undefined ? 0 : latestSnapshot.printPrice].every(value => Number.isFinite(numeric(value)) && numeric(value) >= 0 && numeric(value) < 1e10)) return invalidPrice();
+    if (currentChargeableQty !== input.previousQty) return businessError(409, "ORDER_LINE_BILLING_ALLOCATION_REQUIRED", "原单包含赠送或部分计费数量，请先核对实际、计费和赠送分配，不能直接整单改量。");
+    if (currentAmount === 0 && !(latestSnapshot && (String(latestSnapshot.overrideReason ?? "").trim() || String(latestSnapshot.sourceEvidence?.override?.reason ?? "").trim()))) return invalidPrice();
     const variableAmount = currentAmount - otherFee - adjustmentAmount;
     const derivedUnitPrice = currentChargeableQty > 0 ? variableAmount / currentChargeableQty : 0;
     const snapshotComponentUnitPrice =
@@ -439,6 +445,12 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       (reservation) =>
         reservation.orderLineId === input.orderLineId && isReleasableInventoryReservation(reservation),
     );
+    const tasks=(workspace.productionTasks??[]).filter(task=>(task.orderLineId??task.lineId)===input.orderLineId&&!["已取消","已作废"].includes(task.taskStatus??task.status));
+    if (tasks.length && !activeReservations.length) {
+      if (tasks.some(task=>Number(task.plannedQty)!==input.previousQty)) return {ok:false,statusCode:409,code:"ORDER_PRODUCTION_ALLOCATION_REQUIRED",message:"原生产任务数量与整单不同，请先核对分批生产分配，不能直接整单改量。"};
+      return {ok:true,inventoryReservations:[],inventoryAdjustments:[],inventoryLedgerEntries:[]};
+    }
+    if (tasks.length) return {ok:false,statusCode:409,code:"ORDER_PRODUCTION_ALLOCATION_REQUIRED",message:"本单同时关联现货占用与生产任务，请先核对各自数量分配，不能直接整单改量。"};
     return input.qtyDelta < 0
       ? buildQuantityReductionInventoryChange(workspace, activeReservations, input)
       : buildQuantityIncreaseInventoryChange(workspace, activeReservations, input);

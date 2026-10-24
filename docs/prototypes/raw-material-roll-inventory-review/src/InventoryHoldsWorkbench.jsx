@@ -14,7 +14,7 @@ function HoldsForm({item,formal,onNavigate}) {
   const authState=formal.authState;
   const [rows,setRows]=useState([]),[intents,setIntents]=useState([]),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
   const [selected,setSelected]=useState(null),[expiry,setExpiry]=useState(""),[reason,setReason]=useState(""),[review,setReview]=useState(null),[uncertain,setUncertain]=useState(false);
-  const live=useRef(false),pending=useRef(false),attempt=useRef(null),version=useRef(0);
+  const live=useRef(false),pending=useRef(false),attempt=useRef(null),version=useRef(0),uncertainRef=useRef(false);
   const createAllowed=hasFinancePermission(authState,"inventory.reservation.create"),releaseAllowed=hasFinancePermission(authState,"inventory.reservation.release"),convertAllowed=hasFinancePermission(authState,"order.draft.recognize");
   async function refresh(){
     const generation=++version.current;setLoading(true);setError("");
@@ -59,12 +59,12 @@ function HoldsForm({item,formal,onNavigate}) {
     const draftId=value?.draft?.draftId??value?.draft?.id;
     const valid=value?.source==="api"&&!value.blocked&&value.operationLogId&&(kind!=="convert"||draftId&&value.rows?.length===1&&value.rows[0].sourceHoldId===payload.sourceHoldId&&value.rows[0].sourceIntentId===payload.sourceIntentId);
     if(valid){
-      setReview(null);attempt.current=null;setUncertain(false);setSelected(null);setNotice(kind==="convert"?"已建立关联订单草稿，确认正式订单后才转换原占用，不会重复留货。":"服务器已保存留货操作。");
+      setReview(null);attempt.current=null;uncertainRef.current=false;setUncertain(false);setSelected(null);setNotice(kind==="convert"?"已建立关联订单草稿，确认正式订单后才转换原占用，不会重复留货。":"服务器已保存留货操作。");
       try{await refresh();await formal.actions.refreshAll();if(kind==="convert"){formal.actions.focusOrderDraft(draftId);onNavigate("order-entry");}}catch{setError("操作已保存，列表刷新未完成，请核对服务器记录后继续。");}
     }else{
       const code=value?.error?.code||"";const unknown=!code||value?.source==="api"||/UNAVAILABLE|UNCONFIRMED|TIMEOUT/.test(code)||Number(value?.error?.status)>=500;
-      setUncertain(unknown);setError(unknown?"结果未确认，原请求已保留，请按原内容重试；不要另建同一留货。":value.error?.message||"留货操作未保存，输入已保留，请重新读取后核对。");
-      if(!unknown){setReview(null);attempt.current=null;}
+      uncertainRef.current ||= unknown;setUncertain(uncertainRef.current);setError(uncertainRef.current?"结果未确认，原请求已保留，请按原内容重试；不要另建同一留货。":value.error?.message||"留货操作未保存，输入已保留，请重新读取后核对。");
+      if(!uncertainRef.current){setReview(null);attempt.current=null;}
     }
   }
   const labels={create:"创建留货",extend:"延长留货",release:"释放留货",convert:"转入订单草稿"};

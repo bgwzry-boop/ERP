@@ -11,7 +11,7 @@ export function OrderMutationDialog(props) {
 function MutationForm({orderLineId,authState,onClose,onSaved}) {
   const [detail,setDetail]=useState(null),[mode,setMode]=useState("quantity"),[qty,setQty]=useState(""),[reason,setReason]=useState("");
   const [error,setError]=useState(""),[busy,setBusy]=useState(false),[review,setReview]=useState(null),[uncertain,setUncertain]=useState(false),[done,setDone]=useState("");
-  const live=useRef(false),pending=useRef(false),attempt=useRef(null),generation=useRef(0);
+  const live=useRef(false),pending=useRef(false),attempt=useRef(null),generation=useRef(0),uncertainRef=useRef(false);
   async function load() {
     const token=++generation.current;
     setBusy(true);setError("");
@@ -48,14 +48,15 @@ function MutationForm({orderLineId,authState,onClose,onSaved}) {
     if(!live.current)return;
     pending.current=false;setBusy(false);
     if(result?.source==="api"&&!result.blocked&&result.orderLineId===orderLineId&&result.operationLogId) {
-      setUncertain(false);attempt.current=null;setReview(null);setDone(review.mode==="quantity"?`已改为 ${review.newQty} 个；服务器金额 ${money(result.finalAmount)}。`:"本条订单明细已作废；原记录和变更依据保留。");
+      uncertainRef.current=false;setUncertain(false);attempt.current=null;setReview(null);setDone(review.mode==="quantity"?`已改为 ${review.newQty} 个；服务器金额 ${money(result.finalAmount)}。`:"本条订单明细已作废；原记录和变更依据保留。");
       try{const refreshed=await onSaved?.();if(refreshed?.source==="api_partial")setError("操作已保存，但部分列表未刷新，请重新读取服务器数据核对。");}catch{setError("操作已保存，但列表刷新失败，请刷新服务器数据核对。");}
     } else {
       const code=result?.error?.code || "";
       const unknown=!code||result?.source==="api"||/UNAVAILABLE|UNCONFIRMED|TIMEOUT/.test(code)||Number(result?.error?.status)>=500;
-      setUncertain(unknown);
-      setError(unknown?"结果尚未确认，内容已锁定，请按原请求重试。离开后先核对订单与变更记录。":result.error?.message||"操作被拒绝，输入已保留，请重新读取订单核对。");
-      if(!unknown) {attempt.current=null;setReview(null);}
+      uncertainRef.current ||= unknown;
+      setUncertain(uncertainRef.current);
+      setError(uncertainRef.current?"结果尚未确认，内容已锁定，请按原请求重试。离开后先核对订单与变更记录。":result.error?.message||"操作被拒绝，输入已保留，请重新读取订单核对。");
+      if(!uncertainRef.current) {attempt.current=null;setReview(null);}
     }
   }
   function close(){if(busy||uncertain)return;if(review){setReview(null);attempt.current=null;setError("");return;}onClose?.();}

@@ -213,6 +213,7 @@ write_guard AS MATERIALIZED (
       WHERE NOT (${orderDeliveryNotExecutedSql("delivery")})
     ), 'ERP_ORDER_DELIVERY_ALREADY_EXECUTED')
     ${orderMutationProductionGuardSql(parameters.text(orderLine.orderLineId))}
+    AND erp_require(NOT EXISTS(SELECT 1 FROM statement_lines WHERE order_line_id=${parameters.text(orderLine.orderLineId)}), 'ERP_ORDER_LINE_HAS_STATEMENT')
     AND
     erp_require(
       EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(expectedOrderLineRevision)}),

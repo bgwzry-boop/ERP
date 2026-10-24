@@ -8,7 +8,7 @@ import {createApiServer} from "../server/apiServer.mjs";
 import {withLocalRepositoryFixture} from "./helpers/localRepositoryFixture.mjs";
 import {listenTestServer,getTestServerBaseUrl,closeTestServer,requestJson} from "./helpers/apiIntegrationTestHarness.mjs";
 const dir=await mkdtemp(join(tmpdir(),"erp-r4-order-hold-"));
-let server,browser;let token="";const attempts=[];let lost=0;
+let server,browser;let token="";const attempts=[];let lost=0;let holdLost=0;const holdAttempts=[];
 const output=resolve('.erp-local-storage/p1-r4-20261024');await mkdir(output,{recursive:true});
 try {
   server=createApiServer(withLocalRepositoryFixture({runtimeMode:"test",runtimeStorageRoot:dir,seedSource:"synthetic",allowLocalFixture:true,applyProductionEnvFile:false,authMode:"prototype",authSecret:randomBytes(32).toString("hex"),fixedPreviewUserId:"U-MANAGER-A",allowLegacyIdentityHeaders:false,allowDefaultSeedUser:false}));
@@ -34,7 +34,8 @@ try {
     if(mutation) attempts.push({path:url.pathname,key:headers['idempotency-key'],body:req.postData()});
     const res=await fetch(origin+url.pathname+url.search,{method:req.method(),headers,body:['GET','HEAD'].includes(req.method())?undefined:req.postDataBuffer()});
     const bytes=Buffer.from(await res.arrayBuffer());
-    if(mutation&&url.pathname.endsWith('/quantity-adjustment')&&lost++<2){await route.fulfill({status:lost===1?500:200,contentType:'application/json',body:lost===1?JSON.stringify({message:'isolated lost receipt'}):'{}'});return;}
+    if(req.method()==='POST'&&/\/inventory\/intents\/.*\/hold$/.test(url.pathname)){holdAttempts.push({key:headers['idempotency-key'],body:req.postData()});if(holdLost++<2){await route.fulfill({status:holdLost===1?500:409,contentType:'application/json',body:JSON.stringify({code:holdLost===1?'ISOLATED_LOST_RECEIPT':'BUSINESS_WRITE_CONFLICT',message:'isolated hold receipt boundary'})});return;}}
+    if(mutation&&url.pathname.endsWith('/quantity-adjustment')&&lost++<3){await route.fulfill({status:lost===1?500:lost===2?409:200,contentType:'application/json',body:lost===1?JSON.stringify({message:'isolated lost receipt'}):lost===2?JSON.stringify({code:'BUSINESS_WRITE_CONFLICT',message:'isolated later rejection'}):'{}'});return;}
     await route.fulfill({status:res.status,contentType:res.headers.get('content-type')||'application/json',body:bytes});
   });
   await page.goto('http://127.0.0.1:4174/?r4OrderHold=isolated&erpViewport=desktop#order-pool');
@@ -49,6 +50,8 @@ try {
   await dialog.getByRole('button',{name:'核对变更',exact:true}).click();
   await dialog.getByRole('button',{name:'确认变更',exact:true}).click();await expect(dialog.getByRole('button',{name:'按原请求重试',exact:true})).toBeEnabled();
   await dialog.getByRole('button',{name:'按原请求重试',exact:true}).click();await expect(dialog.getByRole('button',{name:'按原请求重试',exact:true})).toBeEnabled();
+  await dialog.getByRole('button',{name:'按原请求重试',exact:true}).click();await expect(dialog.getByRole('button',{name:'按原请求重试',exact:true})).toBeEnabled();
+  await expect(dialog.getByRole('button',{name:'返回修改',exact:true})).toBeDisabled();
   await dialog.getByRole('button',{name:'按原请求重试',exact:true}).click();await expect(dialog.getByRole('status')).toContainText('已改为 35 个');
   assert.equal(new Set(attempts.map(x=>x.key)).size,1);assert.equal(new Set(attempts.map(x=>x.body)).size,1);
   const saved=await api(`/order-lines/${lineId}`);assert.equal(saved.orderLine.qty,35);assert.equal(saved.orderLine.revision,2);assert.equal(saved.operationLogs.filter(x=>x.action==='adjust_order_line_quantity').length,1);
@@ -67,6 +70,11 @@ try {
   await holds.getByRole('button',{name:'核对并留货',exact:true}).click();
   await holds.getByLabel('留货到期时间').fill('2099-07-13T19:30');await holds.getByLabel('留货操作原因').fill('隔离验证实际客户留货');await holds.getByRole('button',{name:'核对创建留货',exact:true}).click();
   await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();
+  await expect(page.getByRole('dialog').getByRole('button',{name:'按原内容重试',exact:true})).toBeEnabled();
+  await page.getByRole('dialog').getByRole('button',{name:'按原内容重试',exact:true}).click();
+  await expect(page.getByRole('dialog').getByRole('button',{name:'返回修改',exact:true})).toBeDisabled();
+  await page.getByRole('dialog').getByRole('button',{name:'按原内容重试',exact:true}).click();
+  assert.equal(holdAttempts.length,3);assert.equal(new Set(holdAttempts.map(x=>x.key)).size,1);assert.equal(new Set(holdAttempts.map(x=>x.body)).size,1);
   await expect(holds.getByRole('button',{name:'续期',exact:true})).toBeVisible();
   const current=(await api('/inventory/holds?status=生效')).items.find(x=>x.sourceIntentId===intent.intentId);assert.ok(current);assert.equal(current.reservedQty,20);
   await holds.getByRole('button',{name:'续期',exact:true}).click();await holds.getByLabel('留货到期时间').fill('2099-07-14T19:30');await holds.getByLabel('留货操作原因').fill('隔离验证客户延后一天');await holds.getByRole('button',{name:'核对延长留货',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();await expect(holds).toContainText('07/14');

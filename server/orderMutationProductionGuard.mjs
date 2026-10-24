@@ -1,11 +1,12 @@
 const pending = new Set(["待排产","待开始","已排产","待丝印","待制袋","未开始","已发布","排队中"]);
 const terminal = new Set(["已取消","已作废"]);
+const invalidPackages = new Set(["已取消","已作废","已失效","已替代","voided","invalidated"]);
 const lineIdOf = row => row?.orderLineId ?? row?.lineId ?? row?.order_line_id;
 export function hasOrderProductionExecution(workspace, id) {
   return (workspace.productionTasks??[]).some(row=>lineIdOf(row)===id&&!pending.has(row.taskStatus??row.status)&&!terminal.has(row.taskStatus??row.status)) ||
     (workspace.workshopReports??[]).some(row=>lineIdOf(row)===id) ||
     (workspace.packingTasks??[]).some(row=>lineIdOf(row)===id&&(Number(row.actualPackedQty??0)>0||["已完成","打包中"].includes(row.status))) ||
-    (workspace.packages??[]).some(row=>!terminal.has(row.status)&&row.status!=="已替代"&&(lineIdOf(row)===id||(row.items??[]).some(item=>lineIdOf(item)===id)));
+    (workspace.packages??[]).some(row=>!invalidPackages.has(row.status)&&(lineIdOf(row)===id||(row.contents??row.contentsJson??row.contents_json??row.items??[]).some(item=>lineIdOf(item)===id)));
 }
 export function assertOrderProductionNotExecuted(input) {
   const id=input.orderLine?.orderLineId??input.orderLine?.id;
@@ -24,7 +25,9 @@ export function orderMutationProductionLocksSql(lineId) {
   ), locked_mutation_packing AS MATERIALIZED (
     SELECT task.* FROM packing_tasks task WHERE task.order_line_id = ${lineId} ORDER BY task.id FOR UPDATE OF task
   ), locked_mutation_packages AS MATERIALIZED (
-    SELECT package.* FROM packages package WHERE package.order_line_id = ${lineId} ORDER BY package.id FOR UPDATE OF package
+    SELECT package.* FROM packages package WHERE package.order_line_id = ${lineId}
+      OR EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(to_jsonb(package)->'contents_json','[]'::jsonb)) item WHERE item->>'orderLineId' = ${lineId})
+    ORDER BY package.id FOR UPDATE OF package
   ), locked_mutation_schedules AS MATERIALIZED (
     SELECT schedule.* FROM production_schedule_records schedule WHERE schedule.order_line_id = ${lineId} ORDER BY schedule.id FOR UPDATE OF schedule
   ),`;
@@ -34,7 +37,7 @@ export function orderMutationProductionGuardSql(lineId) {
     NOT EXISTS (SELECT 1 FROM locked_mutation_production WHERE task_status NOT IN ('待排产','待开始','已排产','待丝印','待制袋','未开始','已发布','排队中','已取消','已作废'))
     AND NOT EXISTS (SELECT 1 FROM workshop_reports WHERE order_line_id = ${lineId})
     AND NOT EXISTS (SELECT 1 FROM locked_mutation_packing WHERE actual_packed_qty > 0 OR status IN ('已完成','打包中'))
-    AND NOT EXISTS (SELECT 1 FROM locked_mutation_packages WHERE status NOT IN ('已取消','已作废','已替代')),
+    AND NOT EXISTS (SELECT 1 FROM locked_mutation_packages WHERE status NOT IN ('已取消','已作废','已失效','已替代','voided','invalidated')),
     'ERP_ORDER_PRODUCTION_ALREADY_EXECUTED')`;
 }
 export function orderMutationProductionUpdatesSql(lineId,mode,quantity) {
