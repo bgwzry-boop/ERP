@@ -53,6 +53,7 @@ export const CHECK_GROUPS = Object.freeze({
     "p1-material-inventory:check",
     "p1-order-delivery:check",
     "p1-rules-r3:check",
+    "p1-rules-r4:check",
     "finance-print-read-authorization:check",
     "finance-dialog-contracts:check",
     "finance-dialog-interactions:check",

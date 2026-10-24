@@ -75,6 +75,7 @@ export function buildPostgresIdempotencyRequest({
     ]),
     text: query.text,
     values: Array.isArray(query.values) ? query.values : [],
+    ...(query.orderLineLockIds?.length ? { orderLineLockIds: uniqueSorted(query.orderLineLockIds.map(cleanText)) } : {}),
   };
 }
 

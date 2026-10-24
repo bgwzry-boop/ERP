@@ -365,6 +365,8 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
 
           {renderedPage === "workshopMobile" && (
             <PageLoader component={WorkshopMobilePage} fallback="车间工作台加载中"
+              authState={authState}
+              onPackagesSaved={() => refreshProductionPackingTaskLists({ showToast: false })}
               orderLines={orderLines}
               inventoryRecords={inventoryRecords}
               productionPacking={productionPacking}

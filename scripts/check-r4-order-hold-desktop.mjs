@@ -8,7 +8,7 @@ import {createApiServer} from "../server/apiServer.mjs";
 import {withLocalRepositoryFixture} from "./helpers/localRepositoryFixture.mjs";
 import {listenTestServer,getTestServerBaseUrl,closeTestServer,requestJson} from "./helpers/apiIntegrationTestHarness.mjs";
 const dir=await mkdtemp(join(tmpdir(),"erp-r4-order-hold-"));
-let server,browser;let token="";const attempts=[];let lost=0;let holdLost=0;const holdAttempts=[];
+let server,browser;let token="";const attempts=[];let lost=0;let holdLost=0;const holdAttempts=[];let quoteLost=0;const quoteAttempts=[];
 const output=resolve('.erp-local-storage/p1-r4-20261024');await mkdir(output,{recursive:true});
 try {
   server=createApiServer(withLocalRepositoryFixture({runtimeMode:"test",runtimeStorageRoot:dir,seedSource:"synthetic",allowLocalFixture:true,applyProductionEnvFile:false,authMode:"prototype",authSecret:randomBytes(32).toString("hex"),fixedPreviewUserId:"U-MANAGER-A",allowLegacyIdentityHeaders:false,allowDefaultSeedUser:false}));
@@ -34,6 +34,7 @@ try {
     if(mutation) attempts.push({path:url.pathname,key:headers['idempotency-key'],body:req.postData()});
     const res=await fetch(origin+url.pathname+url.search,{method:req.method(),headers,body:['GET','HEAD'].includes(req.method())?undefined:req.postDataBuffer()});
     const bytes=Buffer.from(await res.arrayBuffer());
+    if(req.method()==='POST'&&url.pathname.endsWith('/price-quote')){quoteAttempts.push({key:headers['idempotency-key'],body:req.postData()});if(quoteLost++===0){await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({code:'ISOLATED_LOST_QUOTE',message:'isolated quote receipt boundary'})});return;}}
     if(req.method()==='POST'&&/\/inventory\/intents\/.*\/hold$/.test(url.pathname)){holdAttempts.push({key:headers['idempotency-key'],body:req.postData()});if(holdLost++<2){await route.fulfill({status:holdLost===1?500:409,contentType:'application/json',body:JSON.stringify({code:holdLost===1?'ISOLATED_LOST_RECEIPT':'BUSINESS_WRITE_CONFLICT',message:'isolated hold receipt boundary'})});return;}}
     if(mutation&&url.pathname.endsWith('/quantity-adjustment')&&lost++<3){await route.fulfill({status:lost===1?500:lost===2?409:200,contentType:'application/json',body:lost===1?JSON.stringify({message:'isolated lost receipt'}):lost===2?JSON.stringify({code:'BUSINESS_WRITE_CONFLICT',message:'isolated later rejection'}):'{}'});return;}
     await route.fulfill({status:res.status,contentType:res.headers.get('content-type')||'application/json',body:bytes});
@@ -81,14 +82,35 @@ try {
   const current=(await api('/inventory/holds?status=生效')).items.find(x=>x.sourceIntentId===intent.intentId);assert.ok(current);assert.equal(current.reservedQty,20);
   await holds.getByRole('button',{name:'续期',exact:true}).click();await holds.getByLabel('留货到期时间').fill('2099-07-14T19:30');await holds.getByLabel('留货操作原因').fill('隔离验证客户延后一天');await holds.getByRole('button',{name:'核对延长留货',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();await expect(holds).toContainText('07/14');
   await holds.getByRole('button',{name:'转订单草稿',exact:true}).click();await holds.getByRole('button',{name:'核对转入订单草稿',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();
-  await expect(page.getByLabel('客户订单原文')).toBeVisible();await expect(page.getByLabel('数量',{exact:true})).toHaveValue('20');
+  await expect(page.getByLabel('客户订单原文')).toBeVisible();await expect(page.getByLabel('第1行数量',{exact:true})).toHaveValue('20');
+  await page.getByRole('button',{name:'生成正式报价',exact:true}).click();
+  await expect(page.getByRole('button',{name:'按原内容重试报价',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'客户档案',exact:true}).click();await expect(page.getByLabel('客户订单原文')).toBeVisible();
+  await page.evaluate(()=>{window.location.hash='#inventory-query';});await expect.poll(()=>page.evaluate(()=>window.location.hash)).toBe('#order-entry');
+  await page.getByRole('button',{name:'按原内容重试报价',exact:true}).click();
+  await expect(page.getByText('正式报价已保存。请核对金额和受影响原单，再确认下单。',{exact:true})).toBeVisible();
+  assert.equal(quoteAttempts.length,2);assert.equal(new Set(quoteAttempts.map(x=>x.key)).size,1);assert.equal(new Set(quoteAttempts.map(x=>x.body)).size,1);
   const converted=(await api('/order-drafts?pageSize=200')).items.find(x=>x.lines?.some(y=>y.sourceHoldId===current.reservationId));assert.ok(converted,'conversion persisted source hold');assert.equal((await api('/inventory/holds?status=生效')).items.find(x=>x.reservationId===current.reservationId).reservedQty,20,'draft never duplicates or consumes hold');
   await page.goto('http://127.0.0.1:4174/?r4OrderHold=isolated&erpViewport=desktop#inventory-query');
   await page.getByLabel('无纺布袋库存搜索').fill('30*38*10');await page.getByRole('row').filter({hasText:'红色'}).first().click();await page.getByRole('button',{name:'留货与转单',exact:true}).click();
   await holds.getByRole('button',{name:'释放',exact:true}).click();await holds.getByLabel('留货操作原因').fill('隔离验证客户放弃留货');await holds.getByRole('button',{name:'核对释放留货',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();
   await expect(holds).toContainText('已取消');assert.equal((await api('/inventory/holds')).items.find(x=>x.reservationId===current.reservationId).reservedQty,0);
-  const staleDraft=await api(`/order-drafts/${converted.id}/confirm`,{lines:converted.lines,customerId:'C001',clientRevision:converted.revision,idempotencyKey:'r4-released-hold-confirm'},409);assert.match(staleDraft.code,/HOLD|SOURCE/,'released hold must not produce a formal order');
+  const staleDraft=await api(`/order-drafts/${converted.id}/confirm`,{lines:converted.lines,customerId:'C001',pricingQuoteId:converted.recognitionContext?.officePriceQuote?.id,clientRevision:converted.revision,idempotencyKey:'r4-released-hold-confirm'},409);assert.match(staleDraft.code,/HOLD|SOURCE/,'released hold must not produce a formal order');
+  const packDraft=await api('/order-drafts/recognize',{sourceText:'王五包装 30*38*10 红色 10个 明天自提',customerId:'C003',idempotencyKey:'r4-physical-pack-draft'});
+  const packOrder=await api(`/order-drafts/${packDraft.draft.draftId}/confirm`,{lines:packDraft.lines,clientRevision:packDraft.draft.clientRevision,idempotencyKey:'r4-physical-pack-confirm'});
+  const packLineId=packOrder.orderLines[0].id;
+  await page.goto('http://127.0.0.1:4174/?r4OrderHold=physical-packages&erpViewport=desktop#outbound-delivery');
+  await page.getByLabel('出库交付搜索').fill(packLineId);await page.getByRole('row').filter({hasText:packLineId}).first().click();
+  await page.getByRole('button',{name:'登记 / 更正实物包裹',exact:true}).click();
+  const packagePanel=page.getByRole('region',{name:'实物混装包登记'});
+  await packagePanel.getByLabel('实际包数',{exact:true}).fill('2');await packagePanel.getByRole('button',{name:'生成逐包核对表',exact:true}).click();
+  await packagePanel.getByLabel('每包数量',{exact:true}).fill('5');await packagePanel.getByRole('button',{name:'每包填入此数量',exact:true}).click();
+  const packChecks=packagePanel.getByRole('checkbox',{name:'我已对照本包实物核实每项数量',exact:true});await expect(packChecks).toHaveCount(2);for(const checkbox of await packChecks.all())await checkbox.check();
+  await packagePanel.getByLabel('登记或更正依据',{exact:true}).fill('完整电脑入口验证：实物两包各5个');await packagePanel.getByRole('button',{name:'核对并生成独立包码',exact:true}).click();await packagePanel.getByRole('button',{name:'确认保存 / 原请求重试',exact:true}).click();
+  await expect(packagePanel.getByRole('heading',{name:/当前有效挂牌/})).toBeVisible();
+  assert.equal(await packagePanel.locator('.package-item-input').evaluateAll(rows=>rows.every(row=>row.scrollWidth<=row.clientWidth+1)),true,'Per-package quantities must fit the narrow real desktop detail pane');
+  const packing=(await api(`/packing-groups?orderLineId=${encodeURIComponent(packLineId)}`));assert.equal(packing.packages.length,2);assert.deepEqual(packing.packages.map(row=>row.packedQty),[5,5]);assert.equal(new Set(packing.packages.map(row=>row.packageId)).size,2);
   assert.deepEqual(errors,[]);await page.screenshot({path:join(output,'order-hold-desktop.png'),fullPage:true});
-  await writeFile(join(output,'order-hold-desktop.json'),JSON.stringify({status:'passed',mutationAttempts:attempts.length,oneRetryIdentity:true,readOnlyPreview:true,staleAndAmountRejected:true,holdCreationExtensionAndLinkedDraft:true,isolatedApi:true},null,2));
-  console.log('PASS R4 real desktop order quantity/void, read-only price preview, stale/amount guard, lost receipts, hold create/extend and linked draft; isolated signed API only.');
+  await writeFile(join(output,'order-hold-desktop.json'),JSON.stringify({status:'passed',mutationAttempts:attempts.length,oneRetryIdentity:true,readOnlyPreview:true,staleAndAmountRejected:true,holdCreationExtensionAndLinkedDraft:true,quoteNavigationGuard:true,completeShellPhysicalPackages:true,isolatedApi:true},null,2));
+  console.log('PASS R4 real desktop order quantity/void, read-only price preview, stale/amount guard, lost receipts, hold create/extend and linked draft, navigation locks and real physical packages in complete desktop; isolated signed API only.');
 }finally{await browser?.close();await closeTestServer(server,{forceAfterMs:100});await rm(dir,{recursive:true,force:true});}

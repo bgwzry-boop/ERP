@@ -38,6 +38,7 @@ for (const [serviceName, commandName, kind] of [
   ["orderDraftCommandService", "previewOrderDraftSplit", "split-preview"],
   ["orderDraftCommandService", "confirmSplitOrderDraft", "split-confirm"],
   ["orderDraftCommandService", "confirmOrderDraft", "confirm"],
+  ["orderDraftCommandService", "quoteOrderDraftPrice", "price-quote"],
   ["orderLineMutationCommandService", "voidOrderLine", "void"],
   ["orderLineMutationCommandService", "adjustOrderLineQuantity", "adjust"],
 ]) {
@@ -53,8 +54,9 @@ await expectHandled("PATCH", "/api/order-drafts/DRAFT-1", "order.draft.save", "s
 await expectHandled("POST", "/api/order-drafts/DRAFT-1/cross-draft-shortage-cancellation", "order.draft.save", "link-cross-cancel", { draftId: "DRAFT-1" });
 await expectHandled("POST", "/api/order-drafts/DRAFT-1/shortage-cancellation-restore", "order.draft.save", "restore-shortage", { draftId: "DRAFT-1" });
 await expectHandled("POST", "/api/order-drafts/DRAFT-1/split-preview", "order.confirm", "split-preview", { draftId: "DRAFT-1" });
-await expectHandled("POST", "/api/order-drafts/DRAFT-1/split-confirm", "order.confirm", "split-confirm", { draftId: "DRAFT-1" });
-await expectHandled("POST", "/api/order-drafts/DRAFT-1/confirm", "order.confirm", "confirm", { draftId: "DRAFT-1" });
+await expectHandled("POST", "/api/order-drafts/DRAFT-1/split-confirm", "order.confirm", "split-confirm", { draftId: "DRAFT-1", actionPermissions: [] });
+await expectHandled("POST", "/api/order-drafts/DRAFT-1/confirm", "order.confirm", "confirm", { draftId: "DRAFT-1", actionPermissions: [] });
+await expectHandled("POST", "/api/order-drafts/DRAFT-1/price-quote", "order.confirm", "price-quote", { draftId: "DRAFT-1", actionPermissions: [] });
 await expectHandled("POST", "/api/order-lines/OL-1/void", "order.void", "void", { orderLineId: "OL-1" });
 await expectHandled("POST", "/api/order-lines/OL-1/quantity-adjustment", "order.quantity.adjust", "adjust", { orderLineId: "OL-1" });
 

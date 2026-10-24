@@ -73,5 +73,5 @@ try {
   const receipt = (await cold()).statementWriteOffRecords.find(row => row.statementId === statementId);
   assert.equal(receipt.settlementKind, "office_exact_payment"); assert.equal(receipt.receiptConfirmation.paymentAttachmentId, "ATT-EXACT-PAY");
   await assert.rejects(pool.query("INSERT INTO statement_write_off_records(id,statement_id,receivable_snapshot,received_snapshot,variance_snapshot,write_off_amount,handling_result,recorded_by,settlement_kind) VALUES('SYNTHETIC-BAD',$1,100,100,0,0,'invalid',$2,'office_exact_payment')", [statementId, operatorId]));
-  console.log("PASS PostgreSQL exact settlement: 53 migrations, observed amount/evidence lock races, no allowance/price changes, late audit rollback, one concurrent winner, durable cold receipt and exact closed-period replay.");
+  console.log("PASS PostgreSQL exact settlement: current complete migration set, observed amount/evidence lock races, no allowance/price changes, late audit rollback, one concurrent winner, durable cold receipt and exact closed-period replay.");
 } finally { await pool.end(); await stopLivePostgres(runtime); }

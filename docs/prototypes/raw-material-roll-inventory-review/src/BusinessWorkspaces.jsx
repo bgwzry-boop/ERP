@@ -1,3 +1,5 @@
+import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
+import OrderPricingEntryWorkspace from "./OrderPricingEntryWorkspace.jsx";
 import { InventoryHoldsWorkbench } from "./InventoryHoldsWorkbench.jsx";
 import { OrderMutationDialog } from "./OrderMutationDialog.jsx";
 import { DeliveryEvidenceReviewPanel } from "../../../../src/features/fulfillment/DeliveryEvidenceReviewPanel.jsx";
@@ -58,7 +60,6 @@ const customerName = (value, customerNames = new Map()) => {
   if (value && typeof value === "object") return value.customerName || customerNames.get(value.customerId) || value.customerId || "客户待确认";
   return customerNames.get(value) || value || "客户待确认";
 };
-const visibleEntryProduct = (line = {}) => String(line.product || "").trim() === "空白袋" ? "" : String(line.product || "").trim();
 
 function businessTypeFor(line = {}) {
   const type = String(line.orderType || "");
@@ -183,6 +184,7 @@ function buildPackingRows(tasks = [], orderLines = [], customerNames = new Map()
     const line = task.orderLine || orderById.get(task.orderLineId) || {};
     return {
   id: task.packingTaskId,
+  orderLineId: task.orderLineId || line.id || line.orderLineId,
   cells: [
     task.packingTaskId,
     `${customerName(line, customerNames)} · ${line.productName || line.product || "货品待确认"}`,
@@ -608,6 +610,12 @@ function PeopleMachinesWorkspace({ formal, onNavigate }) {
   </div>;
 }
 
+function PhysicalPackagesPanel({formal,fulfillmentId,orderLineId}) {
+  const [open,setOpen]=useState(false),[pending,setPending]=useState(false);
+  if (!(formal.permissionContext?.actionPermissions || []).some(key=>["packing.read","packing.complete","fulfillment.print"].includes(key))) return null;
+  return <section className="business-detail-section"><button className="secondary-button" type="button" disabled={pending} onClick={()=>setOpen(value=>!value)}>{open?"收起实物包裹":"登记 / 更正实物包裹"}</button>{open?<MixedPackageWorkbench authState={formal.authState} fulfillmentId={fulfillmentId} orderLineId={orderLineId} onSaved={formal.actions.refreshAll} onBusyChange={setPending}/>:null}</section>;
+}
+
 function FulfillmentWorkspace({ formal, onNavigate }) {
   const records = useMemo(
     () => buildFulfillmentRows(formal.data.fulfillments, formal.data.orderLines),
@@ -647,6 +655,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
         <section className="business-detail-section"><h3>对账关联</h3><div className="business-boundary"><InfoCircleOutlined /><div><strong>金额以正式对账记录为准</strong><p>分批出货、赠送数量和差异处理都会影响计费，本页不按数量估算应收或欠款。</p></div></div>{formal.permissionContext?.actionPermissions?.includes("statement.preview") ? <button type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</section>
         {selected.method === "送货" ? <DeliveryEvidenceReviewPanel authState={formal.authState} fulfillmentId={selected.id} onReviewed={(message) => { setNotice(message); void formal.actions.refreshAll(); }} /> : null}
         {selected.status === "送货异常" ? <DriverExceptionResolutionPanel authState={{...formal.authState,permissions:formal.permissionContext}} fulfillmentId={selected.id} onResolved={()=>void formal.actions.refreshAll()} /> : null}
+        <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} fulfillmentId={selected.id}/>
         <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </> : <div className="business-empty"><FileTextOutlined /><strong>暂无交付任务</strong></div>}</div>
@@ -957,49 +966,6 @@ function OrderPoolWorkspace({ formal, onNavigate }) {
   </div>;
 }
 
-function OrderEntryWorkspace({ formal, onNavigate }) {
-  const queuedDraft = formal.data.orderDrafts.find(row=>(row.id??row.draftId)===formal.entryDraftId) || formal.data.orderDrafts[0] || null;
-  const [source, setSource] = useState(queuedDraft?.sourceText || "");
-  const [draftRows, setDraftRows] = useState(queuedDraft?.lines || queuedDraft?.rows || []);
-  const [draftId, setDraftId] = useState(queuedDraft?.id || queuedDraft?.draftId || "");
-  const [clientRevision, setClientRevision] = useState(Number(queuedDraft?.clientRevision || queuedDraft?.revision || 0));
-  const [step, setStep] = useState(2);
-  const [notice, setNotice] = useState("");
-  const missingCount = draftRows.filter((line) => !(line.customer || line.customerName || line.customerId) || !line.size || !(line.color || line.bagColor) || !line.qty).length;
-  const inventoryIssueCount = draftRows.filter((line) => line.inventory === "缺货").length;
-  const updateDraftRow = (index, field, value) => setDraftRows((current) => current.map((line, rowIndex) => rowIndex === index ? { ...line, [field]: field === "qty" ? Number(value) : value } : line));
-  const recognize = async () => {
-    setNotice("正在调用正式识别接口…");
-    const result = await formal.actions.recognizeOrderText(source);
-    if (result.source !== "api") { setNotice(`识别失败：${result.error?.message || "接口错误"}`); return; }
-    setDraftRows(result.rows || []);
-    setDraftId(result.draft?.draftId || result.draft?.id || draftId);
-    setClientRevision(Number(result.draft?.revision || 0));
-    setStep(2);
-    setNotice(`已从服务器识别 ${result.rows?.length || 0} 行，请核对后保存。`);
-  };
-  const save = async (confirm = false) => {
-    setNotice(confirm ? "正在确认并生成正式订单…" : "正在保存正式草稿…");
-    const action = confirm ? formal.actions.confirmOrderDraft : formal.actions.saveOrderDraft;
-    const result = await action({ draftId, clientRevision, rows: draftRows, sourceText: source });
-    if (result.source !== "api") { setNotice(`${confirm ? "确认" : "保存"}失败：${result.error?.message || "接口错误"}`); return; }
-    setDraftId(result.draftId || draftId);
-    setClientRevision(Number(result.draft?.clientRevision || result.draft?.revision || clientRevision + 1));
-    setStep(confirm ? 3 : 2);
-    setNotice(confirm ? "正式订单已生成，订单池正在刷新。" : "草稿已保存到服务器。");
-    if (confirm) await formal.actions.refreshAll();
-  };
-  return <div className="entry-workbench source-grounded-workbench">
-    <section className="entry-main-panel">
-      <div className="entry-steps" aria-label="订单录入步骤">{[[1, "粘贴原文"], [2, "校对明细"], [3, "库存与确认"]].map(([index, label]) => <button className={step === index ? "active" : step > index ? "done" : ""} key={label} onClick={() => setStep(index)} type="button"><b>{step > index ? <CheckCircleOutlined /> : index}</b><span><strong>{label}</strong><small>{index === 1 ? "粘贴客户消息" : index === 2 ? "识别并修正明细" : "重新校验再确认"}</small></span></button>)}</div>
-      <section className="entry-source"><header><strong>客户订单原文</strong><span>{draftId || "新草稿"} · 原文随草稿保留</span></header><textarea aria-label="客户订单原文" onChange={(event) => setSource(event.target.value)} value={source} /><footer><button disabled={!source.trim()} onClick={() => void recognize()} type="button"><ReloadOutlined />重新识别</button><button onClick={() => { setSource(""); setDraftRows([]); }} type="button">清空</button></footer></section>
-      <section className="entry-lines"><header><div><strong>识别明细</strong><span>{draftRows.length} 行 · 可直接修正</span></div><span className="entry-source-badge">正式订单识别 API</span></header><div className="entry-grid entry-head"><span>客户 / 货品</span><span>规格</span><span>颜色</span><span>类型与要求</span><span>数量</span><span>交付</span></div><div className="entry-grid-body">{draftRows.map((line, index) => <div className="entry-grid" key={line.id || `${draftId}-${index}`}><span><input aria-label={`${line.customer || line.customerName || "客户"}客户`} onChange={(event) => updateDraftRow(index, "customer", event.target.value)} value={line.customer || line.customerName || line.customerId || ""} />{visibleEntryProduct(line) ? <small>{visibleEntryProduct(line)}</small> : null}</span><input aria-label="规格" onChange={(event) => updateDraftRow(index, "size", event.target.value)} value={line.size || ""} /><input aria-label="颜色" onChange={(event) => updateDraftRow(index, "color", event.target.value)} value={line.color || line.bagColor || ""} /><span className="entry-tag-cell"><SemanticOrderTag kind="business" value={businessTypeFor(line)} />{line.handle === "加长提" ? <SemanticOrderTag kind="requirement" value="加长提" /> : null}</span><input aria-label="数量" onChange={(event) => updateDraftRow(index, "qty", event.target.value)} value={line.qty || ""} /><select aria-label="交付" onChange={(event) => updateDraftRow(index, "fulfillment", event.target.value)} value={line.fulfillment || "自提"}><option>自提</option><option>送货</option><option>快递快运</option></select></div>)}</div></section>
-      <footer className="entry-confirm-bar"><span>已识别 {draftRows.length} 行</span><strong>数量合计 {formatNumber(draftRows.reduce((sum, line) => sum + Number(line.qty || 0), 0))}个</strong><span>{notice || `${inventoryIssueCount} 行需要重点复核`}</span><button disabled={!draftRows.length} onClick={() => void save(false)} type="button">保存草稿</button><button className="primary" disabled={!draftRows.length || missingCount > 0} onClick={() => void save(true)} type="button">保存并确认</button></footer>
-    </section>
-    <aside className="entry-validation"><header><div><strong>识别校验</strong><span>正式生成前会重新查库存和价格</span></div><button onClick={() => void recognize()} type="button">重新校验</button></header><dl><div><dt>缺字段</dt><dd>{missingCount}</dd></div><div><dt>库存异常</dt><dd>{inventoryIssueCount}</dd></div><div><dt>待复核</dt><dd>{missingCount + inventoryIssueCount}</dd></div></dl><section><h3>必须处理</h3>{draftRows.filter((line) => line.inventory === "缺货").map((line, index) => <p key={line.id || index}><WarningOutlined />{line.customer || line.customerName || line.customerId} · {line.size} {line.color || line.bagColor}库存不足。</p>)}</section><section><h3>当前草稿事实</h3><p><CheckCircleOutlined />订单原文和识别明细由正式服务器接口保存。</p><p><CheckCircleOutlined />确认动作会生成正式订单并刷新订单池。</p></section><div className="entry-next"><FileTextOutlined /><div><strong>确认后进入同一订单池</strong><p>草稿不占用库存；正式生成前仍需查重、校验库存与价格。</p></div><button onClick={() => onNavigate("order-pool")} type="button">查看订单池</button></div></aside>
-  </div>;
-}
-
 export function FocusedProductionWorkspace({ formal, onNavigate, taskId, loadDetail = getOfficeProductionTaskDetail }) {
   const [result, setResult] = useState(null);
   const [attempt, setAttempt] = useState(0);
@@ -1025,7 +991,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   if (navId === "production-tasks" && productionFocusId) return <FocusedProductionWorkspace key={`${productionFocusId}:${formal.authState?.session?.accessToken || ""}`} formal={formal} onNavigate={onNavigate} taskId={productionFocusId} />;
   if (["customer-statements", "print-devices"].includes(navId)) return <FinanceOperationsWorkspace key={navId} formal={formal} navId={navId} onNavigate={onNavigate} />;
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
-  if (navId === "order-entry") return <OrderEntryWorkspace formal={formal} onNavigate={onNavigate} />;
+  if (navId === "order-entry") return <OrderPricingEntryWorkspace key={`${formal.authState?.session?.accessToken || ""}:${formal.entryDraftId || "new"}`} formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-pool") return <OrderPoolWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "outbound-delivery") return <FulfillmentWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "supplier-month-end") return <SupplierSettlementWorkspace formal={formal} />;
@@ -1038,7 +1004,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;
   return <GenericWorkspace key={navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} onNavigate={onNavigate}
-    detailExtra={navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
+    detailExtra={navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
 }
 
 export { completedBusinessWorkspaceIds };

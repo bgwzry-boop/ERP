@@ -167,7 +167,7 @@ export async function adjustOfficeOrderLineQuantity(input = {}, options = {}) {
     }
 
     const receipt = mapQuantityAdjustmentResponse(json, { orderLineId: "", newQty: NaN });
-    if (receipt.orderLineId !== safeOrderLineId || receipt.newQty !== safeNewQty || !receipt.operationLogId || !receipt.priceSnapshot || !Number.isFinite(receipt.finalAmount)) {
+    if (receipt.orderLineId !== safeOrderLineId || receipt.newQty !== safeNewQty || !receipt.operationLogId || !receipt.priceSnapshot || !Number.isFinite(receipt.finalAmount) || (input.expectedFinalAmount !== undefined && receipt.finalAmount !== input.expectedFinalAmount)) {
       return buildServerRequiredWriteError("ORDER_LINE_QUANTITY_ADJUST_UNCONFIRMED", new Error("改量回执不完整或与当前订单不一致，请刷新核对服务器结果。"));
     }
     return {

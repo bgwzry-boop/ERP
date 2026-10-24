@@ -3,7 +3,8 @@ import {spawnSync} from 'node:child_process';
 import pg from 'pg';
 import {loadMigrationFiles,validateMigrationSet} from './dbMigrationUtils.mjs';
 import {postgresLiveBusinessSeedSql} from './helpers/postgresLiveBusinessSeed.mjs';
-import {buildVoidOrderLineTransactionQuery} from '../server/orderLineVoidTransactionRepository.mjs';
+import {buildVoidOrderLineTransactionQuery,createPostgresOrderLineVoidTransactionRepository} from '../server/orderLineVoidTransactionRepository.mjs';
+import {createPostgresPoolClient} from '../server/postgresPoolClient.mjs';
 import {buildAdjustOrderLineQuantityTransactionQuery} from '../server/orderLineQuantityAdjustmentTransactionRepository.mjs';
 const name = `erp-order-delivery-guard-${process.pid}-${Date.now()}`;
 const docker = args => {
@@ -140,6 +141,19 @@ try {
   const billed=await snapshot(),billQuery=buildVoidOrderLineTransactionQuery({orderLine:{orderLineId:id,orderId:'ORD-LIVE-PROD-001',customerId:'C-LIVE-REPO',lineStatus:'已关闭',originalQty:80,revision:1},expectedOrderLineRevision:1,fulfillmentRecords:[],orderLineChangeRecord:{changeRecordId:'CHANGE-BILLED',orderLineId:id,changedFields:['status'],before:{},after:{},reason:'audit',changedBy:'U-OFFICE-A'},operationLog:{id:'LOG-BILLED',targetType:'order_line',targetId:id,action:'audit',operatorId:'U-OFFICE-A'}}),billedClient=await pool.connect();
   try {await billedClient.query('BEGIN');await assert.rejects(billedClient.query(billQuery.text.replace(/^BEGIN;/,'').replace(/COMMIT;\s*$/,''),billQuery.values),/ERP_ORDER_LINE_HAS_STATEMENT/);} finally{await billedClient.query('ROLLBACK');billedClient.release();}
   assert.deepEqual(await snapshot(),billed,'Ordinary void cannot leave a persisted receivable behind a closed order');
+  await pool.query("DELETE FROM statement_lines WHERE id='SL-MUTATION'");
+  const inserter=await pool.connect();let concurrentVoid;
+  try {
+    await inserter.query('BEGIN');await inserter.query("INSERT INTO statement_lines(id,statement_id,order_line_id,delivered_qty,chargeable_qty,amount,final_amount) VALUES ('SL-CONCURRENT','ST-LIVE-REPO-001',$1,80,80,27.2,27.2)",[id]);
+    const writer=createPostgresOrderLineVoidTransactionRepository({postgresClient:createPostgresPoolClient({pool})});
+    concurrentVoid=writer.voidOrderLine({idempotencyKey:'void-after-concurrent-invoice',idempotencyPayload:{lineId:id},orderLine:{orderLineId:id,orderId:'ORD-LIVE-PROD-001',customerId:'C-LIVE-REPO',lineStatus:'已关闭',originalQty:80,revision:1},expectedOrderLineRevision:1,fulfillmentRecords:[],orderLineChangeRecord:{changeRecordId:'CHANGE-CONCURRENT',orderLineId:id,changedFields:['status'],before:{},after:{},reason:'audit',changedBy:'U-OFFICE-A'},operationLog:{id:'LOG-CONCURRENT',targetType:'order_line',targetId:id,action:'audit',operatorId:'U-OFFICE-A'}}).then(value=>({value}),error=>({error}));
+    let waiting=false;
+    for(let i=0;i<100;i++){waiting=Number((await pool.query("SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND query LIKE 'SELECT id FROM order_lines WHERE id=ANY%' AND wait_event_type='Lock'")).rows[0].count)>0;if(waiting)break;await new Promise(r=>setTimeout(r,10));}
+    assert.equal(waiting,true,'Observe parent foreign-key insert/void pre-query lock wait');
+    await inserter.query('COMMIT');const invoiced=await snapshot(),outcome=await concurrentVoid;
+    assert.equal(outcome.error?.statusCode,409);assert.equal(outcome.error?.code,'BUSINESS_WRITE_CONFLICT');
+    assert.deepEqual(await snapshot(),invoiced,'Fresh statement after row-lock wait must see the newly inserted receivable');
+  } finally {await inserter.query('ROLLBACK');if(concurrentVoid)await concurrentVoid;inserter.release();}
   console.log('PASS PostgreSQL 16: both mutation queries reject five executed-delivery facts even when omitted from update payload; transaction snapshots unchanged; unexecuted controls succeed; verified delivery and production-start row-lock races reject stale mutations; pending task/packing quantities and schedule cancellation remain atomic.');
 } finally {
   if(pool) await pool.end();

@@ -45,6 +45,8 @@ export function createLocalOrderLineVoidTransactionRepository() {
       assertOrderMutationDeliveryNotExecuted(input);
       assertOrderMutationRevision(input);
       assertOrderProductionNotExecuted(input);
+      if ((input.workspace?.statementLines ?? []).some(line => (line.orderLineId ?? line.order_line_id) === (input.orderLine?.orderLineId ?? input.orderLine?.id)))
+        throw Object.assign(new Error("本单已关联账单，请由财务办理独立更正。"), {statusCode:409,code:"ORDER_LINE_HAS_STATEMENT"});
       const transaction = normalizeOrderLineVoidTransactionResult({
         orderLine: input.orderLine,
         fulfillmentRecords: input.fulfillmentRecords,
@@ -145,6 +147,7 @@ export function buildVoidOrderLineTransactionQuery(input) {
   return {
     text: buildVoidOrderLineTransactionText(input, parameters),
     values: parameters.values,
+    orderLineLockIds: [input.orderLine?.orderLineId ?? input.orderLine?.id].filter(Boolean),
   };
 }
 

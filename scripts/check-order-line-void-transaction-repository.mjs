@@ -60,6 +60,11 @@ async function checkLocalWorkspaceMutation() {
     operationLogs: [],
   };
   const repository = createLocalOrderLineVoidTransactionRepository();
+  workspace.statementLines=[{id:"SL-BILLED",orderLineId:"OL-V001",amount:34}];
+  const billed=JSON.stringify(workspace);
+  assert.throws(()=>repository.voidOrderLine({workspace,orderLine:buildOrderLine({lineStatus:"已关闭"}),expectedOrderLineRevision:1}),{code:"ORDER_LINE_HAS_STATEMENT"});
+  assert.equal(JSON.stringify(workspace),billed);
+  workspace.statementLines=[];
   const transaction = await repository.voidOrderLine({
     workspace,
     orderLine: buildOrderLine({ lineStatus: "已关闭", status: "已关闭" }),

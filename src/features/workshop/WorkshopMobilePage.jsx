@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   AppstoreOutlined,
   BarcodeOutlined,
@@ -48,8 +48,9 @@ const MOBILE_VIEWS = [
   ["pending", "待处理", UnorderedListOutlined],
   ["all", "全部功能", AppstoreOutlined],
 ];
+const MixedPackageWorkbench = lazy(() => import("../packing/MixedPackageWorkbench.jsx").then(module => ({ default: module.MixedPackageWorkbench })));
 
-export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPacking, onAction, onNavigate, helpers }) {
+export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inventoryRecords, productionPacking, onAction, onNavigate, helpers }) {
   const {
     buildProductionTaskId,
     findCustomer,
@@ -79,7 +80,8 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
     packingTasks: productionPacking.packingTasks,
     includeLocalProjections: !taskListFromApi,
   });
-  const openPackingTasks = allPackingTasks.filter((task) => task.status !== "已完成");
+  const availablePackingTasks = allPackingTasks.filter(task => !["已取消", "已作废"].includes(task.status));
+  const openPackingTasks = availablePackingTasks.filter((task) => task.status !== "已完成");
   const [mode, setMode] = useState(modeItems[0] || (productionLines.length ? "生产报工" : "打包任务"));
   const [mobileView, setMobileView] = useState("current");
   const [detailView, setDetailView] = useState("操作");
@@ -87,6 +89,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
   const [selectedPackingTaskId, setSelectedPackingTaskId] = useState(openPackingTasks[0]?.packingTaskId ?? "");
   const [reportInputs, setReportInputs] = useState({});
   const [packingInputs, setPackingInputs] = useState({});
+  const [packageWritePending,setPackageWritePending]=useState(false);
   const [finishedPhotoInputs, setFinishedPhotoInputs] = useState({});
   const [productionReportConfirmation, setProductionReportConfirmation] = useState(null);
   const productionReportConfirmationRef = useRef(null);
@@ -98,7 +101,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
   const packingCompletionTriggerRef = useRef(null);
   const restorePackingCompletionTriggerFocusRef = useRef(false);
   const selectedProductionLine = productionLines.find((item) => item.id === selectedProductionLineId) ?? productionLines[0] ?? null;
-  const selectedPackingTask = openPackingTasks.find((item) => item.packingTaskId === selectedPackingTaskId) ?? openPackingTasks[0] ?? null;
+  const selectedPackingTask = availablePackingTasks.find((item) => item.packingTaskId === selectedPackingTaskId) ?? openPackingTasks[0] ?? availablePackingTasks[0] ?? null;
   const resolveInventoryItem = (line, task = null) => findProductionInventoryItem(line, inventoryRecords) ?? line?.inventoryItem ?? task?.inventoryItem ?? null;
   const selectedLine = mode === "打包任务" ? selectedPackingTask?.orderLine : selectedProductionLine;
   const selectedInventoryItem = selectedLine ? resolveInventoryItem(selectedLine, selectedPackingTask) : null;
@@ -648,7 +651,14 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
               </section>
             ) : null}
             {mode === "打包任务" && detailView === "操作" ? (
-              <>
+              authState?.session?.accessToken ? <>
+                <label className="detail-section">选择打包或更正的订单明细
+                  <select aria-label="打包与更正明细" disabled={packageWritePending} value={selectedPackingTask?.packingTaskId || ""} onChange={event => selectPackingTask(event.target.value)}>
+                    {availablePackingTasks.map(task => <option key={task.packingTaskId} value={task.packingTaskId}>{getOrderLineShortNo(task.orderLine)} · {task.orderLine.size} · {task.orderLine.color || task.orderLine.bagColor} · {task.status}</option>)}
+                  </select>
+                </label>
+                <Suspense fallback={<p role="status">正在读取实物分包…</p>}><MixedPackageWorkbench key={`${selectedPackingTask?.orderLineId || ""}:${authState.session.accessToken}`} authState={authState} orderLineId={selectedPackingTask?.orderLineId} onSaved={onPackagesSaved} onBusyChange={setPackageWritePending}/></Suspense>
+              </> : <>
                 {!packingCompletionConfirmation ? (
                   <section className="detail-section">
                     <h3>打包提交</h3>

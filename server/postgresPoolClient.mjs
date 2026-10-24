@@ -90,6 +90,12 @@ FOR UPDATE;`,
           return request.includeReplayMetadata === true ? { value, replayed: true } : value;
         }
 
+        // Foreign-key inserts can hold KEY SHARE without changing line revision.
+        // Wait in a separate statement so the business query sees their commit.
+        if (Array.isArray(request.orderLineLockIds) && request.orderLineLockIds.length) {
+          await client.query({ text: "SELECT id FROM order_lines WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE;",
+            values: [[...new Set(request.orderLineLockIds.map(String))].sort()] });
+        }
         const result = await client.query({
           text: removeOuterTransactionStatements(request.text),
           values: Array.isArray(request.values) ? request.values : [],
@@ -181,7 +187,7 @@ function normalizeStoredJson(value) {
 
 function normalizePostgresWriteError(error) {
   if (error?.statusCode || error?.code === "IDEMPOTENCY_KEY_REUSED") return error;
-  if (/ERP_[A-Z_]+_CONFLICT/.test(String(error?.message ?? ""))) {
+  if (/ERP_[A-Z_]+_CONFLICT|ERP_ORDER_(?:LINE_HAS_STATEMENT|PRODUCTION_ALREADY_EXECUTED|DELIVERY_ALREADY_EXECUTED)/.test(String(error?.message ?? ""))) {
     const conflict = new Error("The business record changed before this transaction could be committed.");
     conflict.statusCode = 409;
     conflict.code = "BUSINESS_WRITE_CONFLICT";

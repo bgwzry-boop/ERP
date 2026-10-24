@@ -739,10 +739,17 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   await switchAccount(page, "U-PACKING-A");
   await openMobileTask(page, "打包移动任务", createdLine.id);
   await expect(page.getByText(packingTaskId, { exact: false })).toBeVisible();
-  await page.getByLabel("实际打包数量").fill("12");
-  await page.getByLabel("包裹数").fill("2");
-  await page.getByRole("button", { name: "提交打包完成", exact: true }).click();
-  await page.getByRole("button", { name: "确认提交打包完成", exact: true }).click();
+  const physicalPacking = page.getByRole("region", { name: "实物混装包登记" });
+  await physicalPacking.getByLabel("实际包数", { exact: true }).fill("2");
+  await physicalPacking.getByRole("button", { name: "生成逐包核对表", exact: true }).click();
+  await physicalPacking.getByLabel("每包数量", { exact: true }).fill("6");
+  await physicalPacking.getByRole("button", { name: "每包填入此数量", exact: true }).click();
+  const physicalChecks=physicalPacking.getByRole("checkbox", { name: "我已对照本包实物核实每项数量", exact: true });
+  await expect(physicalChecks).toHaveCount(2);
+  for (const checkbox of await physicalChecks.all()) await checkbox.check();
+  await physicalPacking.getByLabel("登记或更正依据", { exact: true }).fill("岗位联测：实物两包，每包6个，逐包核实");
+  await physicalPacking.getByRole("button", { name: "核对并生成独立包码", exact: true }).click();
+  await physicalPacking.getByRole("button", { name: "确认保存 / 原请求重试", exact: true }).click();
 
   const packingDetail = await waitForApiDetail(
     request,
@@ -750,6 +757,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
     (detail) => detail.packingTask?.status === "已完成",
   );
   expect(packingDetail.packages).toHaveLength(2);
+  expect(packingDetail.packages.map(item=>Number(item.packedQty))).toEqual([6,6]);
   expect(packingDetail.packages.every((item) => item.createdBy === "U-PACKING-A")).toBe(true);
   expect(Number(packingDetail.packingTask.actualPackedQty)).toBe(12);
   const fulfillmentId = packingDetail.fulfillment?.fulfillmentId;
