@@ -205,4 +205,17 @@ assert.equal(printedExpress.labelPrintRecordId, "PR-LABEL-F1");
 assert.equal(printedExpress.activePrintRecordId, "PR-PAPER-F1");
 assert.equal(printedExpress.paperOutboundStatus, "已打印待交库房");
 
+const groupedWorkspace = structuredClone(printedExpressWorkspace);
+Object.assign(groupedWorkspace.fulfillments.find(row => (row.id ?? row.fulfillmentId ?? row.fulfillment_id) === "F-1"), {fulfillmentId:"F-1",packingGroupAnchorId:"F-1", packingGroupRevision:1});
+Object.assign(groupedWorkspace.packages.find(row => row.packageId === "PKG-F1-1"), {packageSeq:1, packedQty:10, contents:[{fulfillmentId:"F-1",orderLineId:"OL-1",size:"30*38*10",bagColor:"红色",packedQty:10}]});
+groupedWorkspace.printRecords.find(row => row.printRecordId === "PR-LABEL-F1").documentType = "package_label";
+groupedWorkspace.packages.push({packageId:"OLD-VOID-CODE",fulfillmentId:"F-1",status:"已作废",revision:3});
+const grouped = service.getFulfillment({workspace:groupedWorkspace,fulfillmentId:"F-1"});
+assert.equal(grouped.labelsPrinted,true,"current physical labels remain visible after a paper print and ignore replaced packages");
+assert.equal(grouped.packingGroupAnchorId,"F-1");
+assert.deepEqual(grouped.packageLabelRows.map(row=>row.packageId),["PKG-F1-1"]);
+assert.equal(grouped.packageLabelRows[0].contents[0].packedQty,10);
+groupedWorkspace.packages.find(row=>row.packageId==="PKG-F1-1").revision++;
+assert.equal(service.getFulfillment({workspace:groupedWorkspace,fulfillmentId:"F-1"}).labelsPrinted,false,"changed physical packages cannot reuse the old trusted label revision");
+
 console.log("fulfillment read projection service checks passed");

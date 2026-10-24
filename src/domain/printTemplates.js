@@ -1,5 +1,6 @@
 import { getFulfillmentGoodsDisplay } from "./officeRules.js";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
+import { fulfillmentDocumentTypeFor } from "../../shared/fulfillmentDocumentType.js";
 
 export const expressLtlLabelTemplateId = "tpl-p0-express-ltl-label";
 export const deliveryNoteTemplateId = "tpl-p0-delivery-note";
@@ -15,9 +16,9 @@ export function buildFulfillmentPrintTemplate(input = {}) {
   const contactSource = hasCapturedContact ? snapshot : customer;
   const printRecord = input.printRecord ?? {};
   const method = fulfillment.method ?? orderLine?.fulfillment ?? "出库";
-  const documentType = input.documentType ?? printRecord.documentType ?? getDocumentType(method);
+  const documentType = input.documentType ?? printRecord.documentType ?? fulfillmentDocumentTypeFor({...fulfillment, method}, input.action);
   if (documentType === "package_label") {
-    const labels=(input.packageLabelRows??[]).map(row=>({packageId:row.packageId,sequence:row.sequence,packedQty:row.packedQty,
+    const labels=(input.packageLabelRows??fulfillment.packageLabelRows??[]).map(row=>({packageId:row.packageId,sequence:row.sequence,packedQty:row.packedQty,
       barcodeText:row.packageId,contents:row.contents,customerName:firstContactText(snapshot.customerName,snapshot.name,customer.name)}));
     return {templateId:printRecord.templateId??expressLtlLabelTemplateId,templateVersion:"physical-package-contents-v1",documentType,title:"内部包裹挂牌",priceHidden:true,
       paper:{name:"80mm 包裹挂牌",widthMm:80,heightMm:100,copies:labels.length,isContinuous:false,copyNames:[]},labels,
@@ -99,10 +100,7 @@ export function buildFulfillmentPrintTemplate(input = {}) {
 }
 
 export function getDocumentType(method) {
-  if (method === "快递快运") return "express_ltl_label";
-  if (method === "送货") return "delivery_note";
-  if (method === "自提") return "pickup_note";
-  return "outbound_note";
+  return fulfillmentDocumentTypeFor({method});
 }
 
 export function getTemplateId(documentType) {

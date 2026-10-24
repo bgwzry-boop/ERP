@@ -1,4 +1,5 @@
-import { isActivePackage } from "../../shared/packageContents.js";
+import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
+import { hasTrustedCurrentFulfillmentLabel } from "./printJobBusinessProjectionService.mjs";
 import { buildFulfillmentShipmentProgress } from "./fulfillmentShipmentProgressService.mjs";
 import { hasTrustedWarehousePaper } from "../../shared/warehousePaperTrust.js";
 import {
@@ -85,8 +86,9 @@ function projectFulfillment(workspace, value) {
   const currentPrintRecord = paperOutboundDocument
     ? findPrintRecord(workspace, paperOutboundDocument.printRecordId ?? paperOutboundDocument.print_record_id)
     : null;
-  const latestLabelPrintRecord = findLatestLabelPrintRecord(workspace, fulfillmentId);
-  const labelsPrinted = method === "express_ltl" && Boolean(
+  const anchorId = packageAnchorId(item);
+  const latestLabelPrintRecord = findLatestLabelPrintRecord(workspace, anchorId || fulfillmentId);
+  const labelsPrinted = anchorId ? hasTrustedCurrentFulfillmentLabel(workspace, item) : method === "express_ltl" && Boolean(
     latestLabelPrintRecord && list(workspace.packages)
       .filter((record) => cleanText(record.fulfillmentId ?? record.fulfillment_id) === fulfillmentId)
       .every((record) => cleanText(record.labelPrintRecordId ?? record.label_print_record_id) === cleanText(latestLabelPrintRecord.printRecordId ?? latestLabelPrintRecord.id)),
@@ -103,6 +105,9 @@ function projectFulfillment(workspace, value) {
     orderLineId,
     orderType: cleanText(orderLine.orderType ?? orderLine.order_type),
     actualPackageCount,
+    packingGroupAnchorId: anchorId,
+    packingGroupRevision: nonNegativeInteger(item.packingGroupRevision ?? item.packing_group_revision),
+    packageLabelRows: anchorId ? packageLabelRows(list(workspace.packages).filter(row => cleanText(row.fulfillmentId ?? row.fulfillment_id) === anchorId)) : [],
     packingTask: packingTask ? { packingTaskId: cleanText(packingTask.packingTaskId ?? packingTask.id), orderLineId, status: cleanText(packingTask.status), plannedQty: nonNegativeInteger(packingTask.plannedQty ?? packingTask.qty), actualPackedQty: nonNegativeInteger(packingTask.actualPackedQty), packageCount: actualPackageCount } : null,
     orderNo: cleanText(item.orderNo ?? item.order_no) || orderLineId,
     customerName: cleanText(customer.name ?? item.customerName ?? item.customer_name) || "客户待确认",
@@ -241,7 +246,7 @@ function findLatestLabelPrintRecord(workspace, fulfillmentId) {
 
 function isExpressLabelPrintRecord(record = {}) {
   const documentType = cleanText(record.documentType ?? record.document_type);
-  if (documentType) return documentType === "express_ltl_label";
+  if (documentType) return ["express_ltl_label", "package_label"].includes(documentType);
   const templateId = cleanText(record.templateId ?? record.template_id);
   if (templateId) return templateId === "tpl-p0-express-ltl-label";
   return list(record.packageSnapshot ?? record.package_snapshot_json).length > 0;

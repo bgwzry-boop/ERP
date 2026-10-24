@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import PackageLabelsPreview from "../features/printing/PhysicalLabelsPreview.jsx";
 import { toFactoryDatetimeLocal } from "../../shared/fulfillmentHandoffTime.js";
 import { createOfficeIdempotencyKey } from "../services/officeApiClientCore.js";
 import { readPrintCommandDraft, savePrintCommandDraft, clearPrintCommandDraft } from "../features/printing/print-command-draft.js";
@@ -20,6 +21,7 @@ import {
 import {
   formatFileSize,
 } from "./attachmentViewUtils.js";
+
 
 const orderQuantityReasonOptions = ["客户改量", "识别数量修正", "库存复核后改量", "办公室修正数量", "管理批准改量", "其他原因改量"];
 const orderVoidReasonOptions = ["客户取消订单", "重复订单作废", "识别错误作废", "库存不足取消", "管理拒绝接单", "订单改量作废重建", "客户拒绝等待取消", "其他原因作废"];
@@ -130,6 +132,9 @@ function PrintTemplatePreview({ template, fulfillment }) {
         <p>未找到可预览的打印数据。</p>
       </div>
     );
+  }
+  if (template.documentType === "package_label") {
+    return <section aria-label="逐包挂牌预览"><h3>内部包裹挂牌</h3><p>每个实际包裹一张挂牌；核对实物后贴牌，旧码失效后须重印。</p><PackageLabelsPreview packages={(template.labels ?? []).map((label, index) => ({...label, packageSeq:index+1}))}/></section>;
   }
   const { fields } = template;
   return (
@@ -464,7 +469,7 @@ export function ActionModal({
       if (!fulfillment) { setPrintError("未找到对应单据，请刷新后重新核对。"); return; }
       const request = printDraft.request ?? {
         idempotencyKey: createOfficeIdempotencyKey(), reason,
-        fulfillment: Object.fromEntries(["id", "method", "activePrintRecordId", "printRecordId", "lastPrintRecordId"].filter(key => fulfillment[key] !== undefined).map(key => [key, fulfillment[key]])),
+        fulfillment: Object.fromEntries(["id", "method", "packingGroupAnchorId", "activePrintRecordId", "printRecordId", "lastPrintRecordId"].filter(key => fulfillment[key] !== undefined).map(key => [key, fulfillment[key]])),
         printRecordId: modal.printRecordId ?? fulfillment.activePrintRecordId ?? fulfillment.printRecordId ?? "",
         preview: printTemplate,
       };

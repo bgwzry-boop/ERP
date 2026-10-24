@@ -5,7 +5,7 @@ import { seedUserOptions, getUiActionState } from "../auth/seedPermissions.js";
 import { WorkspaceNotice, WorkspacePageHeader } from "../shared/ui/operational.jsx";
 import { AppNavigation, ContextNavigationStrip } from "./AppNavigation.jsx";
 import { MobileRoleShellHeader } from "./MobileRoleShellHeader.jsx";
-import { Topbar } from "./AppViews.jsx";
+import { Topbar } from "./AppShellViews.jsx";
 import { OfficeWorkspacePages } from "./OfficeWorkspacePages.jsx";
 import { getTopbarLogoutAction } from "./runtimeAuthViewState.js";
 import { WorkspaceOverlayController } from "./WorkspaceOverlayController.jsx";

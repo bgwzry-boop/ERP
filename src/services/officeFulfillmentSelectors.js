@@ -1,4 +1,5 @@
 import { getFulfillmentMethodLabel } from "../shared/labels.js";
+import { fulfillmentDocumentTypeFor } from "../../shared/fulfillmentDocumentType.js";
 
 const exceptionReasonCodeByLabel = {
   库存不足: "stock_shortage",
@@ -40,11 +41,7 @@ export function mapPrintVoidReason(reason) {
 }
 
 export function getFulfillmentDocumentType(fulfillment, action = "") {
-  if (fulfillment?.method === "快递快运" && ["打印出库单", "重打出库单"].includes(cleanText(action))) return "outbound_note";
-  if (fulfillment?.method === "快递快运") return "express_ltl_label";
-  if (fulfillment?.method === "送货") return "delivery_note";
-  if (fulfillment?.method === "自提") return "pickup_note";
-  return "outbound_note";
+  return fulfillmentDocumentTypeFor(fulfillment, action);
 }
 
 export function getFulfillmentPrintAction(action, fulfillment) {
@@ -76,6 +73,8 @@ export function mapApiFulfillmentToLocal(value = {}) {
     orderLineId: cleanText(value.orderLineId ?? value.order_line_id),
     orderType: cleanText(value.orderType),
     actualPackageCount: toNumber(value.actualPackageCount, 0),
+    packingGroupAnchorId: cleanText(value.packingGroupAnchorId ?? value.packing_group_anchor_id),
+    packageLabelRows: Array.isArray(value.packageLabelRows) ? value.packageLabelRows : [],
     shipmentProgress: value.shipmentProgress ?? null,
     packingTask: value.packingTask ?? null,
     method: getFulfillmentMethodLabel(value.method),

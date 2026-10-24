@@ -777,7 +777,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
     fulfillmentId,
     methodTab: "快递快运",
     action: "打印标签",
-    documentType: "express_ltl_label",
+    documentType: "package_label",
   });
   expect(labelPrintJob.printDeviceId).toBe("PRN-LABEL-A");
   expect(labelPrintJob.driverMode).toBe("system_printer");
@@ -1172,6 +1172,14 @@ async function submitFulfillmentPrint(page, request, {
   await page.getByRole("button", { name: action, exact: true }).click();
   const printDialog = page.getByRole("dialog", { name: "单据 / 标签预览" });
   await expect(printDialog).toBeVisible();
+  if (documentType === "package_label") {
+    const current = await apiGet(request, `/fulfillments/${encodeURIComponent(fulfillmentId)}`);
+    const preview = printDialog.getByRole("region", { name: "逐包挂牌预览" });
+    await expect(preview.locator(".package-label-paper")).toHaveCount(current.packageLabelRows.length);
+    expect(current.packageLabelRows.length).toBeGreaterThan(0);
+    for (const label of current.packageLabelRows) await expect(preview).toContainText(label.packageId);
+    await expect(preview.getByText("合计金额", { exact: true })).toHaveCount(0);
+  }
   await printDialog.getByRole("button", { name: action, exact: true }).click();
   return waitForApiItem(request, "/print-jobs?page=1&pageSize=200", (item) =>
     !existingIds.has(item.printJobId) &&

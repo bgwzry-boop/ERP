@@ -50,6 +50,8 @@ const deliveryFulfillment = {
 };
 
 assert(getFulfillmentDocumentType(expressFulfillment) === "express_ltl_label", "express/LTL document type was not mapped");
+assert(getFulfillmentDocumentType({...expressFulfillment,packingGroupAnchorId:"F003"},"打印标签") === "package_label", "real packages must use physical labels");
+assert(getFulfillmentDocumentType({...expressFulfillment,packingGroupAnchorId:"F003"},"打印出库单") === "outbound_note", "physical labels must not replace the outbound paper");
 assert(getFulfillmentDocumentType(deliveryFulfillment) === "delivery_note", "delivery document type was not mapped");
 assert(getFulfillmentDocumentType({ method: "自提" }) === "pickup_note", "pickup document type was not mapped");
 assert(getFulfillmentPrintAction("打印预览", expressFulfillment) === "preview", "print preview action was not mapped");
