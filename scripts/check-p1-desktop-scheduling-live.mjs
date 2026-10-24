@@ -65,11 +65,18 @@ try {
       sourceText, customerId: "C003", idempotencyKey: `p1-desktop-recognize-${scenario.key}`,
     });
     const draftId = recognized.draft.draftId;
+    assert.equal(recognized.lines.length, 1, "Each synthetic scheduling order must retain its one recognized source line.");
+    const recognizedLine = recognized.lines[0];
+    assert.ok(recognizedLine.draftLineId, "Use the server-owned draft-line identity for its locked source evidence.");
+    assert.equal(recognizedLine.size, scenario.size);
+    assert.equal(recognizedLine.qty, scenario.qty);
+    assert.equal(normalizeOrderType(recognizedLine.orderType), scenario.expectedOrderType);
     const confirmed = await api(`/order-drafts/${draftId}/confirm`, {
       sourceText, customerId: "C003", clientRevision: recognized.draft.clientRevision,
       idempotencyKey: `p1-desktop-confirm-${scenario.key}`,
       lines: [{
-        draftLineId: `${draftId}-01`, customerId: "C003", customer: "王五包装",
+        ...recognizedLine,
+        draftLineId: recognizedLine.draftLineId, customerId: "C003", customer: "王五包装",
         productName: "空白袋", orderType: scenario.orderType, size: scenario.size,
         bagColor: "红色", handleType: "普通提", style: "空白袋", qty: scenario.qty,
         fulfillmentMethod: "自提", latestNeededAt: "明天", printFlag: false,
