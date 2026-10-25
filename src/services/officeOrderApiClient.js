@@ -416,6 +416,7 @@ async function requestOfficeDraftSplit(action, input, options, unavailableCode) 
   try {
     const response = await requestOrderApi(`/order-drafts/${encodeURIComponent(resolvedDraftId)}/${action}`, {
       ...options,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       authState,
       method: "POST",
       operatorId,
@@ -426,6 +427,8 @@ async function requestOfficeDraftSplit(action, input, options, unavailableCode) 
         customerId: getPrimaryCustomerId(draftRows),
         expectedRevision: clientRevision,
         splitPlanHash: splitPlanHash || undefined,
+        pricingQuoteId: input.pricingQuoteId,
+        confirmedAffectedOrderLineIds: input.confirmedAffectedOrderLineIds,
         lines: mapDraftRowsToApiLines(draftRows, sourceText),
       },
     });

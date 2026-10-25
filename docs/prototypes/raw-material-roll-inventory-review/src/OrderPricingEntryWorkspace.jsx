@@ -3,6 +3,8 @@ import { getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { normalizeOrderType } from "../../../../shared/orderRouting.js";
+import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
+import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
 import "./order-pricing-entry.css";
 
 const unresolvedWrites = new Map();
@@ -39,6 +41,14 @@ export default function OrderPricingEntryWorkspace({
 }) {
   const selectedId = formal.entryDraftId || "";
   const session = formal.authState?.session?.accessToken || "";
+  // Keep the accepted default draft stable while editing or showing its receipt.
+  // Refreshing the queue can remove a confirmed draft; it must not silently
+  // remount the editor on a different draft and erase the successful result.
+  const defaultDraft = useRef({ session, draft: null });
+  if (defaultDraft.current.session !== session) defaultDraft.current = { session, draft: null };
+  if (!selectedId && !defaultDraft.current.draft && formal.data.orderDrafts?.[0]) {
+    defaultDraft.current.draft = editableDraft(formal.data.orderDrafts[0]);
+  }
   const selectionKey = `${session}:${selectedId}`;
   const queued = (formal.data.orderDrafts ?? []).find(
     (item) => draftIdentity(item) === selectedId,
@@ -108,7 +118,7 @@ export default function OrderPricingEntryWorkspace({
   }, [selectionKey, selectedId, session, needsRead, loadDraft, readAttempt]);
   const selected = selectedId
     ? cachedDraft || editableDraft(queued)
-    : editableDraft(formal.data.orderDrafts?.[0]);
+    : defaultDraft.current.draft;
   const identity = `${session}:${selectedId || draftIdentity(selected)}`;
   if (selectedId && !selected) {
     if (direct?.status === "error")
@@ -167,17 +177,19 @@ function OrderPricingEditor({
     [reason, setReason] = useState(initial?.reason ?? ""),
     [sameBatch, setSameBatch] = useState(initial?.sameBatch ?? false),
     [affected, setAffected] = useState(initial?.affected ?? []);
+  const [splitPlan, setSplitPlan] = useState(initial?.splitPlan ?? null);
   const [busy, setBusy] = useState(""),
     [notice, setNotice] = useState(
       recovered ? `${recovered.kind}结果待核对，请按原内容重试。` : "",
     ),
     [complete, setComplete] = useState(false);
+  const splitTrigger = useRef(null);
   const requests = useRef({});
   const frozenRequest = useRef(recovered ?? null);
   const mounted = useRef(false);
   const inFlight = useRef(false);
   const [pendingKind, setPendingKind] = useState(recovered?.kind ?? "");
-  const editingLocked = !!busy || complete || !!pendingKind;
+  const editingLocked = !!busy || complete || !!pendingKind || !!splitPlan;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -197,6 +209,9 @@ function OrderPricingEditor({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [pendingKind, formal.actions.setOrderEntryWritePending, recoveryKey]);
+  const actionPermissions = formal.permissionContext?.actionPermissions || formal.authState?.permissions?.actionPermissions || [];
+  const canEditDraft = actionPermissions.includes("order.draft.save");
+  const canConfirmOrder = actionPermissions.includes("order.confirm");
   const allowed = (
     formal.permissionContext?.actionPermissions ||
     formal.authState?.permissions?.actionPermissions ||
@@ -208,10 +223,11 @@ function OrderPricingEditor({
   const invalidate = () => {
     setQuote(null);
     setAffected([]);
+    setSplitPlan(null);
     requests.current = {};
   };
   const update = (index, key, value) => {
-    if (frozenRequest.current) return;
+    if (frozenRequest.current || splitPlan) return;
     invalidate();
     setRows((current) =>
       current.map((line, i) =>
@@ -220,7 +236,7 @@ function OrderPricingEditor({
     );
   };
   const override = (id, key, value) => {
-    if (frozenRequest.current) return;
+    if (frozenRequest.current || splitPlan) return;
     invalidate();
     setOverrides((current) => ({
       ...current,
@@ -252,6 +268,7 @@ function OrderPricingEditor({
         reason,
         sameBatch,
         affected,
+        splitPlan,
       }),
     };
     frozenRequest.current = request;
@@ -288,7 +305,10 @@ function OrderPricingEditor({
         unresolvedWrites.delete(recoveryKey);
         setPendingKind("");
         formal.actions.setOrderEntryWritePending?.(false, request.ownerKey);
-        if (kind === "确认") setQuote(null);
+        if (["确认", "拆单确认"].includes(kind)) {
+          setQuote(null);
+          setSplitPlan(null);
+        }
         setNotice(error.message);
       } else {
         request.uncertain = true;
@@ -437,6 +457,59 @@ function OrderPricingEditor({
         );
       },
     );
+  const splitLine = (index) => {
+    if (editingLocked || locked || !canEditDraft) return;
+    const line = rows[index];
+    const blockedReason = splitLineBlockedReason(line);
+    if (blockedReason) { setNotice(blockedReason); return; }
+    const result = splitDraftRow(rows, line.id, formal.data.inventoryItems || [], `DL-SPLIT-${createOfficeIdempotencyKey()}`);
+    if (!result || result.blocked) { setNotice(result?.toast || "当前明细无法拆分。"); return; }
+    invalidate();
+    setRows(result.rows);
+    setOverrides((current) => {
+      const next = { ...current };
+      delete next[line.id];
+      return next;
+    });
+    setNotice(`${result.toast} 请分别核对数量、交付和日期，并重新生成正式报价；原行的本单改价需重新填写，避免费用重复。`);
+  };
+  const previewSplit = async () => {
+    if (inFlight.current || editingLocked || !canConfirmOrder || !draftId || !rows.length) return;
+    inFlight.current = true;
+    setBusy("拆单预览");
+    try {
+      const result = await formal.actions.previewOrderDraftSplit({ draftId, clientRevision: revision, rows, sourceText: source });
+      if (!mounted.current) return;
+      if (result.source !== "api" || result.blocked || !result.splitPlan?.planHash ||
+          result.splitPlan.draftId !== draftId || result.splitPlan.revision !== revision || !Array.isArray(result.splitPlan.groups)) {
+        setNotice(result.error?.message || "未取得完整拆单预览，请重新核对后重试。");
+        return;
+      }
+      setSplitPlan(result.splitPlan);
+    } catch {
+      if (mounted.current) setNotice("拆单预览暂时失败，请重试；尚未创建正式订单。");
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setBusy("");
+    }
+  };
+  const confirmSplit = () => execute(
+    "拆单确认",
+    { draftId, clientRevision: revision, rows, sourceText: source, splitPlanHash: splitPlan?.planHash,
+      pricingQuoteId: quote?.quoteId, confirmedAffectedOrderLineIds: affected, idempotencyKey: nextKey("splitConfirm") },
+    (input) => formal.actions.confirmOrderDraftSplit(input),
+    (result) => {
+      const confirmation = result.confirmation;
+      if (!confirmation?.splitConfirmed || !Array.isArray(confirmation.orderIds) ||
+          confirmation.orderIds.length !== splitPlan?.groups.length || !confirmation.orderLines?.length) {
+        throw new Error("没有取得完整拆单回执。");
+      }
+      setSplitPlan(null);
+      setComplete(true);
+      setNotice(`已生成 ${confirmation.orderIds.length} 张正式订单：${confirmation.orderIds.join("、")}。办公室仍需安排出库或生产排单。`);
+      void Promise.resolve(formal.actions.refreshAll()).catch(() => setNotice("拆单已成功，请刷新订单池核对全部订单。"));
+    },
+  );
   const candidates = (formal.data.orderLines || []).filter(
     (line) =>
       rows.some((row) => row.customerId === line.customerId) &&
@@ -493,6 +566,7 @@ function OrderPricingEditor({
             <button
               type="button"
               disabled={
+                !!splitPlan ||
                 !!busy ||
                 complete ||
                 !source.trim() ||
@@ -586,6 +660,7 @@ function OrderPricingEditor({
                   <label>
                     交付
                     <select
+                      aria-label={`第${index + 1}行交付方式`}
                       value={line.fulfillment || "自提"}
                       onChange={(e) =>
                         update(index, "fulfillment", e.target.value)
@@ -599,6 +674,7 @@ function OrderPricingEditor({
                   <label>
                     需要日期
                     <input
+                      aria-label={`第${index + 1}行需要日期`}
                       placeholder="如 2026-10-25"
                       value={line.latest || ""}
                       onChange={(e) => update(index, "latest", e.target.value)}
@@ -734,6 +810,13 @@ function OrderPricingEditor({
                     ) : null}
                   </div>
                 ) : null}
+                <div className="pricing-row-actions">
+                  <button type="button" aria-label={`拆分第${index + 1}行明细`}
+                    disabled={editingLocked || locked || !canEditDraft || !!splitLineBlockedReason(line)}
+                    title={locked ? "小程序锁价明细保持原样" : splitLineBlockedReason(line) || "先对半拆成两行，再分别调整数量与交付"}
+                    onClick={() => splitLine(index)}>拆分明细行</button>
+                  {line.sourceHoldId ? <span>留货转单明细须保持原留货数量，不能拆行。</span> : null}
+                </div>
                 {line.inventory === "缺货" ? (
                   <p className="pricing-note">
                     库存不足，确认后仍须安排生产或核对补货。
@@ -817,6 +900,7 @@ function OrderPricingEditor({
             <button
               type="button"
               disabled={
+                !!splitPlan ||
                 !!busy ||
                 complete ||
                 !rows.length ||
@@ -832,6 +916,7 @@ function OrderPricingEditor({
                 type="button"
                 className="primary-button"
                 disabled={
+                  !!splitPlan ||
                   !!busy ||
                   !draftId ||
                   missing ||
@@ -848,10 +933,15 @@ function OrderPricingEditor({
                     : "生成正式报价"}
               </button>
             ) : null}
+            <button type="button" ref={splitTrigger} disabled={editingLocked || !canConfirmOrder || !draftId || !rows.length}
+              onClick={() => void previewSplit()}>
+              {busy === "拆单预览" ? "正在核对分组…" : "按客户/交付拆单"}
+            </button>
             <button
               type="button"
               className="primary-button"
               disabled={
+                !!splitPlan ||
                 !!busy ||
                 complete ||
                 missing ||
@@ -870,6 +960,10 @@ function OrderPricingEditor({
           </div>
         </footer>
       </main>
+      {splitPlan ? <OrderEntrySplitDialog plan={splitPlan} rows={rows} quote={quote} locked={locked}
+        busy={!!busy} pending={pendingKind === "拆单确认"} notice={pendingKind === "拆单确认" ? notice : ""}
+        canConfirm={canConfirmOrder && !!splitPlan.canConfirm && !missing && (locked || (!!quote && acknowledge))}
+        onClose={() => { if (!busy && !pendingKind) { setSplitPlan(null); requestAnimationFrame(() => splitTrigger.current?.focus()); } }} onConfirm={() => void confirmSplit()} /> : null}
       <aside className="pricing-review">
         <header>
           <h3>{locked ? "小程序锁价订单" : "正式报价核对"}</h3>
@@ -966,4 +1060,11 @@ function OrderPricingEditor({
       </aside>
     </div>
   );
+}
+
+function splitLineBlockedReason(line) {
+  if (line.sourceHoldId) return "留货转单明细须保持原留货数量，请先在留货记录中处理。";
+  if (line.excludedFromConfirmation || line.cancellationStatus === "库存不足取消") return "已取消明细保留原始关联，不能拆分。";
+  if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 2) return "至少2个且数量为整数，才能拆分明细。";
+  return "";
 }
