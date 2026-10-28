@@ -101,7 +101,8 @@ try {
   await selectFulfillment();
   const panel = page.getByRole("region", { name: "出库办理", exact: true });
   const physical = page.getByRole("region", { name: "实物混装包登记", exact: true });
-  await expect(physical).toBeVisible();
+  await expect(physical).toBeHidden();
+  await openPackageWorkbench();
   await expect(panel.getByRole("group", { name: "登记实际包裹", exact: true })).toHaveCount(0);
   await physical.getByLabel("实际包数", { exact: true }).fill("2");
   await physical.getByRole("button", { name: "生成逐包核对表", exact: true }).click();
@@ -161,6 +162,7 @@ try {
   await expect(panel).toContainText("实包已登记：2");
   await expect(prepare).toHaveCount(0);
   await page.getByRole("button", { name: "刷新当前工作台", exact: true }).click();
+  await openPackageWorkbench();
   await expect(panel).toContainText("实包已登记：2");
   await expect(physical).toContainText("当前有效挂牌 · 第 1 版");
   await expect(physical.locator(".package-label-paper")).toHaveCount(2);
@@ -169,6 +171,8 @@ try {
   await selectFulfillment();
   await expect(panel).toContainText("实包已登记：2");
   await expect(prepare).toHaveCount(0);
+  await expect(physical).toBeHidden();
+  await openPackageWorkbench();
   await expect(physical).toContainText("当前有效挂牌 · 第 1 版");
   await expect(physical.locator(".package-label-paper")).toHaveCount(2);
   const persisted = await api(`/packing-groups?fulfillmentId=${fulfillmentId}`, undefined, "GET");
@@ -201,6 +205,11 @@ try {
     const row = page.getByRole("table", { name: "出库交付列表", exact: true }).locator(".business-table-body").getByRole("row");
     await expect(row).toHaveCount(1);
     await row.click();
+  }
+  async function openPackageWorkbench() {
+    if (await physical.isVisible()) return;
+    await page.getByRole("button", { name: "登记 / 更正实物包裹", exact: true }).click();
+    await expect(physical).toBeVisible();
   }
   async function readStock() {
     const current = await api(`/inventory/items?keyword=${encodeURIComponent(stock.id)}&pageSize=200`, undefined, "GET");
