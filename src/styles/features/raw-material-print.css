@@ -11,10 +11,15 @@
     inset: 0 auto auto 0;
     display: block !important;
     width: 76mm;
+    margin: 0;
+    padding: 0;
     background: var(--erp-print-paper);
   }
   body.raw-material-label-printing .raw-material-roll-print-label {
+    margin: 0;
+    transform: none;
     break-after: page;
+    break-inside: avoid;
     page-break-after: always;
     page: roll-label;
   }

@@ -63,7 +63,7 @@ export function RawMaterialQrCode({ quietZone = 4, value }) {
     <svg
       aria-label={`卷码二维码 ${value}`}
       className="raw-material-qr"
-      preserveAspectRatio="none"
+      preserveAspectRatio="xMidYMid meet"
       role="img"
       shapeRendering="crispEdges"
       viewBox={`0 0 ${size} ${size}`}
@@ -103,7 +103,7 @@ function RawMaterialRollPrintLabel({ inbound, roll }) {
             <th>执行标准</th>
             <td colSpan="3">{label.executionStandard}</td>
             <td className="is-qr" rowSpan="5">
-              <RawMaterialQrCode quietZone={2} value={label.rollCode} />
+              <RawMaterialQrCode quietZone={4} value={label.rollCode} />
             </td>
           </tr>
           <tr className="is-spec">

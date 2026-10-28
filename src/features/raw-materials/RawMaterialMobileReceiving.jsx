@@ -17,6 +17,7 @@ import {
 } from "../../domain/rawMaterialInboundListState.js";
 import { formatRawMaterialWeight } from "./RawMaterialInboundWorkbench.jsx";
 import { RawMaterialCode39 } from "./RawMaterialLabelPrintSheet.jsx";
+import { RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP } from "../../domain/rawMaterialRollLabelTemplate.js";
 import { formatRawMaterialMobileSpec } from "../../../shared/rawMaterialSpec.js";
 import { evaluateRawMaterialOneClickInbound } from "../../domain/rawMaterialWholeRollPolicy.js";
 
@@ -515,6 +516,7 @@ function MobilePrintStage({
       >
         <PrinterOutlined aria-hidden="true" /> {pendingRolls.length ? `打印 ${pendingRolls.length} 张卷标` : "卷标已打印"}
       </button>
+      <p className="raw-material-mobile-stage-note">{RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP}</p>
       {pendingRolls.length && selected?.status === "已复核待打印标签" ? (
         <button
           className="raw-material-mobile-defer-print"

@@ -97,7 +97,7 @@ Current decision baseline: 2026-10-22 version unification; V8.306 is a historica
 - Page headings contain the title and real page-local controls only. Repeated subtitles, duplicate facts, decorative KPI strips and universal dashboard templates remain removed.
 - Long phone states scroll within their frame; blocking/error/confirmation/result states remain reachable and role boundaries remain explicit.
 - Detailed active presentation and workflow decisions live in `AGENTS.md`; this file records the current cross-domain authority and release decisions rather than duplicating the full UI specification.
-- Office desktop is the primary raw-material inbound surface: scan or upload the delivery note, review color / width / kilograms, print one 76×130mm label per roll, then complete inbound in one click only when the stuck-label count equals the roll count. The default receiving view is the roll ledger, without step narration or a second document grid. Existing review, print and per-roll attach commands remain the server contract.
+- Office desktop is the primary raw-material inbound surface: scan or upload the delivery note, review color / width / kilograms, print one 76×130mm label per roll, then complete inbound in one click only when the stuck-label count equals the roll count. On 2026-10-28 Roy required the 袋袋赢 roll label to fill that sheet at 100% / 实际大小, with larger type and a square QR; the preprinted 韵达 header stays on the paper and is not part of the template. The default receiving view is the roll ledger, without step narration or a second document grid. Existing review, print and per-roll attach commands remain the server contract.
 
 ## Engineering
 
