@@ -280,6 +280,138 @@ button.business-row > span.business-primary-cell { font-weight: 650; }
 .fulfillment-progress-facts dd { font-size: 16px; font-weight: 740; }
 .fulfillment-progress-facts .current dd { color: var(--blue); }
 
+.fulfillment-detail > header.fulfillment-summary-head {
+  min-height: 0;
+  padding: 10px 14px 12px;
+}
+
+.fulfillment-summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.fulfillment-summary-line > strong {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.fulfillment-summary-id {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fulfillment-summary-goods {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.fulfillment-summary-line .business-state {
+  margin-left: auto;
+}
+
+.fulfillment-summary-qty {
+  margin-bottom: 10px;
+}
+
+.fulfillment-detail .fulfillment-progress-facts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fulfillment-detail .fulfillment-progress-facts > div {
+  min-height: 0;
+  gap: 2px;
+  padding: 6px 7px;
+  border-bottom: 0;
+}
+
+.fulfillment-detail .fulfillment-progress-facts > div:nth-child(2n) {
+  border-right: 1px solid var(--line);
+}
+
+.fulfillment-detail .fulfillment-progress-facts > div:last-child {
+  border-right: 0;
+}
+
+.fulfillment-detail .fulfillment-progress-facts dd {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.fulfillment-detail .fulfillment-progress-facts dt {
+  line-height: 1.25;
+}
+
+.fulfillment-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.fulfillment-primary-actions .primary {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.fulfillment-primary-actions p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fulfillment-fold,
+.fulfillment-note {
+  margin-top: 10px;
+}
+
+.fulfillment-fold > summary,
+.fulfillment-note > summary {
+  cursor: pointer;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.fulfillment-note > summary {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.fulfillment-fold .business-facts,
+.fulfillment-fold .business-boundary {
+  margin-top: 8px;
+}
+
+.fulfillment-detail .mixed-package-workbench {
+  padding: 8px 0 0;
+}
+
+.fulfillment-detail .mixed-package-workbench h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.fulfillment-package-correction .primary {
+  width: 100%;
+}
+
+.fulfillment-package-correction .fulfillment-note {
+  margin-top: 8px;
+}
+
 .fulfillment-receivable-facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

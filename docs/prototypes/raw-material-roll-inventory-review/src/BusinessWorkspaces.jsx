@@ -12,7 +12,7 @@ import { DriverExceptionResolutionPanel } from "../../../../src/features/fulfill
 import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
-import { DesktopFulfillmentOperations } from "./DesktopFulfillmentOperations.jsx";
+import { DesktopFulfillmentOperations, operationsOwnStockPackingEntry } from "./DesktopFulfillmentOperations.jsx";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
 import { FinishedInventoryCorrectionCreate } from "./FinishedInventoryCorrectionCreate.jsx";
@@ -57,6 +57,10 @@ const optionalNumber = (value) => {
   return Number.isFinite(resolved) ? resolved : null;
 };
 const quantityText = (value) => value === null ? "待确认" : `${formatNumber(value)}个`;
+function fulfillmentSummaryGoods(goods) {
+  const text = String(goods || "").trim();
+  return text.replace(/\s+\d[\d,]*个$/, "") || text;
+}
 const moneyText = (value) => value === null ? "待对账" : money(value);
 const statementMoney = value => optionalFinancialAmount(value) === null ? "待核实" : money(value);
 const customerName = (value, customerNames = new Map()) => {
@@ -618,13 +622,12 @@ function PhysicalPackagesPanel({formal,fulfillmentId,orderLineId}) {
   const fulfillment = (formal.data?.fulfillments ?? []).find(item => (item.id || item.fulfillmentId) === fulfillmentId);
   const resolvedLineId = orderLineId || fulfillment?.orderLineId || fulfillment?.lineId;
   const line = (formal.data?.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === resolvedLineId);
-  const packageCount = Number(fulfillment?.actualPackageCount || 0);
-  useEffect(() => { if (packageCount > 0) setOpen(true); }, [packageCount]);
+  if (fulfillment && operationsOwnStockPackingEntry(fulfillment, formal)) return null;
   if (!isStockOrderType(fulfillment?.orderType ?? line?.orderType)) return null;
   const initialStockRegistration = !fulfillment?.actualPackageCount && ["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment?.status);
   if (initialStockRegistration) return null;
   if (!(formal.permissionContext?.actionPermissions || []).some(key=>["packing.read","packing.complete","fulfillment.print"].includes(key))) return null;
-  return <section className="business-detail-section"><button className="secondary-button" type="button" disabled={pending} onClick={()=>setOpen(value=>!value)}>{open?"收起实物包裹":"登记 / 更正实物包裹"}</button>{open?<MixedPackageWorkbench authState={formal.authState} fulfillmentId={fulfillmentId} orderLineId={resolvedLineId} onSaved={formal.actions.refreshAll} onBusyChange={setPending}/>:null}</section>;
+  return <section className="business-detail-section fulfillment-package-correction"><button className="primary" type="button" disabled={pending} onClick={()=>setOpen(value=>!value)}>{open?"收起实物包裹":"登记 / 更正实物包裹"}</button>{open?<><details className="fulfillment-note"><summary>混装规则</summary><p>通货可混装，含不足约 1000、来厂自提。逐项登记，并核对包内合计。</p><p>同一订单可混装尺寸和颜色。每个实物包只有一个包码，逐项核实后再打印贴牌。</p></details><MixedPackageWorkbench collapseIntro authState={formal.authState} fulfillmentId={fulfillmentId} orderLineId={resolvedLineId} onSaved={formal.actions.refreshAll} onBusyChange={setPending}/></>:null}</section>;
 }
 
 function FulfillmentWorkspace({ formal, onNavigate }) {
@@ -648,6 +651,9 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
   const selected = rows.find((record) => record.id === selectedId) || rows[0] || null;
   const gridTemplateColumns = "minmax(150px, 1.22fr) minmax(180px, 1.45fr) minmax(74px, .66fr) minmax(138px, 1fr) minmax(86px, .72fr)";
   const reset = () => { setQuery(""); setStatus("全部状态"); setSelectedId(records[0]?.id || ""); setNotice(""); };
+  const deliveryFacts = selected ? [["交付方式", selected.method], ["包装", selected.packageLabel], ["要求时间", selected.latestNeededAt], ["出库库位", selected.zone]] : [];
+  const pendingFactCount = deliveryFacts.filter(([, value]) => /待确认|待打包|待核实/.test(String(value || ""))).length;
+  const canOpenStatement = formal.permissionContext?.actionPermissions?.includes("statement.preview");
 
   return <div className="business-workbench fulfillment-workbench">
     <section className="business-list-panel">
@@ -659,15 +665,16 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
       </div>
     </section>
     <aside className="business-detail-panel fulfillment-detail">
-      <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.goods || "暂无交付任务"}</h2>{selected ? <StateText>{selected.status}</StateText> : null}</header>
+      <header className="fulfillment-summary-head">{selected ? <><div className="fulfillment-summary-line"><strong>{selected.customer}</strong><span className="fulfillment-summary-id">{selected.orderLineId || selected.id}</span><StateText>{selected.status}</StateText></div><p className="fulfillment-summary-goods" title={selected.goods}>{fulfillmentSummaryGoods(selected.goods)}</p></> : <><span>当前选中 · 出库交付</span><h2>暂无交付任务</h2></>}</header>
       <div className="business-detail-scroll">{selected ? <>
-        <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
-        <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
-        <section className="business-detail-section"><h3>对账关联</h3><div className="business-boundary"><InfoCircleOutlined /><div><strong>金额以正式对账记录为准</strong><p>分批出货、赠送数量和差异处理都会影响计费，本页不按数量估算应收或欠款。</p></div></div>{formal.permissionContext?.actionPermissions?.includes("statement.preview") ? <button type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</section>
-        {selected.method === "送货" ? <DeliveryEvidenceReviewPanel authState={formal.authState} fulfillmentId={selected.id} onReviewed={(message) => { setNotice(message); void formal.actions.refreshAll(); }} /> : null}
+        <section className="fulfillment-summary-qty" aria-label="交付数量"><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
+        <div className="fulfillment-primary-actions">{canOpenStatement ? <button className="primary" type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</div>
         {selected.status === "送货异常" ? <DriverExceptionResolutionPanel authState={{...formal.authState,permissions:formal.permissionContext}} fulfillmentId={selected.id} onResolved={()=>void formal.actions.refreshAll()} /> : null}
-        <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} fulfillmentId={selected.id}/>
         <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
+        <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} fulfillmentId={selected.id}/>
+        <details className="fulfillment-fold"><summary>交付事实{pendingFactCount ? ` · ${pendingFactCount} 项待确认` : ""}</summary><dl className="business-facts">{deliveryFacts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details>
+        <details className="fulfillment-fold"><summary>对账说明</summary><section className="business-detail-section"><h3>对账关联</h3><div className="business-boundary"><InfoCircleOutlined /><div><strong>金额以正式对账记录为准</strong><p>分批出货、赠送数量和差异处理都会影响计费，本页不按数量估算应收或欠款。</p></div></div></section></details>
+        {selected.method === "送货" ? <DeliveryEvidenceReviewPanel authState={formal.authState} fulfillmentId={selected.id} onReviewed={(message) => { setNotice(message); void formal.actions.refreshAll(); }} /> : null}
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </> : <div className="business-empty"><FileTextOutlined /><strong>暂无交付任务</strong></div>}</div>
     </aside>
