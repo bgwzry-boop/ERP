@@ -524,6 +524,7 @@ function normalizeVarianceRecordForPersistence(record) {
     status: String(record.status ?? "已生效").trim(),
     attachmentId: String(record.attachmentId ?? "").trim(),
     operatorId: String(record.operatorId ?? "").trim(),
+    createdAt: record.createdAt ? String(record.createdAt) : "",
   };
 }
 
@@ -541,7 +542,8 @@ function varianceRecordJsonExpression(alias) {
     'reason', ${alias}.reason,
     'status', ${alias}.status,
     'attachmentId', ${alias}.attachment_id,
-    'operatorId', ${alias}.created_by
+    'operatorId', ${alias}.created_by,
+    'createdAt', ${alias}.created_at
   )`;
 }
 

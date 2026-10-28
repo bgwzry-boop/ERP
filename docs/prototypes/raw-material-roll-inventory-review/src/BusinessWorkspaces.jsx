@@ -618,6 +618,8 @@ function PhysicalPackagesPanel({formal,fulfillmentId,orderLineId}) {
   const fulfillment = (formal.data?.fulfillments ?? []).find(item => (item.id || item.fulfillmentId) === fulfillmentId);
   const resolvedLineId = orderLineId || fulfillment?.orderLineId || fulfillment?.lineId;
   const line = (formal.data?.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === resolvedLineId);
+  const packageCount = Number(fulfillment?.actualPackageCount || 0);
+  useEffect(() => { if (packageCount > 0) setOpen(true); }, [packageCount]);
   if (!isStockOrderType(fulfillment?.orderType ?? line?.orderType)) return null;
   const initialStockRegistration = !fulfillment?.actualPackageCount && ["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment?.status);
   if (initialStockRegistration) return null;

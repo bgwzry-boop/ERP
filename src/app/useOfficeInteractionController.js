@@ -331,7 +331,7 @@ export function createOfficeInteractionActions({
         : "。";
       notify(
         payload.amount < selected.receivable
-          ? `已通过${sourceLabel}登记实收和少付差额，并通知老板、财务、管理待阅${attachmentLabel}`
+          ? `已通过${sourceLabel}登记实收和抹零，账期已结清，并通知老板、财务、管理待阅${attachmentLabel}`
           : `已通过${sourceLabel}登记实收金额，等待有收款确认权限账号核销${attachmentLabel}`,
       );
       return apiResult;

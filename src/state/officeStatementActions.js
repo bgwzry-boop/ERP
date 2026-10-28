@@ -1,5 +1,5 @@
 import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
-import { UNDERPAYMENT_EFFECTIVE_STATUS, UNDERPAYMENT_READ_AUDIENCES, UNDERPAYMENT_READ_TODO_TYPE } from "../../shared/statementUnderpaymentNotice.js";
+import { ROUNDING_HANDLING_RESULT, UNDERPAYMENT_READ_AUDIENCES, UNDERPAYMENT_READ_TODO_TYPE, UNDERPAYMENT_SETTLED_STATUS } from "../../shared/statementUnderpaymentNotice.js";
 import {
   getStatementNextStatusForVariance,
   money,
@@ -138,7 +138,7 @@ export function confirmStatementPayment(statements, statement, payload) {
   const blocker = getStatementPaymentBlocker(statement);
   if (blocker) throw Object.assign(new Error(blocker), { code: "STATEMENT_PAYMENT_PERIOD_CLOSED", statusCode: 409 });
   const amount = Number(payload.amount || 0);
-  const variance = Math.max(0, statement.receivable - amount);
+  const rounding = Math.max(0, Math.round(Number(statement.receivable || 0) * 100) - Math.round(amount * 100)) / 100;
   const attachmentFiles = (payload.paymentAttachmentFiles ?? []).map(normalizePaymentAttachmentFile);
   const attachmentLabel = buildPaymentAttachmentLabel(attachmentFiles, payload.attachmentIds ?? []);
   return {
@@ -146,21 +146,23 @@ export function confirmStatementPayment(statements, statement, payload) {
       item.id === statement.id
         ? {
             ...item,
+            receivable: statement.receivable,
             received: amount,
-            variance,
-            status: variance > 0 ? UNDERPAYMENT_EFFECTIVE_STATUS : "收款待确认",
+            roundingAmount: rounding,
+            variance: 0,
+            status: rounding > 0 ? UNDERPAYMENT_SETTLED_STATUS : "收款待确认",
             revision: Number(payload.statementRevision ?? item.revision ?? 0),
             paymentNote: payload.reason,
             paymentAttachmentIds: payload.attachmentIds ?? [],
             paymentAttachmentFiles: attachmentFiles,
             paymentEvidenceStatus: attachmentLabel,
-            varianceHandling: "",
-            varianceHandledAt: "",
+            varianceHandling: rounding > 0 ? ROUNDING_HANDLING_RESULT : "",
+            varianceHandledAt: rounding > 0 ? payload.reason || "" : "",
           }
         : item,
     ),
     readNoticeInputs:
-      variance > 0
+      rounding > 0
         ? UNDERPAYMENT_READ_AUDIENCES.map((audience) => ({
             type: UNDERPAYMENT_READ_TODO_TYPE,
             audience,
@@ -168,14 +170,14 @@ export function confirmStatementPayment(statements, statement, payload) {
             ref: statement.id,
             refType: "statement",
             refId: statement.id,
-            summary: `待阅·${audience}：实收 ${money(amount)}，少付差额 ${money(variance)}，应收 ${money(statement.receivable)}，原因 ${payload.reason || "未填写"}。知晓不改变已登记金额。`,
+            summary: `待阅·${audience}：实收 ${money(amount)}，抹零 ${money(rounding)}，应收 ${money(statement.receivable)}，账期已结清，原因 ${payload.reason || "未填写"}。知晓不改变实收和抹零。`,
             latest: "本期",
             urgency: "关注",
-            impact: "事后待阅，不阻挡少付差额生效",
+            impact: "事后待阅，不改写已结清的实收和抹零",
             handled: false,
           }))
         : null,
-    toast: variance > 0 ? "已登记实收和少付差额，并通知老板、财务、管理待阅。知晓不改变已登记金额。" : "已登记实收金额，等待有收款确认权限账号核销。",
+    toast: rounding > 0 ? "已登记实收和抹零，账期已结清，并通知老板、财务、管理待阅。知晓不改变实收和抹零。" : "已登记实收金额，等待有收款确认权限账号核销。",
   };
 }
 

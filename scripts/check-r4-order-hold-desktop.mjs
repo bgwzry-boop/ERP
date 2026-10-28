@@ -101,8 +101,10 @@ try {
   const packLineId=packOrder.orderLines[0].id;
   await page.goto('http://127.0.0.1:4174/?r4OrderHold=physical-packages&erpViewport=desktop#outbound-delivery');
   await page.getByLabel('出库交付搜索').fill(packLineId);await page.getByRole('row').filter({hasText:packLineId}).first().click();
-  await page.getByRole('button',{name:'登记 / 更正实物包裹',exact:true}).click();
+  const packageToggle=page.getByRole('button',{name:'登记 / 更正实物包裹',exact:true});
+  if(await packageToggle.count()) await packageToggle.click();
   const packagePanel=page.getByRole('region',{name:'实物混装包登记'});
+  await expect(packagePanel).toBeVisible();
   await packagePanel.getByLabel('实际包数',{exact:true}).fill('2');await packagePanel.getByRole('button',{name:'生成逐包核对表',exact:true}).click();
   await packagePanel.getByLabel('每包数量',{exact:true}).fill('5');await packagePanel.getByRole('button',{name:'每包填入此数量',exact:true}).click();
   const packChecks=packagePanel.getByRole('checkbox',{name:'我已对照本包实物核实每项数量',exact:true});await expect(packChecks).toHaveCount(2);for(const checkbox of await packChecks.all())await checkbox.check();

@@ -1,5 +1,6 @@
 import { createStatementPreviewProjectionService } from './statementPreviewProjectionService.mjs';
 import { getStatementFinancialSummary } from '../../src/domain/officeRules.js';
+import { chinaCalendarYear, ROUNDING_HANDLING_RESULT, summarizeAnnualReceiptAndRounding } from '../../shared/statementUnderpaymentNotice.js';
 
 const preview = createStatementPreviewProjectionService();
 const text = value => String(value ?? '').trim();
@@ -65,8 +66,18 @@ export function buildStatementDetail(workspace, item, { includeAttachments = fal
   const paymentAttachmentIds = safeIds(payments.flatMap(row => row.attachmentIds), 'payment_screenshot');
   const customerConfirmationAttachmentIds = safeIds(confirmationRecords.flatMap(row => row.attachmentIds), 'statement_customer_confirmation');
   const receiptLabels = { pending: '待回执', delivered: '已送达', read: '客户已读', confirmed: '客户已确认', no_response: '未回复' };
+  const roundingCents = varianceRecords
+    .filter((row) => row.handlingResult === ROUNDING_HANDLING_RESULT)
+    .reduce((sum, row) => sum + Math.round(Number(row.amount || 0) * 100), 0);
+  const roundingAmount = roundingCents / 100;
+  const anchor = payments.map((row) => row.paidAt).find(Boolean) || item.periodEnd || item.period || item.periodStart;
+  const annualYear = chinaCalendarYear(anchor);
+  const annualReceiptSummary = annualYear ? summarizeAnnualReceiptAndRounding({
+    payments: rows(workspace.paymentRecords),
+    varianceRecords: rows(workspace.varianceRecords),
+  }, annualYear) : null;
   const statement = {
-    ...item, ...getStatementFinancialSummary(item, workspace.customers), statementId,
+    ...item, roundingAmount, annualReceiptSummary, ...getStatementFinancialSummary({ ...item, roundingAmount }, workspace.customers), statementId,
     customerName: text(item.customerName || rows(workspace.customers).find(row => text(row.id ?? row.customerId) === customerId)?.name),
     sent: Boolean(latestSend), sendRecordId: latestSend?.sendRecordId || '',
     sendRecordRevision: latestSend?.revision ?? null,

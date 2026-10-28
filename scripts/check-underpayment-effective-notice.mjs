@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { createStatementFinancialCommandService } from "../server/services/statementFinancialCommandService.mjs";
+import { buildStatementDetail } from "../server/services/statementDetailProjectionService.mjs";
 import { createLocalStatementPaymentTransactionRepository } from "../server/statementPaymentTransactionRepository.mjs";
 import { confirmStatementPayment, confirmStatementVariance, confirmStatementWriteOff, getStatementWriteOffBlocker } from "../src/state/officeStatementActions.js";
-import { UNDERPAYMENT_EFFECTIVE_STATUS, UNDERPAYMENT_READ_AUDIENCES, UNDERPAYMENT_READ_TODO_TYPE } from "../shared/statementUnderpaymentNotice.js";
+import { getStatementBucket, getStatementFinancialSummary } from "../src/domain/officeRules.js";
+import { ROUNDING_HANDLING_RESULT, UNDERPAYMENT_EFFECTIVE_STATUS, UNDERPAYMENT_READ_AUDIENCES, UNDERPAYMENT_READ_TODO_TYPE, UNDERPAYMENT_SETTLED_STATUS, summarizeAnnualReceiptAndRounding } from "../shared/statementUnderpaymentNotice.js";
 
-const recordedAt = "2026-10-24T02:00:00.000Z";
+const recordedAt = "2026-10-28T02:00:00.000Z";
 const service = createStatementFinancialCommandService({
   now: () => recordedAt,
   businessDecisionEvidenceService: {
@@ -31,6 +33,7 @@ function workspace(statement) {
     varianceRecords: [],
     todos: [],
     operationLogs: [],
+    customers: [],
     statementPaymentTransactionRepository: createLocalStatementPaymentTransactionRepository(),
     statementSettlementTransactionRepository: {
       async handleStatementVariance(input) {
@@ -43,12 +46,12 @@ function workspace(statement) {
   };
 }
 
-const open = { id: "ST-UNDER", customerId: "C-1", receivable: 100, received: 0, variance: 0, status: "已发送待回款", revision: 1 };
+const open = { id: "ST-UNDER", customerId: "C-1", receivable: 10850, received: 0, variance: 10850, status: "已发送待回款", revision: 1, period: "2026-10" };
 const missingReason = await service.recordPayment({
   workspace: workspace(open),
   statementId: open.id,
   operatorId: "U-OFFICE-A",
-  body: { amount: 80, expectedRevision: 1, idempotencyKey: "underpay-no-reason" },
+  body: { amount: 10500, expectedRevision: 1, idempotencyKey: "underpay-no-reason" },
 });
 assert.equal(missingReason.code, "STATEMENT_UNDERPAYMENT_REASON_REQUIRED");
 
@@ -57,19 +60,27 @@ const payment = await service.recordPayment({
   workspace: current,
   statementId: open.id,
   operatorId: "U-OFFICE-A",
-  body: { amount: 80, expectedRevision: 1, idempotencyKey: "underpay-80", remark: "客户少付，先登记" },
+  body: { amount: 10500, expectedRevision: 1, idempotencyKey: "underpay-10500", remark: "客户少付 350，按抹零结清", paidAt: recordedAt },
 });
-assert.equal(payment.response.statementStatus, UNDERPAYMENT_EFFECTIVE_STATUS);
-assert.equal(current.statements[0].received, 80);
-assert.equal(current.statements[0].variance, 20);
-assert.equal(current.statements[0].status, UNDERPAYMENT_EFFECTIVE_STATUS);
-assert.equal(current.paymentRecords[0].amount, 80);
+assert.equal(payment.response.statementStatus, "已结清");
+assert.equal(payment.response.receivableAmount, 10850);
+assert.equal(payment.response.receivedAmount, 10500);
+assert.equal(payment.response.roundingAmount, 350);
+assert.equal(payment.response.varianceAmount, 0);
+assert.equal(current.statements[0].receivable, 10850, "抹零不得改写应收");
+assert.equal(current.statements[0].received, 10500);
+assert.equal(current.statements[0].roundingAmount, 350);
+assert.equal(current.statements[0].variance, 0);
+assert.equal(current.statements[0].status, UNDERPAYMENT_SETTLED_STATUS);
+assert.equal(current.statements[0].varianceHandling, ROUNDING_HANDLING_RESULT);
+assert.equal(current.paymentRecords[0].amount, 10500);
 assert.equal(current.paymentRecords[0].status, "recorded");
 assert.equal(current.varianceRecords.length, 1);
-assert.equal(current.varianceRecords[0].amount, 20);
+assert.equal(current.varianceRecords[0].amount, 350);
 assert.equal(current.varianceRecords[0].status, "已生效");
-assert.equal(current.varianceRecords[0].handlingResult, "少付已登记");
+assert.equal(current.varianceRecords[0].handlingResult, ROUNDING_HANDLING_RESULT);
 assert.equal(current.varianceRecords[0].operatorId, "U-OFFICE-A");
+assert.equal(current.varianceRecords[0].createdAt, recordedAt);
 assert.deepEqual(payment.response.readNoticeIds.length, 3);
 assert.deepEqual(current.todos.map((todo) => todo.audience).sort(), [...UNDERPAYMENT_READ_AUDIENCES].sort());
 for (const audience of UNDERPAYMENT_READ_AUDIENCES) {
@@ -78,48 +89,80 @@ for (const audience of UNDERPAYMENT_READ_AUDIENCES) {
   assert.equal(notice.handled, false);
   assert.match(notice.summary, new RegExp(`待阅·${audience}`));
   assert.match(notice.summary, /操作人 U-OFFICE-A/);
-  assert.match(notice.summary, /少付差额 20/);
-  assert.match(notice.summary, /原因 客户少付，先登记/);
+  assert.match(notice.summary, /抹零 350/);
+  assert.match(notice.summary, /实收 10500/);
+  assert.match(notice.summary, /应收 10850/);
+  assert.match(notice.summary, /原因 客户少付 350，按抹零结清/);
   assert.match(notice.summary, new RegExp(recordedAt));
-  assert.match(notice.summary, /知晓不改变已登记金额/);
+  assert.match(notice.summary, /知晓不改变实收和抹零/);
 }
-const beforeAck = { received: current.statements[0].received, variance: current.statements[0].variance, status: current.statements[0].status };
+const beforeAck = { receivable: current.statements[0].receivable, received: current.statements[0].received, roundingAmount: current.statements[0].roundingAmount, status: current.statements[0].status };
 current.todos.forEach((todo) => { todo.handled = true; });
-assert.deepEqual({ received: current.statements[0].received, variance: current.statements[0].variance, status: current.statements[0].status }, beforeAck);
+assert.deepEqual({
+  receivable: current.statements[0].receivable,
+  received: current.statements[0].received,
+  roundingAmount: current.statements[0].roundingAmount,
+  status: current.statements[0].status,
+}, beforeAck);
 
-const silent = workspace({ ...current.statements[0], revision: 2 });
-const blockedClear = await service.recordPayment({
-  workspace: silent,
+const summary = getStatementFinancialSummary(current.statements[0], []);
+assert.equal(summary.currentReceivable, 10850);
+assert.equal(summary.currentReceived, 10500);
+assert.equal(summary.currentUnpaid, 0);
+assert.equal(getStatementBucket(current.statements[0], []), "已结清");
+
+const closed = workspace(current.statements[0]);
+closed.paymentRecords = structuredClone(current.paymentRecords);
+closed.varianceRecords = structuredClone(current.varianceRecords);
+closed.todos = structuredClone(current.todos);
+const blockedPayment = await service.recordPayment({
+  workspace: closed,
   statementId: open.id,
   operatorId: "U-OFFICE-A",
-  body: { amount: 100, expectedRevision: 2, idempotencyKey: "clear-without-notice", remark: "补齐" },
+  body: { amount: 10850, expectedRevision: 2, idempotencyKey: "clear-after-settle", remark: "补齐" },
 });
-assert.equal(blockedClear.code, "STATEMENT_UNDERPAYMENT_NOTICE_REQUIRED");
-assert.equal(silent.statements[0].variance, 20);
+assert.equal(blockedPayment.code, "STATEMENT_PAYMENT_PERIOD_CLOSED");
+assert.equal(closed.statements[0].receivable, 10850);
+assert.equal(closed.statements[0].received, 10500);
 const blockedVariance = await service.handleVariance({
-  workspace: silent,
+  workspace: closed,
   statementId: open.id,
   operatorId: "U-OFFICE-A",
-  body: { expectedRevision: 2, reason: "抹零/减免已审批" },
+  body: { expectedRevision: 2, reason: "未收差额转欠款" },
 });
-assert.equal(blockedVariance.code, "STATEMENT_UNDERPAYMENT_NOTICE_REQUIRED");
+assert.equal(blockedVariance.code, "STATEMENT_PAYMENT_PERIOD_CLOSED");
 const blockedWriteOff = await service.writeOffStatement({
-  workspace: silent,
+  workspace: closed,
   statementId: open.id,
   operatorId: "U-OFFICE-A",
   body: { expectedRevision: 2, confirmReason: "清掉差额" },
 });
-assert.equal(blockedWriteOff.code, "STATEMENT_UNDERPAYMENT_NOTICE_REQUIRED");
+assert.equal(blockedWriteOff.code, "STATEMENT_PAYMENT_PERIOD_CLOSED");
+assert.equal(closed.varianceRecords[0].amount, 350);
+assert.equal(closed.varianceRecords[0].handlingResult, ROUNDING_HANDLING_RESULT);
 
-silent.todos = structuredClone(current.todos);
-const allowed = await service.handleVariance({
-  workspace: silent,
+const legacy = workspace({ ...open, received: 10500, variance: 350, status: UNDERPAYMENT_EFFECTIVE_STATUS, revision: 2 });
+const blockedLegacy = await service.recordPayment({
+  workspace: legacy,
   statementId: open.id,
-  operatorId: "U-FINANCE",
-  body: { expectedRevision: 2, reason: "未收差额转欠款" },
+  operatorId: "U-OFFICE-A",
+  body: { amount: 10850, expectedRevision: 2, idempotencyKey: "legacy-clear", remark: "补齐" },
 });
-assert.notEqual(allowed.code, "STATEMENT_UNDERPAYMENT_NOTICE_REQUIRED");
-assert.equal(allowed.response.varianceRecord.operatorId, "U-FINANCE");
-assert.equal(silent.statements[0].variance, 20, "待阅之后的差额处理仍保留已登记差额，不把它悄悄清成零");
+assert.equal(blockedLegacy.code, "STATEMENT_UNDERPAYMENT_NOTICE_REQUIRED");
+assert.equal(legacy.statements[0].variance, 350);
 
-console.log("Underpayment checks passed: immediate received and variance, three to-read notices, acknowledgement does not change amounts, silent clear is rejected.");
+current.paymentRecords.push({ paymentRecordId: "PAY-OLD", statementId: "ST-OLD", amount: 800, paidAt: "2025-12-31T10:00:00.000Z", status: "recorded" });
+current.varianceRecords.push({ varianceRecordId: "VAR-OLD", statementId: "ST-OLD", amount: 20, handlingResult: ROUNDING_HANDLING_RESULT, createdAt: "2025-12-31T10:00:00.000Z" });
+const annual = summarizeAnnualReceiptAndRounding(current, 2026);
+assert.deepEqual(annual, { year: 2026, receivedTotal: 10500, roundingTotal: 350 });
+const prior = summarizeAnnualReceiptAndRounding(current, 2025);
+assert.deepEqual(prior, { year: 2025, receivedTotal: 800, roundingTotal: 20 });
+
+const detail = buildStatementDetail(current, current.statements[0]);
+assert.equal(detail.roundingAmount, 350);
+assert.equal(detail.receivable, 10850);
+assert.equal(detail.received, 10500);
+assert.equal(detail.currentUnpaid, 0);
+assert.deepEqual(detail.annualReceiptSummary, { year: 2026, receivedTotal: 10500, roundingTotal: 350 });
+
+console.log("Underpayment checks passed: 10850 receivable, 10500 received, 350 rounding, period settled, three to-read notices, acknowledgement and later writes do not erase the columns, annual totals stay split.");

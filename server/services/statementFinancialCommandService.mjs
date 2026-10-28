@@ -1,5 +1,5 @@
 import {resolveStatementVarianceHandling} from "../../shared/statementVarianceCatalog.js";
-import { missingUnderpaymentAudiences, UNDERPAYMENT_EFFECTIVE_STATUS } from "../../shared/statementUnderpaymentNotice.js";
+import { missingUnderpaymentAudiences, ROUNDING_HANDLING_RESULT, UNDERPAYMENT_EFFECTIVE_STATUS } from "../../shared/statementUnderpaymentNotice.js";
 import { createHash, randomUUID } from "node:crypto";
 import { getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
@@ -85,24 +85,25 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     let readNotices = null;
     let varianceRecord = null;
     if (Array.isArray(result.readNoticeInputs) && result.readNoticeInputs.length) {
-      if (!underpaymentReason) return businessError(422, "STATEMENT_UNDERPAYMENT_REASON_REQUIRED", "登记少付差额必须填写原因，不能无人知晓。");
+      if (!underpaymentReason) return businessError(422, "STATEMENT_UNDERPAYMENT_REASON_REQUIRED", "登记抹零必须填写原因，不能无人知晓。");
       readNotices = result.readNoticeInputs.map((input) => ({
         ...buildTodo(workspace, input),
         id: `T-PAY-${identity}-${input.audience}`,
-        summary: `待阅·${input.audience}：操作人 ${operatorId}，少付差额 ${nextStatement.variance}，实收 ${nextStatement.received}，应收 ${nextStatement.receivable}，原因 ${underpaymentReason}，时间 ${recordedAt}。知晓不改变已登记金额。`,
+        summary: `待阅·${input.audience}：操作人 ${operatorId}，抹零 ${nextStatement.roundingAmount}，实收 ${nextStatement.received}，应收 ${nextStatement.receivable}，账期已结清，原因 ${underpaymentReason}，时间 ${recordedAt}。知晓不改变实收和抹零。`,
         handled: false,
       }));
       if (missingUnderpaymentAudiences(readNotices, statementId).length) {
-        return businessError(500, "STATEMENT_UNDERPAYMENT_NOTICE_INCOMPLETE", "少付差额待阅不完整，本次登记未生效。");
+        return businessError(500, "STATEMENT_UNDERPAYMENT_NOTICE_INCOMPLETE", "抹零待阅不完整，本次登记未生效。");
       }
       varianceRecord = {
         varianceRecordId: `VAR-PAY-${identity}`,
         statementId,
         paymentRecordId: `PAY-${identity}`,
-        amount: Number(nextStatement.variance),
-        handlingResult: "少付已登记",
+        amount: Number(nextStatement.roundingAmount),
+        handlingResult: ROUNDING_HANDLING_RESULT,
         reason: underpaymentReason,
         status: "已生效",
+        createdAt: recordedAt,
         attachmentId: attachmentValidation.attachmentIds[0] ?? "",
         operatorId,
       };
@@ -144,16 +145,11 @@ export function createStatementFinancialCommandService(dependencies = {}) {
       operationLog,
     });
     const committedStatement = resolveCommittedStatement(nextStatement, transaction.statement, expectedRevision.value);
-    const persistedNotices = transaction.readNotices ?? readNotices ?? [];
-    return success({
-      payment: transaction.payment,
-      statementStatus: mapStatementApiStatus(committedStatement.status),
-      statementRevision: committedStatement.revision,
-      varianceAmount: committedStatement.variance,
-      todoId: transaction.todo?.id ?? todo?.id ?? null,
-      readNoticeIds: persistedNotices.map((item) => item.id),
+    return paymentResponse({
+      ...transaction,
+      statement: committedStatement,
+      readNotices: transaction.readNotices ?? readNotices ?? [],
       varianceRecord: transaction.varianceRecord ?? varianceRecord ?? null,
-      operationLogId: transaction.operationLogId,
     });
   }
 
@@ -452,12 +448,25 @@ function businessError(statusCode, code, message) {
 function underpaymentNoticeBlock(workspace, statementId) {
   const missing = missingUnderpaymentAudiences(workspace?.todos, statementId);
   if (!missing.length) return null;
-  return businessError(409, "STATEMENT_UNDERPAYMENT_NOTICE_REQUIRED", "少付差额尚未通知老板、财务、管理，不能清掉或改写已登记差额。");
+  return businessError(409, "STATEMENT_UNDERPAYMENT_NOTICE_REQUIRED", "抹零尚未通知老板、财务、管理，不能清掉或改写已登记金额。");
 }
 
 function paymentResponse(transaction) {
   const notices = transaction.readNotices ?? (transaction.todo ? [transaction.todo] : []);
-  return success({ payment: transaction.payment, statementStatus: statementPolicyService.mapStatementApiStatus(transaction.statement.status), statementRevision: transaction.statement.revision, varianceAmount: transaction.statement.variance, todoId: transaction.todo?.id ?? null, readNoticeIds: notices.map((item) => item.id), varianceRecord: transaction.varianceRecord ?? null, operationLogId: transaction.operationLogId });
+  const roundingRecord = transaction.varianceRecord?.handlingResult === ROUNDING_HANDLING_RESULT ? transaction.varianceRecord : null;
+  return success({
+    payment: transaction.payment,
+    statementStatus: statementPolicyService.mapStatementApiStatus(transaction.statement.status),
+    statementRevision: transaction.statement.revision,
+    receivableAmount: transaction.statement.receivable,
+    receivedAmount: transaction.payment?.amount ?? transaction.statement.received,
+    roundingAmount: roundingRecord ? Number(roundingRecord.amount) : 0,
+    varianceAmount: transaction.statement.variance,
+    todoId: transaction.todo?.id ?? null,
+    readNoticeIds: notices.map((item) => item.id),
+    varianceRecord: transaction.varianceRecord ?? null,
+    operationLogId: transaction.operationLogId,
+  });
 }
 
 function buildSettlementReplayResponse(statementId,r,kind,evidence,mapStatus) {
