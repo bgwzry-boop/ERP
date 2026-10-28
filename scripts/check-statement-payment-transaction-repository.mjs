@@ -112,6 +112,7 @@ async function checkPostgresStatementPaymentTransactionSqlBoundary() {
     todo: null,
     operationLog,
   });
+  assert.match(noTodoSql, /jsonb_to_recordset/);
   assert.match(noTodoSql, /SELECT NULL::json AS result WHERE false/);
 }
 

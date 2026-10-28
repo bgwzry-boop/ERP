@@ -318,6 +318,8 @@ export async function recordOfficeStatementPayment(input, options = {}) {
       statementRevision: Number(json.statementRevision ?? 0),
       varianceAmount: json.varianceAmount,
       todoId: json.todoId,
+      readNoticeIds: Array.isArray(json.readNoticeIds) ? json.readNoticeIds : [],
+      varianceRecord: json.varianceRecord ?? null,
       operationLogId: json.operationLogId,
     };
   } catch (error) {

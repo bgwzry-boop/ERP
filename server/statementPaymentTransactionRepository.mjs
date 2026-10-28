@@ -41,16 +41,21 @@ export function createLocalStatementPaymentTransactionRepository() {
 
     recordStatementPayment(input) {
       const replay=findPaymentReplay(input);if(replay)return replay;
+      const notices = paymentNotices(input);
+      const varianceId = input.varianceRecord?.varianceRecordId ?? input.varianceRecord?.id;
       if ((input.workspace.paymentRecords ?? []).some(row => (row.paymentRecordId ?? row.id) === input.paymentRecord.paymentRecordId)
         || (input.workspace.operationLogs ?? []).some(row=>row.id===input.operationLog?.id)
-        || (input.todo && (input.workspace.todos ?? []).some(row=>row.id===input.todo.id))) throw paymentIdentityConflict();
+        || notices.some(notice => (input.workspace.todos ?? []).some(row => row.id === notice.id))
+        || (varianceId && (input.workspace.varianceRecords ?? []).some(row => (row.varianceRecordId ?? row.id) === varianceId))) throw paymentIdentityConflict();
       const statement = buildLocalSavedStatement(input);
       const statements = replaceStatement(input.statements, statement);
-      applyStatementPaymentWorkspaceMutation({ ...input, statements, statement });
+      applyStatementPaymentWorkspaceMutation({ ...input, statements, statement, readNotices: notices });
       const result = normalizeStatementPaymentTransactionResult({
         statement,
         payment: input.paymentRecord,
-        todo: input.todo ?? null,
+        todo: notices[0] ?? null,
+        readNotices: notices,
+        varianceRecord: input.varianceRecord ?? null,
         operationLogId: input.operationLog?.id ?? "",
       });
       if(input.idempotencyKey)cache(input.workspace).set(input.idempotencyKey,{hash:buildIdempotencyRequestHash(paymentPayload(input)),result:structuredClone(result)});
@@ -94,6 +99,8 @@ export function createPostgresStatementPaymentTransactionRepository(options = {}
         statement: saved.statement,
         paymentRecord: saved.payment,
         todo: saved.todo ?? input.todo,
+        readNotices: saved.readNotices?.length ? saved.readNotices : input.readNotices,
+        varianceRecord: saved.varianceRecord ?? input.varianceRecord,
       });
       return saved;
     },
@@ -115,43 +122,57 @@ export function buildRecordStatementPaymentTransactionQuery(input) {
 function buildRecordStatementPaymentTransactionText(input, parameters) {
   const statement = normalizeStatementForPersistence(input.statement);
   const paymentRecord = normalizePaymentRecord(input.paymentRecord);
-  const todo = normalizeTodoForPersistence(input.todo, input.operationLog?.operatorId);
+  const notices = paymentNotices(input).map((todo) => normalizeTodoForPersistence(todo, input.operationLog?.operatorId)).filter(Boolean);
+  const varianceRecord = normalizeVarianceRecordForPersistence(input.varianceRecord);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
   if (!statement || !paymentRecord || !operationLog) {
     throw new Error("Statement, payment record, and operation log are required for statement payment transaction");
   }
-  const insertedTodoCte = todo
-    ? `INSERT INTO todos (
-  id,
-  biz_no,
-  type,
-  ref_type,
-  ref_id,
-  priority,
-  status,
-  summary,
-  due_at,
-  remind_at,
-  created_by,
-  created_at,
-  updated_at
+  if (paymentNotices(input).length !== notices.length) {
+    throw new Error("Every underpayment notice needs a stable id before it can be saved");
+  }
+  const noticeRows = notices.map((todo) => ({
+    id: todo.id,
+    biz_no: todo.bizNo,
+    type: todo.type,
+    ref_type: todo.refType,
+    ref_id: todo.refId,
+    priority: todo.priority,
+    status: todo.status,
+    summary: todo.summary,
+    due_at: todo.dueAt,
+    remind_at: todo.remindAt,
+    created_by: todo.createdBy || null,
+  }));
+  const insertedNoticeCte = `INSERT INTO todos (
+  id, biz_no, type, ref_type, ref_id, priority, status, summary, due_at, remind_at, created_by, created_at, updated_at
+)
+SELECT notice.id, notice.biz_no, notice.type, notice.ref_type, notice.ref_id, notice.priority, notice.status, notice.summary,
+  notice.due_at, notice.remind_at, notice.created_by, now(), now()
+FROM jsonb_to_recordset(${parameters.json(noticeRows)}) AS notice(
+  id text, biz_no text, type text, ref_type text, ref_id text, priority text, status text, summary text,
+  due_at timestamptz, remind_at timestamptz, created_by text
+)
+ON CONFLICT (id) DO NOTHING
+RETURNING ${todoJsonExpression("todos")} AS result`;
+  const insertedVarianceCte = varianceRecord
+    ? `INSERT INTO variance_records (
+  id, statement_id, payment_record_id, variance_amount, handling_result, reason, status, attachment_id, created_by, created_at, updated_at
 ) VALUES (
-  ${parameters.text(todo.id)},
-  ${parameters.text(todo.bizNo)},
-  ${parameters.text(todo.type)},
-  ${parameters.text(todo.refType)},
-  ${parameters.text(todo.refId)},
-  ${parameters.text(todo.priority)},
-  ${parameters.text(todo.status)},
-  ${parameters.text(todo.summary)},
-  ${parameters.nullableTimestamp(todo.dueAt)},
-  ${parameters.nullableTimestamp(todo.remindAt)},
-  ${parameters.nullableText(todo.createdBy)},
+  ${parameters.text(varianceRecord.varianceRecordId)},
+  ${parameters.text(varianceRecord.statementId)},
+  ${parameters.nullableText(varianceRecord.paymentRecordId)},
+  ${parameters.number(varianceRecord.amount)},
+  ${parameters.text(varianceRecord.handlingResult)},
+  ${parameters.text(varianceRecord.reason)},
+  ${parameters.text(varianceRecord.status)},
+  ${parameters.nullableText(varianceRecord.attachmentId)},
+  ${parameters.nullableText(varianceRecord.operatorId)},
   now(),
   now()
 )
 ON CONFLICT (id) DO NOTHING
-RETURNING ${todoJsonExpression("todos")} AS result`
+RETURNING ${varianceRecordJsonExpression("variance_records")} AS result`
     : "SELECT NULL::json AS result WHERE false";
 
   return `
@@ -225,8 +246,11 @@ inserted_payment AS (
 ON CONFLICT (id) DO NOTHING
   RETURNING ${paymentRecordJsonExpression("payment_records")} AS result
 ),
-inserted_todo AS (
-  ${insertedTodoCte}
+inserted_notices AS (
+  ${insertedNoticeCte}
+),
+inserted_variance AS (
+  ${insertedVarianceCte}
 ),
 inserted_operation_log AS (
   INSERT INTO operation_logs (
@@ -260,11 +284,13 @@ ON CONFLICT (id) DO NOTHING
 SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
   'payment', (SELECT result FROM inserted_payment),
-  'todo', (SELECT result FROM inserted_todo LIMIT 1),
+  'todo', (SELECT result FROM inserted_notices LIMIT 1),
+  'readNotices', COALESCE((SELECT json_agg(result) FROM inserted_notices), '[]'::json),
+  'varianceRecord', (SELECT result FROM inserted_variance),
   'operationLogId', (SELECT id FROM inserted_operation_log),
   'writeGuard', (SELECT ok FROM statement_write_guard),
   'attachmentGuard', erp_require((SELECT count(*) FROM locked_payment_attachments) = ${parameters.integer(paymentRecord.attachmentIds.length)}, 'ERP_STATEMENT_PAYMENT_ATTACHMENT_CONFLICT'),
-  'identityGuard', erp_require((SELECT count(*) FROM inserted_payment)=1 AND (SELECT count(*) FROM inserted_operation_log)=1 AND ${todo ? '(SELECT count(*) FROM inserted_todo)=1' : 'TRUE'}, 'ERP_STATEMENT_PAYMENT_IDENTITY_CONFLICT')
+  'identityGuard', erp_require((SELECT count(*) FROM inserted_payment)=1 AND (SELECT count(*) FROM inserted_operation_log)=1 AND (SELECT count(*) FROM inserted_notices)=${parameters.integer(notices.length)} AND ${varianceRecord ? '(SELECT count(*) FROM inserted_variance)=1' : 'TRUE'}, 'ERP_STATEMENT_PAYMENT_IDENTITY_CONFLICT')
 ) AS result;
 COMMIT;
 `.trim();
@@ -272,17 +298,20 @@ COMMIT;
 
 export function normalizeStatementPaymentTransactionResult(value) {
   if (!value || typeof value !== "object") {
-    return { statement: null, payment: null, todo: null, operationLogId: "" };
+    return { statement: null, payment: null, todo: null, readNotices: [], varianceRecord: null, operationLogId: "" };
   }
+  const readNotices = parseJsonArray(value.readNotices);
   return {
     statement: normalizeStatementForApi(value.statement),
     payment: normalizePaymentRecord(value.payment),
     todo: normalizeTodoForApi(value.todo),
+    readNotices: (readNotices.length ? readNotices : value.todo ? [value.todo] : []).map(normalizeTodoForApi).filter(Boolean),
+    varianceRecord: normalizeVarianceRecordForApi(value.varianceRecord),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
   };
 }
 
-function applyStatementPaymentWorkspaceMutation({ workspace, statements, statement, paymentRecord, todo, operationLog }) {
+function applyStatementPaymentWorkspaceMutation({ workspace, statements, statement, paymentRecord, todo, readNotices, varianceRecord, operationLog }) {
   const current = workspace.statements.find(row=>row.id===statement?.id);
   if (current && Number(current.revision)>Number(statement?.revision)) { statements=null; statement=null; }
   if (Array.isArray(statements)) {
@@ -292,7 +321,15 @@ function applyStatementPaymentWorkspaceMutation({ workspace, statements, stateme
   }
   const payment = normalizePaymentRecord(paymentRecord);
   if (payment && !workspace.paymentRecords.some(row=>(row.paymentRecordId ?? row.id)===payment.paymentRecordId)) workspace.paymentRecords.unshift(payment);
-  if (todo && !workspace.todos.some(row=>row.id===todo.id)) workspace.todos.unshift(todo);
+  const notices = Array.isArray(readNotices) ? readNotices : todo ? [todo] : [];
+  for (const notice of notices) {
+    if (notice && !workspace.todos.some(row => row.id === notice.id)) workspace.todos.unshift(notice);
+  }
+  if (varianceRecord) {
+    workspace.varianceRecords ??= [];
+    const varianceId = varianceRecord.varianceRecordId ?? varianceRecord.id;
+    if (varianceId && !workspace.varianceRecords.some(row => (row.varianceRecordId ?? row.id) === varianceId)) workspace.varianceRecords.unshift(varianceRecord);
+  }
   if (operationLog && !workspace.operationLogs.some(row=>row.id===operationLog.id)) workspace.operationLogs.unshift(operationLog);
 }
 
@@ -458,5 +495,55 @@ function mapTodoPriorityForSql(value) {
   return map[value] ?? (String(value ?? "normal").trim() || "normal");
 }
 
-function paymentPayload(input) { return input.idempotencyPayload ?? {statementId:input.statement?.id,paymentRecord:input.paymentRecord,todo:input.todo}; }
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function paymentNotices(input) {
+  return Array.isArray(input.readNotices) ? input.readNotices.filter(Boolean) : input.todo ? [input.todo] : [];
+}
+
+function normalizeVarianceRecordForPersistence(record) {
+  if (!record || typeof record !== "object") return null;
+  const varianceRecordId = String(record.varianceRecordId ?? record.id ?? "").trim();
+  if (!varianceRecordId) return null;
+  return {
+    varianceRecordId,
+    statementId: String(record.statementId ?? "").trim(),
+    paymentRecordId: String(record.paymentRecordId ?? "").trim(),
+    amount: Number(record.amount ?? record.varianceAmount ?? 0),
+    handlingResult: String(record.handlingResult ?? "").trim(),
+    reason: String(record.reason ?? "").trim(),
+    status: String(record.status ?? "已生效").trim(),
+    attachmentId: String(record.attachmentId ?? "").trim(),
+    operatorId: String(record.operatorId ?? "").trim(),
+  };
+}
+
+function normalizeVarianceRecordForApi(record) {
+  return normalizeVarianceRecordForPersistence(record);
+}
+
+function varianceRecordJsonExpression(alias) {
+  return `json_build_object(
+    'varianceRecordId', ${alias}.id,
+    'statementId', ${alias}.statement_id,
+    'paymentRecordId', ${alias}.payment_record_id,
+    'amount', ${alias}.variance_amount,
+    'handlingResult', ${alias}.handling_result,
+    'reason', ${alias}.reason,
+    'status', ${alias}.status,
+    'attachmentId', ${alias}.attachment_id,
+    'operatorId', ${alias}.created_by
+  )`;
+}
+
+function paymentPayload(input) { return input.idempotencyPayload ?? {statementId:input.statement?.id,paymentRecord:input.paymentRecord,todo:input.todo,readNotices:input.readNotices,varianceRecord:input.varianceRecord}; }
 function paymentIdentityConflict() {return Object.assign(new Error('付款或操作编号已经存在，请核对原记录。'),{code:'STATEMENT_PAYMENT_IDENTITY_CONFLICT',statusCode:409});}

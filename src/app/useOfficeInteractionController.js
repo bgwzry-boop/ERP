@@ -319,14 +319,19 @@ export function createOfficeInteractionActions({
         getStatementBlockingAmount,
       });
       if (result.statements) setStatements(result.statements);
-      if (result.todoInput) addTodo({ ...result.todoInput, id: apiResult.todoId ?? result.todoInput.id });
+      if (Array.isArray(result.readNoticeInputs)) {
+        result.readNoticeInputs.forEach((notice, index) => addTodo({
+          ...notice,
+          id: apiResult.readNoticeIds?.[index] ?? notice.id,
+        }));
+      } else if (result.todoInput) addTodo({ ...result.todoInput, id: apiResult.todoId ?? result.todoInput.id });
       const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
       const attachmentLabel = attachmentIds.length
         ? `，付款截图已通过${attachmentSource === "api" ? "后端 API" : "本地规则降级"}登记。`
         : "。";
       notify(
         payload.amount < selected.receivable
-          ? `已通过${sourceLabel}登记实收金额，少付进入差额待确认${attachmentLabel}`
+          ? `已通过${sourceLabel}登记实收和少付差额，并通知老板、财务、管理待阅${attachmentLabel}`
           : `已通过${sourceLabel}登记实收金额，等待有收款确认权限账号核销${attachmentLabel}`,
       );
       return apiResult;

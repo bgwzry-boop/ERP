@@ -159,15 +159,39 @@ assert.equal(issued.inbound.rolls[0].weightKg, 96.5);
 assert.equal(issued.inbound.rawMaterialSplitRecords.length, 0);
 assert.notEqual(issued.inbound.rolls[0].inventoryStatus, "可用");
 
-assert.throws(() => applyRawMaterialInboundAction({
-  inbounds: [issued.inbound],
-  inboundId: availableInbound.id,
-  action: "return_leftover",
-  operatorId: "U-WAREHOUSE-A",
-  operatorName: "库房A",
-  serverNow: "2026-10-21T03:03:00.000Z",
-  body: { expectedRevision: issued.inbound.revision, rollId: "RM-OUT-01" },
-}), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED");
-assert.equal(issued.inbound.rolls[0].inventoryStatus, "机边领用");
+for (const action of ["return_leftover", "余料退回", "review_leftover", "复核余料可用"]) {
+  const before = structuredClone(issued.inbound);
+  assert.throws(() => applyRawMaterialInboundAction({
+    inbounds: [issued.inbound],
+    inboundId: availableInbound.id,
+    action,
+    operatorId: "U-WAREHOUSE-A",
+    operatorName: "库房A",
+    serverNow: "2026-10-21T03:03:00.000Z",
+    body: { expectedRevision: issued.inbound.revision, rollId: "RM-OUT-01", reviewedWeightKg: 96.5, leftoverWeightKg: 96.5 },
+  }), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", action);
+  assert.deepEqual(issued.inbound, before, `${action} must not restore available stock`);
+  assert.equal(issued.inbound.rolls[0].inventoryStatus, "机边领用");
+}
+
+const pendingLeftover = {
+  ...issued.inbound,
+  rolls: [{ ...issued.inbound.rolls[0], inventoryStatus: "余料待复核", leftoverWeightKg: 20 }],
+};
+for (const action of ["review_leftover", "复核余料可用", "return_leftover"]) {
+  const before = structuredClone(pendingLeftover);
+  assert.throws(() => applyRawMaterialInboundAction({
+    inbounds: [pendingLeftover],
+    inboundId: availableInbound.id,
+    action,
+    operatorId: "U-WAREHOUSE-A",
+    operatorName: "库房A",
+    serverNow: "2026-10-21T03:04:00.000Z",
+    body: { expectedRevision: pendingLeftover.revision, rollId: "RM-OUT-01", reviewedWeightKg: 20 },
+  }), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", action);
+  assert.deepEqual(pendingLeftover, before);
+  assert.equal(pendingLeftover.rolls[0].inventoryStatus, "余料待复核");
+  assert.notEqual(pendingLeftover.rolls[0].inventoryStatus, "可用");
+}
 
 console.log("raw-material whole-roll policy checks passed");

@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { createApiSharedServiceRegistry } from "../server/apiSharedServiceRegistry.mjs";
 import { buildPriceSourceWorkspace } from "./check-order-confirmation-price-source.mjs";
 import { buildPublishedOrderPriceFixture } from "./helpers/publishedOrderPriceFixture.mjs";
-import { buildOrderPrintingPriceGroups } from "../server/orderPrintingPriceGroups.mjs";
+import { buildOrderPrintingPriceGroups, printingGroupIdentity } from "../server/orderPrintingPriceGroups.mjs";
 import {
   defaultMaterialPriceSnapshot,
   specialBagPricingRules,
@@ -192,13 +192,17 @@ export async function checkOfficePricing() {
   assert.equal(merged.handle.yuanPerTon, 8900);
   const grouped = officePricingWorkspace({ print: true });
   const first = grouped.orderDrafts[0].lines[0];
+  assert.equal(printingGroupIdentity(first).inkColor, "黑色");
+  assert.equal("color" in printingGroupIdentity(first), false);
+  assert.equal("bagColor" in printingGroupIdentity(first), false);
+  assert.equal(printingGroupIdentity({ ...first, printColor: "待确认" }), null);
+  // Different bag colours share one ladder when size, content and ink match.
   grouped.orderDrafts[0].lines.push({
     ...first,
     id: "D-PRICE-02",
     draftLineId: "D-PRICE-02",
     color: "白色",
     bagColor: "白色",
-    printColor: "红色",
   });
   const gq = await makeQuote(grouped);
   assert.ok(gq.response, JSON.stringify(gq));
@@ -265,6 +269,75 @@ export async function checkOfficePricing() {
     },
   ];
   assert.equal(buildOrderPrintingPriceGroups(productNameOnly).length, 2);
+  const sameInkBags = ["黑色", "蓝色", "红色", "绿色"].map((bagColor, index) => ({
+    ...first,
+    id: `INK-BAG-${index + 1}`,
+    color: bagColor,
+    bagColor,
+    printColor: index === 3 ? "白" : "白色",
+    printContent: "同一商标内容",
+    qty: 1500,
+  }));
+  const sameInkGroups = buildOrderPrintingPriceGroups(sameInkBags);
+  assert.equal(sameInkGroups.length, 1);
+  assert.equal(sameInkGroups[0].quantity, 6000);
+  assert.equal(sameInkGroups[0].inkColor, "白色");
+  assert.equal(sameInkGroups[0].unitPrice, 0.08);
+  assert.equal(sameInkGroups[0].memberCount, 4);
+  assert.equal("color" in sameInkGroups[0], false);
+  assert.equal("bagColor" in sameInkGroups[0], false);
+  const quotedInk = officePricingWorkspace({ print: true, qty: 1500 });
+  const quotedBase = quotedInk.orderDrafts[0].lines[0];
+  quotedInk.orderDrafts[0].lines = sameInkBags.map((row) => ({
+    ...quotedBase,
+    ...row,
+    draftLineId: row.id,
+  }));
+  const quotedInkResult = await makeQuote(quotedInk, {}, "same-ink-four-bags");
+  assert.ok(quotedInkResult.response, JSON.stringify(quotedInkResult));
+  assert.equal(quotedInkResult.response.quote.groups.length, 1);
+  assert.equal(quotedInkResult.response.quote.groups[0].quantity, 6000);
+  assert.equal(quotedInkResult.response.quote.groups[0].inkColor, "白色");
+  assert.equal(quotedInkResult.response.quote.groups[0].unitPrice, 0.08);
+  assert.deepEqual(
+    quotedInkResult.response.quote.lines.map((line) => line.printPrice),
+    [0.08, 0.08, 0.08, 0.08],
+  );
+  const quotedSplit = officePricingWorkspace({ print: true });
+  const splitBase = quotedSplit.orderDrafts[0].lines[0];
+  quotedSplit.orderDrafts[0].lines.push({
+    ...splitBase,
+    id: "INK-RED-QUOTE",
+    draftLineId: "INK-RED-QUOTE",
+    color: "黑色",
+    bagColor: "黑色",
+    printColor: "红色",
+  });
+  const quotedSplitResult = await makeQuote(quotedSplit, {}, "different-ink");
+  assert.equal(quotedSplitResult.response.quote.groups.length, 2);
+  assert.deepEqual(
+    quotedSplitResult.response.quote.lines.map((line) => line.printPrice),
+    [0.08, 0.08],
+  );
+  const aliasGroups = buildOrderPrintingPriceGroups([
+    { ...first, id: "ALIAS-1", color: "黑色", bagColor: "黑色", printColor: "大红", qty: 1500 },
+    { ...first, id: "ALIAS-2", color: "蓝色", bagColor: "蓝色", printColor: "红色", qty: 1500 },
+  ]);
+  assert.equal(aliasGroups.length, 1);
+  assert.equal(aliasGroups[0].inkColor, "红色");
+  assert.equal(aliasGroups[0].quantity, 3000);
+  assert.equal(buildOrderPrintingPriceGroups([
+    { ...first, id: "NO-INK-1", printColor: "" },
+    { ...first, id: "NO-INK-2", printColor: "待确认" },
+  ]).length, 2);
+  const differentInk = buildOrderPrintingPriceGroups([
+    { ...first, id: "INK-WHITE", color: "黑色", bagColor: "黑色", printColor: "白色", qty: 5000 },
+    { ...first, id: "INK-RED", color: "黑色", bagColor: "黑色", printColor: "红色", qty: 5000 },
+  ]);
+  assert.equal(differentInk.length, 2);
+  assert.deepEqual(differentInk.map((group) => group.inkColor), ["白色", "红色"]);
+  assert.deepEqual(differentInk.map((group) => group.quantity), [5000, 5000]);
+  assert.deepEqual(differentInk.map((group) => group.unitPrice), [0.08, 0.08]);
   const noContentOriginal = officePricingWorkspace({ print: true });
   Object.assign(noContentOriginal.orderDrafts[0].lines[0], {
     printContent: "",
@@ -305,8 +378,10 @@ export async function checkOfficePricing() {
   assert.equal(noContentSupplement.code, "ORDER_PRINT_SUPPLEMENT_NOT_ELIGIBLE");
   for (const change of [
     { printContent: "另一个商标" },
+    { printContent: `${first.printContent}。` },
     { size: "32*40*10" },
     { printSide: "双面" },
+    { printColor: "白色" },
     { originalOrderGroupId: "另一原单" },
   ]) {
     const rows = [
@@ -524,7 +599,7 @@ export async function checkOfficePricing() {
   assert.equal(once.originalOrders.length, 1);
   await checkSupplementExecutionFacts();
   console.log(
-    "Office formal pricing: published price, special confirmed material and fallback, authorized audited override, permission/no-price/stale guards, same-draft colour-independent groups, explicit cross-order supplemental revision and unchanged original snapshots passed.",
+    "Office formal pricing: published price, special confirmed material and fallback, authorized audited override, permission/no-price/stale guards, same-ink different-bag groups and different-ink splits, explicit cross-order supplemental revision and unchanged original snapshots passed.",
   );
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)

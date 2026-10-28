@@ -16,10 +16,12 @@ assert.deepEqual(driver.accountRoleKeys,['driver']);assert.deepEqual(recommended
 const fulfillment={id:'F-DESKTOP',lineId:'OL-DESKTOP',method:'送货',qty:5000,status:'待出库',revision:1};
 const formal={data:{orderLines:[{id:'OL-DESKTOP',orderType:'现货通货'}],packingTasks:[],employeeAccountReviews:[driver,recommendedOnly]},permissionContext:{actionPermissions:['packing.complete','fulfillment.dispatch.update']},actions:{refreshAll:async()=>{}}};
 const render=(f=fulfillment,ctx=formal)=>renderToStaticMarkup(createElement(DesktopFulfillmentOperations,{fulfillment:f,formal:ctx}));
-const html=render();assert.match(html,/登记实际包裹/);assert.match(html,/混装登记暂未接入/);assert.match(html,/正在读取可派单司机/);assert.doesNotMatch(html,/仅档案司机/);
+const html=render();assert.match(html,/按实物登记包裹/);assert.match(html,/通货可混装/);assert.match(html,/同一订单可混装尺寸和颜色/);assert.doesNotMatch(html,/混装登记暂未接入/);assert.match(html,/正在读取可派单司机/);assert.doesNotMatch(html,/仅档案司机/);
+const customHtml=render({...fulfillment,id:'F-CUSTOM',lineId:'OL-CUSTOM'},{...formal,data:{...formal.data,orderLines:[{id:'OL-CUSTOM',orderType:'定制印刷'}],packingTasks:[{id:'PKT-CUSTOM',orderLineId:'OL-CUSTOM',status:'待打包'}]}});
+assert.match(customHtml,/定制单不混装/);assert.doesNotMatch(customHtml,/混装登记暂未接入|按实物登记包裹|同一订单可混装/);
 assert.doesNotMatch(render({...fulfillment,finalDeliveryAt:'2026-10-23T00:00:00Z'}),/<button/);
 assert.doesNotMatch(render(fulfillment,{...formal,permissionContext:{actionPermissions:[]}}),/<button/);
-console.log('Desktop fulfillment checks passed: actual quantities, authoritative driver role projection, dedicated candidate loading, permission and terminal gates, explicit mixed-package boundary.');
+console.log('Desktop fulfillment checks passed: stock mixed-package entry, custom single-line refusal, driver role projection, permission and terminal gates.');
 
 for (const body of [{operationLogId:'LOG-FAKE'},{operationLogId:'LOG-FAKE',packingTaskId:'PKT-TEST',orderLineId:'OL-TEST',packageIds:['PKG-A'],fulfillmentId:'F-FOREIGN'}]) {
  const response=await completeOfficePackingTask({packingTaskId:'PKT-TEST',orderLineId:'OL-TEST',fulfillmentId:'F-TEST',actualPackedQty:10,packageCount:1,idempotencyKey:'receipt-test'}, {serverRequired:true,fetchImpl:async()=>new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})});

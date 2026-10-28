@@ -495,7 +495,7 @@ export function getStatementBucket(statement, customers) {
   const blockingAmount = getStatementBlockingAmount(statement, customers);
   if ((statement.status.includes("已核销") || statement.status.includes("已结清")) && blockingAmount <= 0) return "已结清";
   if (statement.status.includes("收款")) return "收款待确认";
-  if (statement.status.includes("差额") || statement.status.includes("欠款") || blockingAmount > 0) return "欠款/差额";
+  if (statement.status.includes("差额") || statement.status.includes("欠款") || statement.status.includes("少付") || blockingAmount > 0) return "欠款/差额";
   if (statement.status.includes("待生成") || statement.status.includes("待发送") || statement.status.includes("已发送")) return "本期待对账";
   return "本期待对账";
 }

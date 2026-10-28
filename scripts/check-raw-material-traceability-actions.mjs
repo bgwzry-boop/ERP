@@ -69,5 +69,18 @@ for (const action of ["return_leftover", "review_leftover"]) {
     now: "2026-10-22T06:00:00.000Z", ...common,
   }), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED");
   assert.deepEqual(consumed, prior, "a rejected inventory restoration must preserve all machine-side evidence");
+  assert.notEqual(consumed.rolls[0].inventoryStatus, "可用");
 }
+const pendingReview = structuredClone(consumed);
+pendingReview.rolls[0].inventoryStatus = "余料待复核";
+pendingReview.rolls[0].leftoverWeightKg = 80;
+assert.throws(() => applyRawMaterialTraceabilityAction({
+  action: "review_leftover",
+  before: pendingReview,
+  body: { rollId: "ROLL-1", reviewedWeightKg: 80 },
+  now: "2026-10-22T06:01:00.000Z",
+  ...common,
+}), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED");
+assert.equal(pendingReview.rolls[0].inventoryStatus, "余料待复核");
+assert.equal(pendingReview.rawMaterialLeftoverReviewRecords, undefined);
 console.log("Raw-material traceability checks passed: whole-roll issue, no split, partial consumption, input immutability, and blocked leftover restoration.");

@@ -1,4 +1,5 @@
 import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
+import { UNDERPAYMENT_EFFECTIVE_STATUS, UNDERPAYMENT_READ_AUDIENCES, UNDERPAYMENT_READ_TODO_TYPE } from "../../shared/statementUnderpaymentNotice.js";
 import {
   getStatementNextStatusForVariance,
   money,
@@ -147,7 +148,7 @@ export function confirmStatementPayment(statements, statement, payload) {
             ...item,
             received: amount,
             variance,
-            status: variance > 0 ? "差额待确认" : "收款待确认",
+            status: variance > 0 ? UNDERPAYMENT_EFFECTIVE_STATUS : "收款待确认",
             revision: Number(payload.statementRevision ?? item.revision ?? 0),
             paymentNote: payload.reason,
             paymentAttachmentIds: payload.attachmentIds ?? [],
@@ -158,21 +159,23 @@ export function confirmStatementPayment(statements, statement, payload) {
           }
         : item,
     ),
-    todoInput:
+    readNoticeInputs:
       variance > 0
-        ? {
-            type: "收款差额待确认",
+        ? UNDERPAYMENT_READ_AUDIENCES.map((audience) => ({
+            type: UNDERPAYMENT_READ_TODO_TYPE,
+            audience,
             customerId: statement.customerId,
             ref: statement.id,
             refType: "statement",
             refId: statement.id,
-            summary: `应收 ${money(statement.receivable)}，实收 ${money(amount)}，差额 ${money(variance)}`,
+            summary: `待阅·${audience}：实收 ${money(amount)}，少付差额 ${money(variance)}，应收 ${money(statement.receivable)}，原因 ${payload.reason || "未填写"}。知晓不改变已登记金额。`,
             latest: "本期",
-            urgency: "异常",
-            impact: "需确认未收差额、抹零、账单有误或多笔付款待齐",
-          }
+            urgency: "关注",
+            impact: "事后待阅，不阻挡少付差额生效",
+            handled: false,
+          }))
         : null,
-    toast: variance > 0 ? "已登记实收金额，少付进入差额待确认。" : "已登记实收金额，等待有收款确认权限账号核销。",
+    toast: variance > 0 ? "已登记实收和少付差额，并通知老板、财务、管理待阅。知晓不改变已登记金额。" : "已登记实收金额，等待有收款确认权限账号核销。",
   };
 }
 

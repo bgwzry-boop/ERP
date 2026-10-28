@@ -27,7 +27,7 @@ export const officeModalReasonOptions = [
   "找不到货",
   "颜色/尺寸不符",
   "包装/标签问题",
-  "客户少付，差额待确认",
+  "客户少付，差额已登记",
   "多笔付款待齐",
   "其他",
 ];
@@ -70,7 +70,7 @@ export function getOfficeModalInitialReason(modal) {
   if (modal.type === "batchPrintResult") return "全部打出";
   if (modal.type === "printVoid") return "信息变更需重打";
   if (modal.type === "variance") return "未收差额转欠款";
-  if (modal.type === "payment") return "客户少付，差额待确认";
+  if (modal.type === "payment") return "客户少付，差额已登记";
   if (modal.type === "unable") return "找不到货";
   return "库存不足";
 }

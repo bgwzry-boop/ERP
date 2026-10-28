@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { isStockOrderType } from "../../../shared/orderRouting.js";
 import {
   AppstoreOutlined,
   BarcodeOutlined,
@@ -657,7 +658,9 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
                     {availablePackingTasks.map(task => <option key={task.packingTaskId} value={task.packingTaskId}>{getOrderLineShortNo(task.orderLine)} · {task.orderLine.size} · {task.orderLine.color || task.orderLine.bagColor} · {task.status}</option>)}
                   </select>
                 </label>
-                <Suspense fallback={<p role="status">正在读取实物分包…</p>}><MixedPackageWorkbench key={`${selectedPackingTask?.orderLineId || ""}:${authState.session.accessToken}`} authState={authState} orderLineId={selectedPackingTask?.orderLineId} onSaved={onPackagesSaved} onBusyChange={setPackageWritePending}/></Suspense>
+                {isStockOrderType(selectedPackingTask?.orderLine?.orderType)
+                  ? <Suspense fallback={<p role="status">正在读取实物分包…</p>}><MixedPackageWorkbench key={`${selectedPackingTask?.orderLineId || ""}:${authState.session.accessToken}`} authState={authState} orderLineId={selectedPackingTask?.orderLineId} onSaved={onPackagesSaved} onBusyChange={setPackageWritePending}/></Suspense>
+                  : <p>定制单不混装，请按本明细单独打包。</p>}
               </> : <>
                 {!packingCompletionConfirmation ? (
                   <section className="detail-section">

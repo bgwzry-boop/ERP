@@ -238,7 +238,7 @@ P0 customer-facing statement details should summarize by order line. Internal de
 
 P0 statements / payments actions should cover `generate statement preview`, `mark sent`, `mark read receipt`, `record customer confirmation`, `record received amount`, `variance pending confirmation`, `confirm write-off`, and `export Excel`. Statement send records should retain receipt state such as pending, delivered, read, confirmed, or no response.
 
-When a customer pays less than the receivable amount, P0 should default to `variance pending confirmation`. It must not automatically treat the variance as rounding / write-off. Staff should choose unpaid balance, rounding / write-off, statement error, waiting for multiple payments, or other.
+When a customer pays less than the receivable amount, P0 records the receipt and the difference separately and the registration takes effect immediately as `少付已登记`. It must not automatically treat the variance as rounding / write-off. The same transaction creates a to-read notice for the owner, finance and management, with operator, amount, reason and time. Acknowledgement does not block or undo the registration, and the effective difference cannot be cleared until those notices exist. Staff may later choose unpaid balance, rounding / write-off, statement error, waiting for multiple payments, or other; allowance and write-off keep their own approval.
 
 When unpaid variance is confirmed as debt carry-forward, the write-off action must not clear that amount. The statement should remain visible in debt / variance filters and be brought into the next statement cycle by default. Only no-variance statements, or statements with a clearing result such as approved rounding / allowance, can move to the settled / written-off state.
 
@@ -2620,6 +2620,8 @@ Internally, packing quantities should remain traceable by `order line number`.
 
 Shop-floor operation may merge packing for multiple order lines when they belong to the same customer, same fulfillment method, and same address or pickup batch.
 
+Common goods, including factory pickups under about 1000 pieces, use that mixed-package path: one package may contain several lines, colours or sizes, each item is registered, and the in-package total is checked. About 1000 is a common case, not a maximum. Custom orders are not offered mixing and the server rejects it.
+
 Merged packing records must still allocate quantities back to each `order line number`, so reconciliation and traceability remain clear.
 
 ## Fulfillment Requirements
@@ -4137,14 +4139,15 @@ Printing step-price grouping:
 
 - manual printing: single-sided content 0.09 CNY/piece, double-sided content 0.13 CNY/piece
 - machine printing: 3000 pieces 0.09 CNY/piece, 5000 pieces 0.08 CNY/piece, 10000 pieces and above 0.06 CNY/piece
-- split by different print content
+- split by different print content; one extra character is a different content
 - split by different size
-- combine only when content and size are the same
-- do not split only because print color or bag body color differs
+- split by different standardized printing-ink colour
+- combine when size, exact print content and standardized printing-ink colour match, even when bag-body colours differ. Example: black, blue, red and green bags, each 1500 pieces with the same white ink and the same content, use the 6000-piece tier
+- single-sided and double-sided content stay separate; different front and back artwork stays separate
 
 Add-on order merge:
 
-- only same customer, same content, same size
+- only same customer, same content, same size and same printing-ink colour
 - only before printing or when it can join the same print batch
 - use combined quantity to calculate the step unit price
 
