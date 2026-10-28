@@ -260,3 +260,17 @@
     bottom: -14px;
   }
 }
+
+.pricing-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.pricing-row-actions span { color: var(--ink-soft); font-size: 12px; }
+.pricing-split-dialog { width: min(740px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; }
+.pricing-split-dialog::backdrop { background: var(--erp-overlay); }
+.pricing-split-dialog > header, .pricing-split-dialog > footer, .pricing-split-content { padding: 16px 20px; }
+.pricing-split-dialog > header { border-bottom: 1px solid var(--line); }
+.pricing-split-dialog h2 { margin: 0; font-size: 20px; }
+.pricing-split-dialog h3 { margin: 0; font-size: 15px; }
+.pricing-split-dialog p, .pricing-split-dialog li { overflow-wrap: anywhere; }
+.pricing-split-dialog header p { margin: 8px 0 0; color: var(--ink-soft); }
+.pricing-split-content > ol { list-style: none; margin: 16px 0; padding: 0; }
+.pricing-split-content > ol > li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.pricing-split-dialog > footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--line); }

@@ -342,7 +342,7 @@ const splitPreviewResult = await previewOfficeDraftSplit(
   {
     apiBaseUrl: "http://127.0.0.1:8787/api",
     fetchImpl: async (url, init) => {
-      splitCalls.push({ url, body: JSON.parse(init.body) });
+      splitCalls.push({ url, body: JSON.parse(init.body), headers: init.headers });
       return createJsonResponse(200, {
         splitPlan: {
           planHash: "split-plan-check",
@@ -367,11 +367,14 @@ const splitConfirmResult = await confirmOfficeDraftSplit(
     operatorId: "U-OFFICE-A",
     sourceText: "两种交付方式",
     splitPlanHash: "split-plan-check",
+    pricingQuoteId: "QUOTE-SPLIT-CHECK",
+    confirmedAffectedOrderLineIds: ["ORD-OLD-001"],
+    idempotencyKey: "idem-split-fixed-check",
   },
   {
     apiBaseUrl: "http://127.0.0.1:8787/api",
     fetchImpl: async (url, init) => {
-      splitCalls.push({ url, body: JSON.parse(init.body) });
+      splitCalls.push({ url, body: JSON.parse(init.body), headers: init.headers });
       return createJsonResponse(200, {
         orderId: "ORD-SPLIT-001",
         orderIds: ["ORD-SPLIT-001", "ORD-SPLIT-002"],
@@ -384,6 +387,9 @@ const splitConfirmResult = await confirmOfficeDraftSplit(
 assert(splitConfirmResult.confirmation.orderIds.length === 2, "split confirmation should expose all formal order ids");
 assert(splitCalls[1].url.endsWith("/order-drafts/DRAFT-API-CHECK/split-confirm"), "split confirm URL is incorrect");
 assert(splitCalls[1].body.splitPlanHash === "split-plan-check", "split confirm must send the reviewed plan hash");
+assert(splitCalls[1].body.pricingQuoteId === "QUOTE-SPLIT-CHECK", "split must preserve the formally reviewed quote");
+assert(splitCalls[1].body.confirmedAffectedOrderLineIds[0] === "ORD-OLD-001", "split must preserve related-order acknowledgements");
+assert(splitCalls[1].headers["idempotency-key"] === "idem-split-fixed-check", "split retries must use the original request identity");
 
 assert(
   resolveOfficeOrderConfirmationStrategy({

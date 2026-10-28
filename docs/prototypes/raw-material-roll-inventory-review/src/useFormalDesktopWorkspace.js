@@ -3,7 +3,7 @@ import { readCompleteCollection, createReadGenerationGuard } from "./read-comple
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initializeSeedAuth } from "../../../../src/services/officeAuthService.js";
 import { listOfficeTodos } from "../../../../src/services/officeTodoApiClient.js";
-import { listOfficeDraftQueue, recognizeOfficeDraft, saveOfficeDraft, confirmOfficeDraftViaApi } from "../../../../src/services/officeOrderApiClient.js";
+import { listOfficeDraftQueue, recognizeOfficeDraft, saveOfficeDraft, confirmOfficeDraftViaApi, previewOfficeDraftSplit, confirmOfficeDraftSplit } from "../../../../src/services/officeOrderApiClient.js";
 import { listOfficeOrderLines } from "../../../../src/services/officeOrderPoolApiClient.js";
 import { listOfficeInventoryItems } from "../../../../src/services/officeInventoryApiClient.js";
 import { listOfficeFulfillments } from "../../../../src/services/officeFulfillmentApiClient.js";
@@ -248,6 +248,13 @@ export function useFormalDesktopWorkspace() {
     pricingQuoteId, confirmedAffectedOrderLineIds, idempotencyKey,
   }, readOptions), []);
 
+  const previewOrderDraftSplit = useCallback(async (input) => previewOfficeDraftSplit({
+    ...input, authState: authStateRef.current, operatorId, draftRows: input.rows,
+  }, readOptions), []);
+  const confirmOrderDraftSplit = useCallback(async (input) => confirmOfficeDraftSplit({
+    ...input, authState: authStateRef.current, operatorId, draftRows: input.rows,
+  }, readOptions), []);
+
   const updateEmployeeProfile = useCallback(async (review, profile = {}) => {
     const employeeId = String(review?.employeeId || "").trim();
     if (!employeeId) return { source: "ui_error", blocked: true, error: { message: "缺少正式员工编号。" } };
@@ -330,6 +337,8 @@ export function useFormalDesktopWorkspace() {
     setOrderEntryWritePending,
     confirmEmployeeIdentity,
     confirmOrderDraft,
+    previewOrderDraftSplit,
+    confirmOrderDraftSplit,
     enableEmployeeAccount,
     issueEmployeePassword,
     recognizeOrderText,
@@ -338,7 +347,7 @@ export function useFormalDesktopWorkspace() {
     saveOrderDraft,
     updateEmployeeProfile,
     updateRawMaterialInbound,
-  }), [confirmEmployeeIdentity, confirmOrderDraft, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
+  }), [confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
 
   return {
     actions,
