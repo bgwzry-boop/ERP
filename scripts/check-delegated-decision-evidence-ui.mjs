@@ -13,7 +13,9 @@ const pending=name=>(input,options)=>new Promise((resolve,reject)=>queues[name].
 globalThis.__decisionEvidence={create:pending('create'),upload:pending('upload'),remove:pending('remove'),preview:pending('preview'),read:async({draftId})=>drafts.get(draftId)};
 try{
  const out=await build({stdin:{contents:`import React from 'react';import {create,act} from 'react-test-renderer';import {DelegatedBusinessDecisionFields} from './src/components/DelegatedBusinessDecisionFields.jsx';import {useDecisionEvidenceGate} from './src/components/useDecisionEvidenceGate.js';export {create,act};function Review(p){const gate=useDecisionEvidenceGate();return <><DelegatedBusinessDecisionFields {...p} onReadinessChange={gate.onReadinessChange}/><button disabled={!gate.ready} onClick={()=>{if(gate.isReady())globalThis.__evidenceReviewCount++;}}>复核测试</button></>}export const element=p=><Review {...p}/>;`,resolveDir:process.cwd(),loader:'jsx'},bundle:true,platform:'node',format:'cjs',jsx:'automatic',write:false,logLevel:'silent',plugins:[{name:'api-boundaries',setup(b){
- b.onResolve({filter:/^(react(?:\/.*)?|react-test-renderer)$/},a=>({path:createRequire(import.meta.url).resolve(a.path),external:true}));
+ b.onResolve({filter:/^(react(?:\/.*)?|react-dom(?:\/.*)?|react-test-renderer)$/},a=>({path:createRequire(import.meta.url).resolve(a.path),external:true}));
+ b.onResolve({filter:/\.css$/},()=>({path:'document-camera.css',namespace:'css-stub'}));
+ b.onLoad({filter:/.*/,namespace:'css-stub'},()=>({contents:'export default {};',loader:'js'}));
  b.onLoad({filter:/officeBusinessDecisionApiClient\.js$/},()=>({contents:`export const createBusinessDecisionEvidenceDraft=(...a)=>globalThis.__decisionEvidence.create(...a);export const getBusinessDecisionEvidenceDraft=(...a)=>globalThis.__decisionEvidence.read(...a);export const voidBusinessDecisionEvidenceAttachment=(...a)=>globalThis.__decisionEvidence.remove(...a);export const listOfficeBusinessDecisionAuthorizations=async()=>({source:'api',items:[{authorizationId:'AUTH1',employeeId:'E1'}]});`}));
  b.onLoad({filter:/officeAttachmentApiClient\.js$/},()=>({contents:`export const uploadOfficeAttachmentFile=(...a)=>globalThis.__decisionEvidence.upload(...a);export const downloadOfficeAttachmentContent=(...a)=>globalThis.__decisionEvidence.preview(...a);export const inferAttachmentFileType=()=> 'image';`}));
  }}]});
@@ -74,7 +76,7 @@ try{
  await act(async()=>{void button('预览').props.onClick();});
  await act(async()=>queues.preview[1].reject(new Error('preview unavailable')));
  assert.equal(button('预览').props.disabled,false);assert.match(JSON.stringify(tree.toJSON()),/preview unavailable/);
- assert.equal(button('选择文件').props.type,'button');assert.equal(button('拍照上传').props.type,'button');
+ assert.equal(button('选择文件').props.type,'button');assert.equal(button('用高拍仪/摄像头拍照').props.type,'button');
  const readQueue=[];globalThis.__decisionEvidence.read=()=>new Promise(resolve=>readQueue.push(resolve));
  await act(async()=>{props={...props,businessId:'S4',value:{decisionMakerEmployeeId:'E1',evidenceDraftId:'D4',evidenceAttachmentIds:['A4']}};tree.update(element(props));});
  assert.equal(button('复核测试').props.disabled,true,'Existing attachment IDs do not authorize review before server read completes');

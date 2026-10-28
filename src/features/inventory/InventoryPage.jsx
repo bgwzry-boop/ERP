@@ -13,6 +13,7 @@ import {
   StatusPill,
 } from "../../shared/ui/operational.jsx";
 import { formatOperationalError } from "../../shared/ui/errorPresentation.js";
+import { DocumentCameraCapture } from "../../components/DocumentCameraCapture.jsx";
 
 const INVENTORY_DETAIL_TABS = ["概览", "留货", "流水", "修正"];
 
@@ -204,18 +205,20 @@ export function InventoryPage({
     if (draft) setCorrectionDraft(draft);
   }
 
-  async function uploadCorrectionEvidence() {
+  async function uploadCorrectionEvidence(file = correctionEvidenceFile) {
+    const chosen = file || correctionEvidenceFile;
+    if (file) setCorrectionEvidenceFile(file);
     if (!correctionDraft?.id && !correctionDraft?.correctionDraftId) {
-      setToast("请先生成库存修正草稿。");
+      setToast(file ? "请先生成库存修正草稿。照片已保留，生成草稿后点上传修正凭证。" : "请先生成库存修正草稿。");
       return;
     }
-    if (!correctionEvidenceFile) {
+    if (!chosen) {
       setToast("请先选择库存修正凭证图片或 PDF。");
       return;
     }
     setCorrectionEvidenceUploading(true);
     try {
-      const result = await onLinkCorrectionAttachment?.({ draft: correctionDraft, file: correctionEvidenceFile });
+      const result = await onLinkCorrectionAttachment?.({ draft: correctionDraft, file });
       if (!result?.blocked && result?.attachmentIds) {
         setCorrectionDraft((current) => ({
           ...current,
@@ -750,6 +753,12 @@ export function InventoryPage({
                 onChange={(event) => setCorrectionEvidenceFile(event.target.files?.[0] ?? null)}
               />
             </label>
+            <DocumentCameraCapture
+              disabled={correctionEvidenceUploading}
+              fileNamePrefix="inventory-correction"
+              onCapture={(file) => { void uploadCorrectionEvidence(file); }}
+            />
+            {correctionEvidenceFile ? <small>{correctionEvidenceFile.name}</small> : null}
           </div>
           {correctionDraft && (
             <div className="correction-draft">

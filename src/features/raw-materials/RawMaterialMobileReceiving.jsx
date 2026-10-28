@@ -8,7 +8,8 @@ import {
   PrinterOutlined,
   TagOutlined,
 } from "@ant-design/icons";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { DocumentCameraCapture } from "../../components/DocumentCameraCapture.jsx";
 import {
   canConfirmRawMaterialAttachment,
   canPrintRawMaterialLabels,
@@ -269,6 +270,7 @@ function CaptureDeliveryNote({
 }) {
   const [previewPageIndex, setPreviewPageIndex] = useState(null);
   const disabled = reviewState.disabled || deliveryNoteOcrLoading;
+  const systemCameraRef = useRef(null);
   const hasPages = capturedPages.length > 0;
   const isSupplierReturn = documentDirectionHint === "supplier_return";
   const previewPage = Number.isInteger(previewPageIndex) ? capturedPages[previewPageIndex] : null;
@@ -358,18 +360,25 @@ function CaptureDeliveryNote({
             })}
           </div>
         ) : null}
-        <label className={`raw-material-mobile-camera ${disabled ? "is-disabled" : ""}`}>
+        <DocumentCameraCapture
+          className={`raw-material-mobile-camera ${disabled ? "is-disabled" : ""}`}
+          disabled={disabled}
+          fileNamePrefix="delivery-note"
+          onCapture={(file) => onDeliveryNotePageSelect({ target: { files: [file], value: "" } })}
+          onUseSystemCamera={() => systemCameraRef.current?.click()}
+        >
           <i><CameraOutlined aria-hidden="true" /></i>
-          <span><strong>{deliveryNoteOcrLoading ? "正在处理" : hasPages ? "还有第二页" : `拍${isSupplierReturn ? "退货单" : "送货单"}`}</strong><small>{hasPages ? "继续拍下一页" : "打开相机"}</small></span>
-          <input
-            accept="image/jpeg,image/png,image/bmp"
-            capture="environment"
-            disabled={disabled}
-            hidden
-            onChange={onDeliveryNotePageSelect}
-            type="file"
-          />
-        </label>
+          <span><strong>{deliveryNoteOcrLoading ? "正在处理" : hasPages ? "还有第二页" : `拍${isSupplierReturn ? "退货单" : "送货单"}`}</strong><small>{hasPages ? "继续拍下一页" : "打开预览拍照"}</small></span>
+        </DocumentCameraCapture>
+        <input
+          accept="image/jpeg,image/png,image/bmp"
+          capture="environment"
+          disabled={disabled}
+          hidden
+          onChange={onDeliveryNotePageSelect}
+          ref={systemCameraRef}
+          type="file"
+        />
         <label className={`raw-material-mobile-gallery ${disabled ? "is-disabled" : ""}`}>
           <i><FileImageOutlined aria-hidden="true" /></i>
           <span><strong>{hasPages ? "从相册加页" : "相册 / PDF"}</strong><small>{hasPages ? "可继续添加" : "选择已有文件"}</small></span>

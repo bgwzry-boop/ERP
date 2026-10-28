@@ -1,3 +1,5 @@
+import { DocumentCameraCapture } from "../../components/DocumentCameraCapture.jsx";
+
 export function V1StatusSignoffEntryStage({
   signoffBoundaryOptions,
   signoffStageCardRef,
@@ -6,6 +8,7 @@ export function V1StatusSignoffEntryStage({
   setSignoffStageDraft,
   selectedSignoffStatusOptions,
   signoffStagePersonInputRef,
+  signoffBoundaryAttachmentFile,
   setSignoffBoundaryAttachmentFile,
   canUploadSignoffBoundaryAttachment,
   uploadAndFillSelectedSignoffBoundaryAttachment,
@@ -87,6 +90,12 @@ export function V1StatusSignoffEntryStage({
                               accept="image/*,application/pdf,.pdf,.doc,.docx,.txt"
                               onChange={(event) => setSignoffBoundaryAttachmentFile(event.target.files?.[0] ?? null)}
                             />
+                            <DocumentCameraCapture
+                              disabled={signoffBoundaryAttachmentAction.loading}
+                              fileNamePrefix="signoff-boundary"
+                              onCapture={(file) => { void uploadAndFillSelectedSignoffBoundaryAttachment(file); }}
+                            />
+                            {signoffBoundaryAttachmentFile ? <small>{signoffBoundaryAttachmentFile.name}</small> : null}
                             <button
                               className="ghost-button"
                               disabled={!canUploadSignoffBoundaryAttachment}

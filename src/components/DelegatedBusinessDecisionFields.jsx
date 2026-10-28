@@ -12,6 +12,7 @@ import {
 } from "../services/officeAttachmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../services/officeApiClientCore.js";
 import { formatOperationalError } from "../shared/ui/errorPresentation.js";
+import { DocumentCameraCapture } from "./DocumentCameraCapture.jsx";
 
 const channels = [
   ["in_person", "当面"],
@@ -49,7 +50,6 @@ function DecisionEvidenceFields({
   const [evidenceBusy, setEvidenceBusy] = useState(false);
   const [retryFile, setRetryFile] = useState(null);
   const fileInputRef = useRef(null);
-  const cameraInputRef = useRef(null);
   const draftKeysRef = useRef(new Map());
   const fileKeysRef = useRef(new WeakMap());
   const removalKeysRef = useRef(new Map());
@@ -270,8 +270,7 @@ function DecisionEvidenceFields({
             <span>凭据附件{requireEvidence ? " *" : ""}</span>
             <button type="button" className="button-like" disabled={disabled || evidenceBusy || attachments.length >= 5} onClick={() => fileInputRef.current?.click()}>选择文件</button>
             <input ref={fileInputRef} hidden disabled={disabled || evidenceBusy || attachments.length >= 5} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" onChange={(event) => { void uploadFile(event.target.files?.[0]); event.target.value = ""; }} />
-            <button type="button" className="button-like" disabled={disabled || evidenceBusy || attachments.length >= 5} onClick={() => cameraInputRef.current?.click()}>拍照上传</button>
-            <input ref={cameraInputRef} hidden disabled={disabled || evidenceBusy || attachments.length >= 5} type="file" accept="image/*" capture="environment" onChange={(event) => { void uploadFile(event.target.files?.[0]); event.target.value = ""; }} />
+            <DocumentCameraCapture className="button-like" disabled={disabled || evidenceBusy || attachments.length >= 5} fileNamePrefix="decision-evidence" label="用高拍仪/摄像头拍照" onCapture={(file) => { void uploadFile(file); }} />
           </div>
           <div className="business-decision-evidence__list">
             {attachments.map((attachment) => (

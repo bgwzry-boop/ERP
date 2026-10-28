@@ -409,7 +409,9 @@ export function V1StatusPage({
     setActiveStage: setFieldEvidenceWorkspaceStage,
     evidenceStageDraft,
     setEvidenceStageDraft,
+    evidenceAttachmentFile,
     setEvidenceAttachmentFile,
+    signoffBoundaryAttachmentFile,
     signoffStageDraft,
     setSignoffStageDraft,
     setSignoffBoundaryAttachmentFile,
@@ -1031,9 +1033,11 @@ export function V1StatusPage({
             }}
             drafts={{
               evidenceStageDraft,
+              evidenceAttachmentFile,
               setEvidenceAttachmentFile,
               setEvidenceStageDraft,
               setShowAllMissingEvidenceItems,
+              signoffBoundaryAttachmentFile,
               setSignoffBoundaryAttachmentFile,
               setSignoffStageDraft,
               showAllMissingEvidenceItems,

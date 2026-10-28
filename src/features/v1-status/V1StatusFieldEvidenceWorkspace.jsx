@@ -99,9 +99,11 @@ export function V1StatusFieldEvidenceWorkspace({
   } = handlers;
   const {
     evidenceStageDraft,
+    evidenceAttachmentFile,
     setEvidenceAttachmentFile,
     setEvidenceStageDraft,
     setShowAllMissingEvidenceItems,
+    signoffBoundaryAttachmentFile,
     setSignoffBoundaryAttachmentFile,
     setSignoffStageDraft,
     showAllMissingEvidenceItems,
@@ -172,6 +174,7 @@ export function V1StatusFieldEvidenceWorkspace({
           setEvidenceStageDraft={setEvidenceStageDraft}
           v1EvidenceStageStatusOptions={v1EvidenceStageStatusOptions}
           evidenceStageRefInputRef={evidenceStageRefInputRef}
+          evidenceAttachmentFile={evidenceAttachmentFile}
           setEvidenceAttachmentFile={setEvidenceAttachmentFile}
           canUploadAndStageEvidenceAttachment={canUploadAndStageEvidenceAttachment}
           uploadAndStageSelectedEvidenceAttachment={uploadAndStageSelectedEvidenceAttachment}
@@ -202,6 +205,7 @@ export function V1StatusFieldEvidenceWorkspace({
           setSignoffStageDraft={setSignoffStageDraft}
           selectedSignoffStatusOptions={selectedSignoffStatusOptions}
           signoffStagePersonInputRef={signoffStagePersonInputRef}
+          signoffBoundaryAttachmentFile={signoffBoundaryAttachmentFile}
           setSignoffBoundaryAttachmentFile={setSignoffBoundaryAttachmentFile}
           canUploadSignoffBoundaryAttachment={canUploadSignoffBoundaryAttachment}
           uploadAndFillSelectedSignoffBoundaryAttachment={uploadAndFillSelectedSignoffBoundaryAttachment}

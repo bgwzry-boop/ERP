@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useRef } from "react";
+import { DocumentCameraCapture } from "../../components/DocumentCameraCapture.jsx";
 import { DataState, DetailPane, Segmented } from "../../shared/ui/operational.jsx";
 import { RAW_MATERIAL_DETAIL_TABS, RawMaterialDetailOverview } from "./RawMaterialInboundWorkbench.jsx";
 import { RawMaterialPurchasePanel } from "./RawMaterialPurchasePanel.jsx";
@@ -80,6 +81,7 @@ export function InboundDetail({ state }) {
     handleGenerateSupplierPayableDraft,
     handleConfirmSupplierPayment
   } = state;
+  const systemCameraRef = useRef(null);
   return (<DetailPane
         className={`raw-material-detail-pane ${mobileOcrReviewActive ? "has-mobile-ocr-review" : ""}`}
         title={selected?.supplierName ?? "原材料入库"}
@@ -133,20 +135,23 @@ export function InboundDetail({ state }) {
             <span>OCR 仅预填；识别不会直接入库</span>
           </div>
           <div className="raw-material-ocr-upload-actions">
-            <label
+            <DocumentCameraCapture
               className={`button-like raw-material-camera-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
-              title={reviewState.title || "调用手机后置摄像头拍摄送货单，原图最大 30MB，系统自动处理后识别"}
-            >
-              {deliveryNoteOcrLoading ? "正在识别…" : "手机拍照（备用）"}
-              <input
-                accept="image/jpeg,image/png,image/bmp"
-                capture="environment"
-                disabled={reviewState.disabled || deliveryNoteOcrLoading}
-                hidden
-                onChange={handleDesktopDeliveryNoteRecognize}
-                type="file"
-              />
-            </label>
+              disabled={reviewState.disabled || deliveryNoteOcrLoading}
+              fileNamePrefix="delivery-note"
+              label={deliveryNoteOcrLoading ? "正在识别…" : "用高拍仪/摄像头拍照"}
+              onCapture={(file) => handleDesktopDeliveryNoteRecognize({ target: { files: [file], value: "" } })}
+              onUseSystemCamera={() => systemCameraRef.current?.click()}
+            />
+            <input
+              accept="image/jpeg,image/png,image/bmp"
+              capture="environment"
+              disabled={reviewState.disabled || deliveryNoteOcrLoading}
+              hidden
+              onChange={handleDesktopDeliveryNoteRecognize}
+              ref={systemCameraRef}
+              type="file"
+            />
             <label
               className={`button-like raw-material-file-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
               title={reviewState.title || "图片原图最大 30MB 并自动处理；PDF 暂限 7.5MB"}

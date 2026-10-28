@@ -198,11 +198,14 @@ export function useV1StatusFieldEvidenceController({
     await onPrecheckReleaseCandidateRefresh();
   }
 
-  async function uploadAndStageSelectedEvidenceAttachment() {
-    if (!canUploadAndStageEvidenceAttachment || !selectedEvidenceStageItem) return;
+  async function uploadAndStageSelectedEvidenceAttachment(fileOverride) {
+    const file = fileOverride || evidenceAttachmentFile;
+    if (fileOverride) setEvidenceAttachmentFile(fileOverride);
+    if (!onUploadFieldEvidenceAttachment || !onStageFieldEvidenceRow || !selectedEvidenceStageItem || !file) return;
+    if (fieldEvidenceAttachmentAction.loading || fieldEvidenceAttachmentListAction.loading || fieldEvidenceStageRowAction.loading) return;
     const uploadResult = await onUploadFieldEvidenceAttachment({
       evidenceItem: selectedEvidenceStageItem,
-      file: evidenceAttachmentFile,
+      file,
       remark: evidenceStageDraft.onsiteNotes,
     });
     const attachmentId = uploadResult?.attachment?.attachmentId || "";
@@ -264,11 +267,14 @@ export function useV1StatusFieldEvidenceController({
     }));
   }
 
-  async function uploadAndFillSelectedSignoffBoundaryAttachment() {
-    if (!canUploadSignoffBoundaryAttachment || !selectedSignoffBoundaryStageItem) return;
+  async function uploadAndFillSelectedSignoffBoundaryAttachment(fileOverride) {
+    const file = fileOverride || signoffBoundaryAttachmentFile;
+    if (fileOverride) setSignoffBoundaryAttachmentFile(fileOverride);
+    if (!onUploadSignoffBoundaryAttachment || !selectedSignoffBoundaryStageItem || !file) return;
+    if (fieldEvidenceStageRowAction.loading || signoffBoundaryAttachmentAction.loading || signoffBoundaryAttachmentListAction.loading) return;
     const uploadResult = await onUploadSignoffBoundaryAttachment({
       signoffItem: selectedSignoffBoundaryStageItem,
-      file: signoffBoundaryAttachmentFile,
+      file,
       remark: signoffStageDraft.onsiteNotes,
     });
     if (!uploadResult?.attachment?.attachmentId || uploadResult?.blocked) return;
@@ -350,7 +356,9 @@ export function useV1StatusFieldEvidenceController({
     setActiveStage,
     evidenceStageDraft,
     setEvidenceStageDraft,
+    evidenceAttachmentFile,
     setEvidenceAttachmentFile,
+    signoffBoundaryAttachmentFile,
     signoffStageDraft,
     setSignoffStageDraft,
     setSignoffBoundaryAttachmentFile,

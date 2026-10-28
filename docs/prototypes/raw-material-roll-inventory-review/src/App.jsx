@@ -53,6 +53,7 @@ import {
 } from "./roll-inventory-presentation.js";
 import { useFormalDesktopWorkspace } from "./useFormalDesktopWorkspace.js";
 import { FormalReceivingWorkspace } from "./FormalReceivingWorkspace.jsx";
+import { DocumentCameraDialog } from "../../../../src/components/DocumentCameraCapture.jsx";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
@@ -455,9 +456,9 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
 }
 
 function ReceiveDialog({ busy, error, onClose, onFile }) {
-  const cameraRef = useRef(null);
   const fileRef = useRef(null);
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="receive-title" aria-modal="true" className="receive-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>收货录入</span><h2 id="receive-title">选择送货单来源</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><p>照片或 PDF 会上传到正式服务器并调用腾讯云 OCR；识别后仍需人工复核，当前不会增加可用库存。</p><div className="source-actions"><button disabled={busy} onClick={() => cameraRef.current?.click()} type="button"><CameraOutlined /><span><strong>直接拍照</strong><small>调用相机并上传正式识别</small></span></button><button disabled={busy} onClick={() => fileRef.current?.click()} type="button"><FileImageOutlined /><span><strong>相册 / PDF</strong><small>选择文件并上传正式识别</small></span></button></div><input accept="image/*" capture="environment" hidden onChange={(event) => onFile(event.target.files?.[0])} ref={cameraRef} type="file" /><input accept="image/*,application/pdf" hidden onChange={(event) => onFile(event.target.files?.[0])} ref={fileRef} type="file" />{busy ? <p className="source-disclosure">正在上传并识别，请勿重复提交。</p> : null}{error ? <p className="danger-text">{error}</p> : null}<section className="dedupe-note"><InfoCircleOutlined /><div><strong>系统会进行两层查重</strong><p>先比较原始文件摘要；重拍或重新导出的票据，再比较供应商、单号、日期、规格、颜色和逐卷重量。</p></div></section></section></div>;
+  const [cameraOpen, setCameraOpen] = useState(false);
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="receive-title" aria-modal="true" className="receive-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>收货录入</span><h2 id="receive-title">选择送货单来源</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><p>照片或 PDF 会上传到正式服务器并调用腾讯云 OCR；识别后仍需人工复核，当前不会增加可用库存。</p><div className="source-actions"><button disabled={busy} onClick={() => setCameraOpen(true)} type="button"><CameraOutlined /><span><strong>直接拍照</strong><small>打开预览，拍完直接挂到单据</small></span></button><button disabled={busy} onClick={() => fileRef.current?.click()} type="button"><FileImageOutlined /><span><strong>相册 / PDF</strong><small>选择已有文件并上传识别</small></span></button></div><input accept="image/*,application/pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; onFile(file); }} ref={fileRef} type="file" />{cameraOpen ? <DocumentCameraDialog fileNamePrefix="delivery-note" onCapture={onFile} onClose={() => { if (!busy) setCameraOpen(false); }} /> : null}{busy ? <p className="source-disclosure">正在上传并识别，请勿重复提交。</p> : null}{error ? <p className="danger-text">{error}</p> : null}<section className="dedupe-note"><InfoCircleOutlined /><div><strong>系统会进行两层查重</strong><p>先比较原始文件摘要；重拍或重新导出的票据，再比较供应商、单号、日期、规格、颜色和逐卷重量。</p></div></section></section></div>;
 }
 
 function SourceDialog({ roll, onClose }) {

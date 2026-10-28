@@ -1,0 +1,165 @@
+button.raw-material-mobile-camera,
+button.document-camera-trigger {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.raw-material-mobile-camera {
+  width: 100%;
+}
+
+button.document-camera-trigger:disabled,
+button.raw-material-mobile-camera:disabled {
+  cursor: not-allowed;
+}
+
+.document-camera-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(9 16 28 / 56%);
+}
+
+.document-camera-dialog {
+  display: grid;
+  width: min(760px, calc(100vw - 32px));
+  gap: 10px;
+  border: 1px solid var(--erp-border, var(--line, #d7dfeb));
+  border-radius: 10px;
+  background: var(--erp-surface, #fff);
+  box-shadow: 0 24px 70px rgb(9 24 36 / 28%);
+  padding: 14px 16px 16px;
+  color: var(--erp-text, var(--ink, #172033));
+}
+
+.document-camera-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.document-camera-dialog > header span {
+  color: var(--erp-accent-strong, var(--blue, #0f3d68));
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.document-camera-dialog h2 {
+  margin: 2px 0 0;
+  font-size: 18px;
+  line-height: 26px;
+}
+
+.document-camera-dialog > header button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--erp-surface-subtle, var(--surface-muted, #eef2f6));
+  color: inherit;
+  font-size: 20px;
+  line-height: 32px;
+}
+
+.document-camera-preview {
+  width: 100%;
+  max-height: min(52vh, 460px);
+  border: 1px solid var(--erp-border, var(--line, #d7dfeb));
+  border-radius: 8px;
+  background: #101827;
+  object-fit: contain;
+}
+
+.document-camera-device,
+.document-camera-device-name,
+.document-camera-status,
+.document-camera-hint,
+.document-camera-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.document-camera-device {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.document-camera-device select {
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid var(--erp-border, var(--line, #d7dfeb));
+  border-radius: 6px;
+  background: var(--erp-surface, #fff);
+  color: inherit;
+  padding: 0 8px;
+}
+
+.document-camera-device-name,
+.document-camera-hint {
+  color: var(--erp-text-muted, var(--ink-soft, #5c6b7a));
+}
+
+.document-camera-error {
+  color: var(--erp-danger, #b42318);
+  font-weight: 700;
+}
+
+.document-camera-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.document-camera-dialog footer button {
+  min-height: 36px;
+  border: 1px solid var(--erp-border, var(--line, #d7dfeb));
+  border-radius: 6px;
+  background: var(--erp-surface, #fff);
+  color: inherit;
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.document-camera-dialog footer .document-camera-shutter {
+  border-color: var(--erp-accent-strong, #0f3d68);
+  background: var(--erp-accent-strong, #0f3d68);
+  color: var(--erp-accent-ink, #fff);
+}
+
+.document-camera-dialog footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 767px) {
+  .document-camera-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .document-camera-dialog {
+    width: 100%;
+    min-height: 100%;
+    border: 0;
+    border-radius: 0;
+    padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .document-camera-dialog footer {
+    display: grid;
+  }
+
+  .document-camera-dialog footer button {
+    width: 100%;
+    min-height: 44px;
+  }
+}

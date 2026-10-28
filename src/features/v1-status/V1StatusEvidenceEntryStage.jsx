@@ -1,3 +1,5 @@
+import { DocumentCameraCapture } from "../../components/DocumentCameraCapture.jsx";
+
 export function V1StatusEvidenceEntryStage({
   missingEvidenceOptions,
   evidenceStageCardRef,
@@ -6,6 +8,7 @@ export function V1StatusEvidenceEntryStage({
   setEvidenceStageDraft,
   v1EvidenceStageStatusOptions,
   evidenceStageRefInputRef,
+  evidenceAttachmentFile,
   setEvidenceAttachmentFile,
   canUploadAndStageEvidenceAttachment,
   uploadAndStageSelectedEvidenceAttachment,
@@ -70,6 +73,12 @@ export function V1StatusEvidenceEntryStage({
                               accept="image/*,application/pdf,.pdf,.xlsx,.xls,.csv,.doc,.docx,.txt"
                               onChange={(event) => setEvidenceAttachmentFile(event.target.files?.[0] ?? null)}
                             />
+                            <DocumentCameraCapture
+                              disabled={fieldEvidenceAttachmentAction.loading}
+                              fileNamePrefix="field-evidence"
+                              onCapture={(file) => { void uploadAndStageSelectedEvidenceAttachment(file); }}
+                            />
+                            {evidenceAttachmentFile ? <small>{evidenceAttachmentFile.name}</small> : null}
                             <button
                               className="ghost-button"
                               disabled={!canUploadAndStageEvidenceAttachment}

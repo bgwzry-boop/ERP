@@ -21,6 +21,7 @@ import {
 import {
   formatFileSize,
 } from "./attachmentViewUtils.js";
+import { DocumentCameraCapture } from "../components/DocumentCameraCapture.jsx";
 
 
 const orderQuantityReasonOptions = ["客户改量", "识别数量修正", "库存复核后改量", "办公室修正数量", "管理批准改量", "其他原因改量"];
@@ -796,6 +797,7 @@ export function ActionModal({
               选择附件
               <input type="file" accept={evidenceAttachmentAccept} disabled={!attachCustomerConfirmationProof} onChange={handleCustomerConfirmationFileChange} />
             </label>
+            <DocumentCameraCapture disabled={!attachCustomerConfirmationProof} fileNamePrefix="customer-confirmation" onCapture={(file) => handleCustomerConfirmationFileChange({ target: { files: [file] } })} />
             {customerConfirmationProofFile && (
               <div className="attachment-preview">
                 {customerConfirmationPreviewUrl ? <img src={customerConfirmationPreviewUrl} alt="客户确认附件预览" /> : <span>文件</span>}
@@ -900,6 +902,7 @@ export function ActionModal({
                   选择附件
                   <input type="file" accept={evidenceAttachmentAccept} disabled={!attachPaymentProof} onChange={handlePaymentProofFileChange} />
                 </label>
+                <DocumentCameraCapture disabled={!attachPaymentProof} fileNamePrefix="payment-proof" onCapture={(file) => handlePaymentProofFileChange({ target: { files: [file] } })} />
                 {paymentProofFile && (
                   <div className="attachment-preview">
                     {paymentProofPreviewUrl ? <img src={paymentProofPreviewUrl} alt="付款截图预览" /> : <span>文件</span>}
