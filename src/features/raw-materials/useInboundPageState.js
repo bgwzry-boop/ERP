@@ -13,6 +13,21 @@ import { listRawMaterialCaptureSupplierOptions } from "../../../shared/rawMateri
 import { buildOcrLineReviewDraft } from "./rawMaterialInboundOcrDraft.js";
 import { findRawMaterialProductionTaskCandidate } from "./rawMaterialInboundWorkflow.js";
 import { assertRawMaterialDeliveryNotePageCapacity, buildRawMaterialOcrReviewAction, getRawMaterialOcrReviewSaveFailureMessage, prepareRawMaterialCapturePages, resolveRawMaterialAttachStage, resolveRawMaterialOcrReviewCompletion } from "./rawMaterialInboundPageActions.js";
+import { RAW_MATERIAL_ROLL_LABEL_PRINT_PAGE_CSS, RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP } from "../../domain/rawMaterialRollLabelTemplate.js";
+
+function printRawMaterialRollLabels() {
+  const style = document.createElement("style");
+  style.setAttribute("data-raw-material-roll-label-page", "76x130");
+  style.textContent = RAW_MATERIAL_ROLL_LABEL_PRINT_PAGE_CSS;
+  document.head.appendChild(style);
+  document.body.classList.add("raw-material-label-printing");
+  try {
+    window.print();
+  } finally {
+    document.body.classList.remove("raw-material-label-printing");
+    style.remove();
+  }
+}
 
 
 export function useInboundPageState({
@@ -424,14 +439,9 @@ export function useInboundPageState({
     const activeInbound = mobileSelected ?? selected;
     if (!activeInbound || printState.disabled || !canPrintRawMaterialLabels(activeInbound)) return null;
     flushSync(() => setPrintSheetInbound(activeInbound));
-    document.body.classList.add("raw-material-label-printing");
-    try {
-      window.print();
-    } finally {
-      document.body.classList.remove("raw-material-label-printing");
-    }
+    printRawMaterialRollLabels();
     const labelCount = activeInbound.rolls?.filter((roll) => roll.inventoryStatus !== "可用").length || 0;
-    if (!window.confirm(`请看打印机：${labelCount} 张 76×130 面单都出来了吗？\n没出来就点取消，系统不会记成已打印。`)) {
+    if (!window.confirm(`请看打印机：${labelCount} 张 76×130 面单都出来了吗？\n${RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP}\n没出来就点取消，系统不会记成已打印。`)) {
       setPrintSheetInbound(null);
       setMobileMessage({
         tone: "warning",
@@ -485,13 +495,8 @@ export function useInboundPageState({
   async function handleReprintLabel(roll) {
     if (!selected || !roll || printState.disabled) return null;
     flushSync(() => setPrintSheetInbound({ ...selected, rolls: [roll] }));
-    document.body.classList.add("raw-material-label-printing");
-    try {
-      window.print();
-    } finally {
-      document.body.classList.remove("raw-material-label-printing");
-    }
-    if (!window.confirm(`请确认卷标 ${roll.id} 已从打印机正常输出。\n如果取消或打印失败，请点“取消”，系统不会记录本次重打。`)) {
+    printRawMaterialRollLabels();
+    if (!window.confirm(`请确认卷标 ${roll.id} 已从打印机正常输出。\n${RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP}\n如果取消或打印失败，请点“取消”，系统不会记录本次重打。`)) {
       setPrintSheetInbound(null);
       return null;
     }

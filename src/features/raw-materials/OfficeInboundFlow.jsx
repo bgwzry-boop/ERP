@@ -11,6 +11,7 @@ import {
   officeInboundUsesCountGate,
   resolveOfficeInboundStep,
 } from "../../domain/officeRawMaterialInboundFlow.js";
+import { RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP } from "../../domain/rawMaterialRollLabelTemplate.js";
 
 export function OfficeInboundFlow({
   attachState,
@@ -107,15 +108,18 @@ export function OfficeInboundFlow({
           </>
         ) : null}
         {step === "print" ? (
-          <button
-            className="primary-action"
-            disabled={Boolean(printState?.disabled) || !printableCount}
-            onClick={onPrint}
-            title="一卷一标。打印标签只是待贴标，贴到实物并回办公室核对张数后才入库"
-            type="button"
-          >
-            打印 {printableCount} 张 · 76×130
-          </button>
+          <>
+            <button
+              className="primary-action"
+              disabled={Boolean(printState?.disabled) || !printableCount}
+              onClick={onPrint}
+              title={`一卷一标。打印标签只是待贴标，贴到实物并回办公室核对张数后才入库。${RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP}`}
+              type="button"
+            >
+              打印 {printableCount} 张 · 76×130
+            </button>
+            <p className="office-inbound-print-setup">{RAW_MATERIAL_ROLL_LABEL_PRINT_SETUP}</p>
+          </>
         ) : null}
         {step === "complete" ? (
           <>
