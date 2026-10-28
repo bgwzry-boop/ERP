@@ -100,39 +100,47 @@ try {
   await page.goto(`${previewOrigin}/?erpReviewCheck=p1-isolated-packing-${Date.now()}#outbound-delivery`);
   await selectFulfillment();
   const panel = page.getByRole("region", { name: "出库办理", exact: true });
-  await expect(panel.getByRole("group", { name: "登记实际包裹", exact: true })).toBeVisible();
-  await panel.getByLabel("实际包数", { exact: true }).fill("2");
-  await panel.getByLabel("每包数量", { exact: true }).fill("5");
-  await panel.getByRole("button", { name: "填入逐包明细", exact: true }).click();
-  await expect(panel.getByRole("textbox", { name: "逐包数量（每行一包，可修改）", exact: true })).toHaveValue("5\n5");
-  await expect(panel).toContainText("2 包，合计 10 个");
-  const prepare = panel.getByRole("button", { name: "核对并登记包裹", exact: true });
+  const physical = page.getByRole("region", { name: "实物混装包登记", exact: true });
+  await expect(physical).toBeVisible();
+  await expect(panel.getByRole("group", { name: "登记实际包裹", exact: true })).toHaveCount(0);
+  await physical.getByLabel("实际包数", { exact: true }).fill("2");
+  await physical.getByRole("button", { name: "生成逐包核对表", exact: true }).click();
+  await physical.getByLabel("每包数量", { exact: true }).fill("5");
+  await physical.getByRole("button", { name: "每包填入此数量", exact: true }).click();
+  await expect(physical.getByLabel(`第1包 ${orderLineId} 数量`, { exact: true })).toHaveValue("5");
+  await expect(physical.getByLabel(`第2包 ${orderLineId} 数量`, { exact: true })).toHaveValue("5");
+  await expect(physical).toContainText("实装 10 / 计划 10 个");
+  const prepare = physical.getByRole("button", { name: "核对并生成独立包码", exact: true });
   await expect(prepare).toBeDisabled();
-  await panel.getByRole("checkbox", { name: "已按实物核对每包内容、数量及挂牌对应关系" }).check();
+  const checks = physical.getByRole("checkbox", { name: "我已对照本包实物核实每项数量", exact: true });
+  await expect(checks).toHaveCount(2);
+  for (const checkbox of await checks.all()) await checkbox.check();
+  await physical.getByLabel("登记或更正依据").fill("隔离桌面验收：按实物核对两包，每包5个。");
   await expect(prepare).toBeEnabled();
   await prepare.click();
-  const confirmation = panel.getByRole("group", { name: "提交前核对", exact: true });
-  await expect(confirmation).toContainText("2 个独立包裹，合计 10 个");
+  const confirmation = physical.locator(".package-fixed-summary");
+  await expect(confirmation).toContainText("即将保存 2 个实际包裹");
+  await expect(confirmation).toContainText("10个");
   assert.equal(forwarded.filter(isPackingWrite).length, 0, "The review step must not save before explicit confirmation.");
   const beforeSubmission = await api(`/fulfillments/${fulfillmentId}`, undefined, "GET");
   assert.equal(beforeSubmission.actualPackageCount, 0);
   await mkdir(outputRoot, { recursive: true });
   await page.screenshot({ path: join(outputRoot, "before-confirm.png"), fullPage: true });
   const responsePromise = page.waitForResponse(response =>
-    new URL(response.url()).pathname === `/api/packing-tasks/${packingTaskId}/complete`
+    new URL(response.url()).pathname === `/api/packing-groups/${fulfillmentId}/replace`
     && response.request().method() === "POST");
-  await confirmation.getByRole("button", { name: "确认提交", exact: true }).click();
+  await confirmation.getByRole("button", { name: "确认保存 / 原请求重试", exact: true }).click();
   const completedResponse = await responsePromise;
   const completed = await completedResponse.json();
   assert.equal(completedResponse.status(), 200, JSON.stringify(completed));
-  assert.equal(completed.status, "已完成");
-  assert.equal(completed.actualPackedQty, 10);
-  assert.equal(completed.inventoryDeducted, false);
+  assert.equal(completed.anchorFulfillmentId, fulfillmentId);
+  assert.equal(completed.packingRevision, 1);
+  assert.equal(completed.packages.reduce((sum, item) => sum + item.packedQty, 0), 10);
   assert.ok(completed.operationLogId);
   assert.equal(new Set(completed.packageIds).size, 2);
-  const detail = await api(`/packing-tasks/${packingTaskId}`, undefined, "GET");
-  assert.equal(detail.packingTask.status, "已完成");
-  assert.equal(detail.packingTask.actualPackedQty, 10);
+  const detail = await api(`/packing-groups?fulfillmentId=${fulfillmentId}`, undefined, "GET");
+  assert.equal(detail.existing, true);
+  assert.equal(detail.packingRevision, 1);
   assert.equal(detail.packages.length, 2);
   assert.equal(new Set(detail.packages.map(item => item.packageId)).size, 2);
   assert.deepEqual(detail.packages.map(item => item.packedQty), [5, 5]);
@@ -141,13 +149,12 @@ try {
     && item.fulfillmentId === fulfillmentId && item.createdBy === "U-MANAGER-A"
     && !item.labelPrintRecordId && !/已打印|已重打/.test(item.status)));
   assert.deepEqual(detail.packages.map(item => item.packageId).sort(), [...completed.packageIds].sort());
-  const logs = detail.operationLogs.filter(item => item.action === "complete_packing_task");
+  assert.ok(detail.packages.every(item => item.contents.length === 1 && item.contents[0].orderLineId === orderLineId && item.contents[0].packedQty === 5));
+  const logs = (await api("/operation-logs?pageSize=200", undefined, "GET")).items.filter(item => item.id === completed.operationLogId);
   assert.equal(logs.length, 1);
   assert.equal(logs[0].operatorId, "U-MANAGER-A");
   const afterFulfillment = await api(`/fulfillments/${fulfillmentId}`, undefined, "GET");
   assert.equal(afterFulfillment.actualPackageCount, 2);
-  assert.equal(afterFulfillment.packingTask.status, "已完成");
-  assert.equal(afterFulfillment.packingTask.actualPackedQty, 10);
   assert.deepEqual(await readStock(), inventoryAfterConfirm, "Packing must not deduct stock or double-reserve it.");
   const printJobsAfter = await api("/print-jobs?pageSize=200", undefined, "GET");
   assert.equal(printJobsAfter.total, printJobsBefore.total, "Registering actual packages must not invoke a printer.");
@@ -155,15 +162,19 @@ try {
   await expect(prepare).toHaveCount(0);
   await page.getByRole("button", { name: "刷新当前工作台", exact: true }).click();
   await expect(panel).toContainText("实包已登记：2");
-  await expect(panel.getByLabel("实际包数", { exact: true })).toHaveCount(0);
+  await expect(physical).toContainText("当前有效挂牌 · 第 1 版");
+  await expect(physical.locator(".package-label-paper")).toHaveCount(2);
+  await expect(physical.getByLabel("实际包数", { exact: true })).toHaveValue("2");
   await page.reload();
   await selectFulfillment();
   await expect(panel).toContainText("实包已登记：2");
   await expect(prepare).toHaveCount(0);
-  await expect(panel.getByLabel("实际包数", { exact: true })).toHaveCount(0);
-  const persisted = await api(`/packing-tasks/${packingTaskId}`, undefined, "GET");
+  await expect(physical).toContainText("当前有效挂牌 · 第 1 版");
+  await expect(physical.locator(".package-label-paper")).toHaveCount(2);
+  const persisted = await api(`/packing-groups?fulfillmentId=${fulfillmentId}`, undefined, "GET");
   assert.equal(persisted.packages.length, 2);
-  assert.equal(persisted.operationLogs.filter(item => item.action === "complete_packing_task").length, 1);
+  assert.equal(persisted.packingRevision, 1);
+  assert.deepEqual(persisted.packages.map(item => item.packageId), completed.packageIds);
   assert.equal(forwarded.filter(isPackingWrite).length, 1);
   assert.equal(forwarded.filter(item => !["GET", "HEAD", "OPTIONS"].includes(item.method)
     && !item.path.startsWith("/api/auth/") && !isPackingWrite(item)).length, 0);
@@ -216,4 +227,4 @@ try {
   await rm(storageRoot, { recursive: true, force: true });
 }
 
-function isPackingWrite(item) { return item.method === "POST" && /^\/api\/packing-tasks\/[^/]+\/complete$/.test(item.path); }
+function isPackingWrite(item) { return item.method === "POST" && /^\/api\/packing-groups\/[^/]+\/replace$/.test(item.path); }

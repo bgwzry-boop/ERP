@@ -50,6 +50,7 @@ const MOBILE_VIEWS = [
   ["all", "全部功能", AppstoreOutlined],
 ];
 const MixedPackageWorkbench = lazy(() => import("../packing/MixedPackageWorkbench.jsx").then(module => ({ default: module.MixedPackageWorkbench })));
+const SinglePackingWorkbench = lazy(() => import("../packing/SinglePackingWorkbench.jsx").then(module => ({ default: module.SinglePackingWorkbench })));
 
 export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inventoryRecords, productionPacking, onAction, onNavigate, helpers }) {
   const {
@@ -660,7 +661,7 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
                 </label>
                 {isStockOrderType(selectedPackingTask?.orderLine?.orderType)
                   ? <Suspense fallback={<p role="status">正在读取实物分包…</p>}><MixedPackageWorkbench key={`${selectedPackingTask?.orderLineId || ""}:${authState.session.accessToken}`} authState={authState} orderLineId={selectedPackingTask?.orderLineId} onSaved={onPackagesSaved} onBusyChange={setPackageWritePending}/></Suspense>
-                  : <p>定制单不混装，请按本明细单独打包。</p>}
+                  : <Suspense fallback={<p role="status">正在读取本明细打包任务…</p>}><SinglePackingWorkbench key={`${selectedPackingTask?.packingTaskId || ""}:${authState.session.accessToken}`} authState={authState} packingTaskId={selectedPackingTask?.packingTaskId} orderLineId={selectedPackingTask?.orderLineId} disabled={packingState.disabled} onSaved={onPackagesSaved} onBusyChange={setPackageWritePending} /></Suspense>}
               </> : <>
                 {!packingCompletionConfirmation ? (
                   <section className="detail-section">

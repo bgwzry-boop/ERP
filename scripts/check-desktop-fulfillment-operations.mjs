@@ -19,9 +19,12 @@ const render=(f=fulfillment,ctx=formal)=>renderToStaticMarkup(createElement(Desk
 const html=render();assert.match(html,/按实物登记包裹/);assert.match(html,/通货可混装/);assert.match(html,/同一订单可混装尺寸和颜色/);assert.doesNotMatch(html,/混装登记暂未接入/);assert.match(html,/正在读取可派单司机/);assert.doesNotMatch(html,/仅档案司机/);
 const customHtml=render({...fulfillment,id:'F-CUSTOM',lineId:'OL-CUSTOM'},{...formal,data:{...formal.data,orderLines:[{id:'OL-CUSTOM',orderType:'定制印刷'}],packingTasks:[{id:'PKT-CUSTOM',orderLineId:'OL-CUSTOM',status:'待打包'}]}});
 assert.match(customHtml,/定制单不混装/);assert.doesNotMatch(customHtml,/混装登记暂未接入|按实物登记包裹|同一订单可混装/);
+assert.match(customHtml, /<legend>登记实际包裹<\/legend>/, "forbidding custom mixing must not hide the independent packing form");
+assert.match(customHtml, /逐包数量（每行一包，可修改）/);
+assert.match(customHtml, /核对并登记包裹/);
 assert.doesNotMatch(render({...fulfillment,finalDeliveryAt:'2026-10-23T00:00:00Z'}),/<button/);
 assert.doesNotMatch(render(fulfillment,{...formal,permissionContext:{actionPermissions:[]}}),/<button/);
-console.log('Desktop fulfillment checks passed: stock mixed-package entry, custom single-line refusal, driver role projection, permission and terminal gates.');
+console.log('Desktop fulfillment checks passed: stock mixed-package entry, custom mixing refused but independent packing form retained, driver role projection, permission and terminal gates.');
 
 for (const body of [{operationLogId:'LOG-FAKE'},{operationLogId:'LOG-FAKE',packingTaskId:'PKT-TEST',orderLineId:'OL-TEST',packageIds:['PKG-A'],fulfillmentId:'F-FOREIGN'}]) {
  const response=await completeOfficePackingTask({packingTaskId:'PKT-TEST',orderLineId:'OL-TEST',fulfillmentId:'F-TEST',actualPackedQty:10,packageCount:1,idempotencyKey:'receipt-test'}, {serverRequired:true,fetchImpl:async()=>new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})});
