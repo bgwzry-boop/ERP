@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createStatementFinancialCommandService } from "../server/services/statementFinancialCommandService.mjs";
 import { buildStatementDetail } from "../server/services/statementDetailProjectionService.mjs";
 import { createLocalStatementPaymentTransactionRepository } from "../server/statementPaymentTransactionRepository.mjs";
-import { confirmStatementPayment, confirmStatementVariance, confirmStatementWriteOff, getStatementWriteOffBlocker } from "../src/state/officeStatementActions.js";
+import { confirmStatementPayment, confirmStatementVariance, confirmStatementWriteOff } from "../src/state/officeStatementActions.js";
 import { getStatementBucket, getStatementFinancialSummary } from "../src/domain/officeRules.js";
 import { ROUNDING_HANDLING_RESULT, UNDERPAYMENT_EFFECTIVE_STATUS, UNDERPAYMENT_READ_AUDIENCES, UNDERPAYMENT_READ_TODO_TYPE, UNDERPAYMENT_SETTLED_STATUS, summarizeAnnualReceiptAndRounding } from "../shared/statementUnderpaymentNotice.js";
 

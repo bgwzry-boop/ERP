@@ -4457,26 +4457,89 @@ try {
     },
     { headers: { "x-erp-user-id": "U-FINANCE-A" } },
   );
+  const expectedRounding = Math.round((Number(statementBeforePayment.receivable) - 1) * 100) / 100;
   if (
     !payment.payment?.paymentRecordId ||
     payment.payment.operatorId !== "U-FINANCE-A" ||
+    payment.payment.amount !== 1 ||
     payment.payment.attachmentIds?.[0] !== paymentAttachment.attachmentId ||
-    payment.varianceAmount <= 0 ||
+    payment.statementStatus !== "已结清" ||
+    payment.receivableAmount !== statementBeforePayment.receivable ||
+    payment.receivedAmount !== 1 ||
+    payment.roundingAmount !== expectedRounding ||
+    payment.varianceAmount !== 0 ||
+    payment.varianceRecord?.handlingResult !== "抹零" ||
+    payment.varianceRecord?.amount !== expectedRounding ||
+    payment.readNoticeIds?.length !== 3 ||
     !payment.operationLogId
   ) {
-    throw new Error("/api/statements/{statementId}/payments returned an unexpected payload");
+    throw new Error(`/api/statements/{statementId}/payments did not settle the short payment as rounding: ${JSON.stringify({ statementStatus: payment.statementStatus, receivableAmount: payment.receivableAmount, receivedAmount: payment.receivedAmount, roundingAmount: payment.roundingAmount, varianceAmount: payment.varianceAmount, notices: payment.readNoticeIds })}`);
+  }
+  const settledStatement = await getJson(baseUrl, `/api/statements/${statementId}`);
+  if (
+    settledStatement.receivable !== statementBeforePayment.receivable ||
+    settledStatement.received !== 1 ||
+    settledStatement.roundingAmount !== expectedRounding ||
+    settledStatement.currentUnpaid !== 0 ||
+    settledStatement.status !== "已核销"
+  ) {
+    throw new Error("/api/statements/{statementId} did not keep receivable, received and rounding in separate columns after settlement");
   }
 
-  const blockedVarianceAttachments = await postJson(
+  const reopenedVariance = await postJson(
     baseUrl,
     `/api/statements/${statementId}/variance`,
     {
       statementId,
       expectedRevision: payment.statementRevision,
-      varianceAmount: payment.varianceAmount,
+      varianceAmount: expectedRounding,
+      handlingResult: "carry_to_debt",
+      reason: "API skeleton settled rounding must stay closed",
+      attachmentIds: [paymentAttachment.attachmentId],
+    },
+    { expectedStatus: 409, headers: { "x-erp-user-id": "U-FINANCE-A" } },
+  );
+  if (reopenedVariance.code !== "STATEMENT_PAYMENT_PERIOD_CLOSED") {
+    throw new Error("/api/statements/{statementId}/variance reopened a period already settled by rounding");
+  }
+
+  const openVarianceStatementId = statementCustomers.items?.find((item) => item.statementId !== statementId && item.status === "debt_or_variance")?.statementId;
+  if (!openVarianceStatementId) {
+    throw new Error("/api/statements/customers did not leave an open variance statement for the separate variance contract");
+  }
+  const openVarianceStatement = await getJson(baseUrl, `/api/statements/${openVarianceStatementId}`);
+  const openVarianceAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "statement",
+      ownerId: openVarianceStatementId,
+      fileType: "image",
+      purpose: "payment_screenshot",
+      fileName: "open-variance-api-check.png",
+      contentRef: `p0://payment-screenshot/${openVarianceStatementId}/api-check`,
+      mimeType: "image/png",
+      fileSize: 13,
+      contentDataUrl: "data:image/png;base64,b3Blbi12YXJpYW5jZQ==",
+      uploadedBy: "U-FINANCE-A",
+      remark: "API skeleton open variance screenshot",
+    },
+    { headers: { "x-erp-user-id": "U-FINANCE-A" } },
+  );
+  if (openVarianceAttachment.ownerId !== openVarianceStatementId || !openVarianceAttachment.attachmentId) {
+    throw new Error("/api/attachments did not create the open variance statement screenshot");
+  }
+
+  const blockedVarianceAttachments = await postJson(
+    baseUrl,
+    `/api/statements/${openVarianceStatementId}/variance`,
+    {
+      statementId: openVarianceStatementId,
+      expectedRevision: openVarianceStatement.revision,
+      varianceAmount: openVarianceStatement.variance,
       handlingResult: "carry_to_debt",
       reason: "API skeleton attachment limit check",
-      attachmentIds: [paymentAttachment.attachmentId, "ATT-SECOND-VARIANCE"],
+      attachmentIds: [openVarianceAttachment.attachmentId, "ATT-SECOND-VARIANCE"],
     },
     { expectedStatus: 422, headers: { "x-erp-user-id": "U-FINANCE-A" } },
   );
@@ -4486,14 +4549,14 @@ try {
 
   const variance = await postJson(
     baseUrl,
-    `/api/statements/${statementId}/variance`,
+    `/api/statements/${openVarianceStatementId}/variance`,
     {
-      statementId,
-      expectedRevision: payment.statementRevision,
-      varianceAmount: payment.varianceAmount,
+      statementId: openVarianceStatementId,
+      expectedRevision: openVarianceStatement.revision,
+      varianceAmount: openVarianceStatement.variance,
       handlingResult: "carry_to_debt",
       reason: "API skeleton check",
-      attachmentIds: [paymentAttachment.attachmentId],
+      attachmentIds: [openVarianceAttachment.attachmentId],
       delegatedDecision: {
         decisionMakerEmployeeId: "E2E-DM-MOTHER",
         decisionChannel: "wechat",
@@ -4508,7 +4571,7 @@ try {
   if (
     !variance.varianceRecord?.varianceRecordId ||
     variance.varianceRecord.operatorId !== "U-OFFICE-A" ||
-    variance.varianceRecord.attachmentId !== paymentAttachment.attachmentId ||
+    variance.varianceRecord.attachmentId !== openVarianceAttachment.attachmentId ||
     !variance.operationLogId
   ) {
     throw new Error("/api/statements/{statementId}/variance returned an unexpected payload");
@@ -4615,7 +4678,7 @@ try {
     {
       idempotencyKey: "api-skeleton-write-off-evidence-draft",
       businessType: "statement",
-      businessId: statementId,
+      businessId: openVarianceStatementId,
       decisionScope: "statement_write_off",
     },
     { expectedStatus: 201, headers: { "x-erp-user-id": "U-OFFICE-A" } },
@@ -4647,7 +4710,16 @@ try {
     throw new Error("经营决定凭据草稿或真实附件未按认证办公室账号创建");
   }
 
-  const writeOff = await postJson(baseUrl, `/api/statements/${statementId}/write-off`, {
+  const settledWriteOff = await postJson(baseUrl, `/api/statements/${statementId}/write-off`, {
+    expectedRevision: payment.statementRevision,
+    confirmReason: "API skeleton settled rounding must stay closed",
+    operatorId: "U-OFFICE-A",
+  }, { expectedStatus: 409 });
+  if (settledWriteOff.code !== "STATEMENT_PAYMENT_PERIOD_CLOSED") {
+    throw new Error("/api/statements/{statementId}/write-off reopened a period already settled by rounding");
+  }
+
+  const writeOff = await postJson(baseUrl, `/api/statements/${openVarianceStatementId}/write-off`, {
     expectedRevision: variance.statementRevision,
     confirmReason: "API skeleton check",
     delegatedDecision: {

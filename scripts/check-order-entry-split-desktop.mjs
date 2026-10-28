@@ -35,7 +35,12 @@ try {
     await route.fulfill({status:result.status,contentType:result.headers.get("content-type")||"application/json",body});
   });
   await page.goto("http://127.0.0.1:4174/?entrySplit=isolated&erpViewport=desktop#order-entry");
-  await page.getByLabel("客户订单原文").fill("王五包装 30*38*10 红色 40个 2099-11-02自提");
+  const source = page.getByLabel("客户订单原文");
+  await expect(source).toBeVisible();
+  await expect(source).toHaveValue(/张三服饰/, { timeout: 15000 });
+  const message = "王五包装 30*38*10 红色 40个 2099-11-02自提";
+  await source.fill(message);
+  await expect(source).toHaveValue(message);
   await page.getByRole("button",{name:"识别客户消息",exact:true}).click();
   await expect(page.getByLabel("第1行数量",{exact:true})).toHaveValue("40");
   await page.getByLabel("第1行需要日期",{exact:true}).fill("2099-11-02");

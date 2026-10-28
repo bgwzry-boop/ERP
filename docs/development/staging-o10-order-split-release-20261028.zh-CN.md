@@ -14,8 +14,9 @@
 - 分支：`cursor/integrate-o10-order-split-bdd1`
 - 基线祖先：上述线上提交
 - 来源：`cursor/o10-ink-color-and-leftover-reject-2df9` @ `bc4f476825caf88162846967c8cf9e68bd7309ca`，以及 `codex/order-entry-split-20261025` @ `c4d36e96d17d03995919d85c1598f88f52d1bec7`
-- 建议版本名：`staging-20261028-o10-split-r1`
-- 要部署的提交是该分支推送后的 tip。不要把本说明文件里的文字当成提交号。
+- 建议版本名：`staging-20261028-o10-split-r2`
+- `12399af94cafec1d2f32bf4273572d77852bfb1e` 不是发布候选。它的完整检查在第 64/159 项 `api:check` 失败：收款综合用例仍按旧规则要求保留未结差额。
+- 要部署的提交是本修复推送后的分支 tip。不要把本说明里的文字当成那次提交号。版本用 r2，避免和未通过检查的 r1 候选混淆。
 
 合入内容：
 
@@ -37,7 +38,7 @@ npm run release:check
 npm run controlled-release:prepare -- \
   --target staging \
   --expected-commit <上面的完整 tip> \
-  --version staging-20261028-o10-split-r1 \
+  --version staging-20261028-o10-split-r2 \
   --output .erp-local-storage/releases/staging.lock.json
 
 npm run controlled-release:deploy -- \
