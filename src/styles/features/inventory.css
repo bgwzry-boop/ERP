@@ -773,7 +773,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .inventory-status-tabs {
     padding: 0 6px;
   }

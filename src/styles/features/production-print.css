@@ -845,7 +845,7 @@
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .printer-device-qa-form,
   .printer-device-qa-evidence-grid,
   .printer-device-qa-select-row,

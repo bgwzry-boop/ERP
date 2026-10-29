@@ -489,7 +489,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .order-status-tabs {
     padding: 0 6px;
   }

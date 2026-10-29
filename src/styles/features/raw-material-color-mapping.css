@@ -186,7 +186,7 @@
   text-align: center;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog > form {
     grid-template-columns: 1fr;
@@ -242,21 +242,21 @@
   line-height: 16px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .raw-material-color-mapping-backdrop {
     align-items: end;
     padding: 10px;
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog {
     max-height: calc(100dvh - 20px);
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog > header > button {
     display: grid;
@@ -268,7 +268,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog header p {
     font-size: 14px;
@@ -276,14 +276,14 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog label {
     font-size: 14px;
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog input,
   .raw-material-color-mapping-dialog select {
@@ -292,7 +292,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog label > small {
     font-size: 14px;
@@ -300,7 +300,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-dialog form .primary,
   .raw-material-color-mapping-list > header button,
@@ -310,7 +310,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
 
   .raw-material-color-mapping-message,
   .raw-material-color-mapping-list .head,

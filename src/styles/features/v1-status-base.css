@@ -2654,7 +2654,7 @@
   gap: 6px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .v1-status-banner {
     align-items: flex-start;
     flex-direction: column;

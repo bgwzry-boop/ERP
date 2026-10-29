@@ -364,7 +364,7 @@
   font-size: 14px;
 }
 
-@media (min-width: 721px) {
+@media (min-width: 768px) {
   .warehouse-mobile-page {
     padding: 12px;
   }

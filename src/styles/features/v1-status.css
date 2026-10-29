@@ -539,7 +539,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .v1-status-workspace-tabs {
     grid-template-columns: repeat(6, minmax(88px, 1fr));
   }

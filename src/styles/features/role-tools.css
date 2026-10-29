@@ -1209,7 +1209,7 @@
   padding: 0 10px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .production-packing-shell {
     margin-top: 0;
   }

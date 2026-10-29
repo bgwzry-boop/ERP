@@ -1196,7 +1196,7 @@
   padding: var(--erp-space-3);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .decision-mobile-card,
   .maintenance-mobile-card,
   .office-mobile-task-card {

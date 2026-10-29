@@ -7,6 +7,8 @@
 //   mobile-body-under-14  现场手机端的正文（段落、按钮、输入框、错误/提示、关键数值）不得低于 14px
 //   mobile-under-12       现场手机端的辅助文字（字段标签、时间、计数、徽标）不得低于 12px
 //   图标尺寸（选择器以 svg 结尾的 font-size）不算文字，不检查；打印样式按纸面排版，不检查字号。
+//   mobile-breakpoint     手机/桌面分界统一为 767px / 768px，与 useOfficeWorkbenchNavigation 的 JS 判断一致；
+//                         不得再用 720px / 721px 作为分界。
 //
 // 存量问题记录在 scripts/design-token-baseline.json（按 文件 × 规则 计数）。
 // 检查采用“只降不升”：某个文件某条规则的数量超过基线就失败；低于基线会提示你收紧基线。
@@ -82,6 +84,9 @@ function scanFile(absPath) {
   const lines = source.split("\n");
   const findings = [];
   lines.forEach((line, index) => {
+    for (const m of line.matchAll(/@media[^{]*\((?:max-width:\s*720px|min-width:\s*721px)\)/g)) {
+      findings.push({ file, line: index + 1, rule: "mobile-breakpoint", text: m[0] });
+    }
     if (RAW_COLOR_EXEMPT.has(file)) return;
     for (const value of declarationValues(line)) {
       for (const m of value.matchAll(RAW_COLOR_RE)) {

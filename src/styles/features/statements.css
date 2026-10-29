@@ -579,7 +579,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .statement-filter-fields {
     grid-template-columns: minmax(0, 1fr);
   }

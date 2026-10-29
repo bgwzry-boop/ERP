@@ -517,7 +517,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .fulfillment-status-tabs {
     padding: 0 6px;
   }

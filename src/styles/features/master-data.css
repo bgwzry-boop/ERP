@@ -1280,7 +1280,7 @@
   padding: 9px 10px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .master-data-template-summary,
   .master-data-template-field-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -2640,7 +2640,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .employee-master-secondary-nav {
     overflow-x: auto;
   }

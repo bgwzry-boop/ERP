@@ -819,7 +819,7 @@ button.route-nav-button {
   grid-column: 1 / -1;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .driver-route-neighbors,
   .driver-route-actions {
     grid-template-columns: minmax(0, 1fr);

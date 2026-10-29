@@ -639,7 +639,7 @@ body:has(.runtime-login-shell) {
   color: var(--erp-success);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .workspace-page-header {
     align-items: flex-start;
     flex-direction: column;
@@ -712,7 +712,7 @@ body:has(.runtime-login-shell) {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   body {
     min-width: 0;
   }

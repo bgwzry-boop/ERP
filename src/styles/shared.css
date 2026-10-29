@@ -767,7 +767,7 @@ button:disabled,
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .action-row,
   .toolbar-line,
   .modal-actions,
