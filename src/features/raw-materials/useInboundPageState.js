@@ -12,6 +12,7 @@ import { RAW_MATERIAL_INBOUND_TABS, selectRawMaterialInboundMetrics } from "./Ra
 import { listRawMaterialCaptureSupplierOptions } from "../../../shared/rawMaterialSupplierProfiles.js";
 import { buildOcrLineReviewDraft } from "./rawMaterialInboundOcrDraft.js";
 import { findRawMaterialProductionTaskCandidate } from "./rawMaterialInboundWorkflow.js";
+import { officeReviewFieldsForSubmit, officeReviewSubmitBlocker } from "../../domain/officeRawMaterialInboundFlow.js";
 import { assertRawMaterialDeliveryNotePageCapacity, buildRawMaterialOcrReviewAction, getRawMaterialOcrReviewSaveFailureMessage, prepareRawMaterialCapturePages, resolveRawMaterialAttachStage, resolveRawMaterialOcrReviewCompletion } from "./rawMaterialInboundPageActions.js";
 import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 
@@ -421,6 +422,54 @@ export function useInboundPageState({
     }
   }
 
+  async function handleOfficeReviewConfirm() {
+    if (!selected || !canReviewRawMaterialInbound(selected) || ocrReviewSubmitting) return null;
+    setOcrReviewSubmitError("");
+    const reviewFields = officeReviewFieldsForSubmit(selected, ocrReviewDraft);
+    const blocker = officeReviewSubmitBlocker(selected, reviewFields);
+    if (blocker) {
+      setOcrReviewSubmitError(blocker);
+      return null;
+    }
+    setOcrReviewSubmitting(true);
+    try {
+      const reviewAction = buildRawMaterialOcrReviewAction({
+        selected,
+        reviewFields,
+        lineReviewDraft: ocrLineReviewDraft,
+        excludedRolls: [],
+        buildLineReviewDraft: buildOcrLineReviewDraft,
+      });
+      if (!reviewAction?.action) return null;
+      if (selected.documentDirection !== "supplier_return") {
+        reviewAction.payload.note = "OCR 字段已人工复核；请继续打印一卷一标，贴到实物并核对后才进入可用库存。";
+      }
+      const updatedInbound = await submitInboundAction(onAction, selected, reviewAction.action, reviewAction.payload);
+      if (!updatedInbound?.id) return null;
+      setOcrReviewSubmitError("");
+      return updatedInbound;
+    } finally {
+      setOcrReviewSubmitting(false);
+    }
+  }
+
+  async function handleOfficeException(options = {}) {
+    if (!selected || exceptionState.disabled || ocrReviewSubmitting) return null;
+    setOcrReviewSubmitError("");
+    const reason = typeof options?.reason === "string" && options.reason.trim()
+      ? options.reason.trim()
+      : "办公室核对时标记异常。";
+    setOcrReviewSubmitting(true);
+    try {
+      const updatedInbound = await submitInboundAction(onAction, selected, "标记异常", { reason });
+      if (!updatedInbound?.id) return null;
+      setOcrReviewSubmitError("");
+      return updatedInbound;
+    } finally {
+      setOcrReviewSubmitting(false);
+    }
+  }
+
   async function handlePrintLabels() {
     const activeInbound = mobileSelected ?? selected;
     if (!activeInbound || printState.disabled || !canPrintRawMaterialLabels(activeInbound)) return null;
@@ -726,6 +775,8 @@ export function useInboundPageState({
     handleDeliveryNotePageRemove,
     handleDesktopDeliveryNoteRecognize,
     handleOcrReviewConfirm,
+    handleOfficeReviewConfirm,
+    handleOfficeException,
     handlePrintLabels,
     handleDeferLabels,
     handleReprintLabel,

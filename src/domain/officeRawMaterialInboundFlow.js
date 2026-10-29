@@ -23,6 +23,30 @@ export const OFFICE_INBOUND_STEPS = Object.freeze([
   { key: "complete", label: "回办公室入库" },
 ]);
 
+export function receivingReceiptTab(row = {}) {
+  const status = String(row?.status || "");
+  if (row?.documentDirection === "supplier_return") return "退货单";
+  if (row?.duplicate || status.includes("异常")) return "异常";
+  if (["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(status)) return "待核对";
+  if (status === "已复核待打印标签") return "待打印";
+  if (["已打印待贴标", "部分贴标"].includes(status)) return "待贴标";
+  return "";
+}
+
+export function officeReviewFieldsForSubmit(inbound = {}, documentDraft = {}) {
+  const fields = { ...(documentDraft || {}) };
+  if (!clean(fields.supplierName) && clean(inbound.supplierName)) fields.supplierName = clean(inbound.supplierName);
+  return fields;
+}
+
+export function officeReviewSubmitBlocker(inbound = {}, documentDraft = {}) {
+  if (inbound?.documentDirection === "supplier_return") return "";
+  if (!clean(officeReviewFieldsForSubmit(inbound, documentDraft).supplierName)) {
+    return "供应商还没确认。请展开「单据与 OCR 原文」，补上供应商后再点「这批都对，去打印」。";
+  }
+  return "";
+}
+
 export function resolveOfficeInboundStep(inbound = {}) {
   if (!inbound?.id) return "scan";
   if (inbound.documentDirection === "supplier_return") {

@@ -32,6 +32,7 @@ import {
 } from "./rawMaterialInboundOcrDraft.js";
 
 export function RawMaterialInboundReceivingSections({
+  actionError = "",
   actionStates,
   canViewCost,
   detailTab,
@@ -41,8 +42,10 @@ export function RawMaterialInboundReceivingSections({
   money,
   ocrLineReviewDraft,
   ocrReviewDraft,
+  ocrReviewSubmitting = false,
   onAction,
-  onOcrReviewConfirm,
+  onOfficeException,
+  onOfficeReviewConfirm,
   onPrintLabels,
   onReprintLabel,
   selected,
@@ -63,7 +66,6 @@ export function RawMaterialInboundReceivingSections({
     review: reviewState,
     voidDraft: voidDraftState,
   } = actionStates;
-  const handleOcrReviewConfirm = onOcrReviewConfirm;
   const handlePrintLabels = onPrintLabels;
   const handleReprintLabel = onReprintLabel;
 
@@ -71,6 +73,7 @@ export function RawMaterialInboundReceivingSections({
     <>
 <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
   <OfficeInboundFlow
+    actionError={actionError}
     attachState={attachState}
     documentDraft={ocrReviewDraft}
     exceptionState={exceptionState}
@@ -78,12 +81,14 @@ export function RawMaterialInboundReceivingSections({
     lineDrafts={ocrLineReviewDraft}
     onAction={onAction}
     onDocumentDraftChange={setOcrReviewDraft}
+    onException={onOfficeException}
     onLineDraftsChange={setOcrLineReviewDraft}
     onPrint={handlePrintLabels}
-    onReview={selected.ocrProvider === "tencent_cloud_table_v3" ? handleOcrReviewConfirm : () => submitInboundAction(onAction, selected, "复核送货单")}
+    onReview={selected.ocrProvider === "tencent_cloud_table_v3" ? onOfficeReviewConfirm : () => submitInboundAction(onAction, selected, "复核送货单")}
     onVerifyRoll={(roll) => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
     printState={printState}
     reviewState={reviewState}
+    submitting={ocrReviewSubmitting}
   />
   <details className="office-receive-more">
   <summary>单据与 OCR 原文</summary>
@@ -162,7 +167,7 @@ export function RawMaterialInboundReceivingSections({
       <button
         className="primary-action"
         disabled={reviewState.disabled}
-        onClick={handleOcrReviewConfirm}
+        onClick={() => onOfficeReviewConfirm?.()}
         type="button"
       >
         确认人工复核
@@ -174,7 +179,7 @@ export function RawMaterialInboundReceivingSections({
       className="primary-action"
       disabled={reviewState.disabled || !canReviewRawMaterialInbound(selected)}
       title={reviewState.title || (!canReviewRawMaterialInbound(selected) ? "当前状态无需复核" : "")}
-      onClick={selected.ocrProvider === "tencent_cloud_table_v3" ? handleOcrReviewConfirm : () => onAction?.("复核送货单", selected.id)}
+      onClick={selected.ocrProvider === "tencent_cloud_table_v3" ? () => onOfficeReviewConfirm?.() : () => onAction?.("复核送货单", selected.id)}
     >
       复核送货单
     </button>

@@ -23,6 +23,7 @@ import {
   ToolOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
+import { receivingReceiptTab } from "../../../../src/domain/officeRawMaterialInboundFlow.js";
 import {
   canConfirmRawMaterialAttachment,
   canPrintRawMaterialLabels,
@@ -139,15 +140,7 @@ const receiptFacts = (row = {}) => {
     ? `退回 ${presentation.countLabel} / ${presentation.totalWeightLabel}`
     : `${presentation.countLabel} / ${presentation.totalWeightLabel}`;
 };
-const receiptTabFor = (row = {}) => {
-  const status = String(row.status || "");
-  if (row.documentDirection === "supplier_return") return "退货单";
-  if (row.duplicate || status.includes("异常")) return "异常";
-  if (["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(status)) return "待核对";
-  if (status === "已复核待打印标签") return "待打印";
-  if (["已打印待贴标", "部分贴标"].includes(status)) return "待贴标";
-  return "";
-};
+const receiptTabFor = (row = {}) => receivingReceiptTab(row);
 
 
 const pcNavIcons = {
@@ -391,8 +384,23 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
     const focusedTab = receiptTabFor(focused);
     if (focusedTab) { setActiveTab(focusedTab); setSelectedId(focusId); setNotice("OCR 复核草稿已保存到服务器；人工复核前不会增加可用库存。"); }
   }, [focusId]);
+  useEffect(() => {
+    if (selectedId || notice) return;
+    const fallback = records.find((row) => receiptTabFor(row) === activeTab);
+    if (fallback?.id) setSelectedId(fallback.id);
+  }, [records, selectedId, activeTab, notice]);
+  useEffect(() => {
+    if (!selectedId) return;
+    const acted = records.find((row) => row.id === selectedId);
+    const nextTab = receiptTabFor(acted);
+    if (!nextTab || nextTab === activeTab) return;
+    setActiveTab(nextTab);
+    if (nextTab === "待打印") setNotice("核对已保存。这张单已到「待打印」，请打印卷标。");
+    else if (nextTab === "异常") setNotice("已标记异常。这张单已放到「异常」。");
+  }, [records, selectedId, activeTab]);
   const tabRows = records.filter((row) => receiptTabFor(row) === activeTab);
-  const selected = selectedId ? tabRows.find((row) => row.id === selectedId) || tabRows[0] || null : notice ? null : tabRows[0] || null;
+  const actedRecord = selectedId ? records.find((row) => row.id === selectedId) || null : null;
+  const selected = selectedId ? tabRows.find((row) => row.id === selectedId) || actedRecord || tabRows[0] || null : notice ? null : tabRows[0] || null;
   const selectTab = (tab) => { const rows = records.filter((row) => receiptTabFor(row) === tab); setActiveTab(tab); setSelectedId(rows[0]?.id || ""); setNotice(""); setFlow(null); };
   const applyAction = async (action, options = {}) => {
     if (!selected) return;
@@ -450,7 +458,7 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
         }) : <div className="receipt-empty-state"><CheckCircleFilled /><strong>{notice ? "本阶段处理完成" : `${activeTab}暂无单据`}</strong><span>{notice || "切换其他状态继续查看。"}</span></div>}
       </div>
     </section>
-    {formal?.authState ? <FormalReceivingWorkspace formal={formal} selectedId={selected?.id || ""} setSelectedId={setSelectedId} /> : <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />}
+    {formal?.authState ? <FormalReceivingWorkspace formal={formal} notice={notice} selectedId={selected?.id || ""} setSelectedId={setSelectedId} /> : <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />}
   </div><ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} /></>;
 }
 

@@ -7,6 +7,9 @@ import {
   buildOfficeReviewRows,
   evaluateOfficeInboundCompletion,
   officeInboundUsesCountGate,
+  officeReviewFieldsForSubmit,
+  officeReviewSubmitBlocker,
+  receivingReceiptTab,
   replaceWidthInSpec,
   resolveOfficeInboundStep,
 } from "../src/domain/officeRawMaterialInboundFlow.js";
@@ -121,11 +124,32 @@ assert.equal(evaluateOfficeInboundCompletion(mismatched, "2").allowed, false);
 assert.match(evaluateOfficeInboundCompletion(mismatched, "2").reason, /对不上/);
 assert.equal(officeInboundUsesCountGate(mismatched), false);
 
+assert.equal(receivingReceiptTab({ status: "已识别待复核" }), "待核对");
+assert.equal(receivingReceiptTab({ status: "已复核待打印标签" }), "待打印");
+assert.equal(receivingReceiptTab({ status: "入库异常/待确认" }), "异常");
+assert.equal(receivingReceiptTab({ documentDirection: "supplier_return", status: "已识别待复核" }), "退货单");
+assert.match(officeReviewSubmitBlocker({ supplierName: "", documentDirection: "supplier_delivery" }, {}), /供应商还没确认/);
+assert.match(officeReviewSubmitBlocker({ documentDirection: "supplier_delivery" }, { supplierName: "" }), /供应商还没确认/);
+assert.equal(officeReviewSubmitBlocker({ supplierName: "河北宏尚无纺布有限公司" }, { supplierName: "" }), "");
+assert.equal(officeReviewFieldsForSubmit({ supplierName: "河北宏尚无纺布有限公司" }, { supplierName: "" }).supplierName, "河北宏尚无纺布有限公司");
+assert.equal(officeReviewSubmitBlocker({ documentDirection: "supplier_return", supplierName: "" }, {}), "");
+
 const pageSource = [
   "../src/features/raw-materials/OfficeInboundFlow.jsx",
   "../src/features/raw-materials/InboundDetail.jsx",
   "../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx",
+  "../src/features/raw-materials/useInboundPageState.js",
+  "../docs/prototypes/raw-material-roll-inventory-review/src/App.jsx",
 ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+const officeHandler = readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8");
+const desktopConfirm = officeHandler.slice(
+  officeHandler.indexOf("async function handleOfficeReviewConfirm"),
+  officeHandler.indexOf("async function handleOfficeException"),
+);
+assert.ok(desktopConfirm.includes("officeReviewFieldsForSubmit"), "desktop confirm should submit the office review fields");
+assert.equal(desktopConfirm.includes("暂缓打印"), false, "desktop「这批都对，去打印」must stay on the print step instead of deferring labels");
+assert.ok(pageSource.includes("receivingReceiptTab"), "receiving list should follow the acted sheet into its next tab");
+assert.ok(pageSource.includes("actedRecord"), "receiving detail should stay on the sheet that was just confirmed or marked");
 const printCss = readFileSync(new URL("../src/styles/features/raw-material-roll-label.css", import.meta.url), "utf8");
 for (const text of ["扫描或上传", "核对每一卷的颜色、宽幅、公斤", "这批都对，去打印", "改这一卷", "已贴张数", "确认入库", "76×130"]) {
   assert.ok(pageSource.includes(text), `office inbound screen should say ${text}`);

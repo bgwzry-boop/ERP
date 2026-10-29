@@ -71,6 +71,8 @@ export function InboundDetail({ state }) {
     handleCorrectMobileOcrToSupplierReturn,
     handleDesktopDeliveryNoteRecognize,
     handleOcrReviewConfirm,
+    handleOfficeReviewConfirm,
+    handleOfficeException,
     handlePrintLabels,
     handleReprintLabel,
     handleSupplierStatementImport,
@@ -174,6 +176,7 @@ export function InboundDetail({ state }) {
             </div>
             <div className="raw-material-detail-scroll">
               <RawMaterialInboundReceivingSections
+                actionError={ocrReviewSubmitError || meta.officeActionError || ""}
                 actionStates={{
                   attach: attachState,
                   consumption: consumptionState,
@@ -193,8 +196,10 @@ export function InboundDetail({ state }) {
                 money={money}
                 ocrLineReviewDraft={ocrLineReviewDraft}
                 ocrReviewDraft={ocrReviewDraft}
+                ocrReviewSubmitting={ocrReviewSubmitting}
                 onAction={onAction}
-                onOcrReviewConfirm={handleOcrReviewConfirm}
+                onOfficeException={handleOfficeException}
+                onOfficeReviewConfirm={handleOfficeReviewConfirm}
                 onPrintLabels={handlePrintLabels}
                 onReprintLabel={handleReprintLabel}
                 productionTasks={productionTasks}
