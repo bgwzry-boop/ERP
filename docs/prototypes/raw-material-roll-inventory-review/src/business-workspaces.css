@@ -737,3 +737,28 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .production-schedule-controls textarea, .finished-hold-release-form textarea { min-height: 76px; resize: vertical; }
 .production-queue-actions, .finished-inventory-section-heading { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .finished-inventory-stock-section article { padding: 12px 0; border-bottom: 1px solid var(--erp-border-subtle); }
+
+/* 供应商月结：上传与下一步操作（2026-10-29） */
+.supplier-upload-row { display: flex; flex-direction: column; gap: 8px; padding: 0 0 10px; }
+.supplier-upload-button { position: relative; display: inline-flex; align-self: flex-start; align-items: center; min-height: 32px; padding: 0 14px; border-radius: 6px; background: var(--erp-accent); color: var(--erp-accent-ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.supplier-upload-button.busy { opacity: .7; cursor: progress; }
+.supplier-upload-button input { position: absolute; inset: 0; opacity: 0; cursor: inherit; }
+.supplier-upload-preview { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--erp-accent-border); border-radius: 8px; background: var(--erp-accent-wash); font-size: 13px; }
+.supplier-upload-preview header { display: flex; justify-content: space-between; gap: 8px; }
+.supplier-upload-preview header span, .supplier-upload-preview p { color: var(--ink-soft); margin: 0; }
+.supplier-upload-preview footer, .supplier-action-row { display: flex; gap: 8px; justify-content: flex-end; }
+.supplier-upload-issues { margin: 0; padding-left: 18px; color: var(--red); }
+.business-notice.danger { background: var(--erp-danger-bg); color: var(--erp-danger); }
+.supplier-next-action button, .supplier-upload-preview button { min-height: 32px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 13px; cursor: pointer; }
+.supplier-next-action button.primary, .supplier-upload-preview button.primary { border-color: var(--erp-accent); background: var(--erp-accent); color: var(--erp-accent-ink); font-weight: 600; }
+.supplier-next-action button:disabled, .supplier-upload-preview button:disabled { opacity: .55; cursor: not-allowed; }
+.supplier-payment-form { display: grid; gap: 10px; }
+.supplier-payment-form label { display: grid; gap: 4px; font-size: 12px; color: var(--ink-soft); }
+.supplier-payment-form input, .supplier-payment-form select { min-height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 13px; }
+.supplier-payment-hint { margin: 0; font-size: 12px; color: var(--green); }
+.supplier-payment-hint.warn { color: var(--erp-warning); }
+.supplier-payment-history { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.supplier-payment-history li { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.supplier-payment-history small { grid-column: 1 / -1; color: var(--ink-soft); font-size: 12px; }
+.supplier-action-done { margin: 12px 0 0; color: var(--green); font-size: 13px; }
+.supplier-action-blocked { margin: 12px 0 0; color: var(--erp-warning); font-size: 13px; }

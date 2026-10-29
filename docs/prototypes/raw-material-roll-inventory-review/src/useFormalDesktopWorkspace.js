@@ -9,6 +9,11 @@ import { listOfficeInventoryItems } from "../../../../src/services/officeInvento
 import { listOfficeFulfillments } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { listOfficeStatementCustomers } from "../../../../src/services/officeStatementApiClient.js";
 import {
+  confirmOfficeRawMaterialSupplierPayment,
+  confirmOfficeRawMaterialSupplierStatement,
+  confirmOfficeRawMaterialSupplierStatementReview,
+  createOfficeRawMaterialSupplierStatementReviewDraft,
+  generateOfficeRawMaterialSupplierPayableDraft,
   listOfficeRawMaterialInbounds,
   listOfficeRawMaterialSupplierStatementReviews,
   recognizeOfficeRawMaterialDeliveryNote,
@@ -29,6 +34,7 @@ import {
   updateOfficeMasterDataEmployeeProfile,
 } from "../../../../src/services/officeMasterDataImportApiClient.js";
 import { prepareRawMaterialDeliveryNoteFile } from "../../../../src/services/rawMaterialDeliveryNoteImageClient.js";
+import { precheckRawMaterialSupplierStatementWorkbook } from "../../../../src/domain/rawMaterialSupplierStatementImport.js";
 
 const operatorId = "U-MANAGER-A";
 const readOptions = Object.freeze({ serverRequired: true });
@@ -332,6 +338,75 @@ export function useFormalDesktopWorkspace() {
     return result;
   }, []);
 
+  // 供应商月结：上传对账单 → 核对 → 确认对账 → 生成应付 → 登记付款（可分次、可抹零）。
+  const precheckSupplierStatement = useCallback(async (file, supplierName = "") => {
+    if (!file) return { source: "ui_error", blocked: true, error: { message: "请选择供应商月结 Excel。" } };
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await precheckRawMaterialSupplierStatementWorkbook({
+        bytes,
+        fileName: file.name,
+        supplierName,
+        existingInbounds: data.rawMaterialInbounds,
+      });
+      return { source: "local_precheck", result };
+    } catch (error) {
+      return { source: "ui_error", blocked: true, error: { message: `Excel 无法读取，请确认是 .xlsx 文件：${error?.message || error}` } };
+    }
+  }, [data.rawMaterialInbounds]);
+
+  const runSupplierStatementWrite = useCallback(async (write) => {
+    const result = await write({
+      authState: authStateRef.current,
+      operatorId,
+      operatorName: authStateRef.current?.permissions?.user?.displayName || "办公室A",
+    });
+    if (result?.source === "api") await readCollection("supplierStatementReviews");
+    return result;
+  }, [readCollection]);
+
+  const saveSupplierStatementReviewDraft = useCallback((statementResult) => runSupplierStatementWrite((base) =>
+    createOfficeRawMaterialSupplierStatementReviewDraft({
+      ...base,
+      statementResult,
+      supplierName: statementResult?.supplierName || "",
+      fileName: statementResult?.fileName || "",
+      note: "办公室上传供应商月结 Excel 并保存预检结果，等待核对。",
+    }, readOptions)), [runSupplierStatementWrite]);
+
+  const confirmSupplierStatementReview = useCallback((reviewId, decision) => runSupplierStatementWrite((base) =>
+    confirmOfficeRawMaterialSupplierStatementReview({
+      ...base,
+      reviewId,
+      decision,
+      note: decision === "一致" ? "办公室核对：对账单与 ERP 入库一致。" : "办公室核对：对账单与 ERP 入库有差异，需与供应商核实。",
+    }, readOptions)), [runSupplierStatementWrite]);
+
+  const confirmSupplierStatement = useCallback((reviewId) => runSupplierStatementWrite((base) =>
+    confirmOfficeRawMaterialSupplierStatement({
+      ...base,
+      reviewId,
+      note: "确认供应商月结对账一致；进入待付款，不直接付款。",
+    }, readOptions)), [runSupplierStatementWrite]);
+
+  const generateSupplierPayable = useCallback((reviewId) => runSupplierStatementWrite((base) =>
+    generateOfficeRawMaterialSupplierPayableDraft({
+      ...base,
+      reviewId,
+      note: "基于已确认的供应商月结生成应付。",
+    }, readOptions)), [runSupplierStatementWrite]);
+
+  const confirmSupplierPayment = useCallback((reviewId, payment = {}) => runSupplierStatementWrite((base) =>
+    confirmOfficeRawMaterialSupplierPayment({
+      ...base,
+      reviewId,
+      paidAmount: payment.paidAmount,
+      roundingAmount: payment.roundingAmount,
+      paymentMethod: payment.paymentMethod || "银行转账",
+      paymentReferenceNo: payment.paymentReferenceNo,
+      note: payment.note || "登记供应商付款；不影响原材料库存。",
+    }, readOptions)), [runSupplierStatementWrite]);
+
   const actions = useMemo(() => ({
     focusOrderDraft,
     setOrderEntryWritePending,
@@ -347,7 +422,13 @@ export function useFormalDesktopWorkspace() {
     saveOrderDraft,
     updateEmployeeProfile,
     updateRawMaterialInbound,
-  }), [confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
+    precheckSupplierStatement,
+    saveSupplierStatementReviewDraft,
+    confirmSupplierStatementReview,
+    confirmSupplierStatement,
+    generateSupplierPayable,
+    confirmSupplierPayment,
+  }), [precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
 
   return {
     actions,
