@@ -159,6 +159,14 @@
   letter-spacing: -0.04em;
 }
 
+.raw-material-roll-label-grid td.is-fit-wrap {
+  padding-top: 0.2mm;
+  padding-bottom: 0.2mm;
+  line-height: 1.08;
+  white-space: normal;
+  word-break: break-all;
+}
+
 .raw-material-roll-label-grid .is-banner td {
   font-size: 9.5pt;
   font-weight: 800;
