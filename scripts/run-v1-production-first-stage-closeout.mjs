@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { redactRuntimeSmokeText } from "./run-v1-production-runtime-smoke.mjs";
-import { validateV1FieldEvidenceManifest } from "./v1FieldEvidenceManifest.mjs";
+import { RAW_MATERIAL_FIRST_RELEASE_SCOPE } from "../server/services/firstReleaseScopeService.mjs";
+import { summarizeReleaseBatchSignoffs, validateV1FieldEvidenceManifest } from "./v1FieldEvidenceManifest.mjs";
 
 const defaultPersistenceEvidencePath = ".erp-local-storage/v1-production-persistence-evidence/latest.json";
 const defaultRuntimeSmokePath = ".erp-local-storage/v1-production-runtime-smoke/latest.json";
@@ -245,6 +246,7 @@ function buildProductionFirstStageCloseout({
       readyDetail: "bucket 策略、附件读回、签名 URL、访问审计和对账导出现场证据均已填写。",
       blockedDetail: "object_storage 仍有现场证据未完成。",
     }),
+    buildBatchSignoffStage(manifestValidation),
     buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, todoLoadArtifact, manifestValidation }),
   ];
   const passedCount = stages.filter((item) => item.status === "passed").length;
@@ -512,6 +514,38 @@ function buildTodoLoadProductionTargetStage(todoLoadArtifact) {
     nextAction: passed
       ? "继续检查报告时效和安全护栏。"
       : "对真实非本机 HTTPS 长驻生产 API 显式运行待办只读容量预检查后重跑 closeout。",
+  };
+}
+
+function buildBatchSignoffStage(manifestValidation) {
+  const batch = summarizeReleaseBatchSignoffs(
+    manifestValidation?.schemaValid === true ? manifestValidation.signoffs : [],
+    RAW_MATERIAL_FIRST_RELEASE_SCOPE,
+  );
+  return {
+    key: "first-stage-batch-signoffs",
+    label: "第一批上线签字",
+    status: batch.ready ? "passed" : "blocked",
+    ready: batch.ready,
+    detail: batch.ready
+      ? `第一批（办公室原材料）所需签字 ${batch.completed}/${batch.total} 已完成。`
+      : `第一批（办公室原材料）还需签字：${batch.pendingRoles.join("、")}。其余岗位等对应模块上线时再签。`,
+    summary: {
+      label: `${batch.completed}/${batch.total} 通过`,
+      passedCount: batch.completed,
+      totalCount: batch.total,
+      blockingCount: batch.total - batch.completed,
+      warningCount: 0,
+    },
+    evidence: {
+      batch: batch.batch,
+      roles: batch.roles,
+      pendingRoles: batch.pendingRoles,
+      signerNamesIncluded: false,
+    },
+    nextAction: batch.ready
+      ? "继续检查安全护栏。"
+      : "由办公室试用人员和技术/管理负责人在现场证据清单中签字后重跑 closeout。",
   };
 }
 
