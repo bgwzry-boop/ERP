@@ -12,8 +12,11 @@ import "../../../../src/styles/features/raw-material-mobile.css";
 import "../../../../src/styles/features/raw-material-foundation.css";
 import "../../../../src/styles/features/raw-material-print.css";
 
-export function FormalReceivingWorkspace({ formal, selectedId, setSelectedId }) {
+export function FormalReceivingWorkspace({ formal, notice = "", selectedId, setSelectedId }) {
   const [saveError, setSaveError] = useState("");
+  useEffect(() => {
+    setSaveError("");
+  }, [selectedId]);
   const user = formal.permissionContext?.user;
   const selected = formal.data.rawMaterialInbounds.find((item) => item.id === selectedId);
   const material = buildReceiptMaterialPresentation(selected);
@@ -48,7 +51,7 @@ export function FormalReceivingWorkspace({ formal, selectedId, setSelectedId }) 
     helpers: { getUiActionState: (surface, action) => getUiActionState(formal.permissionContext, surface, action) },
     inbounds: formal.data.rawMaterialInbounds,
     initialDesktopView: "收货录入",
-    meta: { source: formal.meta.errors.rawMaterialInbounds ? "api_error" : "api", loading: formal.meta.loading, error: saveError || formal.meta.errors.rawMaterialInbounds || "", lastSyncedAt: formal.meta.lastSyncedAt },
+    meta: { source: formal.meta.errors.rawMaterialInbounds ? "api_error" : "api", loading: formal.meta.loading, error: saveError || formal.meta.errors.rawMaterialInbounds || "", officeActionError: saveError, lastSyncedAt: formal.meta.lastSyncedAt },
     onAction: updateInbound,
     onDeliveryNoteRecognize: recognizeDeliveryNote,
     productionTasks: formal.data.productionTasks,
@@ -57,9 +60,10 @@ export function FormalReceivingWorkspace({ formal, selectedId, setSelectedId }) 
     statementReviews: formal.data.supplierStatementReviews,
   });
   return <div className="formal-receiving-workspace">
+    {notice ? <p className="receipt-flow-notice visible" role="status">{notice}</p> : null}
     {selected ? <dl className="receipt-facts"><div><dt>类型</dt><dd>{material.materialType}</dd></div><div><dt>宽幅</dt><dd>{material.widthLabel}</dd></div></dl> : null}
     <RawMaterialLabelPrintSheet inbound={state.printSheetInbound} />
     <InboundDetail state={{ ...state, mobileOcrReviewActive: false }} />
   </div>;
 }
-import { useState } from "react";
+import { useEffect, useState } from "react";

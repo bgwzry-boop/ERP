@@ -9,10 +9,12 @@ import {
   evaluateOfficeInboundCompletion,
   listOfficePrintableRolls,
   officeInboundUsesCountGate,
+  officeReviewSubmitBlocker,
   resolveOfficeInboundStep,
 } from "../../domain/officeRawMaterialInboundFlow.js";
 
 export function OfficeInboundFlow({
+  actionError = "",
   attachState,
   documentDraft,
   exceptionState,
@@ -20,6 +22,7 @@ export function OfficeInboundFlow({
   lineDrafts,
   onAction,
   onDocumentDraftChange,
+  onException,
   onLineDraftsChange,
   onPrint,
   onReview,
@@ -71,6 +74,9 @@ export function OfficeInboundFlow({
   }
 
   const canEdit = step === "review";
+  const reviewBlocker = canEdit ? officeReviewSubmitBlocker(inbound, documentDraft) : "";
+  const actionAlert = actionError && actionError !== reviewBlocker ? actionError : "";
+  const markedException = String(inbound?.status || "").includes("异常");
   return (
     <section className="office-inbound-flow raw-material-ocr-review-panel" aria-label="办公室收货">
       <OfficeRollTable
@@ -84,24 +90,31 @@ export function OfficeInboundFlow({
       {step === "complete" && completion.reason && (stickCount.trim() || !completion.reason.startsWith("先填写")) ? (
         <p className="office-inbound-block" role="status">{completion.reason}</p>
       ) : null}
+      {reviewBlocker ? <p className="office-inbound-block" role="status">{reviewBlocker}</p> : null}
+      {actionAlert ? <p className="office-inbound-block" role="alert">{actionAlert}</p> : null}
+      {markedException && step === "scan" ? <p className="office-inbound-block" role="status">已标记异常。补齐供应商、重量或原图后再重新复核。</p> : null}
       <div className="office-inbound-actions">
         {canEdit ? (
           <>
             <button
               className="primary-action"
-              disabled={Boolean(reviewState?.disabled) || submitting || Boolean(blockedRow) || Boolean(editingId)}
-              onClick={onReview}
+              disabled={Boolean(reviewState?.disabled) || submitting || Boolean(blockedRow) || Boolean(reviewBlocker) || Boolean(editingId)}
+              onClick={() => onReview?.()}
+              title={reviewBlocker || reviewState?.title || ""}
               type="button"
             >
               {submitting ? "正在保存…" : isReturn ? "确认退货，不入库" : "这批都对，去打印"}
             </button>
             {isReturn ? null : (
               <button
-                disabled={Boolean(exceptionState?.disabled)}
-                onClick={() => submitInboundAction(onAction, inbound, "标记异常", { reason: "办公室核对时标记异常。" })}
+                disabled={Boolean(exceptionState?.disabled) || submitting}
+                onClick={() => {
+                  if (onException) onException({ reason: "办公室核对时标记异常。" });
+                  else submitInboundAction(onAction, inbound, "标记异常", { reason: "办公室核对时标记异常。" });
+                }}
                 type="button"
               >
-                标记异常
+                {submitting ? "正在保存…" : "标记异常"}
               </button>
             )}
           </>
