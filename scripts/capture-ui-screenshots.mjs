@@ -39,19 +39,40 @@ async function settle(page) {
   await page.waitForTimeout(900);
 }
 
-async function clickNav(page, label) {
+// 侧边栏是分组折叠的（今日工作 / 订单 / 库存交付 / 对账 / 更多工作台）：
+// 先找可见的同名按钮；找不到就逐个展开折叠的分组再找。找不到时返回 false，不中断整个截图流程。
+async function findVisibleNavItem(page, label) {
   const sidebar = page.locator("aside.sidebar");
-  const candidate = sidebar.getByRole("button", { name: new RegExp(`^${label.replace(/[/]/g, "\\/")}`) }).first();
-  if (await candidate.count()) {
-    await candidate.click();
-    return true;
+  const escaped = label.replace(/[/]/g, "\\/");
+  for (const locator of [
+    sidebar.getByRole("button", { name: new RegExp(`^${escaped}`) }),
+    sidebar.getByText(label, { exact: true }),
+  ]) {
+    const count = await locator.count();
+    for (let i = 0; i < count; i += 1) {
+      const item = locator.nth(i);
+      if (await item.isVisible()) return item;
+    }
   }
-  const byText = sidebar.getByText(label, { exact: true }).first();
-  if (await byText.count()) {
-    await byText.click();
-    return true;
+  return null;
+}
+
+async function clickNav(page, label) {
+  let item = await findVisibleNavItem(page, label);
+  if (!item) {
+    const triggers = page.locator('aside.sidebar .nav-group-trigger[aria-expanded="false"]');
+    const total = await triggers.count();
+    for (let i = 0; i < total && !item; i += 1) {
+      const trigger = page.locator('aside.sidebar .nav-group-trigger[aria-expanded="false"]').first();
+      if (!(await trigger.count())) break;
+      await trigger.click();
+      await page.waitForTimeout(150);
+      item = await findVisibleNavItem(page, label);
+    }
   }
-  return false;
+  if (!item) return false;
+  await item.click();
+  return true;
 }
 
 for (const viewport of viewports) {
