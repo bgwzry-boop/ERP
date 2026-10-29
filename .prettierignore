@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+coverage/
+screenshots/
+audit/
+qa/
+review-e2e/
+docs/
+db/migrations/
+deploy/
+package-lock.json
+scripts/design-token-baseline.json
+*.md

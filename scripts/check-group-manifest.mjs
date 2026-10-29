@@ -9,6 +9,7 @@ export const CHECK_GROUPS = Object.freeze({
   ]),
   test: Object.freeze([
     "lint",
+    "design-tokens:check",
     "system-v1-readiness-service:check",
     "file-retention-v1-readiness-service:check",
     "v1-storage-live-precheck-service:check",

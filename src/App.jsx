@@ -9,6 +9,7 @@ import {
   useRuntimeSessionRevalidation,
 } from "./app/useRuntimeSessionExpiry.js";
 import { DataState } from "./shared/ui/operational.jsx";
+import { PageErrorBoundary } from "./shared/ui/PageErrorBoundary.jsx";
 import {
   createInitialAuthState,
   isOfficeApiServerRequired,
@@ -109,17 +110,19 @@ export function App({ signedPreviewUserId = "" } = {}) {
   }
 
   return (
-    <Suspense fallback={<DataState title="业务工作台加载中" />}>
-      <OfficeWorkbench
-        authState={authState}
-        formalLoginRequired={formalLoginRequired}
-        logoutRuntimeUserSession={logoutRuntimeUserSession}
-        signedPreviewMode={Boolean(signedPreviewAuthOptions)}
-        runtimeLoginLoading={runtimeLoginLoading}
-        runtimeNotice={runtimeNotice}
-        runtimeServerRequired={runtimeServerRequired}
-        switchSeedUser={switchSeedUser}
-      />
-    </Suspense>
+    <PageErrorBoundary scope="workbench" title="业务工作台加载出错">
+      <Suspense fallback={<DataState title="业务工作台加载中" />}>
+        <OfficeWorkbench
+          authState={authState}
+          formalLoginRequired={formalLoginRequired}
+          logoutRuntimeUserSession={logoutRuntimeUserSession}
+          signedPreviewMode={Boolean(signedPreviewAuthOptions)}
+          runtimeLoginLoading={runtimeLoginLoading}
+          runtimeNotice={runtimeNotice}
+          runtimeServerRequired={runtimeServerRequired}
+          switchSeedUser={switchSeedUser}
+        />
+      </Suspense>
+    </PageErrorBoundary>
   );
 }
