@@ -32,32 +32,41 @@ export function resolvePickTarget(task = {}) {
   return clean(task.machineLabel || task.machineId);
 }
 
-function pickedTaskIds(inbounds = []) {
-  const ids = new Set();
+// What has already been picked for each task: rolls and weight. A task needs
+// as many rolls as its material weight requires; any roll that matches the
+// task's width and colour will do.
+function pickedByTask(inbounds = []) {
+  const byTask = new Map();
   for (const inbound of Array.isArray(inbounds) ? inbounds : []) {
     for (const record of inbound?.rawMaterialIssueRecords ?? []) {
-      if (clean(record?.productionTaskId)) ids.add(clean(record.productionTaskId));
+      const id = clean(record?.productionTaskId);
+      if (!id) continue;
+      const current = byTask.get(id) || { rollCount: 0, weightKg: 0 };
+      current.rollCount += 1;
+      current.weightKg = Math.round((current.weightKg + (Number(record.issuedWeightKg) || 0)) * 100) / 100;
+      byTask.set(id, current);
     }
   }
-  return ids;
+  return byTask;
 }
 
 export function buildRawMaterialPickList({ queueItems = [], inbounds = [], workshop = "" } = {}) {
   const items = (Array.isArray(queueItems) ? queueItems : []).filter((item) => clean(item?.productionTaskId));
-  const picked = pickedTaskIds(inbounds);
+  const picked = pickedByTask(inbounds);
   const printedLines = new Set(items
     .filter((item) => resolvePickWorkshop(item) === PRINT_WORKSHOP && picked.has(clean(item.productionTaskId)))
     .map((item) => clean(item.orderLineId))
     .filter(Boolean));
   return items
     .filter((item) => !closedStatuses.has(clean(item.status || item.taskStatus)))
-    .filter((item) => !picked.has(clean(item.productionTaskId)))
     // Printed material moves on to bag-making for the same order line; no second scan.
     .filter((item) => !(resolvePickWorkshop(item) !== PRINT_WORKSHOP && printedLines.has(clean(item.orderLineId))))
     .filter((item) => !workshop || resolvePickWorkshop(item) === workshop)
     .sort((a, b) => (Number(a.queueSeq) || 0) - (Number(b.queueSeq) || 0))
     .map((item) => {
       const requirement = calculateRawMaterialOrderRequirement({ size: item.size, plannedQty: item.plannedQty });
+      const done = picked.get(clean(item.productionTaskId)) || { rollCount: 0, weightKg: 0 };
+      const requiredWeightKg = requirement.status === "已计算" ? requirement.requiredWeightKg : 0;
       return {
         productionTaskId: clean(item.productionTaskId),
         orderLineId: clean(item.orderLineId),
@@ -69,8 +78,15 @@ export function buildRawMaterialPickList({ queueItems = [], inbounds = [], works
         plannedQty: Number(item.plannedQty) || 0,
         requiredColor: clean(item.bagColor),
         requiredWidthCm: requirement.status === "已计算" ? requirement.requiredWidthCm : 0,
+        requiredWeightKg,
+        pickedRollCount: done.rollCount,
+        pickedWeightKg: done.weightKg,
+        remainingWeightKg: requiredWeightKg ? Math.max(0, Math.round((requiredWeightKg - done.weightKg) * 100) / 100) : 0,
       };
-    });
+    })
+    // A task leaves the list once enough material has been picked. Without a
+    // computable weight it stays (showing rolls picked so far) until the task closes.
+    .filter((task) => !(task.requiredWeightKg && task.pickedWeightKg >= task.requiredWeightKg));
 }
 
 // Compares the scanned roll with what the task needs. Any mismatch blocks the

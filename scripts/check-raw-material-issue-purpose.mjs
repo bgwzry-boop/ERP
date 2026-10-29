@@ -32,7 +32,7 @@ const queueItems = [
   { productionTaskId: "PT-B5", orderLineId: "OL-2", machineId: "BAG-05", taskType: "制袋", size: "30*37*8", bagColor: "白" },
   { productionTaskId: "PT-B1", orderLineId: "OL-4", machineId: "BAG-01", taskType: "制袋", status: "已完成" },
 ];
-const pickedPrint = [{ rawMaterialIssueRecords: [{ productionTaskId: "PT-P1" }] }];
+const pickedPrint = [{ rawMaterialIssueRecords: [{ productionTaskId: "PT-P1", issuedWeightKg: 20 }] }];
 assert.equal(resolvePickWorkshop({ machineId: "BAG-02" }), "1号车间");
 assert.equal(resolvePickWorkshop({ machineId: "BAG-07" }), "3号车间");
 assert.equal(resolvePickWorkshop({ taskType: "丝印" }), "丝印车间");
@@ -51,6 +51,14 @@ const wrong = checkRollAgainstPickTask(task, { widthCm: 90, factoryColor: "绿" 
 assert.equal(wrong.ok, false);
 assert.equal(wrong.problems.length, 2);
 assert.match(wrong.problems.join(" "), /宽幅不对.*颜色不对/);
+// Any matching roll will do, and a task keeps its place until enough weight is picked.
+assert.ok(task.requiredWeightKg > 0);
+const oneRoll = [{ rawMaterialIssueRecords: [{ productionTaskId: "PT-B2", issuedWeightKg: 1 }] }];
+const afterOne = buildRawMaterialPickList({ queueItems, inbounds: oneRoll, workshop: "1号车间" })[0];
+assert.equal(afterOne.pickedRollCount, 1);
+assert.ok(afterOne.remainingWeightKg > 0 && afterOne.remainingWeightKg < task.requiredWeightKg);
+const enough = [{ rawMaterialIssueRecords: [{ productionTaskId: "PT-B2", issuedWeightKg: task.requiredWeightKg }] }];
+assert.deepEqual(buildRawMaterialPickList({ queueItems, inbounds: enough, workshop: "1号车间" }), []);
 
 const page = readFileSync(new URL("../src/features/raw-materials/RawMaterialScannerPage.jsx", import.meta.url), "utf8");
 assert.match(page, /startDriverPackageCameraScanner/, "workers scan the roll QR with the phone camera");

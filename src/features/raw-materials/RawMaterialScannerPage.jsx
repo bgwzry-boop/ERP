@@ -187,10 +187,9 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
       });
       setMatchedCode("");
       setNote("");
-      if (productionTaskId) {
-        setSelectedTaskId("");
-        loadQueue();
-      }
+      // Stay on the task so the 杂工 can scan the next roll; the list drops the
+      // task by itself once enough material has been picked.
+      if (productionTaskId) loadQueue();
     } finally {
       setSubmitting(false);
     }
@@ -232,8 +231,8 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
           {workshop && !queue.loading ? (pickList.length ? pickList.map((task) => (
             <button className="raw-material-pick-task" key={task.productionTaskId} onClick={() => { setSelectedTaskId(task.productionTaskId); resetScan(); }} type="button">
               <span>{task.target} · {task.taskType}</span>
-              <strong>需要：{task.requiredWidthCm ? `${task.requiredWidthCm}cm 宽` : "宽幅待确认"} · {task.requiredColor || "颜色待确认"}</strong>
-              <small>{task.customerName || "客户待确认"} · {task.size || "尺寸待确认"} · {task.plannedQty ? `${task.plannedQty} 个` : "数量待确认"} · {task.productionTaskId}</small>
+              <strong>需要：{task.requiredWidthCm ? `${task.requiredWidthCm}cm 宽` : "宽幅待确认"} · {task.requiredColor || "颜色待确认"}{task.requiredWeightKg ? ` · 约 ${task.requiredWeightKg}kg` : ""}</strong>
+              <small>{task.pickedRollCount ? `已领 ${task.pickedRollCount} 卷${task.remainingWeightKg ? `，还差约 ${task.remainingWeightKg}kg` : ""} · ` : ""}{task.customerName || "客户待确认"} · {task.size || "尺寸待确认"} · {task.plannedQty ? `${task.plannedQty} 个` : "数量待确认"} · {task.productionTaskId}</small>
             </button>
           )) : <p className="raw-material-scan-feedback">{workshop} 暂时没有要领料的任务。</p>) : null}
           <button className="raw-material-free-mode" onClick={() => { setFreeMode(true); resetScan(); }} type="button">试用期：没有任务，直接出库</button>
@@ -242,7 +241,7 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
       ) : (
         <>
           <div className="raw-material-pick-current">
-            {selectedTask ? <div><span>当前任务 · {selectedTask.target}</span><strong>需要：{selectedTask.requiredWidthCm ? `${selectedTask.requiredWidthCm}cm 宽` : "宽幅待确认"} · {selectedTask.requiredColor || "颜色待确认"}</strong><small>{selectedTask.customerName || "客户待确认"} · {selectedTask.size || ""} · {selectedTask.productionTaskId}</small></div>
+            {selectedTask ? <div><span>当前任务 · {selectedTask.target}</span><strong>需要：{selectedTask.requiredWidthCm ? `${selectedTask.requiredWidthCm}cm 宽` : "宽幅待确认"} · {selectedTask.requiredColor || "颜色待确认"}</strong><small>库房里任意一卷符合的都可以出。{selectedTask.pickedRollCount ? `已领 ${selectedTask.pickedRollCount} 卷，` : ""}{selectedTask.remainingWeightKg ? `还差约 ${selectedTask.remainingWeightKg}kg` : ""} · {selectedTask.productionTaskId}</small></div>
               : <div><span>试用期无任务出库</span><strong>暂不关联订单</strong></div>}
             <button onClick={leaveScan} type="button">换任务</button>
           </div>
