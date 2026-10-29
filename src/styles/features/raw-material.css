@@ -1591,3 +1591,48 @@
     min-height: 620px;
   }
 }
+
+/* 2026-10-29：手机相机扫码、用途选择（制袋 / 印刷） */
+.raw-material-scan-form .raw-material-camera-button {
+  min-height: 48px;
+  border: 1px solid var(--erp-accent);
+  border-radius: 11px;
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-soft-ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.raw-material-camera-preview {
+  width: 100%;
+  max-height: 46vh;
+  border-radius: 11px;
+  background: var(--erp-media-backdrop);
+  object-fit: cover;
+}
+
+.raw-material-purpose-field {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.raw-material-purpose-field label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  border: 1px solid var(--erp-border);
+  border-radius: 11px;
+  padding: 0 12px;
+  color: var(--erp-text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.raw-material-purpose-field label:has(input:checked) {
+  border-color: var(--erp-accent);
+  background: var(--erp-accent-wash);
+}

@@ -37,3 +37,41 @@ export function getRawMaterialScanOutboundBlocker(match) {
   if (!(Number(match.roll.weightKg) > 0)) return "这卷缺少真实重量，不能扫码出库。";
   return "";
 }
+
+// 2026-10-29 owner decision: workers take rolls for two purposes, by scanning
+// the roll QR on their own phones. Linking the roll to an order (through its
+// production task) is optional during the trial and required later.
+export const RAW_MATERIAL_ISSUE_PURPOSES = Object.freeze([
+  Object.freeze({ key: "bag_making", label: "制袋（空白通货）" }),
+  Object.freeze({ key: "printing", label: "印刷（先印后制袋）" }),
+]);
+
+export function buildRawMaterialIssuePurpose(purposeKey, productionTaskId = "") {
+  const purpose = RAW_MATERIAL_ISSUE_PURPOSES.find((item) => item.key === purposeKey);
+  if (!purpose) return "";
+  return productionTaskId ? `${purpose.label}` : `${purpose.label}·暂不关联订单`;
+}
+
+const closedTaskStatuses = new Set(["已完成", "已取消", "已作废", "completed", "cancelled", "voided"]);
+
+export function listRawMaterialIssueTaskOptions(productionTasks = [], machineId = "") {
+  const machine = String(machineId ?? "").replace(/\s+/g, "");
+  return (Array.isArray(productionTasks) ? productionTasks : [])
+    .filter((task) => task && !closedTaskStatuses.has(String(task.status ?? "").trim()))
+    .filter((task) => {
+      const taskMachine = String(task.machineId ?? task.machine_id ?? "").replace(/\s+/g, "");
+      return !machine || !taskMachine || taskMachine === machine;
+    })
+    .map((task) => {
+      const id = String(task.productionTaskId ?? task.production_task_id ?? task.id ?? "").trim();
+      const line = task.orderLine ?? {};
+      const parts = [
+        id,
+        task.customerName || line.customerName,
+        task.goodsSpec || task.spec || line.size,
+        task.orderLineId || line.orderLineId ? `订单行 ${task.orderLineId || line.orderLineId}` : "",
+      ].filter(Boolean);
+      return { id, label: parts.join(" · ") };
+    })
+    .filter((option) => option.id);
+}
