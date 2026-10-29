@@ -105,6 +105,36 @@
   padding: 8px 10px;
 }
 
+/* 底部的次要操作（如「标记异常」）没有类名，统一成次按钮，不再是浏览器默认样式 */
+.office-inbound-actions button:not([class]) {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.office-inbound-actions button:not([class]):hover:not(:disabled) {
+  border-color: var(--erp-text-faint);
+  background: var(--erp-surface-subtle);
+}
+
+.office-inbound-actions button:not([class]):disabled {
+  color: var(--erp-disabled-text);
+  background: var(--erp-surface-subtle);
+  cursor: not-allowed;
+}
+
+/* 「第 1 卷」不换行 */
+.office-roll-row > strong {
+  white-space: nowrap;
+}
+
 .office-inbound-done {
   color: var(--erp-text-muted);
   font-size: 13px;

@@ -244,3 +244,15 @@
 .app-shell .order-ledger-row > :nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
 .app-shell .order-ledger-row { font-size: 14px; }
 .app-shell .order-ledger-row.head { color: var(--erp-text-muted); font-size: 13px; font-weight: 600; }
+
+/* 订单池选中行：与通用表格一致的浅橙底 + 品牌橙竖条；数量列与状态列留出间距 */
+.app-shell button.order-ledger-row.selected { background: var(--erp-accent-wash); box-shadow: inset 3px 0 0 var(--erp-brand); }
+.app-shell .order-ledger-row > :nth-child(3) { padding-right: 16px; }
+
+/* 「对账关联」等说明框是信息提示，用信息蓝，不用操作橙 */
+.app-shell .business-boundary { border-color: var(--erp-info-border); background: var(--erp-info-bg); color: var(--erp-info); }
+.app-shell .business-boundary strong { color: var(--erp-info); }
+.app-shell .business-boundary p { color: var(--erp-text-muted); font-size: 13px; }
+
+/* 右对齐的金额列与下一列之间留出间距 */
+.app-shell .business-row > [data-numeric="true"] { padding-right: 16px; }
