@@ -23,19 +23,21 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Capture PR branch
         run: |
-          setsid npx vite --host 127.0.0.1 --port 5173 --strictPort > /tmp/head-vite.log 2>&1 &
+          npx vite build > /tmp/head-vite.log 2>&1
+          setsid npx vite preview --host 127.0.0.1 --port 5173 --strictPort >> /tmp/head-vite.log 2>&1 &
           for i in {1..60}; do curl -fs http://127.0.0.1:5173/ >/dev/null && break; sleep 1; done
           node scripts/capture-ui-screenshots.mjs ui-shots/head http://127.0.0.1:5173/
-          pkill -f "vite --host 127.0.0.1 --port 5173" || true
+          pkill -f "vite preview --host 127.0.0.1 --port 5173" || true
       - name: Capture base branch
         run: |
           git worktree add /tmp/base "origin/${{ github.base_ref }}"
           cd /tmp/base
           npm ci
-          setsid npx vite --host 127.0.0.1 --port 5174 --strictPort > /tmp/base-vite.log 2>&1 &
+          npx vite build > /tmp/base-vite.log 2>&1
+          setsid npx vite preview --host 127.0.0.1 --port 5174 --strictPort >> /tmp/base-vite.log 2>&1 &
           for i in {1..60}; do curl -fs http://127.0.0.1:5174/ >/dev/null && break; sleep 1; done
           node "$GITHUB_WORKSPACE/scripts/capture-ui-screenshots.mjs" "$GITHUB_WORKSPACE/ui-shots/base" http://127.0.0.1:5174/
-          pkill -f "vite --host 127.0.0.1 --port 5174" || true
+          pkill -f "vite preview --host 127.0.0.1 --port 5174" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
