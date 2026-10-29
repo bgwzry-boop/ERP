@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
 import {
   createDisabledPermissionContext,
   resolvePermissionAssignment,
@@ -490,43 +490,88 @@ export function getRuntimePasswordExpiresAt(user = {}, options = {}) {
   return new Date(changedAtMs + runtimeAccountSecurityPolicy.passwordMaxAgeDays * 24 * 60 * 60 * 1000).toISOString();
 }
 
-export function hashRuntimeUserPassword(password, options = {}) {
+// 密码哈希分成“准备输入 → scrypt → 组装/比较”三步。同步和异步版本共用前后两步，只有 scrypt 调用不同，
+// 保证两者产出完全相同的哈希。HTTP 登录和改密码走异步版本，避免 scrypt 阻塞事件循环；
+// 种子数据、脚本等一次性调用仍可使用同步版本。
+function prepareRuntimePasswordHash(password, options = {}) {
   const userId = String(options.userId ?? "").trim();
   if (!userId) throw new Error("A runtime user ID is required before hashing a password.");
-  const encodedUserId = encodeBase64Url(userId);
   const salt = resolveRuntimePasswordSalt(options.salt);
-  const passwordInput = createHmac("sha256", resolveAuthSecret(options))
-    .update(`${runtimePasswordHashPrefix}:${userId}:${String(password ?? "")}`)
-    .digest();
-  const digest = scryptSync(passwordInput, salt, runtimePasswordDigestBytes, runtimePasswordScryptOptions);
-  return `${runtimePasswordHashPrefix}.${encodedUserId}.${salt.toString("base64url")}.${digest.toString("base64url")}`;
+  return { userId, salt, passwordInput: createRuntimePasswordInput(userId, password, options) };
 }
 
-export function verifyRuntimeUserPassword(user = {}, password, options = {}) {
+function createRuntimePasswordInput(userId, password, options = {}) {
+  return createHmac("sha256", resolveAuthSecret(options))
+    .update(`${runtimePasswordHashPrefix}:${userId}:${String(password ?? "")}`)
+    .digest();
+}
+
+function formatRuntimePasswordHash({ userId, salt }, digest) {
+  return `${runtimePasswordHashPrefix}.${encodeBase64Url(userId)}.${salt.toString("base64url")}.${digest.toString("base64url")}`;
+}
+
+function runtimePasswordScryptAsync(passwordInput, salt) {
+  return new Promise((resolve, reject) => {
+    scrypt(passwordInput, salt, runtimePasswordDigestBytes, runtimePasswordScryptOptions, (error, digest) => {
+      if (error) reject(error);
+      else resolve(digest);
+    });
+  });
+}
+
+// 返回 { kind: "legacy" | "current" | "invalid", ... }，供同步/异步校验共用。
+function prepareRuntimePasswordVerification(user = {}, password, options = {}) {
   const passwordHash = String(user.passwordHash ?? "").trim();
   const userId = String(user.userId ?? user.id ?? "").trim();
-  if (!passwordHash || !userId) return false;
+  if (!passwordHash || !userId) return { kind: "invalid" };
 
   if (passwordHash.startsWith(`${legacyRuntimePasswordHashPrefix}.`)) {
-    return timingSafeEqualString(
-      passwordHash,
-      hashLegacyRuntimeUserPassword(password, { userId, authSecret: options.authSecret }),
-    );
+    return {
+      kind: "legacy",
+      matches: timingSafeEqualString(
+        passwordHash,
+        hashLegacyRuntimeUserPassword(password, { userId, authSecret: options.authSecret }),
+      ),
+    };
   }
 
   const parts = passwordHash.split(".");
   if (parts.length !== 4 || parts[0] !== runtimePasswordHashPrefix || parts[1] !== encodeBase64Url(userId)) {
-    return false;
+    return { kind: "invalid" };
   }
   const salt = decodeCanonicalBase64UrlBuffer(parts[2], runtimePasswordSaltBytes);
   const expectedDigest = decodeCanonicalBase64UrlBuffer(parts[3], runtimePasswordDigestBytes);
-  if (!salt || !expectedDigest) return false;
+  if (!salt || !expectedDigest) return { kind: "invalid" };
+  return { kind: "current", salt, expectedDigest, passwordInput: createRuntimePasswordInput(userId, password, options) };
+}
 
-  const passwordInput = createHmac("sha256", resolveAuthSecret(options))
-    .update(`${runtimePasswordHashPrefix}:${userId}:${String(password ?? "")}`)
-    .digest();
-  const actualDigest = scryptSync(passwordInput, salt, runtimePasswordDigestBytes, runtimePasswordScryptOptions);
-  return timingSafeEqual(actualDigest, expectedDigest);
+export function hashRuntimeUserPassword(password, options = {}) {
+  const prepared = prepareRuntimePasswordHash(password, options);
+  return formatRuntimePasswordHash(
+    prepared,
+    scryptSync(prepared.passwordInput, prepared.salt, runtimePasswordDigestBytes, runtimePasswordScryptOptions),
+  );
+}
+
+export async function hashRuntimeUserPasswordAsync(password, options = {}) {
+  const prepared = prepareRuntimePasswordHash(password, options);
+  return formatRuntimePasswordHash(prepared, await runtimePasswordScryptAsync(prepared.passwordInput, prepared.salt));
+}
+
+export function verifyRuntimeUserPassword(user = {}, password, options = {}) {
+  const prepared = prepareRuntimePasswordVerification(user, password, options);
+  if (prepared.kind === "legacy") return prepared.matches;
+  if (prepared.kind !== "current") return false;
+  const actualDigest = scryptSync(prepared.passwordInput, prepared.salt, runtimePasswordDigestBytes, runtimePasswordScryptOptions);
+  return timingSafeEqual(actualDigest, prepared.expectedDigest);
+}
+
+export async function verifyRuntimeUserPasswordAsync(user = {}, password, options = {}) {
+  const prepared = prepareRuntimePasswordVerification(user, password, options);
+  if (prepared.kind === "legacy") return prepared.matches;
+  if (prepared.kind !== "current") return false;
+  const actualDigest = await runtimePasswordScryptAsync(prepared.passwordInput, prepared.salt);
+  return timingSafeEqual(actualDigest, prepared.expectedDigest);
 }
 
 export function isRuntimeUserPasswordHashUpgradeRequired(userOrHash = {}) {

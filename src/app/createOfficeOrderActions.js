@@ -120,10 +120,10 @@ export function createOfficeOrderActions({
     return line;
   }
 
-  function createOrderFromTopbar() {
+  async function createOrderFromTopbar() {
     if (!guardUiAction("topbar", "新建订单")) return;
     if (hasUnsavedOrderDraft({ draftRows, draftStatus, entryText })) {
-      const shouldDiscard = confirmDiscardDraft?.("当前订单草稿尚未保存。新建订单会清空现有录入内容，是否继续？") ?? false;
+      const shouldDiscard = await confirmDiscardDraft?.("当前订单草稿尚未保存。新建订单会清空现有录入内容，是否继续？") ?? false;
       if (!shouldDiscard) return null;
     }
     const resetDraft = resetOrderEntryDraft

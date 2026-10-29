@@ -13,6 +13,7 @@ import {
   StatusPill,
 } from "../../shared/ui/operational.jsx";
 import { formatOperationalError } from "../../shared/ui/errorPresentation.js";
+import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 
 const INVENTORY_DETAIL_TABS = ["概览", "留货", "流水", "修正"];
 
@@ -152,12 +153,12 @@ export function InventoryPage({
     setToast("库存筛选已重置，默认隐藏待处理/报废库存。");
   }
 
-  function confirmInventoryCorrection(item) {
+  async function confirmInventoryCorrection(item) {
     const correctionDraftId = String(item?.correctionDraftId ?? item?.id ?? "").trim() || "草稿号待确认";
     const inventoryReference = [item?.stockKey || item?.inventoryItemId || "库存项待确认", item?.zone]
       .filter(Boolean)
       .join(" / ");
-    const confirmed = window.confirm(
+    const confirmed = await confirmInApp(
       `确认库存修正生效？\n修正草稿：${correctionDraftId}\n库存项：${inventoryReference}\n系统库存：${item?.systemQty ?? "待确认"}\n实盘库存：${item?.actualQty ?? "待确认"}\n差异：${formatInventoryLedgerQty(item?.diff)}\n原因：${item?.reason || "原因待确认"}\n\n确认后将更新库存、写入库存流水、处理关联待办和操作日志；请确认盘点结果已复核。`,
     );
     if (!confirmed) return;
@@ -502,8 +503,8 @@ export function InventoryPage({
                         type="button"
                         className="danger-button"
                         disabled={mutating}
-                        onClick={() => {
-                          if (!window.confirm(`确认释放临时留货 ${holdId}？释放后库存会恢复可用。`)) return;
+                        onClick={async () => {
+                          if (!(await confirmInApp({ message: `确认释放临时留货 ${holdId}？释放后库存会恢复可用。`, confirmLabel: "释放", tone: "danger" }))) return;
                           void runTemporaryHoldAction(onReleaseTemporaryHold, { hold, reason: "办公室确认释放临时留货" });
                         }}
                       >释放</button>

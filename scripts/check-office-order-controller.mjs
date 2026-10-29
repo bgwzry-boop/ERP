@@ -175,7 +175,7 @@ function createHarness({
 
 {
   const harness = createHarness({ draftRows: [{ id: "DRAFT-1" }], draftStatus: "已调整待确认", entryText: "未保存内容", confirmDiscardResult: false });
-  assert.equal(harness.controller.createOrderFromTopbar(), null);
+  assert.equal(await harness.controller.createOrderFromTopbar(), null);
   assert.equal(harness.state().activePage, "todos");
   assert.equal(harness.calls.confirmDiscard, 1);
   assert.match(harness.calls.confirmMessage, /尚未保存/);
@@ -184,7 +184,7 @@ function createHarness({
 
 {
   const harness = createHarness({ draftRows: [{ id: "DRAFT-1" }], draftStatus: "已调整待确认", entryText: "未保存内容", confirmDiscardResult: true });
-  assert.deepEqual(harness.controller.createOrderFromTopbar(), { blocked: false });
+  assert.deepEqual(await harness.controller.createOrderFromTopbar(), { blocked: false });
   assert.equal(harness.state().activePage, "entry");
   assert.equal(harness.calls.confirmDiscard, 1);
   assert.deepEqual(harness.draftReset.rows, []);
@@ -288,7 +288,7 @@ function createHarness({
 
 {
   const harness = createHarness({ guardResult: false });
-  harness.controller.createOrderFromTopbar();
+  await harness.controller.createOrderFromTopbar();
   assert.equal(harness.state().activePage, "todos");
   assert.equal(await harness.controller.entryAction("保存草稿"), null);
   assert.equal(harness.calls.entry.length, 0);

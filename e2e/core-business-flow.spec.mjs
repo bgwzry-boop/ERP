@@ -1397,15 +1397,15 @@ async function openMobileTask(page, regionName, recordId) {
   await taskRegion.locator(".mobile-task-row").filter({ hasText: recordId }).click();
 }
 
+// 高风险操作使用应用内确认框（ConfirmDialogHost），不再是浏览器原生 confirm。
 async function clickWithConfirm(page, locator, { accept, message }) {
-  const dialogPromise = page.waitForEvent("dialog");
-  const clickPromise = locator.click();
-  const dialog = await dialogPromise;
-  expect(dialog.type()).toBe("confirm");
-  expect(dialog.message()).toContain(message);
-  if (accept) await dialog.accept();
-  else await dialog.dismiss();
-  await clickPromise;
+  await locator.click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(message);
+  const buttons = dialog.locator(".modal-actions button");
+  await (accept ? buttons.last() : buttons.first()).click();
+  await expect(dialog).toBeHidden();
 }
 
 async function selectWorkbenchTabIfPresent(page, name) {
