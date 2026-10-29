@@ -317,7 +317,7 @@ assert.match(appRootSource, /RuntimeAuthBoundary/);
 assert.match(appRootSource, /useRuntimeSessionExpiry\(/);
 assert.match(appViewsSource, /RuntimePasswordChangeScreen/);
 assert.match(sharedStylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
-assert.match(sharedStylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
+assert.match(sharedStylesSource, /@media \(max-width: 767px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
 for (const selector of [".print-batch-record", ".print-sheet", ".print-package-checklist", ".print-template-sheet", ".label-header", ".print-line-table", ".label-barcode"]) {
   assert.equal(printDocumentStylesSource.includes(selector), true, `print-document styles should own ${selector}`);
   assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);
