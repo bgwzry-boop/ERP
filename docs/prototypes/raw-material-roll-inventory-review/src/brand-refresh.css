@@ -236,3 +236,11 @@
 .app-shell .pricing-actions { padding-top: 16px; box-shadow: 0 -8px 16px color-mix(in oklch, var(--erp-text) 5%, transparent); }
 .app-shell .pricing-actions p { color: var(--erp-text-muted); font-size: 13px; }
 .app-shell .pricing-actions > div { gap: 10px; }
+
+/* 金额、数量列右对齐，数字等宽（列由 BusinessWorkspaces 的 isNumericColumn 标记） */
+.app-shell .business-row > [data-numeric="true"] { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 订单池自有表格：第 3 列是数量（客户 / 货品与规格 / 数量 / 状态 / 交付 / 风险） */
+.app-shell .order-ledger-row > :nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+.app-shell .order-ledger-row { font-size: 14px; }
+.app-shell .order-ledger-row.head { color: var(--erp-text-muted); font-size: 13px; font-weight: 600; }
