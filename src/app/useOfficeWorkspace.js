@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useOrderEntryDraft } from "./useOrderEntryDraft.js";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
 import { useOfficeFulfillmentWrites } from "./useOfficeFulfillmentWrites.js";
 import { useOfficeInventoryDetailReads } from "./useOfficeInventoryDetailReads.js";
@@ -122,13 +123,20 @@ export function useOfficeWorkspace({
     detailError: "",
   });
   const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
-  const [entryText, setEntryText] = useState(initialEntryText);
-  const [draftRows, setDraftRows] = useState(() =>
-    parseOrderText(initialEntryText, { customers, inventories: initialWorkspaceRecords.inventories }),
-  );
-  const [draftStatus, setDraftStatus] = useState(serverRequired ? "待录入" : "已识别待确认");
-  const [draftApiMeta, setDraftApiMeta] = useState({ draftId: "", clientRevision: 0, source: initialSource });
-  const [selectedDraftId, setSelectedDraftId] = useState(serverRequired ? "" : "DRAFT-2-1");
+  const {
+    entryText, setEntryText,
+    draftRows, setDraftRows,
+    draftStatus, setDraftStatus,
+    draftApiMeta, setDraftApiMeta,
+    selectedDraftId, setSelectedDraftId,
+    replaceOrderEntryDraft, resetOrderEntryDraft,
+  } = useOrderEntryDraft(() => ({
+    entryText: initialEntryText,
+    draftRows: parseOrderText(initialEntryText, { customers, inventories: initialWorkspaceRecords.inventories }),
+    draftStatus: serverRequired ? "待录入" : "已识别待确认",
+    draftApiMeta: { draftId: "", clientRevision: 0, source: initialSource },
+    selectedDraftId: serverRequired ? "" : "DRAFT-2-1",
+  }));
   const [orderFilters, setOrderFilters] = useState(defaultOrderFilters);
   const [selectedOrderId, setSelectedOrderId] = useState(initialSelections.orderId ?? "");
 
@@ -611,6 +619,7 @@ export function useOfficeWorkspace({
     refreshInventoryRecords: coreReads.refreshInventoryRecords,
     refreshOrderPool: coreReads.refreshOrderPool,
     refreshTodos: coreReads.refreshTodos,
+    replaceOrderEntryDraft,
     setDraftApiMeta,
     setDraftRows,
     setDraftStatus,
@@ -707,7 +716,7 @@ export function useOfficeWorkspace({
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
     selectedOrderDetail, setSelectedOrderDetail, entryText, setEntryText,
     draftRows, setDraftRows, draftStatus, setDraftStatus, draftApiMeta, setDraftApiMeta,
-    selectedDraftId, setSelectedDraftId, orderFilters, setOrderFilters,
+    selectedDraftId, setSelectedDraftId, replaceOrderEntryDraft, resetOrderEntryDraft, orderFilters, setOrderFilters,
     selectedOrderId, setSelectedOrderId,
     inventoryRecords, setInventoryRecords, inventoryMeta, setInventoryMeta,
     inventoryLedgerState, setInventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,

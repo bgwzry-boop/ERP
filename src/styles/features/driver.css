@@ -1,5 +1,5 @@
 .driver-route-section {
-  background: #fbfdff;
+  background: var(--erp-surface);
 }
 
 .driver-route-summary {
@@ -14,13 +14,13 @@
 
 .driver-route-summary span,
 .driver-route-summary small {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
 }
 
 .driver-route-summary strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 14px;
   line-height: 20px;
 }
@@ -34,10 +34,10 @@
 .driver-route-neighbors span {
   min-height: 28px;
   overflow: hidden;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 5px;
-  background: #fff;
-  color: #34506f;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   padding: 5px 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -55,10 +55,10 @@
   align-items: center;
   justify-content: center;
   min-height: 30px;
-  border: 1px solid #0b74ff;
+  border: 1px solid var(--erp-accent);
   border-radius: 5px;
-  background: #0b74ff;
-  color: #fff;
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
   font-size: 12px;
   line-height: 16px;
   padding: 0 10px;
@@ -67,8 +67,8 @@
 }
 
 .route-nav-button.secondary {
-  background: #fff;
-  color: #0b74ff;
+  background: var(--erp-surface);
+  color: var(--erp-accent);
 }
 
 button.route-nav-button {
@@ -78,33 +78,33 @@ button.route-nav-button {
 
 .route-nav-button.disabled,
 .route-nav-button:disabled {
-  border-color: #d6deeb;
-  background: #f4f7fb;
-  color: #8290a5;
+  border-color: var(--erp-border);
+  background: var(--erp-canvas);
+  color: var(--erp-disabled-text);
   cursor: not-allowed;
 }
 
 .driver-native-navigation-status {
   display: block;
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
 }
 
 .driver-native-navigation-status.success {
-  color: #16804d;
+  color: var(--erp-success);
 }
 
 .driver-native-navigation-status.warning {
-  color: #9a6b14;
+  color: var(--erp-warning);
 }
 
 .driver-native-navigation-status.danger {
-  color: #bd3030;
+  color: var(--erp-danger);
 }
 
 .driver-device-section {
-  background: #fff;
+  background: var(--erp-surface);
 }
 
 .driver-device-summary {
@@ -116,18 +116,18 @@ button.route-nav-button {
 }
 
 .driver-device-summary.success {
-  background: #eaf8ef;
-  color: #247448;
+  background: var(--erp-success-bg);
+  color: var(--erp-success);
 }
 
 .driver-device-summary.warning {
-  background: #fff3cd;
-  color: #7a5b10;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
 }
 
 .driver-device-summary.danger {
-  background: #feecec;
-  color: #b33a3a;
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
 }
 
 .driver-device-grid {
@@ -140,9 +140,9 @@ button.route-nav-button {
   display: grid;
   min-height: 58px;
   gap: 2px;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #fbfdff;
+  background: var(--erp-surface);
   padding: 7px 8px;
 }
 
@@ -156,7 +156,7 @@ button.route-nav-button {
 }
 
 .driver-device-item strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
@@ -168,41 +168,41 @@ button.route-nav-button {
 }
 
 .driver-device-item.success {
-  border-color: #a9d9bd;
-  background: #f2fbf5;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .driver-device-item.warning {
-  border-color: #f0cf88;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .driver-device-item.danger {
-  border-color: #f2aaa9;
-  background: #fff6f6;
+  border-color: var(--erp-danger-border);
+  background: var(--erp-danger-bg);
 }
 
 .driver-device-item.success span {
-  color: #247448;
+  color: var(--erp-success);
 }
 
 .driver-device-item.warning span {
-  color: #7a5b10;
+  color: var(--erp-warning);
 }
 
 .driver-device-item.danger span {
-  color: #b33a3a;
+  color: var(--erp-danger);
 }
 
 .driver-device-item small {
-  color: #68758a;
+  color: var(--erp-text-faint);
 }
 
 .driver-native-diagnostics {
   display: grid;
   gap: 6px;
   margin-top: 8px;
-  border-top: 1px solid #edf2f8;
+  border-top: 1px solid var(--erp-border-subtle);
   padding-top: 8px;
 }
 
@@ -215,7 +215,7 @@ button.route-nav-button {
 }
 
 .driver-native-diagnostics-head strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
@@ -227,7 +227,7 @@ button.route-nav-button {
 }
 
 .driver-native-diagnostics > small {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
 }
@@ -236,28 +236,28 @@ button.route-nav-button {
   display: grid;
   gap: 3px;
   min-width: 0;
-  border: 1px dashed #d7e3f5;
-  background: #f8fbff;
+  border: 1px dashed var(--erp-border-subtle);
+  background: var(--erp-surface);
   border-radius: 6px;
   padding: 8px 10px;
 }
 
 .driver-native-integration-kit strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 12px;
   line-height: 18px;
 }
 
 .driver-native-integration-kit span,
 .driver-native-integration-kit small {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
 }
 
 .driver-field-test-section {
-  background: #fbfdff;
+  background: var(--erp-surface);
 }
 
 .driver-field-test-form,
@@ -271,7 +271,7 @@ button.route-nav-button {
   display: grid;
   gap: 4px;
   min-width: 0;
-  color: #6a7486;
+  color: var(--erp-text-faint);
   font-size: 12px;
 }
 
@@ -279,10 +279,10 @@ button.route-nav-button {
 .driver-field-test-note input {
   min-width: 0;
   height: 30px;
-  border: 1px solid #d7dfeb;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #fff;
-  color: #253044;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font-size: 13px;
   padding: 0 8px;
 }
@@ -299,25 +299,25 @@ button.route-nav-button {
   align-items: center;
   gap: 8px;
   min-height: 54px;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 7px 8px;
 }
 
 .driver-field-test-row.success {
-  border-color: #a9d9bd;
-  background: #f2fbf5;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .driver-field-test-row.warning {
-  border-color: #f0cf88;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .driver-field-test-row.danger {
-  border-color: #f2aaa9;
-  background: #fff6f6;
+  border-color: var(--erp-danger-border);
+  background: var(--erp-danger-bg);
 }
 
 .driver-field-test-row > div {
@@ -338,14 +338,14 @@ button.route-nav-button {
 }
 
 .driver-field-test-row strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
 
 .driver-field-test-row span,
 .driver-field-test-row small {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 17px;
 }
@@ -353,10 +353,10 @@ button.route-nav-button {
 .driver-field-test-row select {
   width: 86px;
   height: 30px;
-  border: 1px solid #cbd7e8;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #fff;
-  color: #253044;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font-size: 12px;
   padding: 0 6px;
 }
@@ -368,10 +368,10 @@ button.route-nav-button {
 
 .driver-field-test-note button {
   height: 30px;
-  border: 1px solid #0b74ff;
+  border: 1px solid var(--erp-accent);
   border-radius: 5px;
-  background: #0b74ff;
-  color: #fff;
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
   font-size: 12px;
   padding: 0 10px;
   white-space: nowrap;
@@ -380,46 +380,46 @@ button.route-nav-button {
 .driver-field-test-status {
   display: block;
   margin-top: 6px;
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
 }
 
 .driver-field-test-status.success {
-  color: #247448;
+  color: var(--erp-success);
 }
 
 .driver-field-test-status.warning {
-  color: #7a5b10;
+  color: var(--erp-warning);
 }
 
 .driver-field-test-status.danger {
-  color: #b33a3a;
+  color: var(--erp-danger);
 }
 
 .driver-field-test-sample {
   display: grid;
   gap: 2px;
   margin-top: 7px;
-  border: 1px dashed #c7d4e6;
+  border: 1px dashed var(--erp-control-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 7px 8px;
 }
 
 .driver-field-test-sample.success {
-  border-color: #a9d9bd;
-  background: #f2fbf5;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .driver-field-test-sample.warning {
-  border-color: #f0cf88;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .driver-field-test-sample.danger {
-  border-color: #f2aaa9;
-  background: #fff6f6;
+  border-color: var(--erp-danger-border);
+  background: var(--erp-danger-bg);
 }
 
 .driver-field-test-sample strong,
@@ -433,14 +433,14 @@ button.route-nav-button {
 }
 
 .driver-field-test-sample strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 12px;
   line-height: 17px;
 }
 
 .driver-field-test-sample span,
 .driver-field-test-sample small {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 17px;
 }
@@ -450,20 +450,20 @@ button.route-nav-button {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 3px 8px;
   margin-top: 6px;
-  border: 1px dashed #c7d4e6;
+  border: 1px dashed var(--erp-control-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 7px 8px;
 }
 
 .driver-field-test-record strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 12px;
 }
 
 .driver-field-test-record span,
 .driver-field-test-record small {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
 }
 
@@ -472,7 +472,7 @@ button.route-nav-button {
 }
 
 .driver-load-check-section {
-  background: #fbfcff;
+  background: var(--erp-surface);
 }
 
 .driver-load-check-summary {
@@ -480,21 +480,21 @@ button.route-nav-button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 7px 9px;
 }
 
 .driver-load-check-summary strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 14px;
 }
 
 .driver-load-check-summary span {
   min-width: 0;
   overflow: hidden;
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -512,18 +512,18 @@ button.route-nav-button {
 }
 
 .driver-load-scan-row label > span {
-  color: #6a7486;
+  color: var(--erp-text-faint);
   font-size: 12px;
 }
 
 .driver-load-scan-row small {
-  color: #2f7a4c;
+  color: var(--erp-success);
   font-size: 12px;
   line-height: 18px;
 }
 
 .driver-load-scan-row small.scan-error {
-  color: #c63f3f;
+  color: var(--erp-danger);
 }
 
 .driver-load-scan-actions {
@@ -533,9 +533,9 @@ button.route-nav-button {
 .driver-camera-scan-preview {
   width: 100%;
   max-height: 180px;
-  border: 1px solid #b8c8dd;
+  border: 1px solid var(--erp-control-border);
   border-radius: 6px;
-  background: #101827;
+  background: var(--erp-media-backdrop);
   object-fit: cover;
 }
 
@@ -558,16 +558,16 @@ button.route-nav-button {
   align-items: center;
   min-height: 34px;
   gap: 7px;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #fff;
-  color: #253044;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   padding: 6px 8px;
 }
 
 .driver-load-package.checked {
-  border-color: #8fcaad;
-  background: #f0fbf5;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .driver-load-package input {
@@ -591,7 +591,7 @@ button.route-nav-button {
 
 .driver-load-package span,
 .driver-load-package small {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
 }
 
@@ -603,28 +603,28 @@ button.route-nav-button {
 
 .delivery-photo-camera-actions button {
   height: 30px;
-  border: 1px solid #cbd7e8;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #f8fbff;
-  color: #34506f;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   padding: 0 10px;
   white-space: nowrap;
 }
 
 .delivery-photo-camera-actions button:disabled {
-  border-color: #d7dfeb;
-  background: #eef2f7;
-  color: #94a3b8;
+  border-color: var(--erp-border);
+  background: var(--erp-neutral-bg);
+  color: var(--erp-disabled-text);
   cursor: not-allowed;
 }
 
 .delivery-photo-camera-preview {
   width: 100%;
   max-height: 180px;
-  border: 1px solid #b8c8dd;
+  border: 1px solid var(--erp-control-border);
   border-radius: 6px;
-  background: #101827;
+  background: var(--erp-media-backdrop);
   object-fit: cover;
 }
 
@@ -641,9 +641,9 @@ button.route-nav-button {
   min-height: 118px;
   max-height: 180px;
   overflow: hidden;
-  border: 1px solid #d7dfeb;
+  border: 1px solid var(--erp-border);
   border-radius: 6px;
-  background: #eef3fa;
+  background: var(--erp-neutral-bg);
 }
 
 .photo-proof-preview img {
@@ -662,12 +662,12 @@ button.route-nav-button {
   left: 0;
   display: grid;
   gap: 2px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0), rgba(15, 23, 42, 0.78) 18%, rgba(15, 23, 42, 0.88));
-  color: #fff;
+  background: linear-gradient(180deg, var(--erp-media-scrim-clear), var(--erp-media-scrim-soft) 18%, var(--erp-media-scrim));
+  color: var(--erp-media-ink);
   font-size: 11px;
   line-height: 15px;
   padding: 20px 8px 7px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  text-shadow: var(--erp-media-text-shadow);
 }
 
 .photo-watermark-overlay span {
@@ -688,10 +688,10 @@ button.route-nav-button {
 
 .inline-control button {
   height: 30px;
-  border: 1px solid #cbd7e8;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #f8fbff;
-  color: #34506f;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   padding: 0 10px;
   white-space: nowrap;
@@ -699,29 +699,29 @@ button.route-nav-button {
 
 .watermark-preview {
   grid-column: 1 / -1;
-  border: 1px dashed #c7d4e6;
+  border: 1px dashed var(--erp-control-border);
   border-radius: 6px;
-  background: #f8fbff;
+  background: var(--erp-surface);
   padding: 8px 10px;
 }
 
 .watermark-preview span {
   display: block;
-  color: #7b8798;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
 }
 
 .watermark-preview strong {
   display: block;
-  color: #253044;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 20px;
 }
 
 .watermark-preview p {
   margin: 4px 0 0;
-  color: #4a5870;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -734,9 +734,9 @@ button.route-nav-button {
 .driver-delivery-confirmation {
   display: grid;
   gap: 10px;
-  border: 1px solid #ebc878;
+  border: 1px solid var(--erp-warning-border);
   border-radius: 6px;
-  background: #fffaf0;
+  background: var(--erp-warning-bg);
   padding: 10px;
 }
 
@@ -754,7 +754,7 @@ button.route-nav-button {
 }
 
 .driver-delivery-confirmation-head strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 14px;
   line-height: 20px;
 }
@@ -762,7 +762,7 @@ button.route-nav-button {
 .driver-delivery-confirmation-head span,
 .driver-delivery-confirmation-grid span,
 .driver-delivery-confirmation-effects {
-  color: #68758a;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
 }
@@ -777,16 +777,16 @@ button.route-nav-button {
   display: grid;
   gap: 2px;
   min-width: 0;
-  border: 1px solid #ecd9a8;
+  border: 1px solid var(--erp-warning-border);
   border-radius: 5px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 6px 8px;
 }
 
 .driver-delivery-confirmation-grid strong {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: #253044;
+  color: var(--erp-text);
   font-size: 12px;
   line-height: 18px;
 }
@@ -804,10 +804,10 @@ button.route-nav-button {
 
 .driver-delivery-confirmation-actions button:not(.primary-action) {
   height: 30px;
-  border: 1px solid #cbd7e8;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #fff;
-  color: #34506f;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   padding: 0 10px;
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { createSetterBackedDraftActions } from "../state/orderEntryDraftState.js";
 import {
   confirmOfficeDraftViaApi,
   confirmOfficeDraftSplit,
@@ -107,6 +108,7 @@ export function createOfficeOrderWriteActions({
   refreshTodos,
   serverRequired = isOfficeApiServerRequired,
   mutationSession = {active:true},
+  replaceOrderEntryDraft,
   setDraftApiMeta,
   setDraftRows,
   setDraftStatus,
@@ -121,6 +123,10 @@ export function createOfficeOrderWriteActions({
   setTodos,
 }) {
   const orderApi = { ...defaultApi, ...api };
+  // 真实页面由 useOrderEntryDraft 提供一次 dispatch 的整体替换；只传了 setter 的调用方（如检查脚本）走等价的 setter 路径。
+  const replaceDraft = replaceOrderEntryDraft
+    ?? createSetterBackedDraftActions({ setDraftApiMeta, setDraftRows, setDraftStatus, setEntryText, setSelectedDraftId })
+      .replaceOrderEntryDraft;
 
   function addTodo(input) {
     const todo = createOfficeTodo(input);
@@ -160,13 +166,14 @@ export function createOfficeOrderWriteActions({
     }
 
     const rows = result.rows ?? [];
-    setDraftRows(rows);
-    setDraftStatus(rows.length ? "已识别待确认" : "空草稿");
-    setSelectedDraftId(rows[0]?.id ?? "");
-    setDraftApiMeta({
-      draftId: result.draft?.draftId ?? "",
-      clientRevision: Number(result.draft?.clientRevision ?? 0),
-      source: result.source,
+    replaceDraft({
+      rows,
+      status: rows.length ? "已识别待确认" : "空草稿",
+      apiMeta: {
+        draftId: result.draft?.draftId ?? "",
+        clientRevision: Number(result.draft?.clientRevision ?? 0),
+        source: result.source,
+      },
     });
     const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
     const recognitionSummary = result.recognition?.summary;
@@ -210,14 +217,15 @@ export function createOfficeOrderWriteActions({
       return withFeedback({ blocked: true }, "库存询问、留货和重复候选保留在队列中处理，不能作为订单明细打开。");
     }
     const rows = item.rows ?? [];
-    setEntryText(item.draft.sourceText ?? "");
-    setDraftRows(rows);
-    setSelectedDraftId(rows[0]?.id ?? "");
-    setDraftStatus(item.draft.status ?? "待审核");
-    setDraftApiMeta({
-      draftId: item.draft.draftId ?? item.draft.id ?? "",
-      clientRevision: Number(item.draft.clientRevision ?? item.draft.revision ?? 0),
-      source: "api",
+    replaceDraft({
+      entryText: item.draft.sourceText ?? "",
+      rows,
+      status: item.draft.status ?? "待审核",
+      apiMeta: {
+        draftId: item.draft.draftId ?? item.draft.id ?? "",
+        clientRevision: Number(item.draft.clientRevision ?? item.draft.revision ?? 0),
+        source: "api",
+      },
     });
     return withFeedback({ source: "api", draft: item.draft, rows }, `已打开独立订单草稿 ${item.draft.draftId ?? item.draft.id}。`);
   }
@@ -256,14 +264,15 @@ export function createOfficeOrderWriteActions({
       sourceIntentId: intentId,
       note: uniqueText([row.note, `由临时留货 ${holdId} 转入`, intent.sourceText]).join("；"),
     } : row);
-    setEntryText(sourceText);
-    setDraftRows(rows);
-    setSelectedDraftId(rows[0].id);
-    setDraftStatus("已识别待确认");
-    setDraftApiMeta({
-      draftId: result.draft?.draftId ?? "",
-      clientRevision: Number(result.draft?.clientRevision ?? 0),
-      source: result.source,
+    replaceDraft({
+      entryText: sourceText,
+      rows,
+      status: "已识别待确认",
+      apiMeta: {
+        draftId: result.draft?.draftId ?? "",
+        clientRevision: Number(result.draft?.clientRevision ?? 0),
+        source: result.source,
+      },
     });
     return withFeedback(result, `临时留货 ${holdId} 已转入订单草稿；确认订单后将原位转换占用，不会重复扣库存。`);
   }
