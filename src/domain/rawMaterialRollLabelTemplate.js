@@ -19,6 +19,9 @@ export const RAW_MATERIAL_ROLL_LABEL_TEMPLATE = Object.freeze({
   rowsMm: Object.freeze([6.11, 6.55, 6.82, 6.86, 6.77, 6.86, 6.47, 6.51, 6.16, 6.64, 6.55, 6.51, 14.25]),
   qrMm: 25.4,
   barcodeMm: 7.39,
+  // 2026-10-29: the owner's stock (and pre-printed courier rolls) leave the
+  // usable area in the middle. Centre the 101.33mm artwork on the 130mm page.
+  pageOffsetTopMm: 14.33,
 });
 
 const template = RAW_MATERIAL_ROLL_LABEL_TEMPLATE;
@@ -27,6 +30,9 @@ const tableHeightMm = sum(template.rowsMm);
 
 if (Math.abs(template.paddingLeftMm + tableWidthMm + template.paddingRightMm - template.pageWidthMm) > 0.02) {
   throw new Error("Roll label columns do not fill 76mm");
+}
+if (template.pageOffsetTopMm + template.artworkHeightMm > template.pageHeightMm) {
+  throw new Error("Roll label artwork must fit below the page offset");
 }
 if (Math.abs(template.paddingTopMm + template.headerMm + tableHeightMm + template.paddingBottomMm - template.artworkHeightMm) > 0.02) {
   throw new Error("Roll label artwork does not match the approved mock height");
@@ -63,7 +69,7 @@ export function buildRawMaterialRollLabelCss() {
   return `/* Generated from src/domain/rawMaterialRollLabelTemplate.js. Do not edit by hand. */
 @page roll-label {
   size: ${mm(template.pageWidthMm)} ${mm(template.pageHeightMm)};
-  margin: 0;
+  margin: ${mm(template.pageOffsetTopMm)} 0 0 0;
 }
 
 .raw-material-roll-print-label {

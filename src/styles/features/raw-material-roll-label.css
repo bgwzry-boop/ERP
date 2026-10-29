@@ -1,7 +1,7 @@
 /* Generated from src/domain/rawMaterialRollLabelTemplate.js. Do not edit by hand. */
 @page roll-label {
   size: 76.00mm 130.00mm;
-  margin: 0;
+  margin: 14.33mm 0 0 0;
 }
 
 .raw-material-roll-print-label {

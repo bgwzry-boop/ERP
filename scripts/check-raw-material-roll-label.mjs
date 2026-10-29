@@ -69,6 +69,7 @@ assert.equal(sheet.includes("BAGWIN"), false);
 assert.equal(sheet.includes('colSpan="4"'), true);
 assert.equal(sheet.includes('colSpan="5"'), true);
 assert.match(css, /@page roll-label\s*\{[^}]*size:\s*76\.00mm 130\.00mm/s);
+assert.match(css, /@page roll-label\s*\{[^}]*margin:\s*14\.33mm 0 0 0/s, "artwork is centred on the 130mm page");
 assert.match(css, /\.is-measure\s*\{[^}]*font-size:\s*9pt/s);
 assert.match(css, /\.is-measure\s*\{[^}]*padding-left:\s*2\.90mm/s);
 assert.match(css, /\.is-measure\s*\{[^}]*text-align:\s*left/s);
