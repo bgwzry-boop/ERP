@@ -156,3 +156,23 @@
 .app-shell .business-detail-panel > footer .primary { min-height: 44px; font-size: 15px; }
 .app-shell .business-notice,
 .app-shell .business-boundary { border-radius: var(--erp-radius-md); }
+
+/* ---------- 订单池：订单进度与下一步 ---------- */
+.app-shell .order-progress { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--erp-border-subtle); }
+.app-shell .order-progress ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.app-shell .order-progress li { display: grid; gap: 6px; }
+.app-shell .order-progress li > span { display: block; height: 6px; border-radius: var(--erp-radius-pill); background: var(--erp-border); }
+.app-shell .order-progress li > b { color: var(--erp-text-faint); font-size: 13px; font-weight: 500; }
+.app-shell .order-progress li.done > span { background: var(--erp-accent); }
+.app-shell .order-progress li.done > b { color: var(--erp-text); }
+.app-shell .order-progress li.current > span { background: var(--erp-brand); }
+.app-shell .order-progress li.current > b { color: var(--erp-accent); font-weight: 700; }
+.app-shell .order-progress p {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-accent-wash);
+  color: var(--erp-accent-soft-ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
