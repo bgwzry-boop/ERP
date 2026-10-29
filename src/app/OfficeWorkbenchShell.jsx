@@ -7,6 +7,7 @@ import { AppNavigation, ContextNavigationStrip } from "./AppNavigation.jsx";
 import { MobileRoleShellHeader } from "./MobileRoleShellHeader.jsx";
 import { Topbar } from "./AppShellViews.jsx";
 import { OfficeWorkspacePages } from "./OfficeWorkspacePages.jsx";
+import { PageErrorBoundary } from "../shared/ui/PageErrorBoundary.jsx";
 import { getTopbarLogoutAction } from "./runtimeAuthViewState.js";
 import { WorkspaceOverlayController } from "./WorkspaceOverlayController.jsx";
 
@@ -108,7 +109,9 @@ export function OfficeWorkbenchShell({ runtime }) {
               todoCount={unhandledTodos}
             />
           ) : null}
-          <OfficeWorkspacePages renderedPage={renderedPage} runtime={pageRuntime} />
+          <PageErrorBoundary resetKey={renderedPage} scope={renderedPage}>
+            <OfficeWorkspacePages renderedPage={renderedPage} runtime={pageRuntime} />
+          </PageErrorBoundary>
         </main>
       </div>
 

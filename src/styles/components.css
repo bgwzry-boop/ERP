@@ -645,3 +645,10 @@
     grid-template-columns: 1fr;
   }
 }
+
+.page-error-boundary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--erp-space-2);
+  margin-top: var(--erp-space-2);
+}
