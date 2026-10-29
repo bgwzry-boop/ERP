@@ -14,6 +14,7 @@ export function RawMaterialRoute({ view = "inbound", state = {}, actions = {}, f
   if (view === "scanner") {
     return (
       <RawMaterialScannerPage
+        authState={state.authState}
         helpers={state.helpers}
         inbounds={state.inbounds}
         onAction={actions.onAction}

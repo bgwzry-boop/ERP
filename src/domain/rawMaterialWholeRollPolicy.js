@@ -6,9 +6,20 @@ export const RAW_MATERIAL_ONE_CLICK_INBOUND_ACTION = "本单已贴齐/一键入�
 
 export const DEFAULT_RAW_MATERIAL_ROLL_INVENTORY_STATUS = "可用";
 
+// 2026-10-29 owner decision: the printing workshop also picks whole rolls for
+// its own tasks (print first, then bag-making), so screen-printing machines
+// are valid outbound targets too.
+export const RAW_MATERIAL_WHOLE_ROLL_PRINT_MACHINE_LABELS = Object.freeze(
+  ["1号丝印机", "2号丝印机", "3号丝印机", "4号丝印机"],
+);
+
 export function resolveRawMaterialWholeRollMachine(machineId) {
   const text = String(machineId ?? "").trim();
   if (!text) return "";
+  // 丝印 has no machine queue: its tasks sit in one pool, so the workshop itself is a valid target.
+  if (text === "丝印车间") return "丝印车间";
+  const print = text.toUpperCase().match(/^(?:PRINT-0([1-9])|([1-9])号丝印机|丝印(?:机)?-0([1-9]))$/);
+  if (print) return `${print.slice(1).find(Boolean)}号丝印机`;
   const direct = text.match(/^([1-9])号机$/);
   if (direct) return `${direct[1]}号机`;
   const upper = text.toUpperCase();
@@ -75,7 +86,7 @@ export function assertWholeRollIssue({ machineId, requestedWeightKg, fullWeightK
       ok: false,
       statusCode: 422,
       code: "RAW_MATERIAL_ISSUE_MACHINE_NOT_ALLOWED",
-      message: "出库只能选择 1号机 到 9号机。出库后整卷转为机边，不计入可用库存。",
+      message: "出库只能选择 1号机 到 9号机或丝印机。出库后整卷转为机边，不计入可用库存。",
     };
   }
   const requested = Number(requestedWeightKg);

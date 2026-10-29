@@ -154,8 +154,8 @@ assert.equal(
     inboundId: "RMI-1",
     now: "2026-07-12T08:00:00.000Z",
     operatorName: "车间A",
-    options: { rollId: "ROLL-1", machineId: "丝印机-01" },
-  }), (error) => error.code === "RAW_MATERIAL_ISSUE_MACHINE_NOT_ALLOWED", "outbound machines are limited to 1号机 through 9号机");
+    options: { rollId: "ROLL-1", machineId: "切袋机-01" },
+  }), (error) => error.code === "RAW_MATERIAL_ISSUE_MACHINE_NOT_ALLOWED", "outbound machines are limited to bag-making and screen-printing machines");
 
   const issued = applyRawMaterialInboundLocalAction([baseInbound], {
     action: "机边领料",

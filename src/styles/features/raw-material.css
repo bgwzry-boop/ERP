@@ -1636,3 +1636,25 @@
   border-color: var(--erp-accent);
   background: var(--erp-accent-wash);
 }
+
+/* 2026-10-29：按任务领料（车间杂工） */
+.raw-material-pick-tasks { display: grid; gap: 10px; }
+.raw-material-workshop-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.raw-material-workshop-tabs button { min-height: 44px; border: 1px solid var(--erp-border); border-radius: 11px; background: var(--erp-surface); color: var(--erp-text); font-size: 15px; font-weight: 600; }
+.raw-material-workshop-tabs button.active { border-color: var(--erp-accent); background: var(--erp-accent-wash); color: var(--erp-accent-soft-ink); }
+.raw-material-pick-task { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--erp-border); border-radius: 14px; background: var(--erp-surface); text-align: left; }
+.raw-material-pick-task span { color: var(--erp-text-muted); font-size: 13px; font-weight: 600; }
+.raw-material-pick-task strong { color: var(--erp-text); font-size: 17px; }
+.raw-material-pick-task small, .raw-material-free-mode-note { color: var(--erp-text-muted); font-size: 12px; }
+.raw-material-free-mode { min-height: 44px; border: 1px dashed var(--erp-control-border); border-radius: 11px; background: transparent; color: var(--erp-text-muted); font-size: 14px; }
+.raw-material-pick-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--erp-accent-border); border-radius: 14px; background: var(--erp-accent-wash); }
+.raw-material-pick-current > div { display: grid; gap: 2px; }
+.raw-material-pick-current span, .raw-material-pick-current small { color: var(--erp-text-muted); font-size: 12px; }
+.raw-material-pick-current strong { font-size: 16px; }
+.raw-material-pick-current button { min-height: 40px; padding: 0 12px; border: 1px solid var(--erp-border); border-radius: 10px; background: var(--erp-surface); font-size: 14px; }
+.raw-material-mismatch { position: fixed; inset: 0; z-index: var(--erp-z-modal); display: grid; place-items: center; padding: 16px; background: var(--erp-overlay); }
+.raw-material-mismatch > div { display: grid; gap: 10px; width: min(100%, 420px); padding: 18px; border-radius: 14px; background: var(--erp-surface); box-shadow: var(--erp-shadow-panel); }
+.raw-material-mismatch h2 { margin: 0; color: var(--erp-danger); font-size: 18px; }
+.raw-material-mismatch ul { margin: 0; padding-left: 18px; font-size: 16px; }
+.raw-material-mismatch p { margin: 0; color: var(--erp-text-muted); font-size: 14px; }
+.raw-material-mismatch button { min-height: 48px; border: 0; border-radius: 11px; background: var(--erp-accent-strong); color: var(--erp-accent-ink); font-size: 16px; font-weight: 700; }
