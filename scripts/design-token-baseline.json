@@ -6,8 +6,7 @@
     "raw-color": 34
   },
   "src/styles/features/driver.css": {
-    "mobile-under-14": 35,
-    "raw-color": 133
+    "mobile-under-14": 35
   },
   "src/styles/features/fulfillment.css": {
     "desktop-under-11": 4,

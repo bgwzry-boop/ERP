@@ -4,6 +4,7 @@ import {
   createPrintArtworkAttachmentInput,
 } from "../services/officeAttachmentInputs.js";
 import { uploadOfficeAttachmentFile } from "../services/officeAttachmentLazyApi.js";
+import { createSetterBackedDraftActions } from "../state/orderEntryDraftState.js";
 
 const persistentEntryActions = new Set(["保存草稿", "保存并确认", "确认拆单", "作废草稿"]);
 const orderLineActions = new Map([
@@ -38,6 +39,7 @@ export function createOfficeOrderActions({
   refreshOrderPool,
   refreshOrderDraftQueue,
   refreshStatements,
+  resetOrderEntryDraft,
   resolveLineFromRef,
   restoreShortageCancelledLine,
   runOrderDraftCommand,
@@ -124,11 +126,10 @@ export function createOfficeOrderActions({
       const shouldDiscard = confirmDiscardDraft?.("当前订单草稿尚未保存。新建订单会清空现有录入内容，是否继续？") ?? false;
       if (!shouldDiscard) return null;
     }
-    setEntryText("");
-    setDraftRows([]);
-    setDraftStatus("待录入");
-    setDraftApiMeta({ draftId: "", clientRevision: 0, source: "local" });
-    setSelectedDraftId("");
+    const resetDraft = resetOrderEntryDraft
+      ?? createSetterBackedDraftActions({ setDraftApiMeta, setDraftRows, setDraftStatus, setEntryText, setSelectedDraftId })
+        .resetOrderEntryDraft;
+    resetDraft({ source: "local" });
     setActivePage("entry");
     setToast("已新建空白订单，请粘贴或输入客户原文。");
     return { blocked: false };
