@@ -81,9 +81,9 @@ for (const styleImport of ["orders-pool", "inventory", "fulfillment", "todos"]) 
   assert.match(appSource, new RegExp(`import\\("\\.\\.\\/styles\\/features\\/${styleImport}\\.css"\\)`));
 }
 
-assert.match(orderStyles, /@media \(max-width: 720px\)/);
-assert.match(inventoryStyles, /@media \(max-width: 720px\)/);
-assert.match(fulfillmentStyles, /@media \(max-width: 720px\)/);
+assert.match(orderStyles, /@media \(max-width: 767px\)/);
+assert.match(inventoryStyles, /@media \(max-width: 767px\)/);
+assert.match(fulfillmentStyles, /@media \(max-width: 767px\)/);
 assert.match(orderStyles, /span:nth-child\(7\)/);
 assert.match(orderStyles, /\.order-status-tabs/);
 assert.match(orderStyles, /\.order-detail-facts/);
@@ -100,7 +100,7 @@ assert.match(fulfillmentStyles, /\.fulfillment-status-tabs/);
 assert.match(fulfillmentStyles, /\.fulfillment-detail-facts/);
 assert.match(fulfillmentStyles, /\.fulfillment-detail-scroll/);
 assert.match(fulfillmentStyles, /\.fulfillment-detail-actions\s*\{[\s\S]*?position: static;/);
-assert.match(todoStyles, /@media \(max-width: 720px\)/);
+assert.match(todoStyles, /@media \(max-width: 767px\)/);
 assert.match(todoStyles, /span:nth-child\(5\)/);
 assert.match(todoStyles, /\.todo-status-tabs/);
 assert.match(todoStyles, /\.todo-detail-facts/);

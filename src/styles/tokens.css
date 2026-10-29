@@ -1,4 +1,5 @@
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app */
+/* 2026-10-29 用户确认「统一品牌橙」改版：主操作、选中、焦点、链接用品牌橙系；「生产中/进行中」等信息状态保留独立的蓝色。 */
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 :root {
   --erp-font-ui: Geist, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -7,7 +8,7 @@
   --erp-surface: oklch(99.6% 0.002 252);
   --erp-surface-raised: oklch(99.8% 0.001 252);
   --erp-surface-subtle: oklch(98.1% 0.005 252);
-  --erp-surface-selected: oklch(95.4% 0.025 252);
+  --erp-surface-selected: oklch(98.1% 0.011 55);
   --erp-surface-hover: oklch(97.4% 0.012 252);
   --erp-text: oklch(26% 0.035 258);
   --erp-text-strong: var(--erp-text);
@@ -16,15 +17,18 @@
   --erp-border: oklch(88.5% 0.014 252);
   --erp-border-subtle: oklch(93.5% 0.009 252);
   --erp-control-border: oklch(84.5% 0.02 252);
-  --erp-accent: oklch(59% 0.205 255);
-  --erp-accent-strong: oklch(51% 0.19 255);
+  --erp-brand: oklch(68.2% 0.211 38);
+  --erp-accent: oklch(55.3% 0.174 38);
+  --erp-accent-strong: oklch(47% 0.143 37);
   --erp-accent-ink: oklch(99% 0.003 252);
-  --erp-accent-border: oklch(82.5% 0.075 252);
-  --erp-accent-soft: oklch(97% 0.018 252);
+  --erp-accent-border: oklch(90.7% 0.051 49);
+  --erp-accent-soft: oklch(96.7% 0.018 49);
+  --erp-accent-wash: oklch(98.1% 0.011 55);
+  --erp-accent-soft-ink: oklch(40.8% 0.116 38);
   --erp-focus: var(--erp-accent);
-  --erp-info: var(--erp-accent-strong);
-  --erp-info-bg: var(--erp-accent-soft);
-  --erp-info-border: var(--erp-accent-border);
+  --erp-info: oklch(41.7% 0.089 249);
+  --erp-info-bg: oklch(95.7% 0.013 244);
+  --erp-info-border: oklch(84% 0.045 245);
   --erp-success: oklch(47% 0.12 155);
   --erp-success-bg: oklch(97.5% 0.018 155);
   --erp-success-border: oklch(84% 0.07 155);
@@ -104,15 +108,18 @@
   --erp-media-ink: oklch(100% 0 0);
   --erp-media-text-shadow: 0 1px 2px oklch(0% 0 0 / 0.65);
   --erp-neutral-bg: oklch(95.5% 0.009 252);
-  --erp-sidebar: oklch(27% 0.045 250);
+  --erp-neutral-marker: oklch(77% 0.028 257);
+  --erp-sidebar: oklch(24.3% 0.028 239);
+  --erp-brand-warm-white: oklch(96.5% 0.013 87);
   --erp-sidebar-deep: oklch(21% 0.04 250);
   --erp-sidebar-text: oklch(91% 0.024 250);
   --erp-sidebar-muted: oklch(75% 0.04 250);
   --erp-sidebar-hover: oklch(99% 0.003 252 / 0.08);
   --erp-sidebar-rule: oklch(99% 0.003 252 / 0.1);
-  --erp-radius-sm: 4px;
-  --erp-radius-md: 6px;
-  --erp-radius-lg: 8px;
+  --erp-radius-sm: 6px;
+  --erp-radius-md: 10px;
+  --erp-radius-lg: 14px;
+  --erp-radius-pill: 999px;
   --erp-control-height: 34px;
   --erp-touch-target: 44px;
   --erp-mobile-nav-height: 64px;

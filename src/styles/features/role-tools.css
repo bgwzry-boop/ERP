@@ -1,10 +1,10 @@
 .toolbar-focus-hint {
   overflow: hidden;
   max-width: 42%;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--erp-accent-border);
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
   font-size: 12px;
   font-weight: 700;
   line-height: 22px;
@@ -68,7 +68,7 @@
   height: 20px;
   border-radius: 999px;
   background: var(--erp-danger);
-  color: #fff;
+  color: var(--erp-accent-ink);
   font-size: 12px;
   line-height: 20px;
 }
@@ -92,7 +92,7 @@
   justify-content: space-between;
   border-radius: 14px;
   background: var(--erp-sidebar);
-  color: #fff;
+  color: var(--erp-accent-ink);
   gap: 16px;
   padding: 16px 18px;
 }
@@ -142,7 +142,7 @@
   justify-content: center;
   border: 1px solid oklch(99% 0.003 252 / 0.28);
   border-radius: 999px;
-  color: #fff;
+  color: var(--erp-accent-ink);
   gap: 4px;
   padding: 5px 10px;
   font-size: 14px;
@@ -324,7 +324,7 @@
   border: 0;
   border-right: 1px solid var(--erp-border);
   background: var(--erp-surface);
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 13px;
 }
 
@@ -334,7 +334,7 @@
 
 .packing-workbench-tabs button.active {
   background: var(--erp-accent);
-  color: #fff;
+  color: var(--erp-accent-ink);
   font-weight: 700;
 }
 
@@ -430,7 +430,7 @@
   margin-bottom: 6px;
   border: 1px solid var(--erp-border);
   border-radius: var(--erp-radius-md);
-  background: #fff;
+  background: var(--erp-surface);
   color: var(--erp-text);
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
@@ -439,8 +439,8 @@
 }
 
 .production-task-card:hover {
-  border-color: #a9c9f7;
-  background: #f8fbff;
+  border-color: var(--erp-accent-border);
+  background: var(--erp-surface-subtle);
 }
 
 .production-task-card.active {
@@ -505,8 +505,8 @@
 }
 
 .production-print-nav-item:hover {
-  border-color: #a9c9f7;
-  background: #f8fbff;
+  border-color: var(--erp-accent-border);
+  background: var(--erp-surface-subtle);
 }
 
 .production-print-nav-item:focus-visible {
@@ -594,7 +594,7 @@
 
 .production-current-task p {
   margin-top: 3px;
-  color: #344258;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -722,7 +722,7 @@
   margin: 7px 0 0;
   border: 1px solid var(--erp-accent-border);
   border-radius: var(--erp-radius-md);
-  background: #f7faff;
+  background: var(--erp-surface-subtle);
   color: var(--erp-text-muted);
   font-size: 11px;
   line-height: 17px;
@@ -730,9 +730,9 @@
 }
 
 .production-exception-report .danger-action:not(:disabled) {
-  border-color: #f3b3b3;
-  background: #fff7f7;
-  color: #b42318;
+  border-color: var(--erp-danger-border);
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
 }
 
 .production-qualified-submit {
@@ -744,7 +744,7 @@
   min-width: 130px;
   border-color: var(--erp-accent);
   background: var(--erp-accent);
-  color: #fff;
+  color: var(--erp-accent-ink);
   font-weight: 700;
 }
 
@@ -908,21 +908,21 @@
 
 .master-data-role-readiness-grid article {
   flex-direction: column;
-  border: 1px solid #e1e6ed;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 4px;
-  background: #f8fafc;
+  background: var(--erp-surface-subtle);
   gap: 2px;
   padding: 5px 6px;
 }
 
 .master-data-role-readiness-grid article.ready {
-  border-color: #b9dfca;
-  background: #f3fbf6;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .master-data-role-readiness-grid article.blocked {
-  border-color: #f0d49b;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .master-data-role-readiness-grid article > div {
@@ -995,9 +995,9 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 4px 8px;
-  border: 1px solid #f5d79d;
+  border: 1px solid var(--erp-warning-border);
   border-radius: var(--erp-radius-md);
-  background: #fffaf0;
+  background: var(--erp-warning-bg);
   padding: 7px 8px;
 }
 
@@ -1064,7 +1064,7 @@
 
 .mobile-role-detail-tabs {
   border-bottom: 1px solid var(--erp-border-subtle);
-  background: #f8fafc;
+  background: var(--erp-surface-subtle);
   padding: 7px 10px;
 }
 
@@ -1103,9 +1103,9 @@
   justify-content: flex-start;
   margin-right: 0;
   margin-left: 0;
-  border: 1px solid #c9dcf7;
+  border: 1px solid var(--erp-accent-border);
   border-radius: var(--erp-radius-md);
-  background: #f4f8fe;
+  background: var(--erp-surface-hover);
   padding: 7px;
 }
 
@@ -1118,9 +1118,9 @@
   display: grid;
   gap: 10px;
   margin: 8px 0;
-  border: 1px solid #ebc878;
+  border: 1px solid var(--erp-warning-border);
   border-radius: var(--erp-radius-md);
-  background: #fffaf0;
+  background: var(--erp-warning-bg);
   padding: 10px;
 }
 
@@ -1142,7 +1142,7 @@
 
 .packing-completion-confirmation-head strong,
 .production-report-confirmation-head strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 14px;
   line-height: 20px;
 }
@@ -1153,7 +1153,7 @@
 .production-report-confirmation-head span,
 .production-report-confirmation-grid span,
 .production-report-confirmation-effects {
-  color: #68758a;
+  color: var(--erp-disabled-text);
   font-size: 12px;
   line-height: 18px;
 }
@@ -1170,9 +1170,9 @@
   display: grid;
   min-width: 0;
   gap: 2px;
-  border: 1px solid #ecd9a8;
+  border: 1px solid var(--erp-warning-border);
   border-radius: 5px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 6px 8px;
 }
 
@@ -1180,7 +1180,7 @@
 .production-report-confirmation-grid strong {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: #253044;
+  color: var(--erp-text);
   font-size: 12px;
   line-height: 18px;
 }
@@ -1201,15 +1201,15 @@
 .packing-completion-confirmation-actions button:not(.primary-action),
 .production-report-confirmation-actions button:not(.primary-action) {
   height: 30px;
-  border: 1px solid #cbd7e8;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #fff;
-  color: #34506f;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   padding: 0 10px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .production-packing-shell {
     margin-top: 0;
   }
@@ -1424,9 +1424,9 @@
   gap: 12px;
   margin-top: 12px;
   padding: 14px;
-  border: 1px solid #f2c56b;
+  border: 1px solid var(--erp-warning-border);
   border-radius: 12px;
-  background: #fffaf0;
+  background: var(--erp-warning-bg);
 }
 
 .schedule-action-confirmation h3 {

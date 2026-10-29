@@ -9,9 +9,9 @@
   align-items: center;
   gap: 10px;
   min-height: 56px;
-  border: 1px solid #e7edf5;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #fbfdff;
+  background: var(--erp-surface);
   padding: 7px 9px;
 }
 
@@ -21,9 +21,9 @@
   width: 58px;
   height: 42px;
   overflow: hidden;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #eef4fb;
+  background: var(--erp-canvas);
 }
 
 .payment-proof-thumb img {
@@ -33,7 +33,7 @@
 }
 
 .payment-proof-thumb span {
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 12px;
 }
 
@@ -50,13 +50,13 @@
 }
 
 .payment-proof-meta strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 12px;
 }
 
 .payment-proof-meta small {
   margin-top: 3px;
-  color: #6f7c8f;
+  color: var(--erp-disabled-text);
   font-size: 12px;
 }
 
@@ -71,9 +71,9 @@
   grid-template-columns: 46px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--erp-border);
   border-radius: 6px;
-  background: #f8fbff;
+  background: var(--erp-surface-subtle);
   padding: 8px;
 }
 
@@ -82,8 +82,8 @@
   width: 46px;
   height: 34px;
   border-radius: 5px;
-  background: #e9eff7;
-  color: #536178;
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
   font-size: 12px;
   object-fit: cover;
 }
@@ -102,12 +102,12 @@
 }
 
 .attachment-preview strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
 }
 
 .attachment-preview small {
-  color: #7b8798;
+  color: var(--erp-disabled-text);
   font-size: 12px;
 }
 
@@ -138,9 +138,9 @@
   flex: 1 1 auto;
   overflow: auto;
   margin: 14px;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--erp-border);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--erp-surface-subtle);
 }
 
 .attachment-viewer-body img {
@@ -151,7 +151,7 @@
 }
 
 .attachment-viewer-empty {
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 13px;
 }
 
@@ -160,10 +160,10 @@
   gap: 8px;
   width: min(460px, calc(100% - 32px));
   padding: 18px;
-  border: 1px solid #d9e4f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 10px 24px rgba(42, 64, 92, 0.08);
+  background: var(--erp-surface);
+  box-shadow: 0 10px 24px color-mix(in oklch, var(--erp-text) 8%, transparent);
 }
 
 .attachment-viewer-file-card strong,
@@ -174,13 +174,13 @@
 }
 
 .attachment-viewer-file-card strong {
-  color: #243044;
+  color: var(--erp-text);
   font-size: 15px;
 }
 
 .attachment-viewer-file-card span,
 .attachment-viewer-file-card small {
-  color: #66758b;
+  color: var(--erp-disabled-text);
   font-size: 12px;
 }
 
@@ -194,10 +194,10 @@
 .attachment-viewer-meta span {
   max-width: 100%;
   overflow: hidden;
-  border: 1px solid #e0e7f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #f6f9fd;
-  color: #536178;
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 24px;
   text-overflow: ellipsis;
@@ -208,9 +208,9 @@
 .attachment-viewer-audit {
   margin: 0 14px 12px;
   overflow: hidden;
-  border: 1px solid #e0e7f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 8px;
-  background: #fbfdff;
+  background: var(--erp-surface);
 }
 
 .attachment-viewer-audit-head {
@@ -219,15 +219,15 @@
   justify-content: space-between;
   gap: 12px;
   padding: 8px 10px;
-  border-bottom: 1px solid #edf1f7;
-  color: #172033;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  color: var(--erp-text);
   font-size: 13px;
 }
 
 .attachment-viewer-audit-head span {
   min-width: 0;
   overflow: hidden;
-  color: #7b8798;
+  color: var(--erp-disabled-text);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -244,8 +244,8 @@
   gap: 8px;
   align-items: center;
   padding: 7px 10px;
-  border-top: 1px solid #f1f4f8;
-  color: #536178;
+  border-top: 1px solid var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
 }
 
@@ -263,16 +263,16 @@
 }
 
 .attachment-viewer-audit-row strong {
-  color: #172033;
+  color: var(--erp-text);
   font-weight: 700;
 }
 
 .attachment-viewer-audit-row small {
-  color: #7b8798;
+  color: var(--erp-disabled-text);
 }
 
 .attachment-viewer-audit-empty {
   padding: 10px;
-  color: #7b8798;
+  color: var(--erp-disabled-text);
   font-size: 12px;
 }

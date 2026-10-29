@@ -55,8 +55,8 @@
 .order-status-tabs strong {
   min-width: 21px;
   border-radius: 999px;
-  background: #eef2f7;
-  color: #536178;
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
   font-size: 11px;
   line-height: 20px;
   padding: 0 5px;
@@ -65,11 +65,11 @@
 
 .order-status-tabs button.active strong {
   background: var(--erp-accent);
-  color: #fff;
+  color: var(--erp-accent-ink);
 }
 
 .order-pool-filter-bar {
-  background: #fbfcfe;
+  background: var(--erp-surface);
   padding-top: 7px;
 }
 
@@ -115,7 +115,7 @@
 }
 
 .order-pool-list-panel .order-table .data-row:not(.head):hover {
-  background: #f7faff;
+  background: var(--erp-surface-subtle);
 }
 
 .order-pool-list-panel .order-table .data-row.active,
@@ -198,7 +198,7 @@
 
 .order-quantity-cell small {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .order-pool-detail-pane .detail-head {
@@ -305,7 +305,7 @@
 
 .order-detail-product dt {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 
@@ -320,7 +320,7 @@
 
 .order-detail-product dd small {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
 }
 
@@ -347,7 +347,7 @@
   min-height: 42px;
   border-right: 1px solid var(--erp-border-subtle);
   border-bottom: 1px solid var(--erp-border-subtle);
-  background: #fbfcfe;
+  background: var(--erp-surface);
   padding: 5px 8px;
 }
 
@@ -358,7 +358,7 @@
 
 .order-detail-facts dt {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 
@@ -385,7 +385,7 @@
   position: relative;
   min-width: 0;
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
   padding: 17px 5px 0 0;
 }
@@ -397,10 +397,10 @@
   left: 0;
   width: 7px;
   height: 7px;
-  border: 2px solid #fff;
+  border: 2px solid var(--erp-surface);
   border-radius: 999px;
   background: var(--erp-accent);
-  box-shadow: 0 0 0 1px #8ebcff;
+  box-shadow: 0 0 0 1px var(--erp-accent-border);
   content: "";
 }
 
@@ -410,7 +410,7 @@
   right: 2px;
   left: 8px;
   height: 1px;
-  background: #cddbf0;
+  background: var(--erp-accent-border);
   content: "";
 }
 
@@ -440,17 +440,17 @@
 .order-pool-detail-actions .primary-action:not(:disabled) {
   border-color: var(--erp-accent);
   background: var(--erp-accent);
-  color: #fff;
+  color: var(--erp-accent-ink);
 }
 
 .order-pool-detail-actions .primary-action:not(:disabled):hover {
   border-color: var(--erp-accent-strong);
   background: var(--erp-accent-strong);
-  color: #fff;
+  color: var(--erp-accent-ink);
 }
 
 .order-pool-detail-actions .order-danger-action:not(:disabled) {
-  border-color: #efc0bd;
+  border-color: var(--erp-danger-border);
   color: var(--erp-danger);
 }
 
@@ -489,7 +489,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .order-status-tabs {
     padding: 0 6px;
   }

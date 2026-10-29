@@ -404,8 +404,8 @@ textarea,
 }
 
 .metric.blue {
-  background: var(--erp-accent-soft);
-  border-color: var(--erp-accent-border);
+  background: var(--erp-info-bg);
+  border-color: var(--erp-info-border);
 }
 
 .primary-button,
@@ -830,7 +830,7 @@ textarea,
     border-radius: 999px;
     background: var(--erp-neutral-bg);
     color: var(--erp-text-muted);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 17px;
     text-align: center;
   }

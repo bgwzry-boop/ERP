@@ -1,5 +1,5 @@
 .review-modal.finance-dialog { width: min(940px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--surface); font-size: 14px; line-height: 1.55; }
-.review-modal.finance-dialog::backdrop { background: rgb(15 23 42 / 42%); }
+.review-modal.finance-dialog::backdrop { background: var(--erp-overlay); }
 .finance-dialog > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 18px 24px; border-bottom: 1px solid var(--line); }
 .finance-dialog > header span, .finance-dialog > header p { color: var(--ink-soft); font-size: 12px; overflow-wrap: anywhere; }
 .finance-dialog h2 { margin: 4px 0; font-size: 20px; }

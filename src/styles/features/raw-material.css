@@ -227,7 +227,7 @@
 
 .raw-material-first-release-banner span {
   color: var(--erp-success);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -356,7 +356,7 @@
   border-radius: 999px;
   background: var(--erp-success-bg);
   color: var(--erp-success);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   padding: 3px 7px;
   white-space: nowrap;
@@ -366,7 +366,7 @@
   max-width: 46%;
   overflow: hidden;
   color: var(--erp-text-faint);
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -419,7 +419,7 @@
 .raw-material-task-card dt,
 .raw-material-selected-task dt {
   color: var(--erp-text-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .raw-material-task-card dd,
@@ -514,7 +514,7 @@
 .raw-material-selected-task > small {
   overflow: hidden;
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -526,7 +526,7 @@
 
 .raw-material-selected-task.is-temporary span {
   color: var(--erp-warning);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -737,7 +737,7 @@
 
 .raw-material-scan-result dt {
   color: var(--erp-text-faint);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .raw-material-scan-result dd {
@@ -850,7 +850,7 @@
 
 .raw-material-ocr-upload-bar span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -921,7 +921,7 @@
 
 .raw-material-ocr-review-heading span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -939,7 +939,7 @@
 
 .raw-material-ocr-review-grid label > span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -963,7 +963,7 @@
 .raw-material-ocr-review-grid small {
   overflow: hidden;
   color: var(--erp-text-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1000,7 +1000,7 @@
 .raw-material-ocr-line-heading span,
 .raw-material-ocr-line-heading em {
   overflow: hidden;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1027,7 +1027,7 @@
 .raw-material-ocr-line-grid small {
   overflow: hidden;
   color: var(--erp-text-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1101,7 +1101,7 @@
 
 .raw-material-detail-facts span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 

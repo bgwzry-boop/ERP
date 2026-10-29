@@ -54,8 +54,8 @@
 .todo-status-tabs strong {
   min-width: 21px;
   border-radius: 999px;
-  background: #eef2f7;
-  color: #536178;
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
   font-size: 11px;
   line-height: 20px;
   padding: 0 5px;
@@ -64,11 +64,11 @@
 
 .todo-status-tabs button.active strong {
   background: var(--erp-accent);
-  color: #fff;
+  color: var(--erp-accent-ink);
 }
 
 .todo-filter-bar {
-  background: #fbfcfe;
+  background: var(--erp-surface);
   padding-top: 7px;
 }
 
@@ -112,8 +112,8 @@
 }
 
 .todo-batch-print {
-  border-color: #b9d4fb;
-  background: #f2f7ff;
+  border-color: var(--erp-accent-border);
+  background: var(--erp-surface-hover);
   color: var(--erp-accent-strong);
 }
 
@@ -142,7 +142,7 @@
 }
 
 .todo-list-panel .todo-table .data-row:not(.head):hover {
-  background: #f7faff;
+  background: var(--erp-surface-subtle);
 }
 
 .todo-list-panel .todo-table .data-row.active,
@@ -357,7 +357,7 @@
   min-height: 42px;
   border-right: 1px solid var(--erp-border-subtle);
   border-bottom: 1px solid var(--erp-border-subtle);
-  background: #fbfcfe;
+  background: var(--erp-surface);
   padding: 5px 8px;
 }
 
@@ -380,7 +380,7 @@
   margin: 8px 12px 0;
   border: 1px solid var(--erp-accent-border);
   border-radius: var(--erp-radius-md);
-  background: #f5f9ff;
+  background: var(--erp-surface-subtle);
   padding: 7px 9px;
 }
 
@@ -402,7 +402,7 @@
 
 .todo-next-step.danger {
   border-left-color: var(--erp-danger);
-  background: #fff7f7;
+  background: var(--erp-danger-bg);
 }
 
 .todo-next-step.danger strong {
@@ -434,8 +434,8 @@
 
 .todo-reference-repair {
   margin-top: 8px;
-  border-top: 1px solid #f3d9a2;
-  background: #fffaf0;
+  border-top: 1px solid var(--erp-warning-border);
+  background: var(--erp-warning-bg);
   padding-bottom: 9px;
 }
 
@@ -445,7 +445,7 @@
 
 .todo-reference-repair .detail-hint {
   margin: 0 0 7px;
-  color: #7a5b1b;
+  color: var(--erp-warning);
   font-size: 11px;
   line-height: 17px;
 }
@@ -457,9 +457,9 @@
 
 .todo-notification-card p {
   margin: 0;
-  border: 1px solid #e2e8f2;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #fbfcff;
+  background: var(--erp-surface);
   color: var(--erp-text);
   font-size: 12px;
   line-height: 1.6;
@@ -497,7 +497,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .todo-workbench {
     gap: 8px;
   }

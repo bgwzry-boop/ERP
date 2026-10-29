@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 // 把 design.md 里的硬性视觉规则变成自动检查（不依赖第三方包）。
+// 范围：src/styles 与线上外壳 docs/prototypes/raw-material-roll-inventory-review/src 的全部 .css。
 //
 // 规则：
 //   raw-color        页面样式不得直接写 #hex / rgb() / rgba() / hsl() 颜色，只能引用 tokens.css 里的 token
-//   desktop-under-11 任何样式 font-size 不得低于 11px
-//   mobile-under-14  现场手机端样式 font-size 不得低于 14px
+//   desktop-under-11      办公室（桌面）样式 font-size 不得低于 11px
+//   mobile-body-under-14  现场手机端的正文（段落、按钮、输入框、错误/提示、关键数值）不得低于 14px
+//   mobile-under-12       现场手机端的辅助文字（字段标签、时间、计数、徽标）不得低于 12px
+//   图标尺寸（选择器以 svg 结尾的 font-size）不算文字，不检查；打印样式按纸面排版，不检查字号。
+//   mobile-breakpoint     手机/桌面分界统一为 767px / 768px，与 useOfficeWorkbenchNavigation 的 JS 判断一致；
+//                         不得再用 720px / 721px 作为分界。
 //
 // 存量问题记录在 scripts/design-token-baseline.json（按 文件 × 规则 计数）。
 // 检查采用“只降不升”：某个文件某条规则的数量超过基线就失败；低于基线会提示你收紧基线。
@@ -21,6 +26,8 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const stylesRoot = join(repoRoot, "src", "styles");
+// 线上 staging 部署的是「完整评审稿」外壳（deploy/release-policy.json），它自己的样式也必须遵守同样的规则。
+const reviewShellRoot = join(repoRoot, "docs", "prototypes", "raw-material-roll-inventory-review", "src");
 const baselinePath = join(repoRoot, "scripts", "design-token-baseline.json");
 
 // 只有 token 定义文件允许写原始颜色。
@@ -58,27 +65,65 @@ function declarationValues(line) {
   return values;
 }
 
+// 与 design.md「Typography」一致的正文/辅助/图标判断。
+const BODY_ELEMENT = /(^|[\s>+~])(p|button|input|select|textarea|dd|li|strong|summary)(?![\w-])(?!::after|::before)/;
+const BODY_CLASS = /(error|notice|blocker|empty|banner|message|effects|warning|undo|-more|confirmation|source-text|summary(?!::))/i;
+function lastCompound(selector) {
+  const parts = selector.trim().split(/\s+|>|\+|~/).filter(Boolean);
+  return parts.at(-1) ?? "";
+}
+export function classifyMobileSelector(selectorList) {
+  const selectors = selectorList.split(",").map((item) => item.trim()).filter(Boolean);
+  if (selectors.length && selectors.every((item) => /(^|\s)svg$/.test(item) || lastCompound(item) === "svg")) return "icon";
+  if (selectors.some((item) => /::(after|before)/.test(lastCompound(item)))) return "secondary";
+  return selectors.some((item) => BODY_ELEMENT.test(` ${lastCompound(item)}`) || BODY_CLASS.test(lastCompound(item)))
+    ? "body"
+    : "secondary";
+}
+
+// 由模板生成、标明「Do not edit by hand」的样式（如实物卷标 raw-material-roll-label.css）
+// 必须与模板逐字一致，不参与 token / 字号检查；要改请改生成它的模板。
+function isGeneratedStylesheet(rawSource) {
+  return /^\/\*\s*Generated from [^*]*Do not edit by hand/i.test(rawSource.trimStart());
+}
+
 function scanFile(absPath) {
   const file = relative(repoRoot, absPath).split("\\").join("/");
-  const lines = stripComments(readFileSync(absPath, "utf8")).split("\n");
+  const rawSource = readFileSync(absPath, "utf8");
+  if (isGeneratedStylesheet(rawSource)) return [];
+  const source = stripComments(rawSource);
+  const lines = source.split("\n");
   const findings = [];
   lines.forEach((line, index) => {
-    const lineNo = index + 1;
-    if (!RAW_COLOR_EXEMPT.has(file)) {
-      for (const value of declarationValues(line)) {
-        for (const m of value.matchAll(RAW_COLOR_RE)) {
-          findings.push({ file, line: lineNo, rule: "raw-color", text: m[0] });
-        }
-      }
+    for (const m of line.matchAll(/@media[^{]*\((?:max-width:\s*720px|min-width:\s*721px)\)/g)) {
+      findings.push({ file, line: index + 1, rule: "mobile-breakpoint", text: m[0] });
     }
-    if (!isPrintFile(file)) {
-      for (const m of line.matchAll(FONT_SIZE_RE)) {
-        const px = Number(m[1]);
-        if (px < 11) findings.push({ file, line: lineNo, rule: "desktop-under-11", text: `${px}px` });
-        else if (px < 14 && isMobileFile(file)) findings.push({ file, line: lineNo, rule: "mobile-under-14", text: `${px}px` });
+    if (RAW_COLOR_EXEMPT.has(file)) return;
+    for (const value of declarationValues(line)) {
+      for (const m of value.matchAll(RAW_COLOR_RE)) {
+        findings.push({ file, line: index + 1, rule: "raw-color", text: m[0] });
       }
     }
   });
+  if (!isPrintFile(file)) {
+    // 按规则块扫描，才能知道字号属于哪个选择器。
+    for (const rule of source.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+      const selector = rule[1].trim();
+      const bodyOffset = rule.index + rule[1].length + 1;
+      for (const size of rule[2].matchAll(FONT_SIZE_RE)) {
+        const px = Number(size[1]);
+        const line = source.slice(0, bodyOffset + size.index).split("\n").length;
+        if (isMobileFile(file)) {
+          const kind = classifyMobileSelector(selector);
+          if (kind === "icon") continue;
+          if (kind === "body" && px < 14) findings.push({ file, line, rule: "mobile-body-under-14", text: `${px}px` });
+          else if (px < 12) findings.push({ file, line, rule: "mobile-under-12", text: `${px}px` });
+        } else if (px < 11) {
+          findings.push({ file, line, rule: "desktop-under-11", text: `${px}px` });
+        }
+      }
+    }
+  }
   return findings;
 }
 
@@ -97,7 +142,7 @@ function sortObject(obj) {
   );
 }
 
-const findings = listCssFiles(stylesRoot).flatMap(scanFile);
+const findings = [...listCssFiles(stylesRoot), ...listCssFiles(reviewShellRoot)].flatMap(scanFile);
 const current = countByFileRule(findings);
 const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : {};
 
@@ -129,7 +174,7 @@ if (args.has("--update-baseline")) {
 }
 
 const totals = findings.reduce((acc, f) => ({ ...acc, [f.rule]: (acc[f.rule] ?? 0) + 1 }), {});
-console.log(`design tokens: raw-color ${totals["raw-color"] ?? 0} · <11px ${totals["desktop-under-11"] ?? 0} · 手机<14px ${totals["mobile-under-14"] ?? 0}`);
+console.log(`design tokens: raw-color ${totals["raw-color"] ?? 0} · 桌面<11px ${totals["desktop-under-11"] ?? 0} · 手机正文<14px ${totals["mobile-body-under-14"] ?? 0} · 手机辅助<12px ${totals["mobile-under-12"] ?? 0}`);
 
 if (improvements.length) {
   console.log(`有 ${improvements.length} 项比基线更好，运行 --update-baseline 把基线收紧。`);

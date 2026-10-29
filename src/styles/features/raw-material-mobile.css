@@ -210,7 +210,7 @@
     background: var(--raw-review-green-soft);
     padding: 7px 10px;
     color: var(--raw-review-green);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     gap: 8px;
   }
@@ -234,7 +234,7 @@
     border-top: 1px solid var(--erp-border-subtle);
     color: var(--erp-text-muted);
     padding: 8px 12px;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 19px;
   }
 
@@ -256,7 +256,7 @@
     background: var(--erp-surface-subtle);
     color: var(--erp-text-muted);
     padding-inline: 10px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
   }
 
@@ -313,7 +313,7 @@
 
   .raw-material-mobile-review-line-summary .line-index small {
     color: var(--erp-text-muted);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
   }
 
@@ -331,7 +331,7 @@
   .raw-material-mobile-review-line-summary .line-weight small {
     overflow: hidden;
     color: var(--erp-text-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 16px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -347,7 +347,7 @@
     align-items: center;
     justify-content: flex-end;
     color: var(--erp-text-muted);
-    font-size: 11px;
+    font-size: 12px;
     font-style: normal;
     font-weight: 700;
     gap: 3px;
@@ -522,7 +522,7 @@
     background: var(--erp-warning-bg);
     color: var(--erp-warning);
     padding: 9px 10px;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 20px;
   }
 
@@ -569,7 +569,7 @@
     background: var(--erp-surface-subtle);
     color: var(--erp-text-muted);
     padding: 9px 10px;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 18px;
   }
 
@@ -647,7 +647,7 @@
   .raw-material-mobile-review-document dt,
   .raw-material-mobile-review-document dd {
     margin: 0;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 20px;
   }
 
@@ -668,7 +668,7 @@
     align-items: center;
     border-top: 1px solid var(--erp-border);
     background: var(--erp-surface);
-    box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 -8px 24px color-mix(in oklch, var(--erp-text) 8%, transparent);
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
     gap: 12px;
     margin-top: auto;
@@ -765,7 +765,7 @@
     background: var(--erp-mobile-hero-control);
     color: var(--erp-accent-ink);
     padding: 0 9px;
-    font-size: 13px;
+    font-size: 14px;
     white-space: nowrap;
   }
 
@@ -889,7 +889,7 @@
     margin: 0;
     border-radius: 8px;
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 18px;
   }
 
@@ -1021,7 +1021,7 @@
   .raw-material-mobile-empty {
     margin: 0;
     color: var(--erp-text-muted);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 20px;
     text-align: center;
   }
@@ -1936,7 +1936,7 @@
   }
 
   .raw-material-mobile-review-progress small {
-    font-size: 11px;
+    font-size: 12px;
     line-height: 17px;
   }
 
@@ -1972,7 +1972,7 @@
   .raw-material-mobile-delivery-note > header span {
     overflow: hidden;
     color: var(--erp-mobile-field-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 17px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1984,7 +1984,7 @@
     background: transparent;
     color: var(--raw-review-green);
     padding: 0;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
   }
 
@@ -2006,7 +2006,7 @@
     background: var(--erp-mobile-field-surface);
     color: var(--erp-mobile-field-muted);
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .raw-material-mobile-source-pages button.is-active {
@@ -2108,7 +2108,7 @@
 
   .raw-material-mobile-review-overview > header span {
     color: var(--erp-mobile-field-muted);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 18px;
     white-space: nowrap;
   }
@@ -2209,7 +2209,7 @@
     overflow: hidden;
     color: var(--erp-mobile-field-evidence);
     padding: 4px 8px;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 18px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2243,7 +2243,7 @@
     min-width: 0;
     overflow: hidden;
     color: var(--erp-mobile-field-ink);
-    font-size: 12px;
+    font-size: 14px;
     line-height: 20px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2280,7 +2280,7 @@
     background: transparent;
     color: var(--raw-review-green);
     padding: 0 3px;
-    font-size: 10px;
+    font-size: 14px;
     font-weight: 700;
     line-height: 16px;
     white-space: nowrap;
@@ -2393,9 +2393,9 @@
     background: var(--erp-danger-bg);
     padding: 9px 12px;
     color: var(--erp-danger);
-    font-size: 12px;
+    font-size: 14px;
     line-height: 18px;
-    box-shadow: 0 8px 22px rgba(77, 31, 24, 0.14);
+    box-shadow: 0 8px 22px color-mix(in oklch, var(--erp-danger) 14%, transparent);
   }
 
   .raw-material-mobile-exclusion-backdrop {
@@ -2405,7 +2405,7 @@
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    background: rgba(19, 31, 22, 0.46);
+    background: color-mix(in oklch, var(--erp-mobile-field-ink) 46%, transparent);
   }
 
   .raw-material-mobile-exclusion-backdrop > section {
@@ -2415,7 +2415,7 @@
     background: var(--erp-mobile-field-surface);
     padding: 20px 16px calc(18px + env(safe-area-inset-bottom));
     gap: 12px;
-    box-shadow: 0 -14px 42px rgba(20, 34, 24, 0.2);
+    box-shadow: 0 -14px 42px color-mix(in oklch, var(--erp-mobile-field-ink) 20%, transparent);
   }
 
   .raw-material-mobile-exclusion-backdrop h2,
@@ -2432,7 +2432,7 @@
   .raw-material-mobile-exclusion-backdrop p,
   .raw-material-mobile-exclusion-backdrop small {
     color: var(--erp-mobile-field-muted);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 20px;
   }
 
@@ -2606,7 +2606,7 @@
   }
 
   .raw-material-mobile-review-line-summary .line-actions button {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .raw-material-mobile-review-footer button {

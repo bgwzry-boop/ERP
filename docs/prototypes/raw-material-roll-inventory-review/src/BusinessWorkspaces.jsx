@@ -47,6 +47,7 @@ import { FactoryColorLabel } from "./FactoryColor.jsx";
 import { buildEmployeeProfile } from "./employee-profile.js";
 import { completedBusinessWorkspaceIds } from "./workspaceCoverage.js";
 import { optionalFinancialAmount } from "../../../../src/services/officeStatementSelectors.js";
+import { getOrderProgress } from "./orderProgress.js";
 
 const OrderPrintGroupCorrectionDialog = lazy(() => import("./OrderPrintGroupCorrectionDialog.jsx").then(module => ({default:module.OrderPrintGroupCorrectionDialog})));
 
@@ -116,8 +117,23 @@ function miniappProgressLabel(line = {}) {
 function stateTone(value) {
   if (/异常|差异|阻塞|失败|缺货|冻结|待补|未就绪/.test(value)) return "danger";
   if (/已完成|正常|有效|通过|可用|可出库|已核算|在线|已清点|已交付|已启用|已付款|已结算|已确认/.test(value)) return "success";
-  if (/生产中|印刷中|制袋中|打包中|配送中|已备货/.test(value)) return "info";
+  if (/生产中|印刷中|丝印中|制袋中|打包中|配送中|已备货/.test(value)) return "info";
   return "warning";
+}
+
+// 金额、数量列右对齐（表头按列名判断；「客户 / 期间」之类的文字列不受影响）
+function isNumericColumn(column) {
+  return /^(?:当前)?(?:应收|已收|差额|金额|欠款|应付|已付|计划数量|数量|重量)$/.test(String(column ?? "").trim());
+}
+
+// 订单进度：下单 → 生产 → 出库 → 对账，并写出下一步（2026-10-29 品牌橙改版）
+function OrderProgressSection({ status }) {
+  const progress = getOrderProgress(status);
+  return <section className="order-progress" aria-label="订单进度">
+    <h3>订单进度</h3>
+    <ol>{progress.steps.map((step) => <li className={step.state} key={step.label} aria-current={step.state === "current" ? "step" : undefined}><span aria-hidden="true" /><b>{step.label}</b></li>)}</ol>
+    <p>下一步：{progress.next}</p>
+  </section>;
 }
 
 function SemanticOrderTag({ kind, value }) {
@@ -319,6 +335,8 @@ function buildFulfillmentRows(items = [], orderLines = []) {
       orderLineId,
       customer: customerName({ ...orderLine, ...item }),
       goods,
+      // 详情标题只用货品名；完整规格（尺寸、颜色、印刷、数量）放在标题下一行。
+      productTitle: orderLine.productName || orderLine.product || String(goods).split(/\s+/)[0] || goods,
       method: item.methodLabel || item.method || "待确认",
       packageLabel,
       latestNeededAt: item.latest || item.latestNeededAt || "待确认",
@@ -562,8 +580,8 @@ function GenericWorkspace({ config, onNavigate, detailExtra }) {
       {config.modes ? <div aria-label={`${config.title}区域`} className="business-subtabs" role="tablist">{config.modes.map((item) => <button aria-selected={mode === item} key={item} onClick={() => { setMode(item); setSelectedId(""); }} role="tab" type="button">{item}</button>)}</div> : null}
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索当前工作台" value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="business-table" role="table" aria-label={`${config.title}列表`}>
-        <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}>{config.columns.map((column) => <span key={column} role="columnheader">{column}</span>)}</div>
-        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`business-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button">{row.cells.map((cell, index) => <span className={index === (config.primaryCellIndex ?? 0) ? "business-primary-cell" : undefined} key={`${row.id}-${index}`} role="cell">{index === row.cells.length - 1 ? <StateText>{cell}</StateText> : cell}</span>)}</button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配记录</strong><span>调整关键词、状态或区域后重试。</span></div>}</div>
+        <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}>{config.columns.map((column) => <span data-numeric={isNumericColumn(column) ? "true" : undefined} key={column} role="columnheader">{column}</span>)}</div>
+        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`business-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button">{row.cells.map((cell, index) => <span className={index === (config.primaryCellIndex ?? 0) ? "business-primary-cell" : undefined} data-numeric={isNumericColumn(config.columns[index]) ? "true" : undefined} key={`${row.id}-${index}`} role="cell">{index === row.cells.length - 1 ? <StateText>{cell}</StateText> : cell}</span>)}</button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配记录</strong><span>调整关键词、状态或区域后重试。</span></div>}</div>
       </div>
     </section>
     <aside className="business-detail-panel">
@@ -659,7 +677,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
       </div>
     </section>
     <aside className="business-detail-panel fulfillment-detail">
-      <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.goods || "暂无交付任务"}</h2>{selected ? <StateText>{selected.status}</StateText> : null}</header>
+      <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.productTitle || "暂无交付任务"}</h2>{selected && selected.goods !== selected.productTitle ? <p className="business-detail-subtitle">{selected.goods}</p> : null}{selected ? <StateText>{selected.status}</StateText> : null}</header>
       <div className="business-detail-scroll">{selected ? <>
         <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
         <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
@@ -974,7 +992,7 @@ function OrderPoolWorkspace({ formal, onNavigate }) {
       <div className="order-pool-tools"><div className="business-subtabs" role="tablist">{["全部订单", "待处理", "生产中", "待出库"].map((item) => <button aria-selected={tab === item} key={item} onClick={() => setTab(item)} role="tab" type="button">{item}</button>)}</div><label><SearchOutlined /><input aria-label="订单池搜索" onChange={(event) => setQuery(event.target.value)} placeholder="客户 / 货品 / 规格 / 订单号" value={query} /></label></div>
       <div className="order-ledger" role="table" aria-label="订单池明细"><div className="order-ledger-row head"><span>客户</span><span>货品与规格</span><span>数量</span><span>状态</span><span>交付</span><span>风险</span></div><div className="business-table-body">{rows.length ? rows.map((order) => <button aria-pressed={selected?.id === order.id} className={`order-ledger-row${selected?.id === order.id ? " selected" : ""}`} key={order.id} onClick={() => { setSelectedId(order.id); setNotice(""); }} type="button"><strong>{order.customer}</strong><span className="order-product-cell"><strong>{order.product}</strong><small>{order.size} · {getLineColorSpecLabel(order) || order.color} <SemanticOrderTag kind="business" value={order.business} />{order.requirement ? <SemanticOrderTag kind="requirement" value={order.requirement} /> : null}</small></span><strong>{formatNumber(order.qty)}<small>个</small></strong><span className="order-state-cell"><StateText>{order.status}</StateText>{/制袋中|丝印中|生产中/.test(order.status) ? <small>{order.machine}</small> : null}</span><span>{order.fulfillment}<small>{order.latest}</small></span><span>{order.risk === "—" ? "—" : <StateText>{order.risk}</StateText>}</span></button>) : <div className="business-empty"><FileTextOutlined /><strong>服务器暂无订单</strong><span>刷新后仍为空时，请先在订单录入中创建订单。</span></div>}</div></div>
     </section>
-    <aside className="business-detail-panel order-detail-panel"><header><span>{selected ? `${selected.customer} · ${selected.id}` : "订单池"}</span><h2>{selected?.product || "暂无订单"}</h2>{selected ? <div className="order-detail-tags"><SemanticOrderTag kind="business" value={selected.business} />{selected.requirement ? <SemanticOrderTag kind="requirement" value={selected.requirement} /> : null}</div> : null}</header><div className="business-detail-scroll">{selected ? <><h3>订单事实</h3><dl className="business-facts"><div><dt>完整订单明细号</dt><dd>{selected.id}</dd></div><div><dt>规格与颜色</dt><dd>{selected.size} · {getLineColorSpecLabel(selected) || selected.color}</dd></div><div><dt>计划数量</dt><dd>{formatNumber(selected.qty)}个</dd></div><div><dt>库存状态</dt><dd>{selected.inventory}</dd></div><div><dt>当前状态</dt><dd>{selected.status}</dd></div><div><dt>机台</dt><dd>{selected.machine}</dd></div><div><dt>交付方式</dt><dd>{selected.fulfillment}</dd></div><div><dt>要求时间</dt><dd>{selected.latest}</dd></div><div><dt>金额</dt><dd>{money(selected.amount)}</dd></div><div><dt>当前风险</dt><dd>{selected.risk}</dd></div></dl></> : <div className="business-empty"><FileTextOutlined /><strong>服务器暂无订单</strong></div>}{notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}</div><footer><button className="primary" disabled={!selected} onClick={() => selected && onNavigate(/待出库|已备货/.test(selected.status) ? "outbound-delivery" : "production-tasks")} type="button">{selected && /待出库|已备货/.test(selected.status) ? "进入出库交付" : "进入生产任务"}</button><button className="secondary-button" disabled={!selected || Boolean(mutationId) || Boolean(groupCorrectionId) || formal.orderEntryWritePending || !["order.quantity.adjust","order.void"].some(p=>formal.permissionContext?.actionPermissions?.includes(p))} onClick={()=>selected.printingPriceGroup?.memberCount>1?setGroupCorrectionId(selected.id):setMutationId(selected.id)} type="button">{selected?.printingPriceGroup?.memberCount>1?"整组印刷更正":"修改数量 / 作废"}</button><button className="secondary-button" onClick={() => void formal.actions.refreshAll()} type="button">刷新服务器数据</button></footer></aside>{mutationId?<OrderMutationDialog orderLineId={mutationId} authState={formal.authState} onClose={()=>setMutationId("")} onSaved={formal.actions.refreshAll}/>:null}{groupCorrectionId?<Suspense fallback={<p role="status">正在读取整组更正…</p>}><OrderPrintGroupCorrectionDialog orderLineId={groupCorrectionId} authState={formal.authState} onClose={()=>setGroupCorrectionId("")} onSaved={formal.actions.refreshAll} onPendingChange={formal.actions.setOrderEntryWritePending}/></Suspense>:null}
+    <aside className="business-detail-panel order-detail-panel"><header><span>{selected ? `${selected.customer} · ${selected.id}` : "订单池"}</span><h2>{selected?.product || "暂无订单"}</h2>{selected ? <div className="order-detail-tags"><SemanticOrderTag kind="business" value={selected.business} />{selected.requirement ? <SemanticOrderTag kind="requirement" value={selected.requirement} /> : null}</div> : null}</header><div className="business-detail-scroll">{selected ? <><OrderProgressSection status={selected.status} /><h3>订单事实</h3><dl className="business-facts"><div><dt>完整订单明细号</dt><dd>{selected.id}</dd></div><div><dt>规格与颜色</dt><dd>{selected.size} · {getLineColorSpecLabel(selected) || selected.color}</dd></div><div><dt>计划数量</dt><dd>{formatNumber(selected.qty)}个</dd></div><div><dt>库存状态</dt><dd>{selected.inventory}</dd></div><div><dt>当前状态</dt><dd>{selected.status}</dd></div><div><dt>机台</dt><dd>{selected.machine}</dd></div><div><dt>交付方式</dt><dd>{selected.fulfillment}</dd></div><div><dt>要求时间</dt><dd>{selected.latest}</dd></div><div><dt>金额</dt><dd>{money(selected.amount)}</dd></div><div><dt>当前风险</dt><dd>{selected.risk}</dd></div></dl></> : <div className="business-empty"><FileTextOutlined /><strong>服务器暂无订单</strong></div>}{notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}</div><footer><button className="primary" disabled={!selected} onClick={() => selected && onNavigate(getOrderProgress(selected.status).target)} type="button">{selected ? getOrderProgress(selected.status).action : "进入生产任务"}</button><button className="secondary-button" disabled={!selected || Boolean(mutationId) || Boolean(groupCorrectionId) || formal.orderEntryWritePending || !["order.quantity.adjust","order.void"].some(p=>formal.permissionContext?.actionPermissions?.includes(p))} onClick={()=>selected.printingPriceGroup?.memberCount>1?setGroupCorrectionId(selected.id):setMutationId(selected.id)} type="button">{selected?.printingPriceGroup?.memberCount>1?"整组印刷更正":"修改数量 / 作废"}</button><button className="secondary-button" onClick={() => void formal.actions.refreshAll()} type="button">刷新服务器数据</button></footer></aside>{mutationId?<OrderMutationDialog orderLineId={mutationId} authState={formal.authState} onClose={()=>setMutationId("")} onSaved={formal.actions.refreshAll}/>:null}{groupCorrectionId?<Suspense fallback={<p role="status">正在读取整组更正…</p>}><OrderPrintGroupCorrectionDialog orderLineId={groupCorrectionId} authState={formal.authState} onClose={()=>setGroupCorrectionId("")} onSaved={formal.actions.refreshAll} onPendingChange={formal.actions.setOrderEntryWritePending}/></Suspense>:null}
   </div>;
 }
 

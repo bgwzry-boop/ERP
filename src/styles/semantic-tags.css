@@ -37,7 +37,13 @@
   font-size: var(--erp-text-md);
 }
 
-.erp-semantic-tag[data-kind="business"][data-value="custom"],
+/* 定制单用品牌橙浅色（2026-10-29 改版确认）；进行中等正常状态保留信息蓝 */
+.erp-semantic-tag[data-kind="business"][data-value="custom"] {
+  --semantic-tag-background: var(--erp-accent-soft);
+  --semantic-tag-border: var(--erp-accent-border);
+  --semantic-tag-ink: var(--erp-accent-soft-ink);
+}
+
 .erp-semantic-tag[data-kind="requirement"][data-value="double-sided"],
 .erp-semantic-tag[data-kind="state"][data-value="normal"] {
   --semantic-tag-background: var(--erp-info-bg);

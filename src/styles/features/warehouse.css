@@ -15,8 +15,8 @@
   align-items: center;
   justify-content: space-between;
   border-radius: 14px;
-  background: #18558f;
-  color: #fff;
+  background: var(--erp-accent-strong);
+  color: var(--erp-accent-ink);
   gap: 16px;
   padding: 14px 16px;
 }
@@ -40,7 +40,7 @@
   min-height: 34px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.34);
+  border: 1px solid color-mix(in oklch, var(--erp-surface) 34%, transparent);
   border-radius: 999px;
   gap: 4px;
   padding: 5px 10px;
@@ -65,7 +65,7 @@
 .warehouse-mobile-steps li {
   display: grid;
   justify-items: center;
-  color: #74859a;
+  color: var(--erp-disabled-text);
   gap: 5px;
   font-size: 12px;
 }
@@ -82,27 +82,27 @@
   place-items: center;
   border: 1px solid var(--erp-border);
   border-radius: 50%;
-  background: #fff;
+  background: var(--erp-surface);
   font-weight: 700;
 }
 
 .warehouse-mobile-steps li.active {
-  color: #155694;
+  color: var(--erp-accent-strong);
   font-weight: 700;
 }
 
 .warehouse-mobile-steps li.active > span {
-  border-color: #7fb0dd;
-  background: #eaf4ff;
+  border-color: var(--erp-accent-border);
+  background: var(--erp-accent-soft);
 }
 
 .warehouse-mobile-steps li.done {
-  color: #087443;
+  color: var(--erp-success);
 }
 
 .warehouse-mobile-steps li.done > span {
-  border-color: #8acfb0;
-  background: #eaf9f1;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .warehouse-mobile-task-card,
@@ -292,7 +292,7 @@
   min-height: 76px;
   border: 1px solid var(--erp-border-subtle);
   border-radius: 10px;
-  background: #fff;
+  background: var(--erp-surface);
   gap: 2px;
   padding: 10px 12px;
   text-align: left;
@@ -324,7 +324,7 @@
   align-content: center;
   border: 1px solid var(--erp-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--erp-surface);
   color: var(--erp-accent-strong);
   gap: 5px;
 }
@@ -364,7 +364,7 @@
   font-size: 14px;
 }
 
-@media (min-width: 721px) {
+@media (min-width: 768px) {
   .warehouse-mobile-page {
     padding: 12px;
   }

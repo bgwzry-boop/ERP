@@ -1,17 +1,17 @@
 .desktop-fulfillment-operations { display: grid; gap: 14px; }
 .desktop-fulfillment-operations h3, .desktop-fulfillment-operations p { margin: 0; }
-.desktop-fulfillment-operations p { font-size: 13px; line-height: 1.65; color: var(--ink-muted, #64748b); overflow-wrap: anywhere; }
-.desktop-fulfillment-operations fieldset { min-width: 0; display: grid; gap: 10px; margin: 0; padding: 14px 0 0; border: 0; border-top: 1px solid var(--line, #e2e8f0); }
+.desktop-fulfillment-operations p { font-size: 13px; line-height: 1.65; color: var(--ink-muted, var(--erp-text-faint)); overflow-wrap: anywhere; }
+.desktop-fulfillment-operations fieldset { min-width: 0; display: grid; gap: 10px; margin: 0; padding: 14px 0 0; border: 0; border-top: 1px solid var(--line, var(--erp-border-subtle)); }
 .desktop-fulfillment-operations legend { padding: 0 8px 0 0; font-weight: 650; font-size: 14px; }
 .desktop-fulfillment-operations label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
-.desktop-fulfillment-operations input, .desktop-fulfillment-operations select, .desktop-fulfillment-operations textarea { box-sizing: border-box; width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--line, #cbd5e1); border-radius: 6px; color: inherit; background: white; font: inherit; }
+.desktop-fulfillment-operations input, .desktop-fulfillment-operations select, .desktop-fulfillment-operations textarea { box-sizing: border-box; width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--line, var(--erp-border)); border-radius: 6px; color: inherit; background: white; font: inherit; }
 .desktop-fulfillment-operations textarea { resize: vertical; }
 .fulfillment-operation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .desktop-fulfillment-operations .fulfillment-operation-check { display: flex; align-items: flex-start; gap: 8px; line-height: 1.6; }
 .desktop-fulfillment-operations .fulfillment-operation-check input { width: 17px; min-height: 17px; flex: 0 0 auto; margin-top: 3px; }
 .desktop-fulfillment-operations button { min-height: 38px; white-space: normal; }
 .desktop-fulfillment-operations button:disabled { opacity: .55; cursor: not-allowed; }
-.fulfillment-operation-confirm { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line, #cbd5e1); border-radius: 8px; background: #fff8eb; }
+.fulfillment-operation-confirm { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line, var(--erp-border)); border-radius: 8px; background: var(--erp-warning-bg); }
 .fulfillment-operation-confirm > div { display: flex; gap: 8px; flex-wrap: wrap; }
-.fulfillment-operation-notice { padding: 10px; border-left: 3px solid #b87929; background: #fff8eb; }
+.fulfillment-operation-notice { padding: 10px; border-left: 3px solid var(--erp-warning); background: var(--erp-warning-bg); }
 @media (max-width: 760px) { .fulfillment-operation-grid { grid-template-columns: 1fr; } .desktop-fulfillment-operations button { min-height: 44px; } }
