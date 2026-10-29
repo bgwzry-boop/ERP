@@ -192,9 +192,9 @@
 .metric.danger { border-color: var(--erp-danger-border); background: var(--erp-danger-bg); }
 .metric.warning { border-color: var(--erp-warning-border); background: var(--erp-warning-bg); }
 .metric.success { border-color: var(--erp-success-border); background: var(--erp-success-bg); }
-.metric.blue { border-color: var(--erp-accent-border); background: var(--erp-accent-soft); }
+.metric.blue { border-color: var(--erp-info-border); background: var(--erp-info-bg); }
 
-.metric.blue::before { background: var(--erp-accent); }
+.metric.blue::before { background: var(--erp-info); }
 .metric.success::before { background: var(--erp-success); }
 .metric.warning::before { background: var(--erp-warning); }
 .metric.danger::before { background: var(--erp-danger); }
@@ -246,7 +246,7 @@
   line-height: 17px;
 }
 
-.data-state.info .data-state-marker { background: var(--erp-accent); }
+.data-state.info .data-state-marker { background: var(--erp-info); }
 .data-state.success .data-state-marker { background: var(--erp-success); }
 .data-state.warning .data-state-marker { background: var(--erp-warning); }
 .data-state.danger .data-state-marker { background: var(--erp-danger); }

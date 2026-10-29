@@ -730,8 +730,8 @@
 }
 
 .print-job-row.blue {
-  border-color: var(--erp-accent-border);
-  background: var(--erp-accent-soft);
+  border-color: var(--erp-info-border);
+  background: var(--erp-info-bg);
 }
 
 .print-job-main,

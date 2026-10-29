@@ -80,6 +80,8 @@ if (identityGuard) {
         import("./styles.css"),
         import("./business-workspaces.css"),
       ]);
+      // 品牌橙改版层必须在上面两份样式之后加载（它覆盖其中的外观）。
+      await import("./brand-refresh.css");
       const { App } = await import("./App.jsx");
       root.render(
         <React.StrictMode>

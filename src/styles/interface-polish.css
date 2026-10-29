@@ -404,8 +404,8 @@ textarea,
 }
 
 .metric.blue {
-  background: var(--erp-accent-soft);
-  border-color: var(--erp-accent-border);
+  background: var(--erp-info-bg);
+  border-color: var(--erp-info-border);
 }
 
 .primary-button,

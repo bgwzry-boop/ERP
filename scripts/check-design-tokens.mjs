@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // 把 design.md 里的硬性视觉规则变成自动检查（不依赖第三方包）。
+// 范围：src/styles 与线上外壳 docs/prototypes/raw-material-roll-inventory-review/src 的全部 .css。
 //
 // 规则：
 //   raw-color        页面样式不得直接写 #hex / rgb() / rgba() / hsl() 颜色，只能引用 tokens.css 里的 token
@@ -25,6 +26,8 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const stylesRoot = join(repoRoot, "src", "styles");
+// 线上 staging 部署的是「完整评审稿」外壳（deploy/release-policy.json），它自己的样式也必须遵守同样的规则。
+const reviewShellRoot = join(repoRoot, "docs", "prototypes", "raw-material-roll-inventory-review", "src");
 const baselinePath = join(repoRoot, "scripts", "design-token-baseline.json");
 
 // 只有 token 定义文件允许写原始颜色。
@@ -131,7 +134,7 @@ function sortObject(obj) {
   );
 }
 
-const findings = listCssFiles(stylesRoot).flatMap(scanFile);
+const findings = [...listCssFiles(stylesRoot), ...listCssFiles(reviewShellRoot)].flatMap(scanFile);
 const current = countByFileRule(findings);
 const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : {};
 

@@ -116,7 +116,7 @@ function miniappProgressLabel(line = {}) {
 function stateTone(value) {
   if (/异常|差异|阻塞|失败|缺货|冻结|待补|未就绪/.test(value)) return "danger";
   if (/已完成|正常|有效|通过|可用|可出库|已核算|在线|已清点|已交付|已启用|已付款|已结算|已确认/.test(value)) return "success";
-  if (/生产中|印刷中|制袋中|打包中|配送中|已备货/.test(value)) return "info";
+  if (/生产中|印刷中|丝印中|制袋中|打包中|配送中|已备货/.test(value)) return "info";
   return "warning";
 }
 
