@@ -1,6 +1,7 @@
 name: UI screenshots
 
-# 每个 PR 给主要页面截图：PR 分支和目标分支各一套，打包成 artifact，方便对比界面改动。
+# 每个 PR 给线上同款界面（完整评审稿）的主要页面截图：PR 分支和目标分支各一套，
+# 打包成 artifact，方便对比界面改动。启动方式与 CI 的浏览器检查相同（npm run review:dev）。
 on:
   pull_request:
 
@@ -10,7 +11,7 @@ permissions:
 jobs:
   screenshots:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,30 +21,35 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm ci --prefix docs/prototypes/raw-material-roll-inventory-review
       - run: npx playwright install --with-deps chromium
       - name: Capture PR branch
         run: |
-          NODE_ENV=development npx vite build --mode development > /tmp/head-vite.log 2>&1
-          setsid npx vite preview --host 127.0.0.1 --port 5173 --strictPort >> /tmp/head-vite.log 2>&1 &
-          for i in {1..60}; do curl -fs http://127.0.0.1:5173/ >/dev/null && break; sleep 1; done
-          node scripts/capture-ui-screenshots.mjs ui-shots/head http://127.0.0.1:5173/
-          pkill -f "vite preview --host 127.0.0.1 --port 5173" || true
+          mkdir -p .erp-local-storage/ci
+          setsid npm run review:dev > /tmp/head-review.log 2>&1 &
+          echo $! > /tmp/head-review.pid
+          for i in {1..90}; do curl -fs http://127.0.0.1:4174/ >/dev/null && curl -fs http://127.0.0.1:8787/api/health >/dev/null && break; sleep 1; done
+          node scripts/capture-ui-screenshots.mjs ui-shots/head http://127.0.0.1:4174/
+          kill -- "-$(cat /tmp/head-review.pid)" 2>/dev/null || true
+          sleep 3
       - name: Capture base branch
         run: |
           git worktree add /tmp/base "origin/${{ github.base_ref }}"
           cd /tmp/base
           npm ci
-          NODE_ENV=development npx vite build --mode development > /tmp/base-vite.log 2>&1
-          setsid npx vite preview --host 127.0.0.1 --port 5174 --strictPort >> /tmp/base-vite.log 2>&1 &
-          for i in {1..60}; do curl -fs http://127.0.0.1:5174/ >/dev/null && break; sleep 1; done
-          node "$GITHUB_WORKSPACE/scripts/capture-ui-screenshots.mjs" "$GITHUB_WORKSPACE/ui-shots/base" http://127.0.0.1:5174/
-          pkill -f "vite preview --host 127.0.0.1 --port 5174" || true
+          npm ci --prefix docs/prototypes/raw-material-roll-inventory-review
+          mkdir -p .erp-local-storage/ci
+          setsid npm run review:dev > /tmp/base-review.log 2>&1 &
+          echo $! > /tmp/base-review.pid
+          for i in {1..90}; do curl -fs http://127.0.0.1:4174/ >/dev/null && curl -fs http://127.0.0.1:8787/api/health >/dev/null && break; sleep 1; done
+          node "$GITHUB_WORKSPACE/scripts/capture-ui-screenshots.mjs" "$GITHUB_WORKSPACE/ui-shots/base" http://127.0.0.1:4174/
+          kill -- "-$(cat /tmp/base-review.pid)" 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ui-screenshots-${{ github.event.pull_request.number }}
           path: |
             ui-shots/
-            /tmp/head-vite.log
-            /tmp/base-vite.log
+            /tmp/head-review.log
+            /tmp/base-review.log
           retention-days: 14
