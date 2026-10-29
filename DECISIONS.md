@@ -107,6 +107,17 @@ Current decision baseline: 2026-10-22 version unification; V8.306 is a historica
 - Dirty-worktree release preparation classifies every file, scans added/untracked text for secrets and keeps staging empty until human review; bulk `git add -A` is forbidden.
 - Status documents keep only current truth and links. Full historical logs are archived without deletion.
 
+## 2026-10-29 Owner Scope Decisions
+
+- First production batch is office-only raw material: entry → roll-label print → outbound → inventory query → supplier reconciliation. Order entry, driver delivery, after-sales and WeCom automation are not in it; driver code may be built first but ships later.
+- First batch enables one office clerk account only, so testing does not take both clerks off their daily work. Go-live signoffs are counted per batch: batch one needs 办公室 and 技术/管理; the other four sign when their modules ship.
+- D03: no row-level customer/warehouse/workshop scope for now; everyone sees all data within their function permissions. D04: after-sales phase one only records and follows up complaints; no stock or money action. Quality fines are not linked to payroll.
+- D05: payroll uses the provided `26年工资 (2).xlsx` with no approved exceptions; the effective month is still to be supplied by the owner.
+- Until an API-capable attendance device replaces the Deli machine, office staff export punches at month end and upload the file to ERP; ERP calculates wages with the published policy and issues online payslips. The upload adapter keeps the same precheck, stable-ID mapping, dedupe and whole-batch abort rules. ERP-calculated payroll is the payment basis.
+- Staging keeps only a small demo dataset; the rest of the automated-test fixtures are removed after the owner approves a keep/delete list.
+- The review app served on Staging is the frontend to keep; later UI and interaction changes go there, and the duplicate frontend is retired as modules move to production.
+- The 2026-10-25 rule/status review (98 items: G01–G14, C01–C09, N01–N17, Q01–Q06) supersedes stale status lines in the business baseline. Branches `bc4f476` and `c4d36e9` it lists as undeployed are now ancestors of Staging `6c79db3`.
+
 ## History
 
 - [Complete decisions through 2026-08-12](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-2026-08-12.md)
