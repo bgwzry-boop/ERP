@@ -706,9 +706,11 @@ function supplierSettlementState(record = {}) {
   const statementConfirmed = Boolean(record.statementConfirmationId) || record.reviewStatus === "statement_confirmed";
   const payableReady = Boolean(record.supplierPayableId || record.supplierPayableDraft);
   const paymentRegistered = Boolean(record.supplierPaymentRecord);
-  const paymentConfirmed = Boolean(record.supplierPaymentConfirmationId) || record.paymentStatus === "已确认付款";
+  // A partial installment has a confirmation id but is not settled yet.
+  const paymentConfirmed = record.paymentStatus === "已确认付款" || (Boolean(record.supplierPaymentConfirmationId) && !record.paymentStatus);
+  const partiallyPaid = record.paymentStatus === "部分付款";
   const completedCount = paymentConfirmed ? 4 : paymentRegistered ? 3 : payableReady ? 2 : statementConfirmed ? 1 : 0;
-  const label = paymentConfirmed ? "已付款" : paymentRegistered ? "付款待确认" : payableReady ? "待付款登记" : statementConfirmed ? "待生成应付" : "待对账确认";
+  const label = paymentConfirmed ? "已付款" : partiallyPaid ? "部分付款" : paymentRegistered ? "付款待确认" : payableReady ? "待付款登记" : statementConfirmed ? "待生成应付" : "待对账确认";
   return { completedCount, label };
 }
 

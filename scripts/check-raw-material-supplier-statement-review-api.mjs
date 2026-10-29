@@ -185,15 +185,15 @@ async function checkRepository() {
       repository.confirmPayment({
         workspace,
         reviewId: consistentDraft.review.reviewId,
-        paidAmount: 1800,
+        paidAmount: 2000,
         paymentMethod: "银行转账",
-        note: "付款金额不一致应阻断",
+        note: "超过应付余额应阻断",
         operatorId: "U-FINANCE-A",
         operatorName: "财务A",
         now: "2026-07-04T03:16:30.000Z",
       }),
-    /must equal payable draft amount/,
-    "supplier payment should require paid amount to match payable draft in v1",
+    /exceeds the remaining payable/,
+    "supplier payment must not exceed the remaining payable",
   );
 
   const paymentConfirmed = repository.confirmPayment({
@@ -659,9 +659,9 @@ async function checkApi() {
 
     const wrongPaymentAmount = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
       userId: "U-FINANCE-A",
-      body: { paidAmount: 1800, paymentMethod: "银行转账", note: "金额不一致应阻断" },
+      body: { paidAmount: 2000, paymentMethod: "银行转账", note: "超过应付余额应阻断" },
     });
-    assert.equal(wrongPaymentAmount.status, 409, "supplier payment amount should match payable draft in v1");
+    assert.equal(wrongPaymentAmount.status, 409, "supplier payment must not exceed the remaining payable");
 
     const paymentConfirmed = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
       userId: "U-FINANCE-A",

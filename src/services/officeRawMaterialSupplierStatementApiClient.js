@@ -267,7 +267,7 @@ export async function generateOfficeRawMaterialSupplierPayableDraft(input = {}, 
 }
 
 export async function confirmOfficeRawMaterialSupplierPayment(input = {}, options = {}) {
-  const { authState, operatorId, reviewId, paidAmount, paymentMethod, paymentAccount, paymentReferenceNo, paymentVoucherNo, paidAt, note } = input;
+  const { authState, operatorId, reviewId, paidAmount, roundingAmount, paymentMethod, paymentAccount, paymentReferenceNo, paymentVoucherNo, paidAt, note } = input;
   const safeReviewId = cleanText(reviewId);
   if (!safeReviewId) {
     return {
@@ -290,6 +290,7 @@ export async function confirmOfficeRawMaterialSupplierPayment(input = {}, option
         body: {
           operatorId,
           paidAmount,
+          roundingAmount,
           paymentMethod,
           paymentAccount,
           paymentReferenceNo,
@@ -364,6 +365,9 @@ function normalizeSupplierStatementReview(input = {}) {
   item.supplierPayableGeneratedBy = cleanText(item.supplierPayableGeneratedBy);
   item.supplierPaymentConfirmationId = cleanText(item.supplierPaymentConfirmationId);
   item.supplierPaymentRecord = normalizeSupplierPaymentRecord(item.supplierPaymentRecord);
+  item.supplierPaymentRecords = Array.isArray(item.supplierPaymentRecords)
+    ? item.supplierPaymentRecords.map(normalizeSupplierPaymentRecord).filter(Boolean)
+    : item.supplierPaymentRecord ? [item.supplierPaymentRecord] : [];
   item.supplierPaymentConfirmedAt = cleanText(item.supplierPaymentConfirmedAt);
   item.supplierPaymentConfirmedBy = cleanText(item.supplierPaymentConfirmedBy);
   return item;
@@ -402,6 +406,8 @@ function normalizeSupplierPaymentRecord(input = {}) {
     status: cleanText(input.status) || "已确认付款",
     currency: cleanText(input.currency) || "CNY",
     paidAmount: toNumber(input.paidAmount ?? input.amount, 0),
+    roundingAmount: toNumber(input.roundingAmount, 0),
+    installmentNo: Math.max(1, Math.trunc(toNumber(input.installmentNo, 1))),
     paymentMethod: cleanText(input.paymentMethod),
     paymentAccount: cleanText(input.paymentAccount),
     paymentReferenceNo: cleanText(input.paymentReferenceNo),
