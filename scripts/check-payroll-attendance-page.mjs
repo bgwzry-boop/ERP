@@ -49,7 +49,7 @@ assert.match(pageSource, /会计复核通过/);
 assert.match(pageSource, /锁定工资批次/);
 assert.match(pageSource, /确认发薪/);
 assert.match(pageSource, /历史工资/);
-assert.match(pageSource, /window\.confirm\(confirmation\)/);
+assert.match(pageSource, /confirmInApp\(\{ title: "确认工资批次操作", message: confirmation \}\)/);
 assert.match(pageSource, /复核后工资明细不可继续修改/);
 assert.match(pageSource, /锁定后只能进入发薪确认/);
 assert.match(pageSource, /该操作会写入发薪人和发薪时间/);
