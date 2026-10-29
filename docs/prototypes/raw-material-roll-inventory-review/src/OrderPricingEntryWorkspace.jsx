@@ -986,9 +986,33 @@ function OrderPricingEditor({
         {locked ? (
           <p>保留客户提交时的锁价与规格，办公室核对后确认。</p>
         ) : !quote ? (
-          <p className="pricing-empty">
-            核对明细后生成报价。缺少发布价或已确认材料价时会保留草稿；有权限人员可填写本单价及原因。
-          </p>
+          rows.length ? (
+            <>
+              {/* 报价前逐行列出将要报价的明细和缺少的字段；价格只以服务器正式报价为准，这里不预估金额。 */}
+              <ul className="pricing-precheck" aria-label="待报价明细">
+                {rows.map((line, index) => {
+                  const lacks = missingQuoteFields(line);
+                  return (
+                    <li key={line.id ?? index} className={lacks.length ? "needs-attention" : undefined}>
+                      <span>
+                        第 {index + 1} 行 · {[line.size, line.color || line.bagColor].filter(Boolean).join(" ") || "规格待填"}
+                        {Number(line.qty) > 0 ? ` · ${Number(line.qty).toLocaleString("zh-CN")} 个` : ""}
+                      </span>
+                      <strong>{lacks.length ? `缺少${lacks.join("、")}` : "待报价"}</strong>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="pricing-precheck-hint">
+                {missing
+                  ? "先补全标出的字段，再生成正式报价。"
+                  : "明细已齐全。点「生成正式报价」后，这里显示每行单价和合计。"}
+                缺少发布价或已确认材料价时会保留草稿，由有权限的人填写本单价及原因。
+              </p>
+            </>
+          ) : (
+            <p className="pricing-empty">识别客户消息后，这里会列出待报价的明细。</p>
+          )
         ) : (
           <>
             <p>报价已保存 · 第 {quote.clientRevision} 版</p>
@@ -1082,4 +1106,14 @@ function splitLineBlockedReason(line) {
   if (line.excludedFromConfirmation || line.cancellationStatus === "库存不足取消") return "已取消明细保留原始关联，不能拆分。";
   if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 2) return "至少2个且数量为整数，才能拆分明细。";
   return "";
+}
+
+// 与「确认下单」前的缺字段判断保持一致（客户、规格、袋身颜色、数量）。
+function missingQuoteFields(line) {
+  const lacks = [];
+  if (!line.customerId) lacks.push("客户");
+  if (!line.size) lacks.push("规格");
+  if (!(line.color || line.bagColor)) lacks.push("袋身颜色");
+  if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 1) lacks.push("数量");
+  return lacks;
 }

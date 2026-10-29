@@ -335,6 +335,8 @@ function buildFulfillmentRows(items = [], orderLines = []) {
       orderLineId,
       customer: customerName({ ...orderLine, ...item }),
       goods,
+      // 详情标题只用货品名；完整规格（尺寸、颜色、印刷、数量）放在标题下一行。
+      productTitle: orderLine.productName || orderLine.product || String(goods).split(/\s+/)[0] || goods,
       method: item.methodLabel || item.method || "待确认",
       packageLabel,
       latestNeededAt: item.latest || item.latestNeededAt || "待确认",
@@ -675,7 +677,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
       </div>
     </section>
     <aside className="business-detail-panel fulfillment-detail">
-      <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.goods || "暂无交付任务"}</h2>{selected ? <StateText>{selected.status}</StateText> : null}</header>
+      <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.productTitle || "暂无交付任务"}</h2>{selected && selected.goods !== selected.productTitle ? <p className="business-detail-subtitle">{selected.goods}</p> : null}{selected ? <StateText>{selected.status}</StateText> : null}</header>
       <div className="business-detail-scroll">{selected ? <>
         <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
         <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
