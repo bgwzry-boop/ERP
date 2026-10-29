@@ -31,6 +31,7 @@ import {
   PAYROLL_SENIORITY_AWARDS,
   payrollPositionPolicyRates,
 } from "../../../shared/payrollPositionCatalog.js";
+import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 
 const runStatusLabels = Object.freeze({ draft: "工资草稿", reviewed: "会计已复核", locked: "已锁定", paid: "已发薪" });
 
@@ -367,7 +368,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   async function handleRunTransition(action) {
     if (!latestRun || loading || actionLoading) return;
     const confirmation = payrollTransitionConfirmation({ action, payrollRun: latestRun, paymentReference });
-    if (!window.confirm(confirmation)) return;
+    if (!(await confirmInApp({ title: "确认工资批次操作", message: confirmation }))) return;
     const label = action === "review" ? "工资草稿已由会计复核。" : action === "lock" ? "工资批次已锁定。" : "发薪已确认并记录付款凭证。";
     const success = await perform(`run-${action}`, () => transitionOfficePayrollRun({ authState, operatorId, payrollRunId: latestRun.id, action, paymentReference }), label);
     if (success && action === "payment") setPaymentReference("");

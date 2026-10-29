@@ -553,7 +553,7 @@ export function createOfficeStatementActions({
         setToast(blocker);
         return;
       }
-      const confirmed = confirmAction(buildStatementWriteOffConfirmation({
+      const confirmed = await confirmAction(buildStatementWriteOffConfirmation({
         statement: selected,
         customer,
         blockingAmount,

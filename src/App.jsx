@@ -10,6 +10,7 @@ import {
 } from "./app/useRuntimeSessionExpiry.js";
 import { DataState } from "./shared/ui/operational.jsx";
 import { PageErrorBoundary } from "./shared/ui/PageErrorBoundary.jsx";
+import { ConfirmDialogHost } from "./shared/ui/ConfirmDialogHost.jsx";
 import {
   createInitialAuthState,
   isOfficeApiServerRequired,
@@ -111,6 +112,7 @@ export function App({ signedPreviewUserId = "" } = {}) {
 
   return (
     <PageErrorBoundary scope="workbench" title="业务工作台加载出错">
+      <ConfirmDialogHost />
       <Suspense fallback={<DataState title="业务工作台加载中" />}>
         <OfficeWorkbench
           authState={authState}

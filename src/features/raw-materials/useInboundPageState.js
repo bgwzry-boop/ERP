@@ -13,6 +13,7 @@ import { listRawMaterialCaptureSupplierOptions } from "../../../shared/rawMateri
 import { buildOcrLineReviewDraft } from "./rawMaterialInboundOcrDraft.js";
 import { findRawMaterialProductionTaskCandidate } from "./rawMaterialInboundWorkflow.js";
 import { assertRawMaterialDeliveryNotePageCapacity, buildRawMaterialOcrReviewAction, getRawMaterialOcrReviewSaveFailureMessage, prepareRawMaterialCapturePages, resolveRawMaterialAttachStage, resolveRawMaterialOcrReviewCompletion } from "./rawMaterialInboundPageActions.js";
+import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 
 
 export function useInboundPageState({
@@ -431,7 +432,7 @@ export function useInboundPageState({
       document.body.classList.remove("raw-material-label-printing");
     }
     const labelCount = activeInbound.rolls?.filter((roll) => roll.inventoryStatus !== "可用").length || 0;
-    if (!window.confirm(`请看打印机：${labelCount} 张 76×130 面单都出来了吗？\n没出来就点取消，系统不会记成已打印。`)) {
+    if (!(await confirmInApp({ title: "确认打印结果", message: `请看打印机：${labelCount} 张 76×130 面单都出来了吗？\n没出来就点取消，系统不会记成已打印。`, confirmLabel: "都已打印" }))) {
       setPrintSheetInbound(null);
       setMobileMessage({
         tone: "warning",
@@ -491,7 +492,7 @@ export function useInboundPageState({
     } finally {
       document.body.classList.remove("raw-material-label-printing");
     }
-    if (!window.confirm(`请确认卷标 ${roll.id} 已从打印机正常输出。\n如果取消或打印失败，请点“取消”，系统不会记录本次重打。`)) {
+    if (!(await confirmInApp({ title: "确认打印结果", message: `请确认卷标 ${roll.id} 已从打印机正常输出。\n如果取消或打印失败，请点“取消”，系统不会记录本次重打。`, confirmLabel: "已正常打印" }))) {
       setPrintSheetInbound(null);
       return null;
     }
@@ -616,12 +617,12 @@ export function useInboundPageState({
     });
   }
 
-  function handleConfirmSupplierPayment(review) {
+  async function handleConfirmSupplierPayment(review) {
     const payableAmount = Number(review?.supplierPayableDraft?.payableAmount);
     if (!Number.isFinite(payableAmount) || payableAmount <= 0) return;
     const supplierName = review?.supplierName || "当前供应商";
     const payableId = review?.supplierPayableId || "应付草稿待确认";
-    const confirmed = window.confirm(
+    const confirmed = await confirmInApp(
       `确认已实际向${supplierName}付款？\n应付单：${payableId}\n付款金额：${formatSupplierPayableAmount(payableAmount, money)}\n确认后将写入付款确认和操作日志；不会影响原材料库存。`,
     );
     if (!confirmed) return;

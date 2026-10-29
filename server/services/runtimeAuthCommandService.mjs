@@ -6,9 +6,9 @@ import {
   getRuntimeAccountSecurityPolicyResponse,
   getRuntimePasswordExpiresAt,
   getRuntimeUserSecurityState,
-  hashRuntimeUserPassword,
+  hashRuntimeUserPasswordAsync,
   isRuntimeUserPasswordHashUpgradeRequired,
-  verifyRuntimeUserPassword,
+  verifyRuntimeUserPasswordAsync,
 } from "../authSeed.mjs";
 import { getWorkspaceSecurityPolicy } from "../apiSecurityPolicy.mjs";
 import { getEffectivePermissions } from "../seedData.mjs";
@@ -130,9 +130,9 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       findRuntimeUserById(stagedWorkspace, runtimeUser.userId ?? runtimeUser.id) ?? runtimeUser;
     if (
       !stagedRuntimeUser.loginEnabled ||
-      !verifyRuntimeUserPassword(stagedRuntimeUser, body.password, {
+      !(await verifyRuntimeUserPasswordAsync(stagedRuntimeUser, body.password, {
         authSecret: securityPolicy.authSecret,
-      })
+      }))
     ) {
       const failedUser = recordRuntimeUserLoginFailure(stagedWorkspace, stagedRuntimeUser, {
         nowMs,
@@ -155,7 +155,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     if (isRuntimeUserPasswordHashUpgradeRequired(authenticatedUser)) {
       authenticatedUser = upsertRuntimeUser(stagedWorkspace, {
         ...authenticatedUser,
-        passwordHash: hashRuntimeUserPassword(body.password, {
+        passwordHash: await hashRuntimeUserPasswordAsync(body.password, {
           userId: authenticatedUser.userId ?? authenticatedUser.id,
           authSecret: securityPolicy.authSecret,
         }),
@@ -227,13 +227,13 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
         passwordPolicy: getRuntimePasswordPolicyResponse(),
       });
     }
-    if (!verifyRuntimeUserPassword(runtimeUser, currentPassword, { authSecret })) {
+    if (!(await verifyRuntimeUserPasswordAsync(runtimeUser, currentPassword, { authSecret }))) {
       return result(401, {
         code: "CURRENT_PASSWORD_INVALID",
         message: "当前密码不正确，请重新输入。",
       });
     }
-    if (verifyRuntimeUserPassword(runtimeUser, newPassword, { authSecret })) {
+    if (await verifyRuntimeUserPasswordAsync(runtimeUser, newPassword, { authSecret })) {
       return result(422, {
         code: "NEW_PASSWORD_MUST_DIFFER",
         message: "新密码不能与当前密码相同。",
@@ -252,7 +252,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     const updatedUser = upsertRuntimeUser(stagedWorkspace, {
       ...runtimeUser,
       loginEnabled: true,
-      passwordHash: hashRuntimeUserPassword(newPassword, { userId, authSecret }),
+      passwordHash: await hashRuntimeUserPasswordAsync(newPassword, { userId, authSecret }),
       passwordStatus: "active",
       mustChangePassword: false,
       passwordChangedAt: changedAt,

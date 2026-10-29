@@ -25,6 +25,7 @@ import {
   toFiniteNumber,
   withCurrentColor,
 } from "./entryPageModel.js";
+import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 
 export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onQueueRecognize, onQueueRefresh, onQueueOpen, onQueueCancellationLink, onDraftFieldChange, onArtworkUpload, onDraftCommand, onRestoreCancelledLine, onAction, helpers }) {
   const [splitPreview, setSplitPreview] = useState(null);
@@ -157,7 +158,7 @@ export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus
                         disabled={!canLinkCancellation}
                         title={canLinkCancellation ? "把来源取消消息关联到当前选中的未确认明细" : "请先确认来源客户，并选择同客户的未取消草稿明细"}
                         onClick={async () => {
-                          if (!window.confirm("确认将这条取消消息关联到当前选中明细？关联后该行不会生成正式订单，原消息上下文将保留。")) return;
+                          if (!(await confirmInApp("确认将这条取消消息关联到当前选中明细？关联后该行不会生成正式订单，原消息上下文将保留。"))) return;
                           const result = await onQueueCancellationLink(cancellationIntent.intentId ?? cancellationIntent.id);
                           if (result && !result.blocked) await refreshQueue();
                         }}
@@ -199,8 +200,8 @@ export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus
               className="entry-delete-row"
               disabled={selectedCancelled}
               title={selectedCancelled ? "已取消明细需保留原文证据，不能删除" : undefined}
-              onClick={() => {
-                if (window.confirm("确认删除当前明细行？删除后需重新核对订单数量、库存和金额。")) onDraftCommand("删除当前行");
+              onClick={async () => {
+                if (await confirmInApp({ message: "确认删除当前明细行？删除后需重新核对订单数量、库存和金额。", confirmLabel: "删除", tone: "danger" })) onDraftCommand("删除当前行");
               }}
             >
               删除当前行
@@ -358,8 +359,8 @@ export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus
                 <button
                   type="button"
                   className="entry-restore-cancelled"
-                  onClick={() => {
-                    if (window.confirm("确认客户已经恢复订购该明细？恢复后会重新进入库存、价格和字段校验，原取消记录仍保留。")) {
+                  onClick={async () => {
+                    if (await confirmInApp("确认客户已经恢复订购该明细？恢复后会重新进入库存、价格和字段校验，原取消记录仍保留。")) {
                       onRestoreCancelledLine(selected.id);
                     }
                   }}

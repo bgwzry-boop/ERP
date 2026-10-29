@@ -652,3 +652,30 @@
   gap: var(--erp-space-2);
   margin-top: var(--erp-space-2);
 }
+
+/* 应用内确认框（替代 window.confirm），复用 .modal 外观 */
+.confirm-dialog-backdrop {
+  z-index: var(--erp-z-modal);
+}
+
+.confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.confirm-dialog-message {
+  margin: 0;
+  padding: var(--erp-space-4) var(--erp-space-5);
+  color: var(--erp-text);
+  font-size: var(--erp-text-md);
+  line-height: var(--erp-line-ui);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* 加上 .confirm-dialog 前缀，优先级高于 interface-polish.css 里的 .primary-action 悬停样式 */
+.confirm-dialog .confirm-dialog-danger-action,
+.confirm-dialog .confirm-dialog-danger-action:hover:not(:disabled) {
+  border-color: var(--erp-danger);
+  background: var(--erp-danger);
+  color: var(--erp-accent-ink);
+}

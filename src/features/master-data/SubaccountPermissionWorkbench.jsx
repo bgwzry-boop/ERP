@@ -6,6 +6,7 @@ import {
   listOfficeMasterDataSubaccounts,
   updateOfficeMasterDataSubaccount,
 } from "../../services/officeMasterDataImportApiClient.js";
+import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 
 const statusTone = { draft: "warning", active: "success", suspended: "neutral", disabled: "danger" };
 const positionPresentation = Object.freeze({
@@ -141,7 +142,7 @@ export function SubaccountPermissionWorkbench({ authState, currentUser, employee
 
   async function runAction(action) {
     if (!selected || saving || !draft.reason.trim()) return;
-    if (action === "disable" && !window.confirm("永久停用后不可恢复，确认停用这个子账号？")) return;
+    if (action === "disable" && !(await confirmInApp({ message: "永久停用后不可恢复，确认停用这个子账号？", confirmLabel: "永久停用", tone: "danger" }))) return;
     setSaving(true);
     setError("");
     setCredential(null);

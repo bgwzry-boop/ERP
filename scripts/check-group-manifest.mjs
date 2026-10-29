@@ -11,6 +11,8 @@ export const CHECK_GROUPS = Object.freeze({
     "lint",
     "design-tokens:check",
     "order-entry-draft-state:check",
+    "confirm-dialog:check",
+    "postgres-readiness-probes:check",
     "system-v1-readiness-service:check",
     "file-retention-v1-readiness-service:check",
     "v1-storage-live-precheck-service:check",

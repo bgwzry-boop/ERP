@@ -32,6 +32,7 @@ import {
   seedUserOptions,
 } from "./auth/seedPermissions.js";
 import { DataState } from "./shared/ui/operational.jsx";
+import { confirmInApp } from "./shared/ui/confirmDialog.js";
 import { useOfficeScenarioData } from "./app/useOfficeScenarioData.js";
 import {
   defaultOrderFilters,
@@ -251,7 +252,7 @@ function OfficeWorkbenchRuntime({
   const masterDataActions = createOfficeMasterDataActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
-    confirmAction: (message) => window.confirm(message),
+    confirmAction: confirmInApp,
     currentUser,
     currentUserId,
     downloadMasterDataImportTemplateWorkbook,
@@ -415,7 +416,7 @@ function OfficeWorkbenchRuntime({
   const orderActions = createOfficeOrderActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
-    confirmDiscardDraft: (message) => window.confirm(message), defaultOrderFilters,
+    confirmDiscardDraft: confirmInApp, defaultOrderFilters,
     currentUserId,
     draftApiMeta, draftRows, draftStatus, entryText,
     executeOrderEntryAction,
@@ -506,7 +507,7 @@ function OfficeWorkbenchRuntime({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     completeFulfillmentAction,
-    confirmAction: (message) => window.confirm(message),
+    confirmAction: confirmInApp,
     currentUserId,
     findCustomer,
     focusOrderLine: orderActions.focusOrderLine,
@@ -551,7 +552,7 @@ function OfficeWorkbenchRuntime({
   const statementActionController = {
     allowLocalFallback: !runtimeServerRequired,
     authState,
-    confirmAction: (message) => window.confirm(message),
+    confirmAction: confirmInApp,
     currentUser,
     currentUserId,
     downloadStatementExcelWorkbook,

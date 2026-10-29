@@ -504,7 +504,7 @@ export function createOfficeMasterDataActions({
       const selectedRoleLabels = Array.isArray(review?.recommendedRoleLabels)
         ? review.recommendedRoleLabels.filter(Boolean)
         : selectedRoleKeys;
-      const confirmed = confirmAction(
+      const confirmed = await confirmAction(
         `确认启用 ${review.name || review.employeeId} 的多角色账号？\n账号角色：${selectedRoleLabels.join("、")}\n启用后不能通过发放密码操作删减已复核角色。`,
       );
       if (!confirmed) return;
@@ -544,7 +544,7 @@ export function createOfficeMasterDataActions({
       setToast("确认员工身份前，请填写正式显示名和确认依据。");
       return;
     }
-    const confirmed = confirmAction(
+    const confirmed = await confirmAction(
       `确认 ${review.employeeId} 的正式身份？\n正式显示名：${confirmedName}\n确认依据：${reason}\n确认记录会写入审计日志，候选资料变化后需重新确认。`,
     );
     if (!confirmed) return;
@@ -592,7 +592,7 @@ export function createOfficeMasterDataActions({
       .map((review) => review.name || review.bizNo || review.employeeId)
       .join("、");
     const remainingLabel = pendingReviews.length > 5 ? `等 ${pendingReviews.length} 人` : `${pendingReviews.length} 人`;
-    const confirmed = confirmAction(
+    const confirmed = await confirmAction(
       `确认批量启用已勾选的 ${remainingLabel}？\n${sampleNames}\n系统会先校验全部岗位、机台、角色和账号标识；任一失败则整批不启用。`,
     );
     if (!confirmed) return;
@@ -674,7 +674,7 @@ export function createOfficeMasterDataActions({
       setToast("该员工密码已撤销，无需重复操作。");
       return;
     }
-    const confirmed = confirmAction(`确认撤销 ${review.name || review.loginName || review.employeeId} 的登录密码？撤销后该员工无法继续登录，已有会话会失效。`);
+    const confirmed = await confirmAction(`确认撤销 ${review.name || review.loginName || review.employeeId} 的登录密码？撤销后该员工无法继续登录，已有会话会失效。`);
     if (!confirmed) return;
 
     const result = await revokeOfficeMasterDataEmployeeAccountPassword({
