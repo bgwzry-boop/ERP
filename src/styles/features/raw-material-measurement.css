@@ -1,25 +1,25 @@
-.raw-material-measurement-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid #dce2e8; border-radius: 12px; color: #263340; background: #fff; overflow: auto; font: inherit; box-sizing: border-box; }
-.raw-material-measurement-dialog::backdrop { background: rgb(15 23 42 / 42%); }
+.raw-material-measurement-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid var(--erp-border-subtle); border-radius: 12px; color: var(--erp-text); background: var(--erp-surface); overflow: auto; font: inherit; box-sizing: border-box; }
+.raw-material-measurement-dialog::backdrop { background: var(--erp-overlay); }
 .raw-material-measurement-dialog header, .raw-material-measurement-dialog footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .raw-material-measurement-dialog h2 { margin: 0; font-size: 20px; }
 .raw-material-measurement-dialog p { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
 .raw-material-measurement-dialog fieldset { display: grid; gap: 16px; border: 0; padding: 0; margin: 20px 0; min-width: 0; }
 .raw-material-measurement-dialog label { display: grid; gap: 8px; font-size: 14px; }
-.raw-material-measurement-dialog input, .raw-material-measurement-dialog textarea { box-sizing: border-box; width: 100%; min-height: 44px; padding: 10px 12px; font: inherit; font-size: 16px; border: 1px solid #b9c3cc; border-radius: 6px; }
+.raw-material-measurement-dialog input, .raw-material-measurement-dialog textarea { box-sizing: border-box; width: 100%; min-height: 44px; padding: 10px 12px; font: inherit; font-size: 16px; border: 1px solid var(--erp-control-border); border-radius: 6px; }
 .raw-material-measurement-dialog textarea { min-height: 88px; resize: vertical; }
 .raw-material-measurement-dialog button { min-height: 44px; padding: 8px 14px; font: inherit; }
 .raw-material-measurement-dialog footer { justify-content: flex-end; flex-wrap: wrap; }
-.raw-material-measurement-dialog .measurement-error { color: #9f2424; }
-.raw-material-measurement-dialog button { border: 1px solid #b9c3cc; border-radius: 6px; background: #fff; color: inherit; cursor: pointer; }
-.raw-material-measurement-dialog button.primary-action { background: var(--erp-accent, #2563c5); border-color: var(--erp-accent, #2563c5); color: #fff; }
+.raw-material-measurement-dialog .measurement-error { color: var(--erp-danger); }
+.raw-material-measurement-dialog button { border: 1px solid var(--erp-control-border); border-radius: 6px; background: var(--erp-surface); color: inherit; cursor: pointer; }
+.raw-material-measurement-dialog button.primary-action { background: var(--erp-accent, var(--erp-accent-strong)); border-color: var(--erp-accent, var(--erp-accent-strong)); color: var(--erp-accent-ink); }
 .raw-material-measurement-dialog button:disabled { opacity: .55; cursor: not-allowed; }
-.raw-material-measurement-dialog button:focus-visible { outline: 2px solid var(--erp-accent, #2563c5); outline-offset: 3px; }
-.raw-material-measurement-dialog .measurement-scope { border: 1px solid #dce2e8; background: #f7f9fb; border-radius: 8px; padding: 12px; }
+.raw-material-measurement-dialog button:focus-visible { outline: 2px solid var(--erp-accent, var(--erp-accent-strong)); outline-offset: 3px; }
+.raw-material-measurement-dialog .measurement-scope { border: 1px solid var(--erp-border-subtle); background: var(--erp-surface-subtle); border-radius: 8px; padding: 12px; }
 .raw-material-measurement-dialog .measurement-scope h3 { margin: 0; font-size: 15px; }
 .raw-material-measurement-dialog .measurement-scope p { margin: 8px 0; }
 .raw-material-measurement-dialog .measurement-scope ul { list-style: none; padding: 0; margin: 0; max-height: 160px; overflow: auto; }
 .raw-material-measurement-dialog .measurement-scope li { display: grid; gap: 5px; padding: 10px 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.raw-material-measurement-dialog .measurement-scope li + li { border-top: 1px solid #dce2e8; }
+.raw-material-measurement-dialog .measurement-scope li + li { border-top: 1px solid var(--erp-border-subtle); }
 
 .raw-material-measurement-dialog .measurement-scope details span { display: block; margin-top: 5px; }
-.raw-material-measurement-dialog .measurement-scope summary { padding: 5px 0; cursor: pointer; color: var(--erp-accent, #2563c5); }
+.raw-material-measurement-dialog .measurement-scope summary { padding: 5px 0; cursor: pointer; color: var(--erp-accent, var(--erp-accent-strong)); }

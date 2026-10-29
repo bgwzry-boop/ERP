@@ -6,9 +6,9 @@
 .print-batch-record {
   display: grid;
   gap: 4px;
-  border: 1px solid #e2e8f2;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 6px;
-  background: #fbfcff;
+  background: var(--erp-surface);
   padding: 8px;
 }
 
@@ -20,7 +20,7 @@
 }
 
 .print-batch-record strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
 }
 
@@ -28,21 +28,21 @@
 .print-batch-record small,
 .print-batch-record em {
   margin: 0;
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
 }
 
 .print-batch-record em {
-  color: #7b8798;
+  color: var(--erp-disabled-text);
   font-style: normal;
 }
 
 .print-sheet {
   margin: 10px 12px;
-  border: 1px dashed #b7c5d8;
+  border: 1px dashed var(--erp-control-border);
   border-radius: 6px;
-  background: #fbfcff;
+  background: var(--erp-surface);
   padding: 16px;
 }
 
@@ -51,7 +51,7 @@
 }
 
 .print-sheet p {
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 13px;
   line-height: 22px;
 }
@@ -63,7 +63,7 @@
 }
 
 .print-package-checklist > span {
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 12px;
 }
 
@@ -78,17 +78,17 @@
   grid-template-columns: 16px minmax(58px, auto) minmax(0, 1fr);
   align-items: center;
   min-height: 32px;
-  border: 1px solid #d5deea;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #f8fbff;
-  color: #172033;
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text);
   gap: 6px;
   padding: 6px 8px;
 }
 
 .print-package-checklist label.checked {
-  border-color: #9bc2ff;
-  background: #eef6ff;
+  border-color: var(--erp-accent-border);
+  background: var(--erp-accent-soft);
 }
 
 .print-package-checklist input {
@@ -105,7 +105,7 @@
 .print-package-checklist small {
   min-width: 0;
   overflow: hidden;
-  color: #6b7890;
+  color: var(--erp-disabled-text);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -114,10 +114,10 @@
 .print-template-sheet {
   margin: 10px 12px;
   padding: 12px;
-  border: 1px solid #c3d2e4;
+  border: 1px solid var(--erp-control-border);
   border-radius: 6px;
-  background: #fff;
-  color: #1f2a3d;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font-size: 12px;
 }
 
@@ -127,7 +127,7 @@
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 8px;
-  border-bottom: 2px solid #22314a;
+  border-bottom: 2px solid var(--erp-text);
 }
 
 .label-header span,
@@ -135,7 +135,7 @@
 .label-goods span,
 .label-note span {
   display: block;
-  color: #7b8798;
+  color: var(--erp-disabled-text);
   font-size: 11px;
   line-height: 16px;
 }
@@ -162,9 +162,9 @@
 .label-goods,
 .label-note {
   min-width: 0;
-  border: 1px solid #e2e8f1;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 5px;
-  background: #f8fafc;
+  background: var(--erp-surface-subtle);
   padding: 7px 8px;
 }
 
@@ -184,7 +184,7 @@
 
 .print-line-table {
   margin-bottom: 8px;
-  border: 1px solid #d9e3ef;
+  border: 1px solid var(--erp-border-subtle);
   border-radius: 5px;
   overflow: hidden;
 }
@@ -198,8 +198,8 @@
 }
 
 .print-line-head {
-  background: #eef4fb;
-  color: #536178;
+  background: var(--erp-canvas);
+  color: var(--erp-text-muted);
   font-size: 11px;
   font-weight: 700;
 }
@@ -209,7 +209,7 @@
 .print-line-row strong {
   min-width: 0;
   padding: 6px 7px;
-  border-right: 1px solid #d9e3ef;
+  border-right: 1px solid var(--erp-border-subtle);
   overflow-wrap: anywhere;
   line-height: 18px;
 }
@@ -221,7 +221,7 @@
 }
 
 .print-line-row {
-  border-top: 1px solid #d9e3ef;
+  border-top: 1px solid var(--erp-border-subtle);
   font-size: 12px;
 }
 
@@ -247,7 +247,7 @@
   align-items: center;
   justify-content: center;
   min-height: 34px;
-  border: 1px solid #1f2a3d;
+  border: 1px solid var(--erp-text);
   background: repeating-linear-gradient(
     90deg,
     #1f2a3d 0,
@@ -260,8 +260,8 @@
 .label-barcode span {
   max-width: 100%;
   padding: 2px 8px;
-  background: #fff;
-  color: #1f2a3d;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font-size: 11px;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -276,8 +276,8 @@
 
 .label-footer span {
   border-radius: 4px;
-  background: #eef6ff;
-  color: #2563a7;
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
   padding: 2px 7px;
   font-size: 11px;
 }

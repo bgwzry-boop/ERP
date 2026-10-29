@@ -7,7 +7,7 @@
   display: grid;
   place-items: center;
   padding: 18px;
-  background: rgb(15 23 42 / 42%);
+  background: var(--erp-overlay);
 }
 
 .raw-material-color-mapping-dialog {
@@ -16,7 +16,7 @@
   overflow: auto;
   border-radius: 10px;
   background: var(--erp-surface);
-  box-shadow: 0 24px 64px rgb(15 23 42 / 24%);
+  box-shadow: 0 24px 64px color-mix(in oklch, var(--erp-text) 24%, transparent);
 }
 
 .raw-material-color-mapping-dialog > header {
@@ -100,7 +100,7 @@
   border: 1px solid var(--erp-accent);
   border-radius: 5px;
   background: var(--erp-accent);
-  color: #fff;
+  color: var(--erp-accent-ink);
   font-weight: 700;
 }
 

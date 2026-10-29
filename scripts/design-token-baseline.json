@@ -1,20 +1,12 @@
 {
-  "src/styles/components.css": {
-    "raw-color": 47
-  },
-  "src/styles/features/attachments.css": {
-    "raw-color": 34
-  },
   "src/styles/features/driver.css": {
     "mobile-under-14": 35
   },
   "src/styles/features/fulfillment.css": {
-    "desktop-under-11": 4,
-    "raw-color": 21
+    "desktop-under-11": 4
   },
   "src/styles/features/inventory.css": {
-    "desktop-under-11": 3,
-    "raw-color": 52
+    "desktop-under-11": 3
   },
   "src/styles/features/master-data.css": {
     "desktop-under-11": 7
@@ -22,28 +14,14 @@
   "src/styles/features/mobile-roles.css": {
     "mobile-under-14": 19
   },
-  "src/styles/features/office-inbound-flow.css": {
-    "raw-color": 1
-  },
   "src/styles/features/orders-entry.css": {
-    "desktop-under-11": 6,
-    "raw-color": 115
+    "desktop-under-11": 6
   },
   "src/styles/features/orders-pool.css": {
-    "desktop-under-11": 5,
-    "raw-color": 12
+    "desktop-under-11": 5
   },
   "src/styles/features/payroll-attendance.css": {
     "desktop-under-11": 25
-  },
-  "src/styles/features/print-documents.css": {
-    "raw-color": 32
-  },
-  "src/styles/features/raw-material-color-mapping.css": {
-    "raw-color": 3
-  },
-  "src/styles/features/raw-material-measurement.css": {
-    "raw-color": 16
   },
   "src/styles/features/raw-material-mobile-atlas.css": {
     "desktop-under-11": 3,
@@ -51,48 +29,27 @@
   },
   "src/styles/features/raw-material-mobile.css": {
     "desktop-under-11": 2,
-    "mobile-under-14": 41,
-    "raw-color": 4
-  },
-  "src/styles/features/raw-material-record-history.css": {
-    "raw-color": 6
+    "mobile-under-14": 41
   },
   "src/styles/features/raw-material-roll-inventory.css": {
-    "desktop-under-11": 11,
-    "raw-color": 5
-  },
-  "src/styles/features/raw-material-roll-label.css": {
-    "raw-color": 8
+    "desktop-under-11": 11
   },
   "src/styles/features/raw-material.css": {
     "desktop-under-11": 14
   },
-  "src/styles/features/role-tools.css": {
-    "raw-color": 42
-  },
   "src/styles/features/statements.css": {
-    "desktop-under-11": 9,
-    "raw-color": 21
-  },
-  "src/styles/features/todos.css": {
-    "raw-color": 15
+    "desktop-under-11": 9
   },
   "src/styles/features/v1-status.css": {
-    "desktop-under-11": 5,
-    "raw-color": 19
-  },
-  "src/styles/features/warehouse.css": {
-    "raw-color": 13
+    "desktop-under-11": 5
   },
   "src/styles/interface-polish.css": {
     "desktop-under-11": 1
   },
   "src/styles/shared.css": {
-    "desktop-under-11": 1,
-    "raw-color": 100
+    "desktop-under-11": 1
   },
   "src/styles/shell.css": {
-    "desktop-under-11": 3,
-    "raw-color": 64
+    "desktop-under-11": 3
   }
 }
