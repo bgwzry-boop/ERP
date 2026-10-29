@@ -154,7 +154,7 @@ const pcNavIcons = {
   system: SettingOutlined,
 };
 
-function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permissionContext }) {
+function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permissionContext, unhandledTodoCount = 0 }) {
   const visibleGroups = getVisiblePcNavGroups(permissionContext);
   const activeItemRef = useRef(null);
 
@@ -180,7 +180,7 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
           <button aria-expanded={expanded} className="pc-nav-group-button" onClick={() => onToggleGroup(group.id)} type="button"><Icon /><span>{group.label}</span><DownOutlined className="pc-nav-caret" /></button>
           {expanded ? <div className="pc-nav-children">{group.items.map((item) => {
             const active = activeNavId === item.id;
-            return <button aria-current={active ? "page" : undefined} className={active ? "active" : ""} data-nav-id={item.id} key={item.id} onClick={() => onNavigate(item.id)} ref={active ? activeItemRef : undefined} type="button"><span>{item.label}</span>{item.count ? <b>{item.count}</b> : null}</button>;
+            return <button aria-current={active ? "page" : undefined} className={active ? "active" : ""} data-nav-id={item.id} key={item.id} onClick={() => onNavigate(item.id)} ref={active ? activeItemRef : undefined} type="button"><span>{item.label}</span>{item.countSource === "unhandledTodos" && unhandledTodoCount > 0 ? <b>{unhandledTodoCount}</b> : null}</button>;
           })}</div> : null}
         </section>;
       })}
@@ -188,14 +188,14 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
   </aside>;
 }
 
-function Topbar({ onCreateOrder, permissionContext }) {
+function Topbar({ onCreateOrder, permissionContext, unhandledTodoCount = 0 }) {
   const account = permissionContext.user ?? defaultPermissionContext.user;
   const canCreateOrder = hasEffectivePermission(permissionContext, "order.create");
   return <header className="topbar">
     <label className="global-search"><SearchOutlined /><input aria-label="全局搜索" placeholder="搜索 客户 / 订单 / 尺寸 / 颜色 / 单据" /></label>
     <div className="topbar-actions">
       {canCreateOrder ? <button className="primary top-new-order" onClick={onCreateOrder} type="button"><PlusOutlined />新建订单</button> : null}
-      <button aria-label="通知" className="notification" type="button"><BellOutlined /><b>8</b></button>
+      <button aria-label={unhandledTodoCount > 0 ? `通知：${unhandledTodoCount} 条未处理待办` : "通知：没有未处理待办"} className="notification" type="button"><BellOutlined />{unhandledTodoCount > 0 ? <b>{unhandledTodoCount}</b> : null}</button>
       <div aria-label={`当前账号：${account.displayName}，${account.roleLabel || "按账号权限"}`} className="account" role="status"><span><strong>{account.displayName}</strong><small>{account.roleLabel || "按账号权限"}</small></span></div>
     </div>
   </header>;
@@ -475,6 +475,8 @@ function SourceDialog({ roll, onClose }) {
 export function App({ permissionContext = defaultPermissionContext }) {
   const formal = useFormalDesktopWorkspace();
   const resolvedPermissionContext = formal.permissionContext || permissionContext;
+  // 导航角标和铃铛与「公共待办 · 未处理」列表使用同一规则和同一份服务器数据，不再写死数字。
+  const unhandledTodoCount = useMemo(() => (formal.data.todos || []).filter((todo) => !todo.handled).length, [formal.data.todos]);
   const visibleViews = useMemo(() => getVisibleWorkspaceViews(resolvedPermissionContext), [resolvedPermissionContext]);
   const visibleRawMaterialViews = useMemo(() => getVisibleRawMaterialViews(resolvedPermissionContext), [resolvedPermissionContext]);
   const [view, setView] = useState(() => {
@@ -555,7 +557,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
   };
 
   return <div className="app-shell" data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
-    <Sidebar activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} /><Topbar onCreateOrder={() => navigate("order-entry")} permissionContext={resolvedPermissionContext} />
+    <Sidebar activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar onCreateOrder={() => navigate("order-entry")} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} />
     <main className={`page${isRawMaterialView ? "" : " business-page"}`}>
       {formal.meta.loading ? <div className="formal-sync-banner">正在读取正式服务器数据…</div> : null}
       {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">本次操作结果正在核对，请先确认结果；结果未明时按原内容重试。</div> : null}
