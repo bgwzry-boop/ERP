@@ -176,3 +176,63 @@
   font-size: 14px;
   line-height: 1.5;
 }
+
+/* ---------- 订单录入：步骤、按钮、底部操作栏 ---------- */
+.app-shell .order-pricing-entry button {
+  min-height: 40px;
+  padding: 0 16px;
+  border-color: var(--erp-control-border);
+  border-radius: var(--erp-radius-md);
+  color: var(--erp-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.app-shell .order-pricing-entry button:hover:not(:disabled) { border-color: var(--erp-text-faint); background: var(--erp-surface-subtle); }
+.app-shell .order-pricing-entry button.primary-button {
+  border-color: var(--erp-accent);
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
+  font-weight: 600;
+}
+.app-shell .order-pricing-entry button.primary-button:hover:not(:disabled) { border-color: var(--erp-accent-strong); background: var(--erp-accent-strong); }
+.app-shell .order-pricing-entry button:disabled,
+.app-shell .order-pricing-entry button.primary-button:disabled {
+  border-color: var(--erp-disabled-bg);
+  background: var(--erp-disabled-bg);
+  color: var(--erp-disabled-text);
+  opacity: 1;
+}
+.app-shell .order-pricing-entry :is(input, select, textarea, button):focus-visible { outline-color: var(--erp-focus); }
+.app-shell .pricing-heading h2 { font-size: 22px; font-weight: 700; }
+
+.app-shell .pricing-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.app-shell .pricing-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px 0 5px;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-pill);
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
+  font-size: 14px;
+}
+.app-shell .pricing-steps li > b {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--erp-radius-pill);
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
+  font-size: 13px;
+}
+.app-shell .pricing-steps li.current { border-color: var(--erp-accent-border); background: var(--erp-accent-soft); color: var(--erp-accent-soft-ink); font-weight: 700; }
+.app-shell .pricing-steps li.current > b { background: var(--erp-accent); color: var(--erp-accent-ink); }
+.app-shell .pricing-steps li.done { color: var(--erp-text); }
+.app-shell .pricing-steps li.done > b { background: var(--erp-success-bg); color: var(--erp-success); }
+
+.app-shell .pricing-actions { padding-top: 16px; box-shadow: 0 -8px 16px color-mix(in oklch, var(--erp-text) 5%, transparent); }
+.app-shell .pricing-actions p { color: var(--erp-text-muted); font-size: 13px; }
+.app-shell .pricing-actions > div { gap: 10px; }

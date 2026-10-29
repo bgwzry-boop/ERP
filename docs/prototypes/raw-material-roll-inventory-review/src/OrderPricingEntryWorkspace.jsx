@@ -527,6 +527,14 @@ function OrderPricingEditor({
   const acknowledge = quote?.affectedOrders.every((line) =>
     affected.includes(line.orderLineId),
   );
+  // 一次只有一个主按钮：还没报价时「生成正式报价」是主操作；报价就绪后「确认下单」是主操作。
+  const quoteReady = locked || !!quote;
+  const entrySteps = ["核对来单", "正式报价", "确认下单"].map((label, index) => {
+    const current = complete ? -1 : quoteReady ? 2 : 0;
+    const state = complete || index < current ? "done" : index === current ? "current" : "todo";
+    return { label, state };
+  });
+
   return (
     <div
       className="order-pricing-entry source-grounded-workbench"
@@ -536,7 +544,14 @@ function OrderPricingEditor({
         <header className="pricing-heading">
           <div>
             <h2>订单录入</h2>
-            <p>核对来单 → 正式报价 → 确认下单</p>
+            <ol className="pricing-steps" aria-label="录单步骤">
+              {entrySteps.map((step, index) => (
+                <li key={step.label} className={step.state} aria-current={step.state === "current" ? "step" : undefined}>
+                  <b aria-hidden="true">{step.state === "done" ? "✓" : index + 1}</b>
+                  {step.label}
+                </li>
+              ))}
+            </ol>
           </div>
           <button
             type="button"
@@ -914,7 +929,7 @@ function OrderPricingEditor({
             {!locked ? (
               <button
                 type="button"
-                className="primary-button"
+                className={quoteReady ? "secondary-button" : "primary-button"}
                 disabled={
                   !!splitPlan ||
                   !!busy ||
@@ -939,7 +954,7 @@ function OrderPricingEditor({
             </button>
             <button
               type="button"
-              className="primary-button"
+              className={quoteReady ? "primary-button" : "secondary-button"}
               disabled={
                 !!splitPlan ||
                 !!busy ||
