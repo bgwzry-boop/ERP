@@ -195,7 +195,7 @@
 
 .v1-d49-kicker {
   color: var(--erp-accent-strong);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 14px;
 }
@@ -231,7 +231,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -352,7 +352,7 @@
 
 .v1-d49-action-title > div span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 
@@ -403,7 +403,7 @@
   border-radius: var(--erp-radius-sm);
   background: var(--erp-surface-subtle);
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 16px;
   padding: 1px 6px;
 }
@@ -449,7 +449,7 @@
 
 .v1-d49-gate-summary span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 

@@ -35,7 +35,7 @@
 
 .statement-customer-head > div > span {
   color: var(--erp-text-faint);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 13px;
 }
 
@@ -49,7 +49,7 @@
 .statement-customer-head small {
   overflow: hidden;
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -110,7 +110,7 @@
   border-radius: 999px;
   background: var(--erp-neutral-bg);
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 18px;
   padding: 0 4px;
   text-align: center;
@@ -231,7 +231,7 @@
   max-width: 82px;
   flex: 0 0 auto;
   overflow: hidden;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 18px;
   padding: 0 6px;
   text-overflow: ellipsis;
@@ -240,7 +240,7 @@
 
 .customer-row > small {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -291,7 +291,7 @@
 
 .statement-detail-identity > div:first-child > span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 
@@ -312,7 +312,7 @@
 
 .statement-detail-statuses .status {
   min-height: 20px;
-  font-size: 10px;
+  font-size: 11px;
   padding: 0 7px;
 }
 
@@ -344,7 +344,7 @@
 
 .statement-summary span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 
@@ -407,7 +407,7 @@
 
 .statement-facts dt {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 

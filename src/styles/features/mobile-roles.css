@@ -345,7 +345,7 @@
   border-radius: 8px;
   background: var(--erp-neutral-bg);
   color: var(--erp-text-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 20px;
   padding: 10px;
 }
@@ -409,7 +409,7 @@
 
 .decision-mobile-confirmation-error {
   border-radius: 7px;
-  font-size: 13px !important;
+  font-size: 14px !important;
   line-height: 20px !important;
   padding: 8px 9px;
 }
@@ -425,7 +425,7 @@
   border-radius: 10px;
   background: var(--erp-surface);
   color: var(--erp-text);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 20px;
   padding: 10px 12px;
 }
@@ -674,7 +674,7 @@
 
 .maintenance-photo-field input {
   min-width: 0;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .maintenance-photo-name {
@@ -760,7 +760,7 @@
 .maintenance-completion-confirmation > p {
   margin: 0;
   color: var(--erp-text-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 20px;
 }
 
@@ -813,7 +813,7 @@
 .maintenance-mobile-completed-summary p,
 .maintenance-mobile-completed-summary span {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 20px;
 }
 

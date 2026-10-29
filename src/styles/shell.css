@@ -298,7 +298,7 @@ body:has(.runtime-login-shell) {
   border-radius: 999px;
   background: var(--erp-danger);
   color: var(--erp-accent-ink);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 18px;
   text-align: center;
 }
@@ -359,7 +359,7 @@ body:has(.runtime-login-shell) {
   right: 2px;
   min-width: 15px;
   height: 15px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -799,7 +799,7 @@ body:has(.runtime-login-shell) {
     position: static;
     min-width: 18px;
     height: 18px;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 18px;
   }
 

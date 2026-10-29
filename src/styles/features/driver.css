@@ -110,7 +110,7 @@ button.route-nav-button {
 .driver-device-summary {
   flex: 0 0 auto;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 20px;
   padding: 0 8px;
 }
@@ -157,7 +157,7 @@ button.route-nav-button {
 
 .driver-device-item strong {
   color: var(--erp-text);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 18px;
 }
 
@@ -216,7 +216,7 @@ button.route-nav-button {
 
 .driver-native-diagnostics-head strong {
   color: var(--erp-text);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 18px;
 }
 
@@ -244,7 +244,7 @@ button.route-nav-button {
 
 .driver-native-integration-kit strong {
   color: var(--erp-text);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 18px;
 }
 
@@ -283,7 +283,7 @@ button.route-nav-button {
   border-radius: 5px;
   background: var(--erp-surface);
   color: var(--erp-text);
-  font-size: 13px;
+  font-size: 14px;
   padding: 0 8px;
 }
 
@@ -339,7 +339,7 @@ button.route-nav-button {
 
 .driver-field-test-row strong {
   color: var(--erp-text);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 18px;
 }
 
@@ -357,7 +357,7 @@ button.route-nav-button {
   border-radius: 5px;
   background: var(--erp-surface);
   color: var(--erp-text);
-  font-size: 12px;
+  font-size: 14px;
   padding: 0 6px;
 }
 
@@ -372,7 +372,7 @@ button.route-nav-button {
   border-radius: 5px;
   background: var(--erp-accent);
   color: var(--erp-accent-ink);
-  font-size: 12px;
+  font-size: 14px;
   padding: 0 10px;
   white-space: nowrap;
 }
@@ -434,7 +434,7 @@ button.route-nav-button {
 
 .driver-field-test-sample strong {
   color: var(--erp-text);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 17px;
 }
 
@@ -458,7 +458,7 @@ button.route-nav-button {
 
 .driver-field-test-record strong {
   color: var(--erp-text);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .driver-field-test-record span,
@@ -586,7 +586,7 @@ button.route-nav-button {
 }
 
 .driver-load-package strong {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .driver-load-package span,
@@ -607,7 +607,7 @@ button.route-nav-button {
   border-radius: 5px;
   background: var(--erp-surface);
   color: var(--erp-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   padding: 0 10px;
   white-space: nowrap;
 }
@@ -664,7 +664,7 @@ button.route-nav-button {
   gap: 2px;
   background: linear-gradient(180deg, var(--erp-media-scrim-clear), var(--erp-media-scrim-soft) 18%, var(--erp-media-scrim));
   color: var(--erp-media-ink);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 15px;
   padding: 20px 8px 7px;
   text-shadow: var(--erp-media-text-shadow);
@@ -692,7 +692,7 @@ button.route-nav-button {
   border-radius: 5px;
   background: var(--erp-surface);
   color: var(--erp-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   padding: 0 10px;
   white-space: nowrap;
 }
@@ -715,14 +715,14 @@ button.route-nav-button {
 .watermark-preview strong {
   display: block;
   color: var(--erp-text);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 20px;
 }
 
 .watermark-preview p {
   margin: 4px 0 0;
   color: var(--erp-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 18px;
   overflow-wrap: anywhere;
 }
@@ -763,7 +763,7 @@ button.route-nav-button {
 .driver-delivery-confirmation-grid span,
 .driver-delivery-confirmation-effects {
   color: var(--erp-text-faint);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 18px;
 }
 
@@ -787,7 +787,7 @@ button.route-nav-button {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--erp-text);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 18px;
 }
 
@@ -808,7 +808,7 @@ button.route-nav-button {
   border-radius: 5px;
   background: var(--erp-surface);
   color: var(--erp-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   padding: 0 10px;
 }
 

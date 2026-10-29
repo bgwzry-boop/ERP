@@ -830,7 +830,7 @@ textarea,
     border-radius: 999px;
     background: var(--erp-neutral-bg);
     color: var(--erp-text-muted);
-    font-size: 10px;
+    font-size: 11px;
     line-height: 17px;
     text-align: center;
   }

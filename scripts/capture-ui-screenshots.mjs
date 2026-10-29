@@ -23,14 +23,20 @@ async function openApp(viewport) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error?.message ?? error)));
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await page.locator(".app-shell").first().waitFor({ timeout: 30_000 });
+  // 应用会在后台轮询，不能等 networkidle；等页面加载完、工作台外壳出现即可。
+  await page.goto(baseUrl, { waitUntil: "load" });
+  try {
+    await page.locator(".app-shell").first().waitFor({ timeout: 30_000 });
+  } catch (error) {
+    await page.screenshot({ path: join(outDir, `debug-no-shell-${viewport.width}.png`), fullPage: true });
+    await writeFile(join(outDir, `debug-no-shell-${viewport.width}.html`), await page.content());
+    throw error;
+  }
   return { page, errors };
 }
 
 async function settle(page) {
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(900);
 }
 
 async function clickNav(page, label) {

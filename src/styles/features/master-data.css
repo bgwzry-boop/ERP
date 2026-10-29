@@ -71,7 +71,7 @@
   border-radius: 4px;
   background: var(--erp-neutral-bg);
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 17px;
   padding: 0 4px;
   text-align: center;
@@ -1148,7 +1148,7 @@
 
 .master-data-employee-identity-confirmation label > span {
   color: var(--erp-warning);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 14px;
 }
@@ -1848,7 +1848,7 @@
   border-radius: 4px;
   background: var(--erp-border);
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 19px;
   padding: 0 5px;
   text-align: center;
@@ -1919,7 +1919,7 @@
 
 .master-data-detail-facts span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -2073,7 +2073,7 @@
 
 .machine-config-list small {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .machine-config-list .machine-config-list-state {
@@ -2107,7 +2107,7 @@
 .machine-config-evidence span,
 .machine-config-evidence small {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -2465,7 +2465,7 @@
   border-radius: 999px;
   background: var(--erp-neutral-bg);
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-style: normal;
   line-height: 18px;
   padding: 0 6px;

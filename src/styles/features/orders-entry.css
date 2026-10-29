@@ -424,7 +424,7 @@
 
 .entry-draft-context > div span {
   color: var(--erp-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 15px;
 }
 
@@ -584,7 +584,7 @@
   top: 50%;
   right: 3px;
   color: var(--erp-text-faint);
-  font-size: 9px;
+  font-size: 11px;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
@@ -768,7 +768,7 @@
 .entry-issue-list strong,
 .entry-issue-list small {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   line-height: 16px;
   text-overflow: ellipsis;
@@ -943,7 +943,7 @@
 .entry-field-reviews small,
 .entry-field-reviews b,
 .entry-field-reviews button {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 16px;
 }
 
@@ -1047,7 +1047,7 @@
   margin-top: 6px;
   border: 1px solid currentColor;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 17px;
   padding: 5px 8px;
 }
@@ -1507,7 +1507,7 @@
     min-width: 84px;
     min-height: 38px;
     padding: 0 8px;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 14px;
   }
 

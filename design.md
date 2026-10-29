@@ -39,7 +39,9 @@
 
 - UI：`Geist`, `PingFang SC`, `Noto Sans SC`, `Microsoft YaHei`, system fallbacks。
 - 产品界面采用单一字体家族；数据使用 `tabular-nums`。
-- 页面标题 22px；区块标题 14px；表格正文 12–13px；桌面辅助文字不得低于 11px；移动正文不得低于 14px。
+- 页面标题 22px；区块标题 14px；表格正文 12–13px；桌面辅助文字不得低于 11px。
+- 现场手机页：正文（段落、按钮、输入框、错误/提示、关键数值）不得低于 14px；辅助文字（字段标签、时间、计数、徽标）不得低于 12px。图标尺寸不算文字。
+- 以上颜色与字号规则由 `npm run design-tokens:check` 自动检查，违规会让 CI 失败。
 - 不使用斜体标题、全大写章节眉题或流式巨型标题。
 
 ## Spacing
