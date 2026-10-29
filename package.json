@@ -219,7 +219,7 @@
     "controlled-release:verify": "node scripts/verify-controlled-release-lock.mjs",
     "controlled-release:build": "node scripts/run-controlled-release-build.mjs",
     "controlled-release:postdeploy": "node scripts/run-controlled-release-postdeploy-check.mjs",
-    "controlled-release:check": "node scripts/check-controlled-release-lock.mjs",
+    "controlled-release:check": "node scripts/check-controlled-release-lock.mjs && node scripts/check-staging-demo-data-inventory.mjs",
     "v1-production-deployment-manifest:check": "node scripts/check-v1-production-deployment-manifest.mjs",
     "v1-production-remote-recovery:check": "node scripts/check-v1-production-remote-recovery.mjs",
     "v1-production-first-stage-closeout:check": "node scripts/check-v1-production-first-stage-closeout.mjs",
