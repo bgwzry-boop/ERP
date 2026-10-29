@@ -110,7 +110,7 @@
 /* 筛选条 */
 .app-shell .business-filter-row { padding-inline: 20px; }
 .app-shell .business-filter-row :is(input, select) { min-height: 40px; border-radius: var(--erp-radius-md); font-size: 14px; }
-.app-shell .business-filter-row > button { min-height: 40px; border-radius: var(--erp-radius-md); }
+.app-shell .business-filter-row > button { min-height: 40px; min-width: 76px; padding: 0 12px; border-radius: var(--erp-radius-md); white-space: nowrap; }
 
 /* ---------- 表格 ---------- */
 .app-shell .business-head { min-height: 44px; padding-inline: 20px; color: var(--erp-text-muted); font-size: 13px; font-weight: 600; }
@@ -126,6 +126,10 @@
 /* 状态：统一为圆角标签 */
 .app-shell .business-state {
   display: inline-flex;
+  justify-self: start;
+  align-self: center;
+  width: fit-content;
+  max-width: 100%;
   align-items: center;
   height: 24px;
   padding: 0 10px;

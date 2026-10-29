@@ -33,20 +33,41 @@ await mkdir(outDir, { recursive: true });
 const browser = await chromium.launch();
 const report = [];
 
+// Vite 开发服务器首次加载会预构建依赖并整页刷新，期间加载的页面可能拿到过期的模块而白屏。
+// 先预热一次，并在 #root 为空时重试。
+async function warmUp() {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  for (const [hash] of pages) {
+    await page.goto(`${baseUrl}?erpViewport=desktop&uiShot=warmup#${hash}`, { waitUntil: "load" }).catch(() => {});
+    await page.waitForTimeout(1200);
+  }
+  await page.waitForTimeout(4000);
+  await page.close();
+}
+
+async function rootIsEmpty(page) {
+  return page.evaluate(() => (document.getElementById("root")?.childElementCount ?? 0) === 0);
+}
+
 async function capture({ width, height, viewport, name }, hash, label, fullPage) {
   const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error?.message ?? error)));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(`console: ${message.text()}`.slice(0, 300)); });
   const file = `${name}-${label}.png`;
   try {
-    await page.goto(`${baseUrl}?erpViewport=${viewport}&uiShot=1#${hash}`, { waitUntil: "load" });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await page.goto(`${baseUrl}?erpViewport=${viewport}&uiShot=${attempt}#${hash}`, { waitUntil: "load" });
+      await page.waitForTimeout(1500);
+      if (!(await rootIsEmpty(page))) break;
+      await page.waitForTimeout(3000);
+    }
     // 应用会在后台轮询，不等 networkidle；等加载提示消失再截。
-    await page.waitForTimeout(1500);
     await page.getByText("正在读取", { exact: false }).first().waitFor({ state: "hidden", timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(500);
     await page.screenshot({ path: join(outDir, file), fullPage });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    report.push({ viewport: name, page: label, file, horizontalOverflowPx: overflow, pageErrors: errors });
+    report.push({ viewport: name, page: label, file, blank: await rootIsEmpty(page), horizontalOverflowPx: overflow, pageErrors: errors });
   } catch (error) {
     report.push({ viewport: name, page: label, file: null, error: String(error?.message ?? error), pageErrors: errors });
   } finally {
@@ -54,6 +75,7 @@ async function capture({ width, height, viewport, name }, hash, label, fullPage)
   }
 }
 
+await warmUp();
 for (const viewport of viewports) {
   for (const [hash, label] of pages) await capture(viewport, hash, label, false);
 }
