@@ -81,9 +81,17 @@ export function classifyMobileSelector(selectorList) {
     : "secondary";
 }
 
+// 由模板生成、标明「Do not edit by hand」的样式（如实物卷标 raw-material-roll-label.css）
+// 必须与模板逐字一致，不参与 token / 字号检查；要改请改生成它的模板。
+function isGeneratedStylesheet(rawSource) {
+  return /^\/\*\s*Generated from [^*]*Do not edit by hand/i.test(rawSource.trimStart());
+}
+
 function scanFile(absPath) {
   const file = relative(repoRoot, absPath).split("\\").join("/");
-  const source = stripComments(readFileSync(absPath, "utf8"));
+  const rawSource = readFileSync(absPath, "utf8");
+  if (isGeneratedStylesheet(rawSource)) return [];
+  const source = stripComments(rawSource);
   const lines = source.split("\n");
   const findings = [];
   lines.forEach((line, index) => {
