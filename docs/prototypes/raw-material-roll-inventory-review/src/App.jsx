@@ -54,6 +54,7 @@ import {
 } from "./roll-inventory-presentation.js";
 import { useFormalDesktopWorkspace } from "./useFormalDesktopWorkspace.js";
 import { FormalReceivingWorkspace } from "./FormalReceivingWorkspace.jsx";
+import { GlobalSearch } from "./GlobalSearch.jsx";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
@@ -188,11 +189,11 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
   </aside>;
 }
 
-function Topbar({ onCreateOrder, permissionContext, unhandledTodoCount = 0 }) {
+function Topbar({ allowedNavIds, onCreateOrder, onSearchSelect, permissionContext, searchData, searchPending = false, unhandledTodoCount = 0 }) {
   const account = permissionContext.user ?? defaultPermissionContext.user;
   const canCreateOrder = hasEffectivePermission(permissionContext, "order.create");
   return <header className="topbar">
-    <label className="global-search"><SearchOutlined /><input aria-label="全局搜索" placeholder="搜索 客户 / 订单 / 尺寸 / 颜色 / 单据" /></label>
+    <GlobalSearch allowedNavIds={allowedNavIds} data={searchData} onSelect={onSearchSelect} pending={searchPending} />
     <div className="topbar-actions">
       {canCreateOrder ? <button className="primary top-new-order" onClick={onCreateOrder} type="button"><PlusOutlined />新建订单</button> : null}
       <button aria-label={unhandledTodoCount > 0 ? `通知：${unhandledTodoCount} 条未处理待办` : "通知：没有未处理待办"} className="notification" type="button"><BellOutlined />{unhandledTodoCount > 0 ? <b>{unhandledTodoCount}</b> : null}</button>
@@ -478,6 +479,10 @@ export function App({ permissionContext = defaultPermissionContext }) {
   // 导航角标和铃铛与「公共待办 · 未处理」列表使用同一规则和同一份服务器数据，不再写死数字。
   const unhandledTodoCount = useMemo(() => (formal.data.todos || []).filter((todo) => !todo.handled).length, [formal.data.todos]);
   const visibleViews = useMemo(() => getVisibleWorkspaceViews(resolvedPermissionContext), [resolvedPermissionContext]);
+  const allowedNavIds = useMemo(
+    () => getVisiblePcNavGroups(resolvedPermissionContext).flatMap((group) => group.items.map((item) => item.id)),
+    [resolvedPermissionContext],
+  );
   const visibleRawMaterialViews = useMemo(() => getVisibleRawMaterialViews(resolvedPermissionContext), [resolvedPermissionContext]);
   const [view, setView] = useState(() => {
     const hashNavId = window.location.hash.replace(/^#/, "");
@@ -492,6 +497,8 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const [receiveError, setReceiveError] = useState("");
   const [sourceRoll, setSourceRoll] = useState(null);
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
+  const [workspaceFocus, setWorkspaceFocus] = useState(null);
+  const searchToken = useRef(0);
   const activeView = visibleViews.includes(view) ? view : getDefaultWorkspaceView(permissionContext);
   const activeNavId = viewNavMap[activeView] || "";
   const isRawMaterialView = visibleRawMaterialViews.includes(activeView);
@@ -528,13 +535,35 @@ export function App({ permissionContext = defaultPermissionContext }) {
   };
   const navigate = (navId, focus = {}) => {
     if (formal.orderEntryWritePending) return;
-    setProductionFocusId(focus.productionTaskId || "");
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
     const nextView = navViewMap[normalizedNavId];
-    if (nextView && visibleViews.includes(nextView)) {
+    const allowed = Boolean(nextView && visibleViews.includes(nextView));
+    setWorkspaceFocus(allowed && focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === normalizedNavId ? focus.workspaceFocus : null);
+    setProductionFocusId(focus.productionTaskId || "");
+    if (allowed) {
       setView(nextView);
       window.history.replaceState(null, "", `#${normalizedNavId}`);
     }
+  };
+  const openSearchResult = (result) => {
+    if (!result?.navId || formal.orderEntryWritePending) return;
+    searchToken.current += 1;
+    navigate(result.navId, {
+      preserveWorkspaceFocus: true,
+      workspaceFocus: {
+        token: `${result.kind}:${result.recordId}:${searchToken.current}`,
+        navId: result.navId,
+        recordId: result.recordId,
+        query: result.query,
+      },
+    });
+    setExpandedGroups((current) => {
+      const group = pcNavGroups.find((item) => item.items.some((child) => child.id === result.navId));
+      if (!group || current.has(group.id)) return current;
+      const next = new Set(current);
+      next.add(group.id);
+      return next;
+    });
   };
   const recognizeReceiptFile = async (file) => {
     if (!file || receiveBusy) return;
@@ -557,7 +586,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
   };
 
   return <div className="app-shell" data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
-    <Sidebar activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar onCreateOrder={() => navigate("order-entry")} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} />
+    <Sidebar activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar allowedNavIds={allowedNavIds} onCreateOrder={() => navigate("order-entry")} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} searchData={formal.data} searchPending={formal.meta.loading} unhandledTodoCount={unhandledTodoCount} />
     <main className={`page${isRawMaterialView ? "" : " business-page"}`}>
       {formal.meta.loading ? <div className="formal-sync-banner">正在读取正式服务器数据…</div> : null}
       {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">本次操作结果正在核对，请先确认结果；结果未明时按原内容重试。</div> : null}
@@ -572,7 +601,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
       </header> : null}
       {activeView === "卷料库存" ? <RollInventory onOpenSource={setSourceRoll} sourceRolls={currentInventoryRolls} /> : null}
       {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={() => setReceiveOpen(true)} records={receiptRecords} /> : null}
-      {!isRawMaterialView ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} /> : null}
+      {!isRawMaterialView ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} workspaceFocus={workspaceFocus} /> : null}
     </main>
     {receiveOpen ? <ReceiveDialog busy={receiveBusy} error={receiveError} onClose={() => { if (!receiveBusy) setReceiveOpen(false); }} onFile={recognizeReceiptFile} /> : null}
     {sourceRoll ? <SourceDialog onClose={() => setSourceRoll(null)} roll={sourceRoll} /> : null}
