@@ -49,6 +49,12 @@ export function officeReviewSubmitBlocker(inbound = {}, documentDraft = {}) {
   return "";
 }
 
+export function shouldOpenLabelPrintAfterReview(reviewed, { printDisabled = false } = {}) {
+  if (!reviewed?.id || printDisabled) return false;
+  if (reviewed.documentDirection === "supplier_return") return false;
+  return canPrintRawMaterialLabels(reviewed);
+}
+
 export function resolveOfficeInboundStep(inbound = {}) {
   if (!inbound?.id) return "scan";
   if (inbound.documentDirection === "supplier_return") {

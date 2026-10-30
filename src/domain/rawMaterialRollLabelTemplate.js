@@ -1,7 +1,13 @@
 // Frozen geometry of the approved 卷料标签 mock.
 // The mock is scaled evenly onto a 76mm width (px * 76/864). Rows are not
-// stretched to fill the 130mm stock, so type, QR, and barcode stay the mock size.
+// stretched independently, so the grid, QR, and barcode keep one aspect.
 // Only per-roll text, the QR, and the Code 39 may change.
+//
+// 2026-10-30: Yunda 76×130 face paper keeps preprinted logos in the top corners
+// and small type in the bottom corners. The locked art is placed in the
+// printable band (8mm top, 6mm bottom) at the largest uniform scale that still
+// fits that band. Width is the limiting edge, so the scale stays 1; a taller
+// scale would exceed 76mm and Chrome would shrink the page back down.
 
 const sum = (values) => values.reduce((total, value) => total + value, 0);
 const mm = (value) => `${value.toFixed(2)}mm`;
@@ -19,23 +25,64 @@ export const RAW_MATERIAL_ROLL_LABEL_TEMPLATE = Object.freeze({
   rowsMm: Object.freeze([6.11, 6.55, 6.82, 6.86, 6.77, 6.86, 6.47, 6.51, 6.16, 6.64, 6.55, 6.51, 14.25]),
   qrMm: 25.4,
   barcodeMm: 7.39,
-  // 2026-10-29: the owner's stock (and pre-printed courier rolls) leave the
-  // usable area in the middle. Centre the 101.33mm artwork on the 130mm page.
-  pageOffsetTopMm: 14.33,
+  // Logo safe band on the physical 76×130 Yunda sheet. Not an @page margin:
+  // the print dialog's 边距「无」would discard a page margin.
+  safeTopMm: 8,
+  safeBottomMm: 6,
 });
 
 const template = RAW_MATERIAL_ROLL_LABEL_TEMPLATE;
 const tableWidthMm = sum(template.columnsMm);
 const tableHeightMm = sum(template.rowsMm);
 
+// Largest uniform scale of the locked 76×101.33 art inside the logo-safe band.
+const printableWidthMm = template.pageWidthMm;
+const printableHeightMm = template.pageHeightMm - template.safeTopMm - template.safeBottomMm;
+export const RAW_MATERIAL_ROLL_LABEL_PRINT_SCALE = Math.min(
+  printableWidthMm / template.pageWidthMm,
+  printableHeightMm / template.artworkHeightMm,
+);
+
+export function rawMaterialRollLabelPlacement() {
+  const scale = RAW_MATERIAL_ROLL_LABEL_PRINT_SCALE;
+  const widthMm = roundMm(template.pageWidthMm * scale);
+  const heightMm = roundMm(template.artworkHeightMm * scale);
+  const offsetTopMm = template.safeTopMm;
+  const bottomGapMm = roundMm(template.pageHeightMm - offsetTopMm - heightMm);
+  return {
+    scale,
+    pageWidthMm: template.pageWidthMm,
+    pageHeightMm: template.pageHeightMm,
+    offsetTopMm,
+    widthMm,
+    heightMm,
+    bottomGapMm,
+    safeTopMm: template.safeTopMm,
+    safeBottomMm: template.safeBottomMm,
+    qrMm: roundMm(template.qrMm * scale),
+  };
+}
+
+function roundMm(value) {
+  return Math.round(value * 100) / 100;
+}
+
+const placement = rawMaterialRollLabelPlacement();
+
 if (Math.abs(template.paddingLeftMm + tableWidthMm + template.paddingRightMm - template.pageWidthMm) > 0.02) {
   throw new Error("Roll label columns do not fill 76mm");
 }
-if (template.pageOffsetTopMm + template.artworkHeightMm > template.pageHeightMm) {
+if (placement.offsetTopMm + placement.heightMm > template.pageHeightMm) {
   throw new Error("Roll label artwork must fit below the page offset");
+}
+if (placement.bottomGapMm + 0.02 < template.safeBottomMm) {
+  throw new Error("Roll label artwork overlaps the bottom logo band");
 }
 if (Math.abs(template.paddingTopMm + template.headerMm + tableHeightMm + template.paddingBottomMm - template.artworkHeightMm) > 0.02) {
   throw new Error("Roll label artwork does not match the approved mock height");
+}
+if (placement.scale > 1 && placement.widthMm - template.pageWidthMm > 0.02) {
+  throw new Error("Uniform roll-label scale must not exceed the 76mm paper width");
 }
 
 // Long per-roll text (supplier full names, inbound numbers) must stay on the
@@ -78,7 +125,7 @@ export function buildRawMaterialRollLabelCss() {
   width: ${mm(template.pageWidthMm)};
   height: ${mm(template.pageHeightMm)};
   margin: 0;
-  padding-top: ${mm(template.pageOffsetTopMm)};
+  padding-top: ${mm(placement.offsetTopMm)};
   overflow: hidden;
   page: roll-label;
 }
@@ -87,8 +134,8 @@ export function buildRawMaterialRollLabelCss() {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: ${mm(template.pageWidthMm)};
-  height: ${mm(template.artworkHeightMm)};
+  width: ${mm(placement.widthMm)};
+  height: ${mm(placement.heightMm)};
   margin: 0;
   padding: ${mm(template.paddingTopMm)} ${mm(template.paddingRightMm)} ${mm(template.paddingBottomMm)} ${mm(template.paddingLeftMm)};
   overflow: hidden;
@@ -272,8 +319,8 @@ export function buildRawMaterialRollLabelCss() {
   left: 0.38mm;
   top: 0.47mm;
   display: block;
-  width: 25.61mm;
-  height: 26.90mm;
+  width: ${mm(placement.qrMm)};
+  height: ${mm(placement.qrMm)};
   fill: #000;
 }
 
