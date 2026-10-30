@@ -359,7 +359,7 @@ function CaptureDeliveryNote({
         ) : null}
         <label className={`raw-material-mobile-camera ${disabled ? "is-disabled" : ""}`}>
           <i><CameraOutlined aria-hidden="true" /></i>
-          <span><strong>{deliveryNoteOcrLoading ? "正在处理" : hasPages ? "还有第二页" : `拍${isSupplierReturn ? "退货单" : "送货单"}`}</strong><small>{hasPages ? "继续拍下一页" : "打开相机"}</small></span>
+          <span><strong>{deliveryNoteOcrLoading ? "正在处理" : hasPages ? "还有第二页" : "拍照上传"}</strong><small>{hasPages ? "继续拍下一页" : `打开相机拍${isSupplierReturn ? "退货单" : "送货单"}`}</small></span>
           <input
             accept="image/jpeg,image/png,image/bmp"
             capture="environment"
@@ -371,7 +371,7 @@ function CaptureDeliveryNote({
         </label>
         <label className={`raw-material-mobile-gallery ${disabled ? "is-disabled" : ""}`}>
           <i><FileImageOutlined aria-hidden="true" /></i>
-          <span><strong>{hasPages ? "从相册加页" : "相册 / PDF"}</strong><small>{hasPages ? "可继续添加" : "选择已有文件"}</small></span>
+          <span><strong>{hasPages ? "从相册加页" : "照片上传"}</strong><small>{hasPages ? "可继续添加" : "选相册照片或 PDF"}</small></span>
           <input
             accept="image/png,image/jpeg,image/bmp,application/pdf"
             disabled={disabled}

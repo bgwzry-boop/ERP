@@ -258,3 +258,21 @@
   gap: 6px;
   margin-top: 8px;
 }
+
+/* 2026-10-30：供应商没识别出来时，就地补填 */
+.office-inbound-supplier { display: grid; gap: 6px; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--erp-warning-border); border-radius: var(--erp-radius-md); background: var(--erp-warning-bg); color: var(--erp-warning); font-size: 13px; }
+.office-inbound-supplier input { min-height: 34px; padding: 0 10px; border: 1px solid var(--erp-control-border); border-radius: var(--erp-radius-sm); background: var(--erp-surface); color: var(--erp-text); font-size: 14px; }
+
+/* 电脑端「摄像头 / 高拍仪」取景弹窗 */
+.delivery-note-camera { position: fixed; inset: 0; z-index: var(--erp-z-modal); display: grid; place-items: center; padding: 16px; background: var(--erp-overlay); }
+.delivery-note-camera-panel { display: grid; gap: 12px; width: min(100%, 860px); max-height: 100%; overflow: auto; padding: 16px; border-radius: var(--erp-radius-lg); background: var(--erp-surface); box-shadow: var(--erp-shadow-panel); }
+.delivery-note-camera-panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
+.delivery-note-camera-panel select { min-height: 32px; border: 1px solid var(--erp-control-border); border-radius: var(--erp-radius-sm); font-size: 13px; }
+.delivery-note-camera-panel video { width: 100%; max-height: 60vh; border-radius: var(--erp-radius-md); background: var(--erp-media-backdrop); object-fit: contain; }
+.delivery-note-camera-pages { display: flex; gap: 8px; overflow-x: auto; }
+.delivery-note-camera-pages img { height: 96px; border: 1px solid var(--erp-border); border-radius: var(--erp-radius-sm); }
+.delivery-note-camera-hint, .delivery-note-camera-error { margin: 0; font-size: 13px; color: var(--erp-text-muted); }
+.delivery-note-camera-error { color: var(--erp-danger); }
+.delivery-note-camera-panel footer { display: flex; justify-content: flex-end; gap: 8px; }
+.delivery-note-camera-panel footer button { min-height: 34px; padding: 0 14px; border: 1px solid var(--erp-control-border); border-radius: var(--erp-radius-sm); background: var(--erp-surface); font-size: 13px; }
+.delivery-note-camera-panel footer button.primary-action { border-color: var(--erp-accent); background: var(--erp-accent); color: var(--erp-accent-ink); }

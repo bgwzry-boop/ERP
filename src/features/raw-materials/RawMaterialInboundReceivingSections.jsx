@@ -84,7 +84,16 @@ export function RawMaterialInboundReceivingSections({
     onException={onOfficeException}
     onLineDraftsChange={setOcrLineReviewDraft}
     onPrint={handlePrintLabels}
-    onReview={selected.ocrProvider === "tencent_cloud_table_v3" ? onOfficeReviewConfirm : () => submitInboundAction(onAction, selected, "复核送货单")}
+    onReview={async () => {
+      // 「这批都对，去打印」: review, then go straight into label printing.
+      const reviewed = selected.ocrProvider === "tencent_cloud_table_v3"
+        ? await onOfficeReviewConfirm()
+        : await submitInboundAction(onAction, selected, "复核送货单");
+      if (reviewed?.id && reviewed.documentDirection !== "supplier_return" && canPrintRawMaterialLabels(reviewed) && !printState?.disabled) {
+        await handlePrintLabels(reviewed);
+      }
+      return reviewed;
+    }}
     onVerifyRoll={(roll) => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
     printState={printState}
     reviewState={reviewState}

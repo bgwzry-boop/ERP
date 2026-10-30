@@ -283,9 +283,9 @@ assertIncludes(rawMaterialWorkbenchSource, "raw-material-view-tabs", "raw-materi
 assertIncludes(rawMaterialWorkbenchSource, "buildRawMaterialInboundViewItems(inbounds)", "raw-material view counts should use the tested list-state projection");
 assertIncludes(rawMaterialPageSource, "raw-material-detail-scroll", "raw-material detail actions should scroll independently");
 assertIncludes(officePageSource, "OCR 仅预填", "page should clearly label OCR as prefill only");
-assertIncludes(officePageSource, "手机拍照（备用）", "desktop should retain the mobile-camera backup entry");
-assertIncludes(rawMaterialPageSource, 'capture="environment"', "direct photo input should request the rear camera");
-assertIncludes(officePageSource, "扫描 / 上传送货单", "desktop should expose office scan and upload as its primary entry");
+assertIncludes(officePageSource, "摄像头 / 高拍仪", "desktop should open the document camera / webcam for delivery notes (2026-10-30)");
+assertIncludes(officePageSource, 'capture="environment"', "phone 拍照上传 should request the rear camera");
+assertIncludes(officePageSource, "上传照片", "desktop should keep photo upload next to the camera entry");
 assertIncludes(rawMaterialPageSource, "识别成功：", "successful mobile OCR should expose an inline draft result");
 assertIncludes(rawMaterialPageSource, 'setActiveTab("入库单")', "successful OCR should return to the inbound list view");
 assertIncludes(rawMaterialPageSource, 'setSelectedId(inbound.id)', "successful OCR should select the generated draft");

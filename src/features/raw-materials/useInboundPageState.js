@@ -470,8 +470,9 @@ export function useInboundPageState({
     }
   }
 
-  async function handlePrintLabels() {
-    const activeInbound = mobileSelected ?? selected;
+  async function handlePrintLabels(inboundOverride) {
+    // 「这批都对，去打印」passes the freshly reviewed inbound; a click passes an event.
+    const activeInbound = inboundOverride?.id && Array.isArray(inboundOverride.rolls) ? inboundOverride : mobileSelected ?? selected;
     if (!activeInbound || printState.disabled || !canPrintRawMaterialLabels(activeInbound)) return null;
     flushSync(() => setPrintSheetInbound(activeInbound));
     document.body.classList.add("raw-material-label-printing");
