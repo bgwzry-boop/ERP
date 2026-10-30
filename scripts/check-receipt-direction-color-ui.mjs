@@ -44,7 +44,8 @@ try {
     await page.screenshot({path:`${out}/desktop-return-${width}.png`,fullPage:true});
     await page.getByRole('tab',{name:'待核对 1',exact:true}).click();
     await page.locator('.office-roll-row').filter({hasText:'海兰'}).first().waitFor();
-    assert.equal(await page.locator('.office-roll-color-text').filter({hasText:'暂用票面色 · 厂内色待统一'}).count(),6);
+    assert.deepEqual(await page.locator('.office-roll-color-text').allTextContents(),['海兰','海兰','米黄','米黄','宝蓝（宝兰）','宝蓝（宝兰）','米黄','梅红']);
+    assert.equal(await page.locator('.office-roll-color-text small').count(),0);
     await page.locator('.office-roll-row').filter({hasText:'海兰'}).first().getByRole('button',{name:'改这一卷',exact:true}).click();
     await page.getByRole('button',{name:'维护厂家颜色对应',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'厂家颜色资料'});
@@ -54,7 +55,7 @@ try {
     await dialog.getByRole('button',{name:'保存规则',exact:true}).click();
     await dialog.waitFor({state:'hidden'});
     assert.equal(mappingCalls,1);
-    assert.equal(await page.locator('.office-roll-color-text').filter({hasText:'暂用票面色 · 厂内色待统一'}).count(),4,'only matching source-colour lines are filled');
+    assert.deepEqual(await page.locator('.office-roll-color-text').allTextContents(),['海蓝（海兰）','海蓝（海兰）','米黄','米黄','宝蓝（宝兰）','宝蓝（宝兰）','米黄','梅红'],'only matching source-colour lines are filled');
     assert.equal(await page.locator('.office-roll-color-text').filter({hasText:'海蓝'}).count(),2);
     assert.equal(await page.locator('.office-roll-editor').count(),0,'old blank editor must not overwrite saved mapping');
     if(width===1440) assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -83,7 +84,7 @@ try {
       assert.match(await page.locator('.raw-material-mobile-review-list').innerText(),/-68/);
       assert.equal(await page.getByRole('button',{name:'改为退货单核对',exact:true}).count(),0);
     } else {
-      assert.equal(await page.getByText('厂家：海兰',{exact:true}).count(),1);
+      assert.equal(await page.locator('.line-color').filter({hasText:/^海兰$/}).count(),1);
       const row=page.locator('.raw-material-mobile-review-list > article').first();
       await row.getByRole('button',{name:'修改',exact:true}).click();
       await page.getByText('待统一',{exact:true}).waitFor();
