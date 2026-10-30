@@ -2,22 +2,31 @@ import { buildRawMaterialCode39Bars } from "../../domain/rawMaterialLabelBarcode
 import { buildRawMaterialQrMatrix } from "../../domain/rawMaterialLabelQr.js";
 import { buildRawMaterialRollLabelModel } from "../../domain/rawMaterialRollLabel.js";
 import { RAW_MATERIAL_ROLL_LABEL_FIT_CELLS, fitRollLabelCellText } from "../../domain/rawMaterialRollLabelTemplate.js";
+import { createPortal } from "react-dom";
 import "../../styles/features/raw-material-roll-label.css";
 
 export function RawMaterialLabelPrintSheet({ inbound, preview = false }) {
   if (!inbound) return null;
   const printableRolls = (inbound.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用");
   if (!printableRolls.length) return null;
-  return (
+  const sheet = (
     <section
       aria-hidden={preview ? undefined : "true"}
       className={`raw-material-label-print-sheet${preview ? " is-screen-preview" : ""}`}
     >
       {printableRolls.map((roll) => (
-        <RawMaterialRollPrintLabel inbound={inbound} key={roll.id} roll={roll} />
+        // One 76×130mm page per roll; the artwork sits in the middle of it.
+        <div className="raw-material-roll-print-page" key={roll.id}>
+          <RawMaterialRollPrintLabel inbound={inbound} roll={roll} />
+        </div>
       ))}
     </section>
   );
+  // Printing renders the sheet as a direct child of <body> so the rest of the
+  // app can be removed from the print layout (display: none). Otherwise the
+  // wide desktop layout makes the browser shrink the label to ~70%.
+  if (preview || typeof document === "undefined" || !document.body) return sheet;
+  return createPortal(sheet, document.body);
 }
 
 export function RawMaterialCode39({ quietZone = 0, value }) {

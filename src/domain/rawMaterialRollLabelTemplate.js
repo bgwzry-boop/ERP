@@ -69,7 +69,18 @@ export function buildRawMaterialRollLabelCss() {
   return `/* Generated from src/domain/rawMaterialRollLabelTemplate.js. Do not edit by hand. */
 @page roll-label {
   size: ${mm(template.pageWidthMm)} ${mm(template.pageHeightMm)};
-  margin: ${mm(template.pageOffsetTopMm)} 0 0 0;
+  margin: 0;
+}
+
+/* The print dialog's 边距「无」overrides @page margins, so the offset lives on the page box. */
+.raw-material-roll-print-page {
+  box-sizing: border-box;
+  width: ${mm(template.pageWidthMm)};
+  height: ${mm(template.pageHeightMm)};
+  margin: 0;
+  padding-top: ${mm(template.pageOffsetTopMm)};
+  overflow: hidden;
+  page: roll-label;
 }
 
 .raw-material-roll-print-label {
