@@ -24,7 +24,9 @@
     display: none;
   }
 
-  .raw-material-workbench.is-mobile-detail-open > .raw-material-detail-pane {
+  /* Outrank the desktop inventory-view hide rule even when a production
+     shared CSS chunk is loaded after this phone stylesheet. */
+  .raw-material-workbench.raw-material-inbound-page.is-mobile-detail-open > .raw-material-detail-pane {
     display: block;
   }
 
