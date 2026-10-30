@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
+import { DeliveryNoteCameraCapture, isDeliveryNoteCameraSupported } from "./DeliveryNoteCameraCapture.jsx";
 import { DataState, DetailPane, Segmented } from "../../shared/ui/operational.jsx";
 import { RAW_MATERIAL_DETAIL_TABS, RawMaterialDetailOverview } from "./RawMaterialInboundWorkbench.jsx";
 import { RawMaterialPurchasePanel } from "./RawMaterialPurchasePanel.jsx";
@@ -11,6 +12,8 @@ const RawMaterialMobileOcrReview = lazy(() => import("./RawMaterialMobileOcrRevi
 const RAW_MATERIAL_FIRST_RELEASE_DETAIL_TABS = ["入库标签", "扫码出库", "供应商账", "记录"];
 
 export function InboundDetail({ state }) {
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const cameraSupported = isDeliveryNoteCameraSupported();
   const {
     authState,
     currentUser,
@@ -135,25 +138,22 @@ export function InboundDetail({ state }) {
             <span>OCR 仅预填；识别不会直接入库</span>
           </div>
           <div className="raw-material-ocr-upload-actions">
-            <label
-              className={`button-like raw-material-camera-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
-              title={reviewState.title || "调用手机后置摄像头拍摄送货单，原图最大 30MB，系统自动处理后识别"}
-            >
-              {deliveryNoteOcrLoading ? "正在识别…" : "手机拍照（备用）"}
-              <input
-                accept="image/jpeg,image/png,image/bmp"
-                capture="environment"
+            {cameraSupported ? (
+              <button
+                className={`button-like raw-material-camera-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
                 disabled={reviewState.disabled || deliveryNoteOcrLoading}
-                hidden
-                onChange={handleDesktopDeliveryNoteRecognize}
-                type="file"
-              />
-            </label>
+                onClick={() => setCameraOpen(true)}
+                title={reviewState.title || "打开电脑摄像头或高拍仪，直接拍送货单并识别"}
+                type="button"
+              >
+                {deliveryNoteOcrLoading ? "正在识别…" : "摄像头 / 高拍仪"}
+              </button>
+            ) : null}
             <label
               className={`button-like raw-material-file-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
               title={reviewState.title || "图片原图最大 30MB 并自动处理；PDF 暂限 7.5MB"}
             >
-              {deliveryNoteOcrLoading ? "处理中…" : "扫描 / 上传送货单"}
+              {deliveryNoteOcrLoading ? "处理中…" : "上传照片"}
               <input
                 accept="image/png,image/jpeg,image/bmp,application/pdf"
                 disabled={reviewState.disabled || deliveryNoteOcrLoading}
@@ -164,6 +164,12 @@ export function InboundDetail({ state }) {
               />
             </label>
           </div>
+          {cameraOpen ? (
+            <DeliveryNoteCameraCapture
+              onCapture={(files) => handleDesktopDeliveryNoteRecognize({ target: { files, value: "" } })}
+              onClose={() => setCameraOpen(false)}
+            />
+          ) : null}
           {deliveryNoteOcrResult ? <span className="raw-material-ocr-success" role="status">{deliveryNoteOcrResult}</span> : null}
           {deliveryNoteOcrError ? <span className="raw-material-ocr-error" role="alert">{deliveryNoteOcrError}</span> : null}
         </div>

@@ -90,7 +90,18 @@ export function OfficeInboundFlow({
       {step === "complete" && completion.reason && (stickCount.trim() || !completion.reason.startsWith("先填写")) ? (
         <p className="office-inbound-block" role="status">{completion.reason}</p>
       ) : null}
-      {reviewBlocker ? <p className="office-inbound-block" role="status">{reviewBlocker}</p> : null}
+      {reviewBlocker ? (
+        // Supplier missing: fill it in right here instead of hunting in the OCR section.
+        <label className="office-inbound-supplier">
+          <span>供应商还没填，填好后就能点「这批都对，去打印」</span>
+          <input
+            aria-label="供应商"
+            onChange={(event) => onDocumentDraftChange?.({ ...(documentDraft || {}), supplierName: event.target.value })}
+            placeholder="输入供应商名称"
+            value={documentDraft?.supplierName || ""}
+          />
+        </label>
+      ) : null}
       {actionAlert ? <p className="office-inbound-block" role="alert">{actionAlert}</p> : null}
       {markedException && step === "scan" ? <p className="office-inbound-block" role="status">已标记异常。补齐供应商、重量或原图后再重新复核。</p> : null}
       <div className="office-inbound-actions">
