@@ -138,9 +138,14 @@ const blockedRoutes = [
   "/api/raw-material-inbounds/RMI-1/calibrate-loss",
   "/api/raw-material-inbounds/RMI-1/generate-margin-snapshot",
   "/api/raw-material-inbounds/RMI-1/review-margin-snapshot",
+];
+// 2026-10-29: first batch covers supplier reconciliation through payment.
+for (const pathname of [
   "/api/raw-material-supplier-statement-reviews/RMSSR-1/generate-payable",
   "/api/raw-material-supplier-statement-reviews/RMSSR-1/confirm-payment",
-];
+]) {
+  assert.equal(evaluate(pathname).allowed, true, `first-release write should allow ${pathname}`);
+}
 for (const pathname of blockedRoutes) {
   assert.equal(evaluate(pathname).allowed, false, `first-release write should block ${pathname}`);
 }
@@ -210,7 +215,7 @@ async function checkApiBoundary() {
     for (const pathname of [
       "/api/raw-material-purchase-requests",
       "/api/raw-material-inbounds/RMI-0704-001/generate-cost-draft",
-      "/api/raw-material-supplier-statement-reviews/RMSSR-1/confirm-payment",
+      "/api/raw-material-inbounds/RMI-0704-001/confirm-cost-draft",
     ]) {
       const blocked = await requestJson(baseUrl, pathname, {
         method: "POST",

@@ -48,6 +48,8 @@ import { buildEmployeeProfile } from "./employee-profile.js";
 import { completedBusinessWorkspaceIds } from "./workspaceCoverage.js";
 import { optionalFinancialAmount } from "../../../../src/services/officeStatementSelectors.js";
 import { getOrderProgress } from "./orderProgress.js";
+import { SupplierSettlementActionPanel, SupplierStatementUpload } from "./SupplierSettlementActions.jsx";
+import { supplierPaymentTotals } from "./supplier-settlement-model.js";
 
 const OrderPrintGroupCorrectionDialog = lazy(() => import("./OrderPrintGroupCorrectionDialog.jsx").then(module => ({default:module.OrderPrintGroupCorrectionDialog})));
 
@@ -722,6 +724,8 @@ function SettlementFlow({ completedCount }) {
   })}</ol>;
 }
 
+const supplierPaymentRecordsPresent = (record) => Boolean(record.supplierPaymentRecord) || (Array.isArray(record.supplierPaymentRecords) && record.supplierPaymentRecords.length > 0);
+
 function SupplierSettlementWorkspace({ formal }) {
   const records = useMemo(() => formal.data.supplierStatementReviews.map((record) => ({
     ...record,
@@ -730,7 +734,7 @@ function SupplierSettlementWorkspace({ formal }) {
     period: supplierSettlementPeriod(record),
     settlementState: supplierSettlementState(record),
     payableAmount: optionalNumber(record.supplierPayableDraft?.payableAmount ?? record.payableAmount),
-    paidAmount: optionalNumber(record.supplierPaymentRecord?.paidAmount),
+    paidAmount: supplierPaymentRecordsPresent(record) ? supplierPaymentTotals(record).paid : null,
   })), [formal.data.supplierStatementReviews]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("全部阶段");
@@ -752,6 +756,7 @@ function SupplierSettlementWorkspace({ formal }) {
   return <div className="business-workbench supplier-settlement-workbench">
     <section className="business-list-panel">
       <header className="business-panel-heading"><h2>供应商月结</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      {formal.actions.precheckSupplierStatement ? <div className="supplier-upload-row"><SupplierStatementUpload formal={formal} onSaved={(review) => { setStatus("全部阶段"); setQuery(""); setSelectedId(review?.reviewId || ""); setNotice(`已保存对账单 ${review?.reviewId || ""}，请核对。`); }} /></div> : null}
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label="供应商月结搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索供应商 / 月份 / 文件 / 复核单" value={query} /></label><select aria-label="供应商月结阶段" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部阶段</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部阶段"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div aria-label="供应商月结列表" className="business-table" role="table">
         <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">供应商</span><span role="columnheader">对账期间</span><span role="columnheader">匹配结果</span><span role="columnheader">应付金额</span><span role="columnheader">结算阶段</span></div>
@@ -763,9 +768,10 @@ function SupplierSettlementWorkspace({ formal }) {
       <div className="business-detail-scroll">{selected ? <>
         <section className="business-detail-section"><h3>结算进度</h3><SettlementFlow completedCount={selected.settlementState.completedCount} /></section>
         <section className="business-detail-section"><h3>对账事实</h3><dl className="business-facts"><div><dt>对账期间</dt><dd>{selected.period}</dd></div><div><dt>对账文件</dt><dd>{selected.fileName || "待确认"}</dd></div><div><dt>匹配结果</dt><dd>{selected.summaryText || `匹配 ${selected.summary?.matchedRowCount || 0}，差异 ${(selected.summary?.unmatchedRowCount || 0) + (selected.summary?.candidateRowCount || 0)}`}</dd></div><div><dt>当前状态</dt><dd>{selected.status || selected.reviewStatus || "待复核"}</dd></div></dl></section>
-        <section className="business-detail-section"><h3>应付与付款</h3><dl className="business-facts"><div><dt>应付草稿</dt><dd>{selected.supplierPayableId || "尚未生成"}</dd></div><div><dt>应付金额</dt><dd>{moneyText(selected.payableAmount)}</dd></div><div><dt>付款金额</dt><dd>{moneyText(selected.paidAmount)}</dd></div><div><dt>付款凭证</dt><dd>{selected.supplierPaymentRecord?.paymentReferenceNo || selected.supplierPaymentRecord?.paymentVoucherNo || "尚未登记"}</dd></div></dl><div className="business-boundary"><InfoCircleOutlined /><div><strong>{selected.demoReadOnly ? "本地评审只读样例" : "一张月结单对应一个结算对象"}</strong><p>{selected.demoReadOnly ? "用于核对完整结算链路的显示效果；不会执行对账、应付或付款写入。" : "对账确认、生成应付、付款登记和付款确认是四个独立阶段；本页只展示服务器已有证据，不代替财务操作。"}</p></div></div></section>
+        <section className="business-detail-section"><h3>应付与付款</h3><dl className="business-facts"><div><dt>应付草稿</dt><dd>{selected.supplierPayableId || "尚未生成"}</dd></div><div><dt>应付金额</dt><dd>{moneyText(selected.payableAmount)}</dd></div><div><dt>已付合计</dt><dd>{moneyText(selected.paidAmount)}</dd></div><div><dt>付款凭证</dt><dd>{selected.supplierPaymentRecord?.paymentReferenceNo || selected.supplierPaymentRecord?.paymentVoucherNo || "尚未登记"}</dd></div></dl><div className="business-boundary"><InfoCircleOutlined /><div><strong>{selected.demoReadOnly ? "本地评审只读样例" : "一张月结单对应一个结算对象"}</strong><p>{selected.demoReadOnly ? "用于核对完整结算链路的显示效果；不会执行对账、应付或付款写入。" : "对账确认、生成应付、付款登记和付款确认是四个独立阶段；本页只展示服务器已有证据，不代替财务操作。"}</p></div></div></section>
+        {formal.actions.confirmSupplierPayment ? <SupplierSettlementActionPanel formal={formal} onNotice={setNotice} record={selected} /> : null}
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
-      </> : <div className="business-empty"><FileTextOutlined /><strong>暂无月结复核草稿</strong></div>}</div>
+      </> : <div className="business-empty"><FileTextOutlined /><strong>暂无月结复核草稿</strong><small>点「上传月结 Excel」开始对账。</small></div>}</div>
       <footer><button className="primary" disabled={!selected} onClick={() => setNotice(selected.summaryText || "当前结算对象暂无额外差异摘要。") } type="button">查看差异摘要</button></footer>
     </aside>
   </div>;

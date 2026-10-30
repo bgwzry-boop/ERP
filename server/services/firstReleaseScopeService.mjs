@@ -33,9 +33,13 @@ const rawMaterialInboundActions = new Set([
   "issue_to_machine",
   "exception",
 ]);
+// 2026-10-29 owner decision: the first batch covers supplier reconciliation
+// through payment (installments and 抹零), so payable and payment writes open too.
 const rawMaterialSupplierStatementActions = new Set([
   "confirm-review",
   "confirm-statement",
+  "generate-payable",
+  "confirm-payment",
 ]);
 
 export function resolveFirstReleaseScope(options = {}, env = process.env) {
