@@ -57,7 +57,14 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   const allCells = tables.flatMap((table) => table.cells);
   const allText = allCells.map((cell) => cell.text).filter(Boolean).join("\n");
   const documentDirectionHint = normalizeDocumentDirectionHint(input.documentDirectionHint);
-  const documentDirection = documentDirectionHint || inferDocumentDirection({ allRows, allText });
+  const inferredDocumentDirection = inferDocumentDirection({ allRows, allText });
+  // A return note photographed while 「送货单」 was selected must not become stock:
+  // negative material lines or a 退货单 title win over the capture selection.
+  const documentDirectionOverridden = documentDirectionHint === RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery
+    && inferredDocumentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return;
+  const documentDirection = documentDirectionOverridden
+    ? RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+    : documentDirectionHint || inferredDocumentDirection;
   const knownSupplierNames = uniqueText(input.knownSupplierNames);
   const supplierNameHint = normalizeSupplierName(input.supplierNameHint);
   const hintedSupplierName = knownSupplierNames.find((name) => (
@@ -165,7 +172,9 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     id: inboundId,
     revision: 1,
     documentDirection,
-    documentDirectionSource: documentDirectionHint ? "operator_capture_selection" : "ocr_inference",
+    documentDirectionSource: documentDirectionOverridden
+      ? "ocr_return_evidence_over_capture_selection"
+      : documentDirectionHint ? "operator_capture_selection" : "ocr_inference",
     supplierNameSource: hintedSupplierName ? "operator_capture_selection" : "ocr_inference",
     documentTypeLabel: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return ? "退货单" : "送货单",
     supplierOcrProfileKey: supplierProfile?.key ?? "generic",
@@ -222,6 +231,7 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
         .filter((field) => field.reviewStatus === "待人工复核")
         .map((field) => `${field.label}待复核`),
       ...ocrReconciliationIssues,
+      ...(documentDirectionOverridden ? ["拍照时选的是送货单，但票面是退货（数量/金额为负或标题是退货单），已按退货单处理，请核对"] : []),
     ],
     rolls,
   };

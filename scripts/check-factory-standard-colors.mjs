@@ -56,3 +56,7 @@ assert.match(migration, /WHERE NOT EXISTS[\s\S]*existing\.name = factory_colors\
 assert.match(migration, /ON CONFLICT DO NOTHING/u, "the seed must be safe to reapply against existing master data");
 
 console.log("Factory-standard color checks passed: 35 photo-evidenced material colors, three confirmed nonexistent names excluded, decomposed bag/handle combinations, aliases, swatches, and database seed are aligned.");
+
+// Field case 2026-10-30: 人意 writes 海兰 for 海蓝.
+assert.equal(normalizeFactoryStandardColor("海兰"), "海蓝");
+assert.equal(normalizeFactoryStandardColor("湖兰"), "湖蓝");
