@@ -21,7 +21,7 @@ export const pcNavGroups = [
     label: "工作台",
     icon: "home",
     items: [
-      { id: "shared-todos", label: "公共待办", allowedRoleKeys: ["office", "management"], permissionKeys: ["todo.read"], count: 8 },
+      { id: "shared-todos", label: "公共待办", allowedRoleKeys: ["office", "management"], permissionKeys: ["todo.read"], countSource: "unhandledTodos" },
     ],
   },
   {
