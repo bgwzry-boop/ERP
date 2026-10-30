@@ -60,7 +60,7 @@ function buildInventoryRolls(inbounds = []) {
     const resolvedSpec = resolveRollSpecification(inbound, roll);
     return {
       id: roll.id,
-      color: roll.factoryColor || inbound.factoryColor || inbound.supplierColor || "颜色待确认",
+      color: roll.factoryColor || roll.supplierColor || inbound.factoryColor || inbound.supplierColor || "颜色待确认",
       width: resolvedSpec.widthLabel,
       widthCm: resolvedSpec.widthCm,
       gramWeight: resolvedSpec.gramWeightLabel,

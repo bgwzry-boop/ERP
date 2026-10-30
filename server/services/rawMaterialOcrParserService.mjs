@@ -154,7 +154,7 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     reviewStatus: needsReview(key, value, fieldConfidence[key]) ? "待人工复核" : "待人工接受",
     required: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
       ? ["supplierName", "materialType", "productName", "rollCount", "unit"].includes(key)
-      : ["supplierName", "materialType", "productName", "spec", "factoryColor", "rollCount", "unit"].includes(key),
+      : ["supplierName", "materialType", "productName", "spec", "rollCount", "unit"].includes(key),
   }));
   const recognizedAt = cleanText(input.recognizedAt) || new Date().toISOString();
   const rolls = documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return

@@ -31,6 +31,21 @@ export function hasStrongRawMaterialSupplierReturnEvidence(input = {}) {
     ...(Array.isArray(input.ocrLines) ? input.ocrLines.map((line) => line?.sourceText) : []),
   ].map(cleanText).filter(Boolean).join("\n");
   if (/(?:销售退货单|退货单|退料单)/u.test(rawText)) return true;
+  // Read the immutable table rows: OCR may split a material name and its
+  // negative weights across newlines, while draft values already use the hint.
+  const sourceRows = [
+    ...(Array.isArray(input.ocrTableRows) ? input.ocrTableRows.flat() : []),
+    ...(Array.isArray(input.ocrLines) ? input.ocrLines.map((line) => cleanText(line?.sourceText).split(/[|\n]/u)) : []),
+  ];
+  if (sourceRows.some((row) => {
+    if (!Array.isArray(row)) return false;
+    const cells = row.map(cleanText).filter(Boolean);
+    const identity = cells.slice(0, 2).join(" ");
+    if (/^(?:合计|总计|上期欠款|本单金额|累计欠款|备注)/u.test(identity)) return false;
+    if (/退带色(?:布|条)|退料|退卷/u.test(identity)) return true;
+    const material = /布|条|膜|纸/u.test(identity) || /\d+\s*[*×]\s*\d+/u.test(cells[0] || "");
+    return material && cells.slice(1).some((cell) => /(?:^|\s)[-−－]\s*\d/u.test(cell));
+  })) return true;
   if ((Array.isArray(input.ocrLines) ? input.ocrLines : []).some((line) => (
     Number(line?.values?.totalWeightKg) < 0 || Number(line?.values?.amount) < 0
   ))) return true;

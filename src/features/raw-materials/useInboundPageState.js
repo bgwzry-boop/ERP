@@ -37,6 +37,7 @@ export function useInboundPageState({
   printerDeviceQa = {},
   firstReleaseMode = false,
   initialDesktopView = "卷料库存",
+  authoritativeSelectedId = false,
   helpers = {},
 }) {
   const { getUiActionState = () => ({ disabled: false, title: "" }), money = (value) => `¥${value}` } = helpers;
@@ -85,7 +86,9 @@ export function useInboundPageState({
   )).sort((left, right) => left.localeCompare(right, "zh-CN"));
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);
-  const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
+  const selected = authoritativeSelectedId || mobileStage !== "home" || mobileDetailOpen
+    ? inbounds.find((item) => item.id === selectedId && item.status !== "已作废") ?? null
+    : visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
   const { handleMeasuredAction: onAction, measurementDialog } = useRawMaterialMeasurement({
     inbounds, selectedId: selected?.id, scope: JSON.stringify([currentUser?.userId, authState?.session?.accessToken, authState?.permissions?.actionPermissions]),
     getUiActionState, onAction: serverAction,

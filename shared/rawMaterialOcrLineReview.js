@@ -227,6 +227,9 @@ export function buildRawMaterialOcrReviewedRolls({
       materialType: cleanText(line?.values?.materialType),
       supplierColor: cleanText(line?.values?.supplierColor),
       factoryColor: cleanText(line?.values?.factoryColor),
+      factoryColorMappingStatus: cleanText(line?.values?.factoryColor)
+        ? (line?.factoryColorResolution?.factoryColor === cleanText(line?.values?.factoryColor) ? line.factoryColorResolution.status : "human_confirmed")
+        : "supplier_provisional",
       spec: cleanText(line?.values?.spec),
       specRaw: cleanText(line?.values?.specRaw || line?.values?.spec),
       specDisplay: cleanText(line?.values?.specDisplay || line?.values?.spec),
@@ -294,7 +297,10 @@ function validateLineValues(values, lineId, {
   if (activeRollIndices.length === 0) return;
   const missing = [];
   if (!cleanText(values.productName) && !cleanText(values.materialType)) missing.push("材料/品名");
-  if (documentDirection !== "supplier_return" && !isRawMaterialFactoryColor(values.factoryColor, standardColors)) missing.push("厂内标准色（需人工确认）");
+  if (documentDirection !== "supplier_return") {
+    if (cleanText(values.factoryColor) && !isRawMaterialFactoryColor(values.factoryColor, standardColors)) missing.push("有效的厂内标准色");
+    if (!cleanText(values.factoryColor) && !cleanText(values.supplierColor)) missing.push("厂家票面颜色或厂内标准色");
+  }
   if (documentDirection !== "supplier_return" && !hasReviewableRawMaterialSpec(values.spec)) missing.push("规格");
   if (documentDirection === "supplier_return" && isRawMaterialSupplierReturnFabric(values) && !cleanText(values.returnMaterialCategory)) missing.push("退货布料类别（黑白布/彩布）");
   if (!cleanText(values.unit)) missing.push("单位");

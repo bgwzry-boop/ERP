@@ -1,6 +1,7 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { normalizeRawMaterialSourceRowIndex } from "../shared/rawMaterialOcrSourcePosition.js";
 import { enrichRawMaterialSpecValues } from "../shared/rawMaterialSpec.js";
+import { hasStrongRawMaterialSupplierReturnEvidence } from "../shared/rawMaterialSupplierReturn.js";
 import {
   applyRawMaterialOcrLineReviews,
   buildRawMaterialOcrReviewedRolls,
@@ -19,6 +20,12 @@ export function applyRawMaterialOcrReview({ before = {}, reviewFields, lineRevie
     throw Object.assign(new Error("Only pending OCR drafts can be reviewed."), {
       statusCode: 409,
       code: "RAW_MATERIAL_OCR_REVIEW_NOT_ALLOWED",
+    });
+  }
+  if (isOcrDraft && hasStrongRawMaterialSupplierReturnEvidence(before)) {
+    throw Object.assign(new Error("原单含退货明细，与当前收货方向不一致。请对照原图，先点“改为退货单核对”；不能按正数收货入库。"), {
+      statusCode: 409,
+      code: "RAW_MATERIAL_DOCUMENT_DIRECTION_CONFLICT",
     });
   }
   const reviewedValues = isOcrDraft ? resolveReviewedOcrValues(before, reviewFields, { documentDirection }) : {};

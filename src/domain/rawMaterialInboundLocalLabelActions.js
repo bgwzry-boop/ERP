@@ -184,7 +184,7 @@ function normalizeLocalLabelMatchResult(value) {
 }
 
 function buildLocalLabelVerification(item, roll, options, matchResult, operatorName, now) {
-  const expectedColor = String(roll.factoryColor || item.factoryColor || item.supplierColor || "").trim();
+  const expectedColor = String(roll.factoryColor || roll.supplierColor || item.factoryColor || item.supplierColor || "").trim();
   const expectedSpec = String(roll.spec || item.spec || "").trim();
   const expectedWeightKg = Number(roll.weightKg) || 0;
   return {

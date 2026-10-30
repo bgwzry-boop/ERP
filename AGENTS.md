@@ -30,6 +30,9 @@ When implementing from a selected generated mock, treat that image as the source
 
 Prototype-specific design decisions:
 
+- 2026-10-30 负责人确认原料颜色逐步统一：尚无厂内对应关系时，先用厂家票面颜色完成逐卷人工核对、入库、卷标和领料，不得仅因缺映射阻断。supplierColor 保留票面叫法，factoryColor 未确认就留空，复核卷以 factoryColorMappingStatus = supplier_provisional 标记暂用票面色，界面注明待统一；不得自动新建标准色或从整单第一行借颜色。后续按供应商汇总票面色，工作人员手写厂内对应色，有权限人员再据此维护可审计映射。映射只影响后续识别和当前明确回填的待复核草稿，不静默重写已入库历史。此规则优先于下文较早的“未映射即阻断”及“必须选厂内色”表述。无票面色且无有效厂内色仍需核实，非空厂内色仍须来自维护的标准色库。
+- 选定收货方向但不可变 OCR 原文或表格出现明确退货证据时，保留原选择和原图，电脑及手机均提示冲突并阻断收货复核。由人显式点击“改为退货单核对”，复用有权限、有版本校验和审计的保存表格重解析，不重复请求云 OCR，不生成入库卷码；已复核记录不能用此动作改方向。
+
 - Packing entry follows the accepted business boundary: common/stock orders may use the physical mixed-package workbench, but custom orders must retain an independent per-line packing entry using the signed `/packing-tasks/{id}/complete` command. Hiding custom packing because mixing is forbidden is a regression. Custom packing requires explicitly entered per-package quantities, physical checks, a written basis and a confirmation summary; an uncertain receipt retains the exact request/idempotency key instead of generating duplicate packages. Keep the existing custom express-label/trusted-print flow separate from stock mixed-group package labels.
 
 - The public staging/review URL uses one passwordless but still authenticated test identity on both desktop and mobile. The review shell must explicitly exchange that fixed preview identity for a backend-signed seed session; it must not expose the account/password screen, fabricate a client-only identity, or remove operator attribution. This exception is limited to the review wrapper and test data. Formal production entry keeps runtime account authentication. A served review document also compares its embedded release commit with uncached origin HTML and reloads when the controlled release changes, so a phone restored from an old browser page cannot silently return to a stale login flow.

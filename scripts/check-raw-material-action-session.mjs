@@ -28,6 +28,7 @@ try {
   let run=await start(()=>actions.updateRawMaterialInbound('确认消耗','I1'));
   await render({...base,authState:{...base.authState,permissions:{...base.authState.permissions,actionPermissions:['raw.read','raw.write']}}});
   await finish({source:'api',inbound:{...inbound,revision:2}});assert.equal((await run.pending).revision,2);assert.ok(effects.length);
+  assert.equal(typeof effects.find(item=>item.name==='setToast').value,'string','toast is an imperative message callback, not a state updater');
   const deferred=effects.find(item=>item.name==='setRawMaterialInbounds').value;
   await render({...base,currentUserId:'B'});const newer=[{id:'B-private'}];assert.equal(deferred(newer),newer,'Queued updater cannot cross identities');
   for(const change of [{currentUserId:'B'},{selectedRawMaterialInboundId:'I2'},{activePage:'todos'},{renderedPage:'attendanceMobile'},{authState:{...base.authState,session:{accessToken:'B'}}},{authState:{...base.authState,permissions:{...base.authState.permissions,actionPermissions:[]}}}]) {

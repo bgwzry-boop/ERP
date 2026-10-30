@@ -253,7 +253,8 @@ export function RawMaterialMobileOcrReview({
       }}
     />
   ) : null;
-  const directionCorrection = hasStrongRawMaterialSupplierReturnEvidence(selected) ? (
+  const directionConflict = hasStrongRawMaterialSupplierReturnEvidence(selected);
+  const directionCorrection = directionConflict ? (
     <SupplierReturnDirectionCorrection
       disabled={directionCorrectionDisabled}
       error={directionCorrectionError}
@@ -279,7 +280,7 @@ export function RawMaterialMobileOcrReview({
   const reviewedCount = reviewedRollIds.filter((reviewId) => activeReviewRolls.some((roll) => roll.reviewId === reviewId)).length;
   const documentBlockers = getMobileOcrDocumentBlockers(selected?.ocrReviewFields, documentDraft);
   const allReviewed = activeReviewRolls.length > 0 && reviewedCount === activeReviewRolls.length;
-  const canSubmit = allReviewed && documentBlockers.length === 0;
+  const canSubmit = allReviewed && documentBlockers.length === 0 && !directionConflict && !directionCorrecting;
 
   function updateLineField(lineId, key, value) {
     setReviewedRollIds((current) => current.filter((reviewId) => !reviewId.startsWith(`${lineId}:`)));
@@ -442,7 +443,7 @@ export function RawMaterialMobileOcrReview({
 
                 <div className="raw-material-mobile-review-line-summary">
                   <span className="raw-material-mobile-review-color" style={{ "--roll-color": getRollColor(color) }} aria-hidden="true" />
-                  <span className="line-color">{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : color || "颜色待补"}</span>
+                  <span className="line-color">{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : color || (roll.supplierColor ? `厂家：${roll.supplierColor}` : "厂家颜色未识别")}</span>
                   <span className={`line-spec ${!specReady && !isSupplierReturn ? "has-blocker" : ""}`}>{isSupplierReturn ? `${specDisplay} · ${returnPriceDisplay}` : specDisplay}</span>
                   <span className="line-weight">{Math.abs(weight) > 0 ? formatWeight(weight, true) : `本${isSupplierReturn ? "件" : "卷"}重量待补`}</span>
                   <em className={`line-status ${reviewed ? "is-reviewed" : blockers.length ? "has-blocker" : ""}`}>
@@ -551,7 +552,7 @@ export function RawMaterialMobileOcrReview({
         <div>
           {(selected.ocrReviewFields ?? []).map((field) => (
             <label key={field.key}>
-              <span>{field.label}{field.required ? " *" : ""}</span>
+              <span>{field.label}{field.required && field.key !== "factoryColor" ? " *" : ""}</span>
               <input
                 aria-label={`${field.label} OCR 复核值`}
                 inputMode={isNumericDocumentField(field.key) ? "decimal" : undefined}
@@ -571,6 +572,8 @@ export function RawMaterialMobileOcrReview({
         <button disabled={disabled || submitting || !canSubmit} onClick={() => onSubmit?.({ excludedRolls })} type="button">
           {submitting
             ? "正在提交…"
+            : directionConflict
+              ? "请先核对退货方向"
             : documentBlockers.length
               ? `先补：${formatDocumentBlockerLabels(documentBlockers)}`
             : canSubmit
@@ -682,8 +685,8 @@ function SupplierReturnDirectionCorrection({ disabled = false, error = "", loadi
   return (
     <section className="raw-material-mobile-return-correction" aria-label="退货单方向纠正">
       <div>
-        <strong>这张单像供应商退货单</strong>
-        <span>退货允许不写规格；重量和金额按负数对账，不进入打印、贴标或入库。</span>
+        <strong>原单含退货明细，不能按收货入库</strong>
+        <span>请对照原图确认后改为退货单。退货允许不写颜色、规格；重量和金额按负数对账，不进入打印、贴标或入库。</span>
       </div>
       <button disabled={disabled || loading} onClick={onCorrect} type="button">
         {loading ? "正在改为退货单…" : "改为退货单核对"}
@@ -882,7 +885,7 @@ function FactoryColorResolution({
       <div className="raw-material-mobile-factory-color-route">
         <span><small>厂家票面</small><strong>{state.sourceColor}</strong></span>
         <b aria-hidden="true">→</b>
-        <span><small>厂内入库</small><strong>{state.factoryColor || "未匹配"}</strong></span>
+        <span><small>厂内标准色</small><strong>{state.factoryColor || "待统一"}</strong></span>
       </div>
       <p>
         {state.automatic ? <CheckCircleFilled aria-hidden="true" /> : null}
@@ -946,7 +949,7 @@ function getFactoryColorResolutionState({ factoryColor = "", resolution = {}, su
       allowRuleMaintenance: true,
       automatic: false,
       factoryColor: "",
-      message: "这家厂的颜色规则存在冲突，先确认一次正确标准色，不能猜测入库。",
+      message: "这家厂的颜色规则存在冲突，暂用票面颜色，不猜测厂内色；核实后再保存正确对应关系。",
       sourceColor,
       tone: "blocked",
     };
@@ -956,7 +959,9 @@ function getFactoryColorResolutionState({ factoryColor = "", resolution = {}, su
     allowRuleMaintenance: true,
     automatic: false,
     factoryColor: "",
-    message: "首次遇到这家厂的颜色叫法。维护一次对应关系，本单立即带回，以后无需手选。",
+    message: sourceColor === "未识别"
+      ? "厂家颜色未识别，请先对照原图核实票面颜色，再维护对应关系。"
+      : `暂按厂家票面“${sourceColor}”核对、入库和打印。后续汇总这家厂的颜色，按工作人员的手写备注确认厂内色，再建立对应关系。`,
     sourceColor,
     tone: "unmapped",
   };
@@ -967,7 +972,7 @@ export function getMobileOcrRollBlockers(roll = {}, { documentDirection = "suppl
   const line = roll.lineDraft ?? roll;
   const isSupplierReturn = documentDirection === "supplier_return";
   const rollMaterial = String(line.unit ?? "").trim() === "kg" || /布|卷/u.test(`${line.materialType ?? ""}${line.productName ?? ""}`);
-  if (!isSupplierReturn && rollMaterial && !String(roll.factoryColor ?? line.factoryColor ?? "").trim()) blockers.push("厂内标准色");
+  if (!isSupplierReturn && rollMaterial && !String(roll.factoryColor ?? line.factoryColor ?? "").trim() && !String(roll.supplierColor ?? line.supplierColor ?? "").trim()) blockers.push("厂家票面颜色");
   if (!isSupplierReturn && !hasReviewableRawMaterialSpec(roll.spec ?? line.spec)) blockers.push("规格 / 宽幅");
   if (isSupplierReturn && isRawMaterialSupplierReturnFabric({ ...line, sourceText: roll.line?.sourceText }) && !String(line.returnMaterialCategory ?? "").trim()) blockers.push("退货布料类别");
   if (rollMaterial && !(Math.abs(Number(roll.weightKg)) > 0)) blockers.push("本卷重量");
@@ -990,7 +995,7 @@ export function getMobileOcrLineBlockers(line = {}, options = {}) {
 
 function getMobileOcrDocumentBlockers(fields = [], draft = {}) {
   return (Array.isArray(fields) ? fields : []).filter((field) => {
-    if (!field?.required) return false;
+    if (!field?.required || field.key === "factoryColor") return false;
     const value = draft[field.key];
     if (field.key === "rollCount") return !Number.isInteger(Number(value)) || Number(value) <= 0;
     return !String(value ?? "").trim();
