@@ -1,24 +1,27 @@
 @media print {
-  body.raw-material-label-printing * {
-    visibility: hidden !important;
+  /* The label sheet is portalled to <body>; drop everything else from the
+     layout so the browser never shrinks the 76mm label to fit a wide page. */
+  body.raw-material-label-printing > :not(.raw-material-label-print-sheet) {
+    display: none !important;
   }
-  body.raw-material-label-printing .raw-material-label-print-sheet,
-  body.raw-material-label-printing .raw-material-label-print-sheet * {
-    visibility: visible !important;
+  body.raw-material-label-printing {
+    width: 76mm;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: var(--erp-print-paper);
   }
-  body.raw-material-label-printing .raw-material-label-print-sheet {
-    position: absolute;
-    inset: 0 auto auto 0;
+  body.raw-material-label-printing > .raw-material-label-print-sheet {
+    position: static;
     display: block !important;
     width: 76mm;
     background: var(--erp-print-paper);
   }
-  body.raw-material-label-printing .raw-material-roll-print-label {
+  body.raw-material-label-printing .raw-material-roll-print-page {
     break-after: page;
     page-break-after: always;
-    page: roll-label;
   }
-  body.raw-material-label-printing .raw-material-roll-print-label:last-child {
+  body.raw-material-label-printing .raw-material-roll-print-page:last-child {
     break-after: auto;
     page-break-after: auto;
   }

@@ -1,7 +1,18 @@
 /* Generated from src/domain/rawMaterialRollLabelTemplate.js. Do not edit by hand. */
 @page roll-label {
   size: 76.00mm 130.00mm;
-  margin: 14.33mm 0 0 0;
+  margin: 0;
+}
+
+/* The print dialog's 边距「无」overrides @page margins, so the offset lives on the page box. */
+.raw-material-roll-print-page {
+  box-sizing: border-box;
+  width: 76.00mm;
+  height: 130.00mm;
+  margin: 0;
+  padding-top: 14.33mm;
+  overflow: hidden;
+  page: roll-label;
 }
 
 .raw-material-roll-print-label {
