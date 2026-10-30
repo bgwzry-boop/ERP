@@ -77,7 +77,11 @@ export function evaluateRawMaterialOrderSupport({ inbounds = [], order = {} } = 
   if (requirement.status !== "已计算" || !color) {
     return { ...requirement, color, supportStatus: "需复核", availableWeightKg: 0, shortageWeightKg: 0 };
   }
-  const stock = buildRawMaterialStockLookup(inbounds, {
+  // Supplier-only names are not confirmed matches to an order's factory colour.
+  const matchedColourInbounds = inbounds.map(inbound => ({
+    ...inbound, rolls: (inbound.rolls ?? []).filter(roll => roll.factoryColorMappingStatus !== "supplier_provisional"),
+  }));
+  const stock = buildRawMaterialStockLookup(matchedColourInbounds, {
     color,
     widthCm: requirement.requiredWidthCm,
     gramWeightGsm: RAW_MATERIAL_STANDARD_FABRIC_GSM,

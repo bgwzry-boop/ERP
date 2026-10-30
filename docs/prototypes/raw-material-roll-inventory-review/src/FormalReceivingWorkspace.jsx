@@ -1,6 +1,8 @@
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useInboundPageState } from "../../../../src/features/raw-materials/useInboundPageState.js";
 import { InboundDetail } from "../../../../src/features/raw-materials/InboundDetail.jsx";
 import { RawMaterialLabelPrintSheet } from "../../../../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx";
+const RawMaterialSupplierColorMappingDialog = lazy(() => import("../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx").then(module => ({ default: module.RawMaterialSupplierColorMappingDialog })));
 import { getUiActionState } from "../../../../src/auth/seedPermissions.js";
 import { recognizeOfficeRawMaterialDeliveryNote } from "../../../../src/services/officeRawMaterialApiClient.js";
 import { buildReceiptMaterialPresentation } from "./receipt-presentation.js";
@@ -51,6 +53,7 @@ export function FormalReceivingWorkspace({ formal, notice = "", selectedId, setS
     helpers: { getUiActionState: (surface, action) => getUiActionState(formal.permissionContext, surface, action) },
     inbounds: formal.data.rawMaterialInbounds,
     initialDesktopView: "收货录入",
+    authoritativeSelectedId: true,
     meta: { source: formal.meta.errors.rawMaterialInbounds ? "api_error" : "api", loading: formal.meta.loading, error: saveError || formal.meta.errors.rawMaterialInbounds || "", officeActionError: saveError, lastSyncedAt: formal.meta.lastSyncedAt },
     onAction: updateInbound,
     onDeliveryNoteRecognize: recognizeDeliveryNote,
@@ -63,7 +66,15 @@ export function FormalReceivingWorkspace({ formal, notice = "", selectedId, setS
     {notice ? <p className="receipt-flow-notice visible" role="status">{notice}</p> : null}
     {selected ? <dl className="receipt-facts"><div><dt>类型</dt><dd>{material.materialType}</dd></div><div><dt>宽幅</dt><dd>{material.widthLabel}</dd></div></dl> : null}
     <RawMaterialLabelPrintSheet inbound={state.printSheetInbound} />
+    {state.colorMappingOpen ? <Suspense fallback={<p role="status">正在读取厂家颜色规则…</p>}>
+      <RawMaterialSupplierColorMappingDialog
+        authState={formal.authState}
+        currentUser={user}
+        initialValues={state.colorMappingContext}
+        onClose={state.closeSupplierColorMapping}
+        onSaved={state.colorMappingContext ? state.applySavedSupplierColorMapping : undefined}
+      />
+    </Suspense> : null}
     <InboundDetail state={{ ...state, mobileOcrReviewActive: false }} />
   </div>;
 }
-import { useEffect, useState } from "react";

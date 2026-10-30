@@ -472,7 +472,7 @@ function normalizeRawMaterialLabelMatchResult(value) {
 function buildRawMaterialLabelVerification({ inbound, roll, body, matchResult, operatorId, operatorName, now }) {
   const expectedWeightKg = finiteRawMaterialNumber(roll.weightKg);
   const checkedWeightKg = finiteRawMaterialNumber(body?.checkedWeightKg ?? body?.actualWeightKg ?? expectedWeightKg);
-  const expectedColor = cleanText(roll.factoryColor) || cleanText(inbound.factoryColor) || cleanText(inbound.supplierColor);
+  const expectedColor = cleanText(roll.factoryColor) || cleanText(roll.supplierColor) || cleanText(inbound.factoryColor) || cleanText(inbound.supplierColor);
   const expectedSpec = cleanText(roll.spec) || cleanText(inbound.spec);
   const location = cleanText(body?.location) || (matchResult === "matched" ? "原料库-可用区" : "原料隔离区");
   return {

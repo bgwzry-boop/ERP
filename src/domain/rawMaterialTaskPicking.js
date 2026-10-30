@@ -97,7 +97,7 @@ export function checkRollAgainstPickTask(task = {}, roll = {}, inbound = {}) {
   if (task.requiredWidthCm && rollWidth && rollWidth !== task.requiredWidthCm) {
     problems.push(`宽幅不对：任务要 ${task.requiredWidthCm}cm，这卷是 ${rollWidth}cm`);
   }
-  const rollColor = clean(roll.factoryColor || inbound.factoryColor || inbound.supplierColor);
+  const rollColor = clean(roll.factoryColor || roll.supplierColor || inbound.factoryColor || inbound.supplierColor);
   if (task.requiredColor && rollColor && colorKey(task.requiredColor) !== colorKey(rollColor)) {
     problems.push(`颜色不对：任务要「${task.requiredColor}」，这卷是「${rollColor}」`);
   }

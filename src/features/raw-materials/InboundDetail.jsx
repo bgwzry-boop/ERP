@@ -203,6 +203,10 @@ export function InboundDetail({ state }) {
                 ocrLineReviewDraft={ocrLineReviewDraft}
                 ocrReviewDraft={ocrReviewDraft}
                 ocrReviewSubmitting={ocrReviewSubmitting}
+                directionCorrecting={ocrDirectionCorrecting}
+                onCorrectDirection={handleCorrectMobileOcrToSupplierReturn}
+                onOpenColorMapping={openSupplierColorMapping}
+                colorMappingState={colorMappingState}
                 onAction={onAction}
                 onOfficeException={handleOfficeException}
                 onOfficeReviewConfirm={handleOfficeReviewConfirm}

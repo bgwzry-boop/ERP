@@ -3,7 +3,7 @@ export const OCR_LINE_REVIEW_FIELDS = Object.freeze([
   ["materialType", "材料"],
   ["supplierColor", "供应商颜色"],
   ["returnMaterialCategory", "退货布料类别"],
-  ["factoryColor", "厂内标准色 *"],
+  ["factoryColor", "厂内标准色（可后续统一）"],
   ["spec", "规格 *"],
   ["rollCount", "卷/件数 *"],
   ["totalWeightKg", "行总重 kg"],

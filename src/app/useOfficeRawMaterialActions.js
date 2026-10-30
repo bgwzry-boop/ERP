@@ -4,7 +4,7 @@ import {createOfficeRawMaterialActions} from "./createOfficeRawMaterialActions.j
 const stateSetters = [
   "setRawMaterialInboundMeta", "setRawMaterialInbounds",
   "setRawMaterialSupplierStatementReviewMeta", "setRawMaterialSupplierStatementReviews",
-  "setSelectedRawMaterialInboundId", "setToast",
+  "setSelectedRawMaterialInboundId",
 ];
 
 // Equivalent auth-object refreshes preserve a pending command. A different
@@ -29,6 +29,8 @@ export function useOfficeRawMaterialActions(options) {
   }, [session]);
   const isCurrent = () => session.live && active.current === session;
   const guarded = {...options, isCurrent};
+  // Toast is an imperative message callback, not a React state setter.
+  guarded.setToast = message => { if (isCurrent()) options.setToast(message); };
   for (const name of stateSetters) {
     guarded[name] = value => {
       if (!isCurrent()) return;

@@ -3,6 +3,7 @@ import {
   canReviewRawMaterialInbound,
 } from "./rawMaterialInboundListState.js";
 import { projectRawMaterialOcrPhysicalRollReviewRows } from "../../shared/rawMaterialOcrLineReview.js";
+import { hasStrongRawMaterialSupplierReturnEvidence } from "../../shared/rawMaterialSupplierReturn.js";
 import {
   RAW_MATERIAL_HANDLE_WIDTH_CM,
   RAW_MATERIAL_STANDARD_HANDLE_GSM,
@@ -41,6 +42,7 @@ export function officeReviewFieldsForSubmit(inbound = {}, documentDraft = {}) {
 
 export function officeReviewSubmitBlocker(inbound = {}, documentDraft = {}) {
   if (inbound?.documentDirection === "supplier_return") return "";
+  if (hasStrongRawMaterialSupplierReturnEvidence(inbound)) return "原单含退货明细，请先改为退货单核对，不能按收货入库。";
   if (!clean(officeReviewFieldsForSubmit(inbound, documentDraft).supplierName)) {
     return "供应商还没确认。请展开「单据与 OCR 原文」，补上供应商后再点「这批都对，去打印」。";
   }
@@ -146,7 +148,8 @@ export function buildOfficeReviewRows(inbound = {}, lineDrafts = {}) {
     lineDraft: {},
     lineRollIndex: Number(roll.sourceLineRollIndex) || 0,
     lineRollCount: 1,
-    supplierColor: roll.factoryColor || roll.supplierColor || "",
+    supplierColor: roll.supplierColor || "",
+    factoryColor: roll.factoryColor || "",
     spec: roll.spec || inbound.spec || "",
     weightKg: roll.weightKg,
   }, inbound));
@@ -154,7 +157,7 @@ export function buildOfficeReviewRows(inbound = {}, lineDrafts = {}) {
 
 export function officeRollBlocker(facts = {}, inbound = {}) {
   if (inbound.documentDirection === "supplier_return") return "";
-  if (!clean(facts.color) || clean(facts.color).includes("待")) return "颜色还没看清";
+  if (!clean(facts.color) && !clean(facts.supplierColor)) return "厂家颜色未识别，请对照原图确认";
   if (!(Number(facts.widthCm) > 0)) return "宽幅还没看清";
   if (!(Number(facts.weightKg) > 0)) return "公斤还没看清";
   return "";
@@ -203,8 +206,12 @@ export function replaceWidthInSpec(spec, widthCm) {
 function toOfficeReviewRow(row, inbound) {
   const parsed = parseRawMaterialSpec(row.spec);
   const widthCm = parsed.widthCm || Number(row.widthCm) || Number(inbound.widthCm) || 0;
-  const color = clean(row.lineDraft?.factoryColor) || clean(row.line?.values?.factoryColor) || clean(row.factoryColor) || clean(inbound.factoryColor);
-  const facts = { color, widthCm, weightKg: row.weightKg, specLabel: formatRawMaterialMobileSpec(row.spec) || clean(row.spec) };
+  // A missing per-line colour must not inherit the first line's document colour.
+  const color = row.line
+    ? clean(row.lineDraft?.factoryColor ?? row.line.values?.factoryColor)
+    : clean(row.factoryColor);
+  const supplierColor = clean(row.lineDraft?.supplierColor ?? row.supplierColor ?? row.line?.values?.supplierColor);
+  const facts = { color, supplierColor, widthCm, weightKg: row.weightKg, specLabel: formatRawMaterialMobileSpec(row.spec) || clean(row.spec) };
   return {
     ...row,
     ...facts,

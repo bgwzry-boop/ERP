@@ -3,6 +3,7 @@ import { InfoGrid, StatusPill } from "../../shared/ui/operational.jsx";
 import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
 import { officeInboundUsesCountGate } from "../../domain/officeRawMaterialInboundFlow.js";
 import { submitInboundAction } from "./submitInbound.js";
+import { hasStrongRawMaterialSupplierReturnEvidence } from "../../../shared/rawMaterialSupplierReturn.js";
 import {
   canConfirmRawMaterialConsumptionRoll,
   canIssueRawMaterialRoll,
@@ -43,6 +44,10 @@ export function RawMaterialInboundReceivingSections({
   ocrLineReviewDraft,
   ocrReviewDraft,
   ocrReviewSubmitting = false,
+  directionCorrecting = false,
+  onCorrectDirection,
+  onOpenColorMapping,
+  colorMappingState,
   onAction,
   onOfficeException,
   onOfficeReviewConfirm,
@@ -68,6 +73,7 @@ export function RawMaterialInboundReceivingSections({
   } = actionStates;
   const handlePrintLabels = onPrintLabels;
   const handleReprintLabel = onReprintLabel;
+  const directionConflict = hasStrongRawMaterialSupplierReturnEvidence(selected);
 
   return (
     <>
@@ -80,6 +86,10 @@ export function RawMaterialInboundReceivingSections({
     inbound={selected}
     lineDrafts={ocrLineReviewDraft}
     onAction={onAction}
+    onCorrectDirection={onCorrectDirection}
+    directionCorrecting={directionCorrecting}
+    onOpenColorMapping={onOpenColorMapping}
+    colorMappingState={colorMappingState}
     onDocumentDraftChange={setOcrReviewDraft}
     onException={onOfficeException}
     onLineDraftsChange={setOcrLineReviewDraft}
@@ -114,7 +124,7 @@ export function RawMaterialInboundReceivingSections({
       <div className="raw-material-ocr-review-grid">
         {(selected.ocrReviewFields ?? []).map((field) => (
           <label key={field.key}>
-            <span>{field.label}{field.required ? " *" : ""}</span>
+            <span>{field.label}{field.required && field.key !== "factoryColor" ? " *" : ""}</span>
             <input
               aria-label={`${field.label} OCR 复核值`}
               inputMode={isNumericOcrField(field.key) ? "decimal" : undefined}
@@ -175,7 +185,7 @@ export function RawMaterialInboundReceivingSections({
       ) : null}
       <button
         className="primary-action"
-        disabled={reviewState.disabled}
+        disabled={reviewState.disabled || directionConflict || directionCorrecting || ocrReviewSubmitting}
         onClick={() => onOfficeReviewConfirm?.()}
         type="button"
       >
@@ -186,7 +196,7 @@ export function RawMaterialInboundReceivingSections({
   <div className="action-row raw-material-actions">
     <button
       className="primary-action"
-      disabled={reviewState.disabled || !canReviewRawMaterialInbound(selected)}
+      disabled={reviewState.disabled || directionConflict || directionCorrecting || ocrReviewSubmitting || !canReviewRawMaterialInbound(selected)}
       title={reviewState.title || (!canReviewRawMaterialInbound(selected) ? "当前状态无需复核" : "")}
       onClick={selected.ocrProvider === "tencent_cloud_table_v3" ? () => onOfficeReviewConfirm?.() : () => onAction?.("复核送货单", selected.id)}
     >

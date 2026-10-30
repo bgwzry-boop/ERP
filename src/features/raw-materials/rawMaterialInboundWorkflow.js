@@ -227,7 +227,7 @@ export function buildRawMaterialLabelVerificationDraft(item = {}, roll = {}) {
     rollId: roll.id || "",
     matchResult: "",
     checkedWeightKg: roll.weightKg ?? "",
-    checkedColor: roll.factoryColor || item.factoryColor || item.supplierColor || "",
+    checkedColor: roll.factoryColor || roll.supplierColor || item.factoryColor || item.supplierColor || "",
     checkedSpec: roll.spec || item.spec || "",
     location: "原料库-可用区",
     verificationNote: "",
