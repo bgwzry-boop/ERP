@@ -32,6 +32,7 @@ try {
   checkReadyCloseoutWithExternalRuntimeSmoke();
   checkLoopbackTodoLoadBlocked();
   checkFieldEvidenceBlocked();
+  checkBatchSignoffBlocked();
   checkStaleEvidenceBlocked();
   checkSafeguardBlocked();
   await checkCliAndRedaction();
@@ -165,6 +166,31 @@ function checkFieldEvidenceBlocked() {
   assert.equal(objectStorage?.status, "blocked");
   assert.equal(objectStorage.summary.blockingCount, 5);
   assertNoSensitiveOutput(JSON.stringify(report) + formatProductionFirstStageCloseout(report));
+}
+
+function checkBatchSignoffBlocked() {
+  writeJson(persistencePath, buildPersistenceEvidenceReport({ checkedAt: "2026-07-08T07:00:00.000Z" }));
+  writeJson(runtimePath, buildRuntimeSmokeReport({ checkedAt: "2026-07-08T07:05:00.000Z" }));
+  writeJson(todoLoadPath, buildTodoLoadPrecheckReport({ checkedAt: "2026-07-08T07:10:00.000Z" }));
+  writeJson(manifestPath, buildFirstStageManifest({ batchSignedRoles: ["办公室"] }));
+
+  const report = buildProductionFirstStageCloseout({
+    persistenceEvidencePath: persistencePath,
+    runtimeSmokePath: runtimePath,
+    todoLoadPrecheckPath: todoLoadPath,
+    fieldEvidenceManifestPath: manifestPath,
+    checkedAt: "2026-07-08T08:00:00.000Z",
+    now: new Date("2026-07-08T08:00:00.000Z"),
+  });
+  assert.equal(report.status, "blocked");
+  const stage = report.stages.find((item) => item.key === "first-stage-batch-signoffs");
+  assert.equal(stage?.status, "blocked");
+  assert.deepEqual(stage.evidence.pendingRoles, ["技术/管理"]);
+  assert.equal(stage.summary.label, "1/2 通过");
+  assert.equal(JSON.stringify(stage).includes("SIGNER-"), false, "signer names must not be copied");
+  // The other four roles never block the first batch.
+  const passing = buildFirstStageManifest();
+  assert.equal(passing.signoffs.filter((signoff) => signoff.status === "signed").length, 2);
 }
 
 function checkStaleEvidenceBlocked() {
@@ -390,10 +416,17 @@ function buildFirstStageManifest({
   productionPersistenceReady = true,
   objectStorageReady = true,
   sensitiveEvidenceRef = false,
+  batchSignedRoles = ["办公室", "技术/管理"],
 } = {}) {
   const manifest = buildV1FieldEvidenceManifestTemplate();
   markGroup(manifest, "production_persistence", productionPersistenceReady, sensitiveEvidenceRef);
   markGroup(manifest, "object_storage", objectStorageReady, false);
+  for (const signoff of manifest.signoffs) {
+    if (!batchSignedRoles.includes(signoff.role)) continue;
+    signoff.status = "signed";
+    signoff.signer = `SIGNER-${signoff.role}`;
+    signoff.signedAt = "2026-07-08T06:00:00.000Z";
+  }
   return manifest;
 }
 

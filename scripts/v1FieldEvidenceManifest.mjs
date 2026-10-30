@@ -19,6 +19,31 @@ export const requiredEvidenceGroupKeys = [
 
 export const requiredSignoffRoles = ["办公室", "仓库/出库", "车间", "司机", "财务", "技术/管理"];
 
+// 2026-10-29 owner decision: go-live signoffs are counted per release batch.
+// The first batch (office raw material only) needs 办公室 and 技术/管理; the
+// other roles sign when their modules ship. Declaring full V1 still needs all six.
+export const releaseBatchSignoffRoles = Object.freeze({
+  raw_material_only: Object.freeze(["办公室", "技术/管理"]),
+});
+
+export function summarizeReleaseBatchSignoffs(signoffs, batch) {
+  const roles = releaseBatchSignoffRoles[batch];
+  if (!roles) throw new Error(`unknown release batch: ${batch}`);
+  const byRole = new Map((Array.isArray(signoffs) ? signoffs : []).map((signoff) => [signoff?.role, signoff]));
+  const pendingRoles = roles.filter((role) => {
+    const signoff = byRole.get(role);
+    return !signoff || signoff.blocking !== false || signoff.signerFilled !== true || signoff.signedAtFilled !== true;
+  });
+  return {
+    batch,
+    roles: [...roles],
+    total: roles.length,
+    completed: roles.length - pendingRoles.length,
+    pendingRoles,
+    ready: pendingRoles.length === 0,
+  };
+}
+
 export function buildV1FieldEvidenceManifestTemplate() {
   return {
     schema: manifestSchema,
@@ -279,6 +304,9 @@ export function validateV1FieldEvidenceManifest(manifest) {
     },
     groups: groups.map(({ blockers: _blockers, ...group }) => group),
     signoffs,
+    batchSignoffs: Object.fromEntries(
+      Object.keys(releaseBatchSignoffRoles).map((batch) => [batch, summarizeReleaseBatchSignoffs(signoffs, batch)]),
+    ),
     boundary,
     blockers,
     safeguards: {
