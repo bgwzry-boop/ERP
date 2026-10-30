@@ -24,15 +24,8 @@
 }
 
 .office-roll-color-text {
-  display: grid;
-  gap: var(--erp-space-1);
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.office-roll-color-text small {
-  color: var(--erp-text-muted);
-  font-size: 12px;
 }
 
 .raw-material-workbench.is-receiving-view {

@@ -104,7 +104,7 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   await expect(review.getByText("识别到 9 卷，共 853.8 kg", { exact: true })).toBeVisible();
   const lineSummaries = review.locator(".raw-material-mobile-review-line-summary");
   await expect(lineSummaries).toHaveCount(9);
-  await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("厂家：本白");
+  await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("本白");
   await expect(lineSummaries.nth(0).locator(".line-spec")).toHaveText("78克*70宽*2000米");
   await expect(lineSummaries.nth(0).locator(".line-weight")).toHaveText("109.9 kg");
   await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("65克*5宽");

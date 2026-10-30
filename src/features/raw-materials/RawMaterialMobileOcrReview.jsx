@@ -9,6 +9,7 @@ import {
   TagOutlined,
 } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatRawMaterialColorDisplay } from "./rawMaterialColorDisplay.js";
 import { downloadOfficeAttachmentContent } from "../../services/officeAttachmentApiClient.js";
 import { RAW_MATERIAL_OCR_NORMALIZED_MAX_EDGE } from "../../services/rawMaterialDeliveryNoteImageClient.js";
 import demoDeliveryNoteUrl from "../../assets/raw-material-delivery-note-sample.jpg";
@@ -443,7 +444,7 @@ export function RawMaterialMobileOcrReview({
 
                 <div className="raw-material-mobile-review-line-summary">
                   <span className="raw-material-mobile-review-color" style={{ "--roll-color": getRollColor(color) }} aria-hidden="true" />
-                  <span className="line-color">{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : color || (roll.supplierColor ? `厂家：${roll.supplierColor}` : "厂家颜色未识别")}</span>
+                  <span className="line-color" title={isSupplierReturn ? undefined : formatRawMaterialColorDisplay(color, supplierColor)}>{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : formatRawMaterialColorDisplay(color, supplierColor)}</span>
                   <span className={`line-spec ${!specReady && !isSupplierReturn ? "has-blocker" : ""}`}>{isSupplierReturn ? `${specDisplay} · ${returnPriceDisplay}` : specDisplay}</span>
                   <span className="line-weight">{Math.abs(weight) > 0 ? formatWeight(weight, true) : `本${isSupplierReturn ? "件" : "卷"}重量待补`}</span>
                   <em className={`line-status ${reviewed ? "is-reviewed" : blockers.length ? "has-blocker" : ""}`}>
@@ -961,7 +962,7 @@ function getFactoryColorResolutionState({ factoryColor = "", resolution = {}, su
     factoryColor: "",
     message: sourceColor === "未识别"
       ? "厂家颜色未识别，请先对照原图核实票面颜色，再维护对应关系。"
-      : `暂按厂家票面“${sourceColor}”核对、入库和打印。后续汇总这家厂的颜色，按工作人员的手写备注确认厂内色，再建立对应关系。`,
+      : "可后续维护颜色对应。",
     sourceColor,
     tone: "unmapped",
   };
