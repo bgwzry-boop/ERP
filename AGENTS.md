@@ -1,5 +1,7 @@
 # Prototype Instructions
 
+Development tasks open PRs only and do not merge them. The designated integration/release task reviews and combines approved PRs in dependency order on a clean candidate branch, tests and deploys that immutable candidate to staging, and advances `codex/staging-current` only after the server serves and verifies that exact release. The normal controlled finalize remains mandatory; merging a PR before the server switches is not allowed. Production requires separate explicit authorization.
+
 Do not change the GitHub repository's visibility based on a completed review or an earlier temporary-public arrangement. Change visibility only when the owner explicitly requests that change at the time.
 
 Run the local server yourself and open the preview in the in-app browser. Do not give the user server-start instructions when you can run it.
