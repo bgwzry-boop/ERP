@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { formatRawMaterialColorDisplay } from "../src/features/raw-materials/rawMaterialColorDisplay.js";
 import {
   normalizeRawMaterialOcrAngle,
   orientRawMaterialOcrSourceBounds,
@@ -20,6 +21,18 @@ import {
   resolveRawMaterialAttachStage,
   resolveRawMaterialOcrReviewCompletion,
 } from "../src/features/raw-materials/rawMaterialInboundPageActions.js";
+
+for (const [factory, supplier, expected] of [
+  ["红色", "红色", "红色（红色）"],
+  ["海蓝", "海兰", "海蓝（海兰）"],
+  ["宝蓝", "宝兰", "宝蓝（宝兰）"],
+  ["", "海兰", "海兰"],
+  ["白色", "", "白色"],
+  ["  红色 ", " 红色 ", "红色（红色）"],
+  [undefined, null, "颜色待补"],
+]) {
+  assert.equal(formatRawMaterialColorDisplay(factory, supplier), expected);
+}
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),

@@ -119,7 +119,7 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
     if (index === 0) {
       const colourResolution = review.getByRole("region", { name: "厂家颜色自动换算" });
       await expect(colourResolution).toContainText("待统一");
-      await expect(colourResolution).toContainText("暂按厂家票面");
+      await expect(colourResolution).toContainText("可后续维护颜色对应");
       await expect(review.getByRole("button", { name: "这卷正确", exact: true })).toBeEnabled();
       await expect(review.getByRole("textbox", { name: "第 1 卷规格 / 宽幅", exact: true })).toHaveValue("78克*70宽*2000米");
       await expect(review.getByRole("spinbutton", { name: "第 1 卷本卷重量 kg", exact: true })).toHaveValue("109.9");
