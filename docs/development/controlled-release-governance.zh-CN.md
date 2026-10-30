@@ -68,6 +68,24 @@ npm run controlled-release:deploy -- \
 
 ## staging 自动收尾与失败恢复
 
+### 已授权的基线提前推进恢复
+
+若其他任务已把 canonical 提前推进，而线上仍为旧版本，普通 `release:check / prepare / verify / build / deploy` 继续阻断。只有负责人明确授权修复这种错位时，发布任务才可在独立干净分支中准备一次性的 **staging 向前恢复**；不强推、不回退分支，也不能据此修改 production。
+
+恢复锁仍为 `erp-controlled-release-lock-v1`，其摘要额外绑定 `stagingRecovery`：完整旧线上发布锁、授权时远端 canonical、原干净主目录提交、授权时间及最长两小时的有效期。候选必须已完整推送，且验证 `旧线上 → 原主目录 → 提前基线 → 新候选` 的祖先链；公网前端/API 必须逐项精确匹配旧锁，固定评审 app-id、HTTPS、目标、版本和健康校验均保留。远端移动、主目录修改、旧锁不符、缺对象/断网或过期都会阻断；没有该显式锁段时不允许推断恢复授权。不能串联一个旧恢复锁自动开启下一次恢复。
+
+```bash
+npm run controlled-release:prepare -- \
+  --target staging --expected-commit <clean-pushed-new-candidate> \
+  --version <new-staging-version> --output <new-lock> \
+  --recover-staging-from-lock <exact-old-served-lock> \
+  --recovery-canonical-commit <pinned-premature-canonical> \
+  --recovery-main-commit <pinned-clean-main-commit> \
+  --confirm-staging-forward-recovery
+```
+
+prepare、verify、build 和 deploy 各自重新核验这些条件。传输仍只能通过 `controlled-release:deploy`，仍备份、比较业务数据、原子切换并保留回滚点。成功切换后，未经放宽的 `controlled-release:finalize` 先验证新锁，再非强制快进 canonical 与干净主目录，最后 `release:check / postdeploy` 必须恢复普通全项通过；不能把“恢复预检通过”冒充发布完成。
+
 部署包装器自动调用 `controlled-release:finalize`：
 
 1. 核对候选锁与干净工作树、实时远端，确认主目录可安全快进。

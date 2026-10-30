@@ -34,10 +34,14 @@ async function runCli() {
       preflight: async () => {
         const verified = verifyControlledReleaseLock({ lock, expectedCommit: options.expectedCommit, expectedTarget: options.expectedTarget, gitState: inspectControlledGitState(options.rootDir) });
         if (!verified.ready) { process.stdout.write(`${JSON.stringify(verified)}\n`); return verified; }
-        const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: lock.branch, target: options.expectedTarget });
+        const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: lock.branch, target: options.expectedTarget, stagingRecovery: lock.stagingRecovery });
         if (!line.ready) process.stdout.write(`${JSON.stringify(line)}\n`);
         if (line.ready && options.expectedTarget === "staging") {
-          const main = inspectMainWorkspace(options.rootDir, options.mainDir, inspectRemoteRepository(options.rootDir).canonicalCommit).report;
+          const freshRemote = inspectRemoteRepository(options.rootDir);
+          // The explicit grant pins the original clean checkout; it does not
+          // authorize fast-forwarding that directory before the target is served.
+          const expectedMain = line.recoveryApplied ? (freshRemote.canonicalCommit === lock.stagingRecovery?.canonicalCommit ? lock.stagingRecovery.mainCommit : "") : freshRemote.canonicalCommit;
+          const main = inspectMainWorkspace(options.rootDir, options.mainDir, expectedMain).report;
           if (!main.ready) process.stdout.write(`${JSON.stringify(main)}\n`);
           return main;
         }

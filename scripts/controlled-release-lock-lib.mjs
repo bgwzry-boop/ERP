@@ -43,6 +43,7 @@ export function buildControlledReleaseLockReport(options = {}) {
     check("upstream", "当前分支已绑定远端", Boolean(gitState.upstream)),
     check("pushed", "当前提交已完整推送", gitState.commit === gitState.upstreamCommit),
   ];
+  if (options.stagingRecovery !== undefined) checks.push(check("staging-recovery", "显式 staging 前向恢复凭据有效", target === "staging" && isValidStagingRecovery(options.stagingRecovery)));
   const ready = checks.every((item) => item.ready);
   const createdAt = safeTimestamp(options.createdAt ?? new Date());
   const version = normalizeVersion(options.version || `${target}-${expectedCommit.slice(0, 12)}`);
@@ -55,6 +56,7 @@ export function buildControlledReleaseLockReport(options = {}) {
         branch: normalizeBranch(gitState.branch),
         upstream: normalizeBranch(gitState.upstream),
         createdAt,
+        ...(options.stagingRecovery === undefined ? {} : { stagingRecovery: options.stagingRecovery }),
       }
     : null;
   const lock = payload ? { ...payload, digest: digestReleasePayload(payload) } : null;
@@ -89,6 +91,7 @@ export function verifyControlledReleaseLock(options = {}) {
     branch: lock.branch,
     upstream: lock.upstream,
     createdAt: lock.createdAt,
+    ...(lock.stagingRecovery === undefined ? {} : { stagingRecovery: lock.stagingRecovery }),
   };
   const checks = [
     check("schema", "发布锁格式", lock.schemaVersion === controlledReleaseLockSchema),
@@ -97,6 +100,7 @@ export function verifyControlledReleaseLock(options = {}) {
     check("commit", "发布提交一致", lock.commit === expectedCommit),
     check("version", "发布版本有效", isValidVersion(lock.version)),
   ];
+  if (lock.stagingRecovery !== undefined) checks.push(check("staging-recovery", "前向恢复仅用于 staging 且绑定完整旧锁", lock.target === "staging" && expectedTarget === "staging" && isValidStagingRecovery(lock.stagingRecovery)));
   if (gitState) {
     checks.push(
       check("checkout", "检出提交与发布锁一致", gitState.commit === expectedCommit),
@@ -125,6 +129,22 @@ export function verifyControlledReleaseLock(options = {}) {
 
 export function readControlledReleaseLock(path) {
   return JSON.parse(readFileSync(resolve(path), "utf8"));
+}
+
+// A one-shot, digest-bound recovery grant is deliberately not an environment
+// bypass. Normal releases never infer it from an inconsistent baseline.
+export function isValidStagingRecovery(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = ["schemaVersion", "canonicalCommit", "mainCommit", "authorizedAt", "expiresAt", "previousLock"];
+  if (Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) return false;
+  if (value.schemaVersion !== "erp-staging-forward-recovery-v1" || !/^[a-f0-9]{40}$/.test(value.canonicalCommit ?? "") || !/^[a-f0-9]{40}$/.test(value.mainCommit ?? "")) return false;
+  const from = Date.parse(value.authorizedAt), until = Date.parse(value.expiresAt);
+  if (!Number.isFinite(from) || !Number.isFinite(until) || until <= from || until - from > 2 * 60 * 60 * 1000) return false;
+  const previous = value.previousLock;
+  if (!previous || previous.target !== "staging" || previous.stagingRecovery !== undefined || !/^[a-f0-9]{40}$/.test(previous.commit ?? "") || previous.commit === value.canonicalCommit) return false;
+  if (!/^codex\/[A-Za-z0-9/_.-]+$/.test(previous.branch ?? "") || previous.upstream !== `origin/${previous.branch}` || !Number.isFinite(Date.parse(previous.createdAt))) return false;
+  try { return verifyControlledReleaseLock({ lock: previous, expectedCommit: previous.commit, expectedTarget: "staging" }).ready; }
+  catch { return false; }
 }
 
 export function digestReleasePayload(payload) {

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildControlledReleaseLockReport,
   inspectControlledGitState,
+  readControlledReleaseLock,
 } from "./controlled-release-lock-lib.mjs";
 
 import { checkCandidateRelease } from "./release-line-lib.mjs";
@@ -15,14 +16,22 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 async function runCli() {
   try {
     const options = parseArgs(process.argv.slice(2));
+    let stagingRecovery;
+    if (options.recoveryLock) {
+      if (!options.confirmRecovery || options.target !== "staging" || !options.recoveryCanonical || !options.recoveryMain) throw new Error("Explicit staging recovery pins required.");
+      const now = new Date();
+      stagingRecovery = { schemaVersion: "erp-staging-forward-recovery-v1", canonicalCommit: options.recoveryCanonical, mainCommit: options.recoveryMain,
+        authorizedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString(), previousLock: readControlledReleaseLock(options.recoveryLock) };
+    } else if (options.confirmRecovery || options.recoveryCanonical || options.recoveryMain) throw new Error("Recovery lock required.");
     let report = buildControlledReleaseLockReport({
       expectedCommit: options.expectedCommit,
       target: options.target,
       version: options.version,
       gitState: inspectControlledGitState(options.rootDir),
+      stagingRecovery,
     });
     if (report.ready) {
-      const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: report.lock.branch, target: options.target });
+      const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: report.lock.branch, target: options.target, stagingRecovery: report.lock.stagingRecovery });
       report = { ...report, ready: line.ready, status: line.status, checks: [...report.checks, ...line.checks], summary: { passedCount: report.summary.passedCount + line.summary.passedCount, totalCount: report.summary.totalCount + line.summary.totalCount, blockingCount: line.summary.blockingCount }, lock: line.ready ? report.lock : null };
     }
     if (report.ready && options.write) {
@@ -49,15 +58,16 @@ function parseArgs(args) {
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (["--root-dir", "--target", "--expected-commit", "--version", "--output"].includes(arg)) {
+    if (["--root-dir", "--target", "--expected-commit", "--version", "--output", "--recover-staging-from-lock", "--recovery-canonical-commit", "--recovery-main-commit"].includes(arg)) {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
-      const key = { "--root-dir": "rootDir", "--target": "target", "--expected-commit": "expectedCommit", "--version": "version", "--output": "output" }[arg];
+      const key = { "--root-dir": "rootDir", "--target": "target", "--expected-commit": "expectedCommit", "--version": "version", "--output": "output", "--recover-staging-from-lock": "recoveryLock", "--recovery-canonical-commit": "recoveryCanonical", "--recovery-main-commit": "recoveryMain" }[arg];
       options[key] = key === "rootDir" || key === "output" ? resolve(value) : value;
       index += 1;
       continue;
     }
     if (arg === "--no-write") options.write = false;
+    else if (arg === "--confirm-staging-forward-recovery") options.confirmRecovery = true;
     else if (arg === "--json") options.json = true;
     else if (arg === "--help" || arg === "-h") {
       process.stdout.write(helpText());

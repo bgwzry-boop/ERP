@@ -28,7 +28,7 @@ async function runCli() {
       process.exitCode = 2;
       return;
     }
-    const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: lock.branch, target: options.expectedTarget });
+    const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: lock.branch, target: options.expectedTarget, stagingRecovery: lock.stagingRecovery });
     if (!line.ready) { process.stdout.write(`${JSON.stringify(line)}\n`); process.exitCode = 2; return; }
     const buildScript = options.expectedTarget === "tencent-production" ? "build" : "build:staging:full";
     const env = {

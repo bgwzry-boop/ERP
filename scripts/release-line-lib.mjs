@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { inspectControlledGitState } from "./controlled-release-lock-lib.mjs";
+import { inspectControlledGitState, isValidStagingRecovery } from "./controlled-release-lock-lib.mjs";
 
 export const releasePolicy = Object.freeze(JSON.parse(readFileSync(new URL("../deploy/release-policy.json", import.meta.url), "utf8")));
 export const fullCommit = (value) => /^[a-f0-9]{40}$/.test(value ?? "");
@@ -110,7 +110,7 @@ export function checkLiveIdentity(observed, expected, { requireApi = true } = {}
   const checks = [check("page", "页面可访问", observed.pageOk)];
   if (expected.target === "staging") checks.push(check("page-app-id", "Staging 入口为完整 ERP 评审应用", readMeta(observed.html, "erp-app-id") === releasePolicy.previewAppId));
   for (const [key, label] of [["target", "目标"], ["version", "版本"], ["commit", "提交"], ["digest", "发布锁"]]) {
-    checks.push(check(`page-${key === "digest" ? "lock" : key}`, `页面${label}一致`, Boolean(expected[key]) && observed.release[key] === expected[key]));
+    checks.push(check(`page-${key === "digest" ? "lock" : key}`, `页面${label}一致`, Boolean(expected[key]) && observed.release?.[key] === expected[key]));
   }
   if (requireApi) {
     checks.push(check("api", "API health 可访问", observed.healthOk && observed.health?.status === "ok"), check("api-release", "API 发布身份完整", observed.health?.release?.ready));
@@ -131,5 +131,37 @@ export async function checkStagingBaseline(remote, options = {}) {
 export async function checkCandidateRelease(options) {
   const { remote, report } = inspectRepositoryLine(options);
   const baseline = await checkStagingBaseline(remote);
+  if (!baseline.ready && options.stagingRecovery !== undefined) {
+    const recovery = await checkStagingForwardRecovery({ ...options, remote });
+    return reportFromChecks("release_candidate_line", [...report.checks, ...recovery.checks], { recoveryApplied: recovery.ready });
+  }
   return reportFromChecks("release_candidate_line", [...report.checks, ...baseline.checks]);
+}
+
+export function evaluateStagingForwardRecovery({ stagingRecovery, target, remote = {}, candidateCommit, ancestryVerified = false, observed = {}, now = Date.now() } = {}) {
+  const valid = isValidStagingRecovery(stagingRecovery);
+  const previous = valid ? stagingRecovery.previousLock : {};
+  const checks = [
+    check("recovery-explicit", "显式前向恢复授权及旧锁完整", valid && target === "staging"),
+    check("recovery-time", "前向恢复授权在两小时有效期内", valid && now >= Date.parse(stagingRecovery.authorizedAt) - 60000 && now < Date.parse(stagingRecovery.expiresAt)),
+    check("recovery-canonical", "远端仍为授权时锁定的提前基线", valid && remote.valid && remote.canonicalCommit === stagingRecovery.canonicalCommit && remote.headCommit === stagingRecovery.canonicalCommit && remote.defaultBranch === releasePolicy.canonicalBranch),
+    check("recovery-forward", "旧线上、主目录、提前基线及候选仅向前关联", valid && ancestryVerified && fullCommit(candidateCommit) && candidateCommit !== stagingRecovery.canonicalCommit),
+    ...checkLiveIdentity(observed, { target: "staging", commit: previous.commit, version: previous.version, digest: previous.digest }),
+  ];
+  return reportFromChecks("staging_forward_recovery", checks);
+}
+
+export async function checkStagingForwardRecovery(options) {
+  const recovery = options.stagingRecovery;
+  let ancestryVerified = false;
+  if (options.target === "staging" && isValidStagingRecovery(recovery)) {
+    try {
+      const chain = [recovery.previousLock.commit, recovery.mainCommit, recovery.canonicalCommit, options.candidateCommit];
+      git(options.rootDir, ["fetch", "--no-tags", releasePolicy.remote, ...new Set(chain)]);
+      for (let i = 1; i < chain.length; i++) git(options.rootDir, ["merge-base", "--is-ancestor", chain[i - 1], chain[i]]);
+      ancestryVerified = true;
+    } catch { /* Never infer ancestry from a tracking ref, timeout or missing objects. */ }
+  }
+  const observed = await fetchReleaseIdentity(releasePolicy.stagingUrl);
+  return evaluateStagingForwardRecovery({ ...options, ancestryVerified, observed });
 }

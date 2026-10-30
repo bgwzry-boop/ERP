@@ -13,7 +13,9 @@ import {
   readMeta,
   checkStagingBaseline,
   releasePolicy,
+  evaluateStagingForwardRecovery,
 } from "./release-line-lib.mjs";
+import { buildControlledReleaseLockReport, verifyControlledReleaseLock, digestReleasePayload, isValidStagingRecovery } from "./controlled-release-lock-lib.mjs";
 import { finalizeStagingRelease } from "./run-controlled-release-finalize.mjs";
 import { runControlledDeployment } from "./run-controlled-deploy.mjs";
 import { parseReleaseLineArgs } from "./check-release-line.mjs";
@@ -30,6 +32,51 @@ const remote = {
   branches: { [branch]: candidate, [releasePolicy.canonicalBranch]: baseline },
 };
 const repositoryInput = { remote, candidateCommit: candidate, candidateBranch: branch, candidateRelated: true };
+
+test("explicit forward recovery binds old signed release identity, canonical, ancestry and two-hour grant", async () => {
+  const previousCommit = "3".repeat(40), mainCommit = "4".repeat(40);
+  const state = commit => ({ repository: true, clean: true, commit, branch, upstream: `origin/${branch}`, upstreamCommit: commit, remoteCount: 1 });
+  const previousLock = buildControlledReleaseLockReport({ target: "staging", expectedCommit: previousCommit, version: "staging-previous", gitState: state(previousCommit) }).lock;
+  const grant = { schemaVersion: "erp-staging-forward-recovery-v1", canonicalCommit: baseline, mainCommit,
+    authorizedAt: "2026-10-29T01:00:00.000Z", expiresAt: "2026-10-29T03:00:00.000Z", previousLock };
+  const observed = { pageOk: true, healthOk: true, html: '<meta name="erp-app-id" content="bagwin-complete-review-4174">',
+    release: { target: "staging", version: previousLock.version, commit: previousCommit, digest: previousLock.digest },
+    health: { status: "ok", release: { ready: true, target: "staging", version: previousLock.version, commit: previousCommit, lockDigest: previousLock.digest } } };
+  const input = { stagingRecovery: grant, target: "staging", remote, candidateCommit: candidate, ancestryVerified: true, observed, now: Date.parse("2026-10-29T02:00:00Z") };
+  assert.equal(isValidStagingRecovery(grant), true);
+  assert.equal(evaluateStagingForwardRecovery(input).ready, true);
+  for (const patch of [
+    { stagingRecovery: undefined }, { target: "tencent-production" }, { target: "review-site" },
+    { ancestryVerified: false }, { candidateCommit: baseline }, { candidateCommit: "short" },
+    { remote: {} }, { remote: { ...remote, valid: false } }, { remote: { ...remote, canonicalCommit: candidate } },
+    { remote: { ...remote, headCommit: candidate } }, { remote: { ...remote, defaultBranch: branch } },
+    { now: Date.parse(grant.expiresAt) }, { now: Date.parse(grant.authorizedAt) - 61000 },
+    { observed: {} }, { observed: { ...observed, pageOk: false } }, { observed: { ...observed, healthOk: false } },
+    { observed: { ...observed, html: '<meta name="erp-app-id" content="legacy-shell">' } },
+  ]) assert.equal(evaluateStagingForwardRecovery({ ...input, ...patch }).ready, false);
+  for (const field of ["target", "commit", "version", "digest"]) {
+    assert.equal(evaluateStagingForwardRecovery({ ...input, observed: { ...observed, release: { ...observed.release, [field]: "wrong" } } }).ready, false);
+  }
+  for (const field of ["target", "commit", "version", "lockDigest", "ready"]) {
+    assert.equal(evaluateStagingForwardRecovery({ ...input, observed: { ...observed, health: { status: "ok", release: { ...observed.health.release, [field]: false } } } }).ready, false);
+  }
+  for (const bad of [
+    { ...grant, expiresAt: "2026-10-29T03:00:00.001Z" }, { ...grant, mainCommit: "short" }, { ...grant, extraBypass: true },
+    { ...grant, previousLock: { ...previousLock, digest: "0".repeat(64) } }, { ...grant, previousLock: { ...previousLock, stagingRecovery: grant } },
+    { ...grant, previousLock: { ...previousLock, target: "tencent-production" } },
+  ]) assert.equal(isValidStagingRecovery(bad), false);
+  const created = buildControlledReleaseLockReport({ target: "staging", expectedCommit: candidate, version: "staging-recovery", gitState: state(candidate), stagingRecovery: grant });
+  assert.equal(created.ready, true);
+  assert.equal(verifyControlledReleaseLock({ lock: created.lock, expectedCommit: candidate, expectedTarget: "staging" }).ready, true);
+  const tampered = structuredClone(created.lock); tampered.stagingRecovery.mainCommit = candidate;
+  assert.equal(verifyControlledReleaseLock({ lock: tampered, expectedCommit: candidate, expectedTarget: "staging" }).ready, false);
+  const production = { ...created.lock, target: "tencent-production" }; delete production.digest; production.digest = digestReleasePayload(production);
+  assert.equal(verifyControlledReleaseLock({ lock: production, expectedCommit: candidate, expectedTarget: "tencent-production" }).ready, false);
+  assert.equal(buildControlledReleaseLockReport({ target: "tencent-production", expectedCommit: candidate, gitState: state(candidate), stagingRecovery: grant }).ready, false);
+  // The final deployed lock remains verifiable after the recovery window;
+  // expiry is enforced only when authorizing a pre-cutover recovery attempt.
+  assert.equal(verifyControlledReleaseLock({ lock: created.lock, expectedCommit: candidate, expectedTarget: "staging" }).ready, true);
+});
 
 test("repository gate accepts a pushed candidate on the canonical line", () => {
   const report = evaluateRepository(repositoryInput);
@@ -297,6 +344,7 @@ test("release entry points retain mandatory candidate and postdeploy gates", () 
     const text = source(path);
     assert.match(text, /await checkCandidateRelease\(/, `${path} must invoke the shared candidate gate`);
     assert.match(text, /candidateBranch: (?:report\.)?lock\.branch/, `${path} must verify the lock's actual remote branch`);
+    assert.match(text, /stagingRecovery: (?:report\.)?lock\.stagingRecovery/, `${path} must use the digest-bound grant, not an environment bypass`);
     assert.match(text, /process\.exitCode = (?:report\.ready \? 0 : 2|2)/, `${path} must return a blocking exit status`);
   }
   const build = source("scripts/run-controlled-release-build.mjs");

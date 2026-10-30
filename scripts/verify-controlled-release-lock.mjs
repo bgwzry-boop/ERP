@@ -23,7 +23,7 @@ async function runCli() {
       gitState: inspectControlledGitState(options.rootDir),
     });
     if (report.ready) {
-      const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: lock.branch, target: options.expectedTarget });
+      const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: lock.branch, target: options.expectedTarget, stagingRecovery: lock.stagingRecovery });
       report = { ...report, ready: line.ready, status: line.status, checks: [...report.checks, ...line.checks], summary: { passedCount: report.summary.passedCount + line.summary.passedCount, totalCount: report.summary.totalCount + line.summary.totalCount, blockingCount: line.summary.blockingCount } };
     }
     process.stdout.write(options.json ? `${JSON.stringify(report)}\n` : formatReport(report));
