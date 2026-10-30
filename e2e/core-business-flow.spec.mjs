@@ -104,7 +104,7 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   await expect(review.getByText("识别到 9 卷，共 853.8 kg", { exact: true })).toBeVisible();
   const lineSummaries = review.locator(".raw-material-mobile-review-line-summary");
   await expect(lineSummaries).toHaveCount(9);
-  await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("颜色待补");
+  await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("厂家：本白");
   await expect(lineSummaries.nth(0).locator(".line-spec")).toHaveText("78克*70宽*2000米");
   await expect(lineSummaries.nth(0).locator(".line-weight")).toHaveText("109.9 kg");
   await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("65克*5宽");
@@ -117,7 +117,10 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   for (let index = 0; index < 9; index += 1) {
     await lineSummaries.nth(index).locator(".line-edit").click();
     if (index === 0) {
-      await expect(review.getByRole("region", { name: "厂家颜色自动换算" })).toContainText("未匹配");
+      const colourResolution = review.getByRole("region", { name: "厂家颜色自动换算" });
+      await expect(colourResolution).toContainText("待统一");
+      await expect(colourResolution).toContainText("暂按厂家票面");
+      await expect(review.getByRole("button", { name: "这卷正确", exact: true })).toBeEnabled();
       await expect(review.getByRole("textbox", { name: "第 1 卷规格 / 宽幅", exact: true })).toHaveValue("78克*70宽*2000米");
       await expect(review.getByRole("spinbutton", { name: "第 1 卷本卷重量 kg", exact: true })).toHaveValue("109.9");
     }
