@@ -174,7 +174,7 @@
     "raw-material-cost-margin-normalizers:check": "node scripts/check-raw-material-cost-margin-normalizers.mjs",
     "raw-material-traceability-record-normalizers:check": "node scripts/check-raw-material-traceability-record-normalizers.mjs",
     "raw-material-supplier-statement-import:check": "node scripts/check-raw-material-supplier-statement-import.mjs",
-    "raw-material-supplier-statement-review:check": "node scripts/check-raw-material-supplier-statement-review-api.mjs",
+    "raw-material-supplier-statement-review:check": "node scripts/check-raw-material-supplier-statement-review-api.mjs && node scripts/check-raw-material-supplier-payment-installments.mjs",
     "runtime-identity:check": "node scripts/check-runtime-identity-repository.mjs && node scripts/check-runtime-employee-account-readiness.mjs",
     "system-v1-readiness-service:check": "node scripts/check-system-v1-readiness-service.mjs",
     "system-health-projection-service:check": "node scripts/check-system-health-projection-service.mjs",

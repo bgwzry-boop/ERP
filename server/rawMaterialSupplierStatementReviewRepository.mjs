@@ -754,17 +754,35 @@ export function applySupplierPaymentConfirmation(input = {}) {
       statusCode: 409,
     });
   }
-  if (before.paymentStatus === "已确认付款" || before.supplierPaymentConfirmationId) {
+  if (before.paymentStatus === "已确认付款") {
     throw Object.assign(new Error(`Raw material supplier payment already confirmed: ${reviewId}`), { statusCode: 409 });
   }
+  // 2026-10-29 owner decision: suppliers are often paid in several installments,
+  // and most settlements round off (抹零) the last few yuan. Installments add up;
+  // 抹零 is recorded in its own column, only on the payment that clears the
+  // balance, and never rewrites the payable amount.
   const payableAmount = round2(before.supplierPayableDraft?.payableAmount) ?? 0;
-  const paidAmount = nullableNumber(input.paidAmount ?? input.amount ?? input.body?.paidAmount ?? input.body?.amount) ?? payableAmount;
-  if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
+  const priorRecords = listSupplierPaymentRecords(before);
+  const priorPaid = round2(priorRecords.reduce((sum, record) => sum + (Number(record.paidAmount) || 0), 0)) ?? 0;
+  const priorRounding = round2(priorRecords.reduce((sum, record) => sum + (Number(record.roundingAmount) || 0), 0)) ?? 0;
+  const remaining = round2(payableAmount - priorPaid - priorRounding) ?? 0;
+  const roundingAmount = round2(nullableNumber(input.roundingAmount ?? input.body?.roundingAmount) ?? 0) ?? 0;
+  const requestedPaid = nullableNumber(input.paidAmount ?? input.amount ?? input.body?.paidAmount ?? input.body?.amount);
+  const paidAmount = round2(requestedPaid ?? remaining - roundingAmount) ?? 0;
+  if (!Number.isFinite(paidAmount) || paidAmount < 0 || !Number.isFinite(roundingAmount) || roundingAmount < 0 || paidAmount + roundingAmount <= 0) {
     throw Object.assign(new Error("Raw material supplier payment amount must be greater than zero"), { statusCode: 422 });
   }
-  if (Math.abs(paidAmount - payableAmount) > 0.01) {
-    throw Object.assign(new Error(`Raw material supplier payment amount must equal payable draft amount: ${reviewId}`), {
+  if (paidAmount + roundingAmount - remaining > 0.01) {
+    throw Object.assign(new Error(`Raw material supplier payment exceeds the remaining payable: ${reviewId}`), {
       statusCode: 409,
+      details: { payableAmount, paidBefore: priorPaid, roundingBefore: priorRounding, remaining },
+    });
+  }
+  const clearsBalance = Math.abs(paidAmount + roundingAmount - remaining) <= 0.01;
+  if (roundingAmount > 0 && !clearsBalance) {
+    throw Object.assign(new Error(`Raw material supplier rounding (抹零) is only allowed on the payment that clears the balance: ${reviewId}`), {
+      statusCode: 409,
+      details: { remaining },
     });
   }
   const now = cleanText(input.now ?? input.body?.now) || new Date().toISOString();
@@ -778,6 +796,8 @@ export function applySupplierPaymentConfirmation(input = {}) {
     supplierPayableId: before.supplierPayableId,
     supplierName: before.supplierName,
     paidAmount,
+    roundingAmount,
+    installmentNo: priorRecords.length + 1,
     currency: before.supplierPayableDraft?.currency || "CNY",
     paymentMethod: input.paymentMethod ?? input.body?.paymentMethod,
     paymentAccount: input.paymentAccount ?? input.body?.paymentAccount,
@@ -789,14 +809,21 @@ export function applySupplierPaymentConfirmation(input = {}) {
     confirmedAt: now,
     note: input.note ?? input.body?.note,
   });
+  const paymentRecords = [...priorRecords, paymentRecord];
+  const paidTotal = round2(priorPaid + paidAmount) ?? 0;
+  const roundingTotal = round2(priorRounding + roundingAmount) ?? 0;
   const review = normalizeReview({
     ...before,
     revision: before.revision + 1,
-    status: "已确认付款/已完成",
-    paymentStatus: "已确认付款",
-    payableStatus: "已付款",
+    status: clearsBalance ? "已确认付款/已完成" : "部分付款/待付清",
+    paymentStatus: clearsBalance ? "已确认付款" : "部分付款",
+    payableStatus: clearsBalance ? "已付款" : "部分付款",
     supplierPaymentConfirmationId,
     supplierPaymentRecord: paymentRecord,
+    supplierPaymentRecords: paymentRecords,
+    supplierPaidTotal: paidTotal,
+    supplierRoundingTotal: roundingTotal,
+    supplierPayableRemaining: clearsBalance ? 0 : round2(payableAmount - paidTotal - roundingTotal),
     supplierPaymentConfirmedBy: operatorName,
     supplierPaymentConfirmedByUserId: operatorId,
     supplierPaymentConfirmedAt: now,
@@ -804,8 +831,8 @@ export function applySupplierPaymentConfirmation(input = {}) {
     updatedAt: now,
     accountingEffect: "supplier_payment_confirmed",
     inventoryEffect: "none",
-    payableEffect: "supplier_payable_paid",
-    paymentEffect: "supplier_payment_confirmed",
+    payableEffect: clearsBalance ? "supplier_payable_paid" : "supplier_payable_partially_paid",
+    paymentEffect: clearsBalance ? "supplier_payment_confirmed" : "supplier_payment_installment_recorded",
   });
   const operationLog = buildOperationLog({
     targetId: review.reviewId,
@@ -814,7 +841,9 @@ export function applySupplierPaymentConfirmation(input = {}) {
     operatorName,
     before: summarizeReview(before),
     after: summarizeReview(review),
-    reason: "财务确认供应商应付草稿已实际付款；记录付款确认号、金额和凭证，不写库存。",
+    reason: clearsBalance
+      ? `财务确认供应商应付已付清（第 ${paymentRecord.installmentNo} 笔${roundingAmount > 0 ? `，抹零 ${roundingAmount}` : ""}）；记录付款确认号、金额和凭证，不写库存。`
+      : `财务登记供应商第 ${paymentRecord.installmentNo} 笔付款 ${paidAmount}，尚余 ${review.supplierPayableRemaining}；不写库存。`,
     now,
     idFactory: input.idFactory,
   });
@@ -880,6 +909,10 @@ function normalizeReview(input = {}) {
     supplierPayableNote: cleanText(input.supplierPayableNote),
     supplierPaymentConfirmationId: cleanText(input.supplierPaymentConfirmationId),
     supplierPaymentRecord: normalizeSupplierPaymentRecord(input.supplierPaymentRecord),
+    supplierPaymentRecords: listSupplierPaymentRecords(input),
+    supplierPaidTotal: nullableNumber(input.supplierPaidTotal),
+    supplierRoundingTotal: nullableNumber(input.supplierRoundingTotal),
+    supplierPayableRemaining: nullableNumber(input.supplierPayableRemaining),
     supplierPaymentConfirmedBy: cleanText(input.supplierPaymentConfirmedBy),
     supplierPaymentConfirmedByUserId: cleanText(input.supplierPaymentConfirmedByUserId),
     supplierPaymentConfirmedAt: cleanText(input.supplierPaymentConfirmedAt),
@@ -1011,6 +1044,16 @@ function normalizeSupplierPayableDraft(input = {}) {
   };
 }
 
+// Installment history. Reviews paid before installments existed carry only
+// supplierPaymentRecord; treat that single record as installment one.
+function listSupplierPaymentRecords(review = {}) {
+  if (Array.isArray(review?.supplierPaymentRecords)) {
+    return review.supplierPaymentRecords.map(normalizeSupplierPaymentRecord).filter(Boolean);
+  }
+  const single = normalizeSupplierPaymentRecord(review?.supplierPaymentRecord);
+  return single ? [single] : [];
+}
+
 function normalizeSupplierPaymentRecord(input = {}) {
   if (!input || typeof input !== "object") return null;
   const supplierPaymentConfirmationId = cleanText(input.supplierPaymentConfirmationId ?? input.paymentConfirmationId);
@@ -1024,6 +1067,8 @@ function normalizeSupplierPaymentRecord(input = {}) {
     status: cleanText(input.status) || "已确认付款",
     currency: cleanText(input.currency) || "CNY",
     paidAmount: round2(input.paidAmount ?? input.amount) ?? 0,
+    roundingAmount: round2(input.roundingAmount) ?? 0,
+    installmentNo: Math.max(1, Math.trunc(Number(input.installmentNo) || 1)),
     paymentMethod: cleanText(input.paymentMethod) || "银行转账",
     paymentAccount: cleanText(input.paymentAccount),
     paymentReferenceNo: cleanText(input.paymentReferenceNo),
@@ -1131,6 +1176,9 @@ function summarizeReview(review = {}) {
     payableAmount: review.supplierPayableDraft?.payableAmount,
     supplierPaymentConfirmationId: review.supplierPaymentConfirmationId,
     supplierPaymentPaidAmount: review.supplierPaymentRecord?.paidAmount,
+    supplierPaidTotal: review.supplierPaidTotal,
+    supplierRoundingTotal: review.supplierRoundingTotal,
+    supplierPayableRemaining: review.supplierPayableRemaining,
     paymentStatus: review.paymentStatus,
   };
 }
@@ -1143,7 +1191,8 @@ function buildReviewMetrics(reviews = []) {
     reviewedCount: items.filter((item) => item.reviewStatus === "reviewed").length,
     statementConfirmedCount: items.filter((item) => item.reviewStatus === "statement_confirmed").length,
     payableDraftCount: items.filter((item) => item.supplierPayableId || item.payableStatus).length,
-    paymentConfirmedCount: items.filter((item) => item.paymentStatus === "已确认付款" || item.supplierPaymentConfirmationId).length,
+    paymentConfirmedCount: items.filter((item) => item.paymentStatus === "已确认付款").length,
+    partiallyPaidCount: items.filter((item) => item.paymentStatus === "部分付款").length,
     blockedCount: items.filter((item) => item.status.includes("阻断")).length,
     candidateCount: items.filter((item) => toNumber(item.summary.candidateRowCount) > 0).length,
     unmatchedCount: items.filter((item) => toNumber(item.summary.unmatchedRowCount) > 0).length,
