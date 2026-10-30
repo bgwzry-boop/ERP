@@ -19,6 +19,9 @@ export const RAW_MATERIAL_ROLL_LABEL_TEMPLATE = Object.freeze({
   rowsMm: Object.freeze([6.11, 6.55, 6.82, 6.86, 6.77, 6.86, 6.47, 6.51, 6.16, 6.64, 6.55, 6.51, 14.25]),
   qrMm: 25.4,
   barcodeMm: 7.39,
+  // 2026-10-29: the owner's stock (and pre-printed courier rolls) leave the
+  // usable area in the middle. Centre the 101.33mm artwork on the 130mm page.
+  pageOffsetTopMm: 14.33,
 });
 
 const template = RAW_MATERIAL_ROLL_LABEL_TEMPLATE;
@@ -28,8 +31,35 @@ const tableHeightMm = sum(template.rowsMm);
 if (Math.abs(template.paddingLeftMm + tableWidthMm + template.paddingRightMm - template.pageWidthMm) > 0.02) {
   throw new Error("Roll label columns do not fill 76mm");
 }
+if (template.pageOffsetTopMm + template.artworkHeightMm > template.pageHeightMm) {
+  throw new Error("Roll label artwork must fit below the page offset");
+}
 if (Math.abs(template.paddingTopMm + template.headerMm + tableHeightMm + template.paddingBottomMm - template.artworkHeightMm) > 0.02) {
   throw new Error("Roll label artwork does not match the approved mock height");
+}
+
+// Long per-roll text (supplier full names, inbound numbers) must stay on the
+// label instead of being clipped by the fixed cells. Shrink the type to fit one
+// line down to minPt; past that, wrap onto two lines at minPt.
+const PT_TO_MM = 25.4 / 72;
+const isWideChar = (char) => /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef\u3000-\u303f]/.test(char);
+export function estimateRollLabelTextEm(text) {
+  return Array.from(String(text ?? "")).reduce((total, char) => total + (isWideChar(char) ? 1 : 0.56), 0);
+}
+
+const CELL_PADDING_MM = 1.65 + 0.4;
+export const RAW_MATERIAL_ROLL_LABEL_FIT_CELLS = Object.freeze({
+  supplier: Object.freeze({ widthMm: template.columnsMm[4] - CELL_PADDING_MM, basePt: 7.5, minPt: 5.5 }),
+  inboundNo: Object.freeze({ widthMm: template.columnsMm[1] + template.columnsMm[2] - CELL_PADDING_MM, basePt: 7, minPt: 5.5 }),
+});
+
+export function fitRollLabelCellText(text, cell) {
+  const em = estimateRollLabelTextEm(text);
+  if (!em) return { fontPt: cell.basePt, wrap: false };
+  const fitPt = Math.floor((cell.widthMm / (em * PT_TO_MM)) * 4) / 4;
+  if (fitPt >= cell.basePt) return { fontPt: cell.basePt, wrap: false };
+  if (fitPt >= cell.minPt) return { fontPt: fitPt, wrap: false };
+  return { fontPt: cell.minPt, wrap: true };
 }
 
 const rowRule = (index) => `.raw-material-roll-label-grid tr:nth-child(${index + 1}) { height: ${mm(template.rowsMm[index])}; }`;
@@ -39,7 +69,7 @@ export function buildRawMaterialRollLabelCss() {
   return `/* Generated from src/domain/rawMaterialRollLabelTemplate.js. Do not edit by hand. */
 @page roll-label {
   size: ${mm(template.pageWidthMm)} ${mm(template.pageHeightMm)};
-  margin: 0;
+  margin: ${mm(template.pageOffsetTopMm)} 0 0 0;
 }
 
 .raw-material-roll-print-label {
@@ -195,6 +225,14 @@ export function buildRawMaterialRollLabelCss() {
 
 .raw-material-roll-label-grid .is-pair td.is-inbound-no {
   letter-spacing: -0.04em;
+}
+
+.raw-material-roll-label-grid td.is-fit-wrap {
+  padding-top: 0.2mm;
+  padding-bottom: 0.2mm;
+  line-height: 1.08;
+  white-space: normal;
+  word-break: break-all;
 }
 
 .raw-material-roll-label-grid .is-banner td {

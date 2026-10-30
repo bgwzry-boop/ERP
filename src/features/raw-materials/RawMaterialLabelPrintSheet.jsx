@@ -1,6 +1,7 @@
 import { buildRawMaterialCode39Bars } from "../../domain/rawMaterialLabelBarcode.js";
 import { buildRawMaterialQrMatrix } from "../../domain/rawMaterialLabelQr.js";
 import { buildRawMaterialRollLabelModel } from "../../domain/rawMaterialRollLabel.js";
+import { RAW_MATERIAL_ROLL_LABEL_FIT_CELLS, fitRollLabelCellText } from "../../domain/rawMaterialRollLabelTemplate.js";
 import "../../styles/features/raw-material-roll-label.css";
 
 export function RawMaterialLabelPrintSheet({ inbound, preview = false }) {
@@ -77,6 +78,8 @@ export function RawMaterialQrCode({ quietZone = 4, value }) {
 
 function RawMaterialRollPrintLabel({ inbound, roll }) {
   const label = buildRawMaterialRollLabelModel(inbound, roll);
+  const supplierFit = fitRollLabelCellText(label.supplierName, RAW_MATERIAL_ROLL_LABEL_FIT_CELLS.supplier);
+  const inboundFit = fitRollLabelCellText(label.inboundNo, RAW_MATERIAL_ROLL_LABEL_FIT_CELLS.inboundNo);
   return (
     <article className="raw-material-roll-print-label">
       <header className="raw-material-roll-label-header">
@@ -127,11 +130,11 @@ function RawMaterialRollPrintLabel({ inbound, roll }) {
             <th>颜色</th>
             <td colSpan="2">{label.color}</td>
             <th>供应商</th>
-            <td>{label.supplierName}</td>
+            <td className={supplierFit.wrap ? "is-fit-wrap" : undefined} style={{ fontSize: `${supplierFit.fontPt}pt` }}>{label.supplierName}</td>
           </tr>
           <tr className="is-pair">
             <th>入库单</th>
-            <td className="is-inbound-no" colSpan="2">{label.inboundNo}</td>
+            <td className={`is-inbound-no${inboundFit.wrap ? " is-fit-wrap" : ""}`} colSpan="2" style={{ fontSize: `${inboundFit.fontPt}pt` }}>{label.inboundNo}</td>
             <th>日期</th>
             <td className="is-date">{label.date}</td>
           </tr>

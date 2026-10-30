@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildRawMaterialQrMatrix } from "../src/domain/rawMaterialLabelQr.js";
-import { buildRawMaterialRollLabelCss } from "../src/domain/rawMaterialRollLabelTemplate.js";
+import { RAW_MATERIAL_ROLL_LABEL_FIT_CELLS, buildRawMaterialRollLabelCss, fitRollLabelCellText } from "../src/domain/rawMaterialRollLabelTemplate.js";
 import {
   RAW_MATERIAL_ROLL_LABEL_COMPANY,
   RAW_MATERIAL_ROLL_LABEL_EXECUTION_STANDARD,
@@ -69,6 +69,7 @@ assert.equal(sheet.includes("BAGWIN"), false);
 assert.equal(sheet.includes('colSpan="4"'), true);
 assert.equal(sheet.includes('colSpan="5"'), true);
 assert.match(css, /@page roll-label\s*\{[^}]*size:\s*76\.00mm 130\.00mm/s);
+assert.match(css, /@page roll-label\s*\{[^}]*margin:\s*14\.33mm 0 0 0/s, "artwork is centred on the 130mm page");
 assert.match(css, /\.is-measure\s*\{[^}]*font-size:\s*9pt/s);
 assert.match(css, /\.is-measure\s*\{[^}]*padding-left:\s*2\.90mm/s);
 assert.match(css, /\.is-measure\s*\{[^}]*text-align:\s*left/s);
@@ -81,5 +82,19 @@ assert.match(css, /height:\s*7\.39mm/);
 assert.equal(css.includes("font-size: 16pt"), false);
 assert.match(css, /page:\s*roll-label/);
 assert.match(readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8"), /@import "\.\/raw-material-roll-label\.css"/);
+
+// Long supplier names and inbound numbers shrink to fit, then wrap; never clip.
+const fitCells = RAW_MATERIAL_ROLL_LABEL_FIT_CELLS;
+assert.deepEqual(fitRollLabelCellText("白侯无纺布", fitCells.supplier), { fontPt: 7.5, wrap: false });
+assert.deepEqual(fitRollLabelCellText("宁晋县腾胜无纺布有限公司", fitCells.supplier), { fontPt: 5.5, wrap: false });
+assert.equal(fitRollLabelCellText("邢台市宁晋县某某某某无纺布制品有限责任公司", fitCells.supplier).wrap, true);
+assert.deepEqual(fitRollLabelCellText("BH-240704-015", fitCells.inboundNo), { fontPt: 7, wrap: false });
+const longInbound = fitRollLabelCellText("XS-2026-08-19-61", fitCells.inboundNo);
+assert.equal(longInbound.wrap, false);
+assert.equal(longInbound.fontPt < 7 && longInbound.fontPt >= 5.5, true);
+assert.equal(fitRollLabelCellText("XS-2026-08-19-6789-ABCDEFGH", fitCells.inboundNo).wrap, true);
+assert.match(sheet, /fitRollLabelCellText\(label\.supplierName/);
+assert.match(sheet, /fitRollLabelCellText\(label\.inboundNo/);
+assert.match(css, /td\.is-fit-wrap\s*\{[^}]*white-space:\s*normal/s);
 
 console.log("raw-material roll label checks passed: locked 76×130mm template, company facts, and scannable roll-code QR.");
