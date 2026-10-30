@@ -16,7 +16,10 @@ assert.deepEqual(RAW_MATERIAL_MACHINE_OPTIONS, RAW_MATERIAL_WHOLE_ROLL_MACHINE_L
 assert.deepEqual([...RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS], ["1号机", "2号机", "3号机", "4号机", "5号机", "6号机", "7号机", "8号机", "9号机"]);
 assert.equal(resolveRawMaterialWholeRollMachine("BAG-09"), "9号机");
 assert.equal(resolveRawMaterialWholeRollMachine("制袋机-03"), "3号机");
-assert.equal(resolveRawMaterialWholeRollMachine("PRINT-01"), "");
+assert.equal(resolveRawMaterialWholeRollMachine("PRINT-01"), "1号丝印机", "printing workshop picks rolls too (2026-10-29)");
+assert.equal(resolveRawMaterialWholeRollMachine("3号丝印机"), "3号丝印机");
+assert.equal(resolveRawMaterialWholeRollMachine("切袋机-01"), "");
+assert.equal(resolveRawMaterialWholeRollMachine("丝印车间"), "丝印车间", "丝印 tasks share one pool");
 assert.equal(resolveRawMaterialWholeRollMachine("10号机"), "");
 
 const workbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
@@ -140,7 +143,7 @@ assert.throws(() => applyRawMaterialInboundAction({
   operatorId: "U-WAREHOUSE-A",
   operatorName: "库房A",
   serverNow: "2026-10-21T03:01:00.000Z",
-  body: { expectedRevision: 1, rollId: "RM-OUT-01", machineId: "PRINT-01" },
+  body: { expectedRevision: 1, rollId: "RM-OUT-01", machineId: "切袋机-01" },
 }), (error) => error.code === "RAW_MATERIAL_ISSUE_MACHINE_NOT_ALLOWED");
 
 const issued = applyRawMaterialInboundAction({

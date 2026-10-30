@@ -400,7 +400,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
 
           {renderedPage === "rawMaterialScanner" && (
             <PageLoader component={RawMaterialRoute} fallback="原材料扫码加载中" view="scanner"
-              state={{ helpers: pageHelpers, inbounds: rawMaterialInbounds, productionState: productionPacking }}
+              state={{ authState, helpers: pageHelpers, inbounds: rawMaterialInbounds, productionState: productionPacking }}
               actions={{ onAction: updateRawMaterialInbound }}
             />
           )}

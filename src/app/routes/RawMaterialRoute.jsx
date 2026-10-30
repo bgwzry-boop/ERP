@@ -6,6 +6,7 @@ import "../../styles/features/raw-material-mobile.css";
 import "../../styles/features/raw-material-mobile-atlas.css";
 import "../../styles/features/raw-material-print.css";
 import "../../styles/features/raw-material-color-mapping.css";
+import "../../styles/features/raw-material-scanner-picking.css";
 import { RawMaterialInboundPage } from "../../features/raw-materials/RawMaterialInboundPage.jsx";
 import { RawMaterialScannerPage } from "../../features/raw-materials/RawMaterialScannerPage.jsx";
 
@@ -14,6 +15,7 @@ export function RawMaterialRoute({ view = "inbound", state = {}, actions = {}, f
   if (view === "scanner") {
     return (
       <RawMaterialScannerPage
+        authState={state.authState}
         helpers={state.helpers}
         inbounds={state.inbounds}
         onAction={actions.onAction}

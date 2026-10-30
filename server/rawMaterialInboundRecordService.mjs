@@ -149,7 +149,8 @@ export function normalizeRawMaterialMachineId(value) {
   const numbered = text.match(/^(?:([1-9])号机|制袋机-0([1-9])|制袋-0([1-9])|BAG-0([1-9]))$/);
   if (numbered) return `BAG-0${numbered.slice(1).find(Boolean)}`;
   if (text === "1号制袋机") return "BAG-01";
-  if (text === "丝印机-01" || text === "丝印-01" || text === "1号丝印机") return "PRINT-01";
+  const print = text.match(/^(?:([1-9])号丝印机|丝印(?:机)?-0([1-9]))$/);
+  if (print) return `PRINT-0${print.slice(1).find(Boolean)}`;
   return text;
 }
 
