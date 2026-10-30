@@ -447,6 +447,23 @@ assert.equal(voidedDraft.inbound.status, "已作废");
 assert.equal(voidedDraft.inbound.voidedByUserId, "U-OFFICE");
 assert.equal(voidedDraft.inbound.voidReason, "测试时误拍了同一张单据，确认该草稿不应形成库存。");
 assert.equal(voidedDraft.inbound.rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
+const supplierMismatchDuplicate = await service.recognizeDeliveryNote({
+  workspace,
+  operatorId: "U-OFFICE",
+  body: {
+    fileName: "供应商名称不同但单号相同.jpg",
+    mimeType: "image/jpeg",
+    contentDataUrl: "data:image/jpeg;base64,c3VwcGxpZXItbWlz",
+    supplierNameHint: "另一家无纺布",
+  },
+});
+assert.equal(supplierMismatchDuplicate.code, "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_CONFIRMATION_REQUIRED");
+assert.equal(supplierMismatchDuplicate.details.supplierName, "另一家无纺布");
+assert.ok(
+  supplierMismatchDuplicate.details.duplicateInboundIds.includes("RMI-HISTORICAL-573"),
+  "the same ticket must still match when the supplier text differs",
+);
+assert.match(supplierMismatchDuplicate.message, /已录入过/);
 parsedDeliveryNoteNo = "";
 
 assert.throws(

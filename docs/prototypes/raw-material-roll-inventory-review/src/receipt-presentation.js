@@ -41,7 +41,7 @@ export function buildReceiptRowPresentation(row = {}) {
   const countUnit = row.documentDirection === "supplier_return" || (materialIdentity.includes("提手") && cleanText(row.unit) === "件") ? "件" : "卷";
   const totalWeightKg = Number(row.totalWeightKg);
   const reviewStatus = cleanText(row.status) || "状态待确认";
-  const duplicateText = cleanText(row.duplicate) || "未发现重复";
+  const duplicateText = cleanText(row.duplicateSummary || row.duplicate) || "未发现重复";
   return {
     supplierName: cleanText(row.supplier ?? row.supplierName) || "送货单位待确认",
     ticketText: cleanText(row.deliveryNoteNo) || "供应商未提供单号",
@@ -53,7 +53,7 @@ export function buildReceiptRowPresentation(row = {}) {
       : "待确认",
     reviewStatus,
     duplicateText,
-    duplicateNeedsAttention: Boolean(cleanText(row.duplicate)) || reviewStatus.includes("异常"),
+    duplicateNeedsAttention: Boolean(cleanText(row.duplicateSummary || row.duplicate)) || reviewStatus.includes("异常"),
   };
 }
 

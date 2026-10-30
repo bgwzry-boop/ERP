@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { annotateRawMaterialDeliveryNoteDuplicates } from "../../../../shared/rawMaterialDeliveryNoteDuplicate.js";
 import {
   buildReceiptMaterialPresentation,
   buildReceiptRowPresentation,
@@ -46,16 +47,34 @@ test("an unclassified OCR draft keeps its physical roll count despite a supplier
 test("duplicate review remains separate from inbound review status", () => {
   const presentation = buildReceiptRowPresentation({
     status: "已识别待复核",
-    duplicate: "发现 1 条相似候选",
+    duplicateSummary: "单号相同，另有 3 张",
     documentDirection: "supplier_return",
     rollCount: 1,
     totalWeightKg: -3.8,
   });
   assert.equal(presentation.reviewStatus, "已识别待复核");
-  assert.equal(presentation.duplicateText, "发现 1 条相似候选");
+  assert.equal(presentation.duplicateText, "单号相同，另有 3 张");
   assert.equal(presentation.duplicateNeedsAttention, true);
   assert.equal(presentation.countLabel, "1件");
   assert.equal(presentation.totalWeightLabel, "-3.8kg");
+  assert.equal(buildReceiptRowPresentation({ status: "已识别待复核", duplicate: "发现 1 条相似候选" }).duplicateText, "发现 1 条相似候选");
+});
+
+test("waiting-list rows flag identical supplier ticket numbers instead of claiming no duplicate", () => {
+  const annotated = annotateRawMaterialDeliveryNoteDuplicates([
+    { id: "RMI-XSTH-1", supplierName: "鑫隆宏无纺布", deliveryNoteNo: "XSTH202607000003", status: "已识别待复核", rollCount: 1, totalWeightKg: 96.2, receivedAt: "2026-07-20" },
+    { id: "RMI-XSTH-2", supplierName: "新乐市鑫隆宏无纺布有限公司", deliveryNoteNo: "XSTH202607000003", status: "已识别待复核", rollCount: 1, totalWeightKg: 96.2, receivedAt: "2026-07-21" },
+    { id: "RMI-XSTH-3", supplierName: "鑫隆宏无纺布", deliveryNoteNo: "xsth202607000003", status: "已识别待复核", rollCount: 1, totalWeightKg: 96.2, receivedAt: "2026-07-22" },
+    { id: "RMI-XSTH-4", supplierName: "鑫隆宏无纺布", deliveryNoteNo: "XSTH202607000003", status: "已识别待复核", rollCount: 1, totalWeightKg: 96.2, receivedAt: "2026-07-23" },
+    { id: "RMI-UNIQUE", supplierName: "腾胜无纺布", deliveryNoteNo: "XS-2026-07-04-104", status: "已识别待复核", rollCount: 9, totalWeightKg: 853.8, receivedAt: "2026-07-04" },
+  ]);
+  for (const row of annotated.filter((item) => item.id.startsWith("RMI-XSTH"))) {
+    const presentation = buildReceiptRowPresentation(row);
+    assert.equal(presentation.reviewStatus, "已识别待复核");
+    assert.equal(presentation.duplicateText, "单号相同，另有 3 张");
+    assert.equal(presentation.duplicateNeedsAttention, true);
+  }
+  assert.equal(buildReceiptRowPresentation(annotated.find((item) => item.id === "RMI-UNIQUE")).duplicateText, "未发现重复");
 });
 
 test("receipt detail presents handle material as type and authoritative width", () => {
