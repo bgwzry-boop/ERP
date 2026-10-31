@@ -1,4 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  buildRawMaterialDeliveryNoteDuplicateKey,
+  findRawMaterialDeliveryNoteDuplicateCandidates,
+} from "../../shared/rawMaterialDeliveryNoteDuplicate.js";
 import { createRawMaterialInboundOrchestrator } from "./rawMaterialInboundOrchestrator.mjs";
 
 export function createRawMaterialCommandService(dependencies = {}) {
@@ -124,7 +128,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
           supplierNameHint: body.supplierNameHint,
         });
         const documentDuplicateKey = buildRawMaterialDeliveryNoteDuplicateKey(draft);
-        const duplicateCandidates = findRawMaterialDeliveryNoteDuplicates(
+        const duplicateCandidates = findRawMaterialDeliveryNoteDuplicateCandidates(
           workspace.rawMaterialInbounds,
           draft,
         );
@@ -139,7 +143,9 @@ export function createRawMaterialCommandService(dependencies = {}) {
             error: true,
             statusCode: 409,
             code: "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_CONFIRMATION_REQUIRED",
-            message: `供应商“${cleanText(draft.supplierName)}”的单据 ${cleanText(draft.deliveryNoteNo)} 已录入过，请确认是否确为另一张需要保留的送货单。系统不会自动合并。`,
+            message: cleanText(draft.deliveryNoteNo)
+              ? `供应商“${cleanText(draft.supplierName)}”的单据 ${cleanText(draft.deliveryNoteNo)} 已录入过，请确认是否确为另一张需要保留的送货单。系统不会自动合并。`
+              : `供应商“${cleanText(draft.supplierName) || "未识别"}”已有日期、卷数和重量相同的送货单，请确认是否确为另一张需要保留的单据。系统不会自动合并。`,
             details: {
               supplierName: cleanText(draft.supplierName),
               deliveryNoteNo: cleanText(draft.deliveryNoteNo),
@@ -1278,22 +1284,6 @@ function sanitizeOcrErrorDetails(details) {
   return Object.values(safeDetails).some(Boolean) ? safeDetails : undefined;
 }
 
-function buildRawMaterialDeliveryNoteDuplicateKey(draft = {}) {
-  const supplierName = normalizeRawMaterialDuplicateText(draft.supplierName);
-  const deliveryNoteNo = normalizeRawMaterialDuplicateText(draft.deliveryNoteNo);
-  if (!supplierName || !deliveryNoteNo) return "";
-  return `${supplierName}::${deliveryNoteNo}`;
-}
-
-function findRawMaterialDeliveryNoteDuplicates(inbounds = [], draft = {}) {
-  const duplicateKey = buildRawMaterialDeliveryNoteDuplicateKey(draft);
-  if (!duplicateKey) return [];
-  return (Array.isArray(inbounds) ? inbounds : []).filter((item) => {
-    if (cleanText(item?.status) === "已作废") return false;
-    return (cleanText(item?.documentDuplicateKey) || buildRawMaterialDeliveryNoteDuplicateKey(item)) === duplicateKey;
-  });
-}
-
 function validateRawMaterialDeliveryNoteDuplicateConfirmation({
   body = {},
   documentDuplicateKey = "",
@@ -1319,10 +1309,6 @@ function buildRawMaterialDeliveryNoteDuplicateConfirmationToken({
   return createHash("sha256")
     .update(`raw-material-delivery-note-duplicate-v1\n${documentDuplicateKey}\n${sourceDigest}\n${duplicateIds.join("\n")}`)
     .digest("hex");
-}
-
-function normalizeRawMaterialDuplicateText(value) {
-  return cleanText(value).normalize("NFKC").replace(/[\s\-—_]+/gu, "").toLocaleLowerCase("zh-CN");
 }
 
 function appendOperationLog(workspace, operationLog) {

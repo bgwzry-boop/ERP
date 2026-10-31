@@ -1,9 +1,10 @@
+import { annotateRawMaterialDeliveryNoteDuplicates } from "../../shared/rawMaterialDeliveryNoteDuplicate.js";
 import { RAW_MATERIAL_RECEIPT_STAGES, resolveRawMaterialReceiptStage } from "../../shared/rawMaterialReceiptStage.js";
 import { normalizeRawMaterialInbounds } from "../rawMaterialInboundRecordService.mjs";
 
 export function buildRawMaterialInboundListResponse(inbounds = [], query = new URLSearchParams()) {
   const filters = normalizeRawMaterialInboundListQuery(query);
-  let items = getOperationalRawMaterialInbounds(inbounds);
+  let items = annotateRawMaterialDeliveryNoteDuplicates(getOperationalRawMaterialInbounds(inbounds));
   if (filters.status && filters.status !== "全部") {
     items = items.filter((item) => item.status === filters.status);
   }
