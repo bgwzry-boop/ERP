@@ -1,7 +1,8 @@
 import { RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS, resolveRawMaterialWholeRollMachine } from "../../domain/rawMaterialWholeRollPolicy.js";
 import { InfoGrid, StatusPill } from "../../shared/ui/operational.jsx";
 import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
-import { officeInboundUsesCountGate } from "../../domain/officeRawMaterialInboundFlow.js";
+import { officeInboundUsesCountGate, shouldOpenLabelPrintAfterReview } from "../../domain/officeRawMaterialInboundFlow.js";
+import { createRawMaterialLabelPrintFrame } from "./runRawMaterialLabelPrint.js";
 import { submitInboundAction } from "./submitInbound.js";
 import { hasStrongRawMaterialSupplierReturnEvidence } from "../../../shared/rawMaterialSupplierReturn.js";
 import {
@@ -95,14 +96,23 @@ export function RawMaterialInboundReceivingSections({
     onLineDraftsChange={setOcrLineReviewDraft}
     onPrint={handlePrintLabels}
     onReview={async () => {
-      // 「这批都对，去打印」: review, then go straight into label printing.
-      const reviewed = selected.ocrProvider === "tencent_cloud_table_v3"
-        ? await onOfficeReviewConfirm()
-        : await submitInboundAction(onAction, selected, "复核送货单");
-      if (reviewed?.id && reviewed.documentDirection !== "supplier_return" && canPrintRawMaterialLabels(reviewed) && !printState?.disabled) {
-        await handlePrintLabels(reviewed);
+      // Open the print frame in this click, before the review request, so the
+      // browser still treats the later print as the same gesture.
+      const frame = selected.documentDirection === "supplier_return" ? null : createRawMaterialLabelPrintFrame();
+      try {
+        const reviewed = selected.ocrProvider === "tencent_cloud_table_v3"
+          ? await onOfficeReviewConfirm()
+          : await submitInboundAction(onAction, selected, "复核送货单");
+        if (shouldOpenLabelPrintAfterReview(reviewed, { printDisabled: Boolean(printState?.disabled) })) {
+          await handlePrintLabels(reviewed, frame);
+        } else {
+          frame?.remove();
+        }
+        return reviewed;
+      } catch (error) {
+        frame?.remove();
+        throw error;
       }
-      return reviewed;
     }}
     onVerifyRoll={(roll) => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
     printState={printState}

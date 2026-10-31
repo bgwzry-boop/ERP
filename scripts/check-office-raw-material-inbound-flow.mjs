@@ -10,6 +10,7 @@ import {
   officeReviewFieldsForSubmit,
   officeReviewSubmitBlocker,
   receivingReceiptTab,
+  shouldOpenLabelPrintAfterReview,
   replaceWidthInSpec,
   resolveOfficeInboundStep,
 } from "../src/domain/officeRawMaterialInboundFlow.js";
@@ -133,6 +134,23 @@ assert.match(officeReviewSubmitBlocker({ documentDirection: "supplier_delivery" 
 assert.equal(officeReviewSubmitBlocker({ supplierName: "河北宏尚无纺布有限公司" }, { supplierName: "" }), "");
 assert.equal(officeReviewFieldsForSubmit({ supplierName: "河北宏尚无纺布有限公司" }, { supplierName: "" }).supplierName, "河北宏尚无纺布有限公司");
 assert.equal(officeReviewSubmitBlocker({ documentDirection: "supplier_return", supplierName: "" }, {}), "");
+assert.equal(shouldOpenLabelPrintAfterReview({
+  id: "RMI-2",
+  status: "已复核待打印标签",
+  documentDirection: "supplier_delivery",
+  rolls: [{ inventoryStatus: "不可用", weightKg: 10 }],
+}), true, "a reviewed delivery opens the same label print path");
+assert.equal(shouldOpenLabelPrintAfterReview({
+  id: "RMI-R",
+  status: "退货单已复核",
+  documentDirection: "supplier_return",
+  rolls: [],
+}), false);
+assert.equal(shouldOpenLabelPrintAfterReview({
+  id: "RMI-2",
+  status: "已复核待打印标签",
+  rolls: [{ inventoryStatus: "不可用", weightKg: 10 }],
+}, { printDisabled: true }), false);
 
 const pageSource = [
   "../src/features/raw-materials/OfficeInboundFlow.jsx",
@@ -148,6 +166,15 @@ const desktopConfirm = officeHandler.slice(
 );
 assert.ok(desktopConfirm.includes("officeReviewFieldsForSubmit"), "desktop confirm should submit the office review fields");
 assert.equal(desktopConfirm.includes("暂缓打印"), false, "desktop「这批都对，去打印」must stay on the print step instead of deferring labels");
+const receivingSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8");
+const printRunner = readFileSync(new URL("../src/features/raw-materials/runRawMaterialLabelPrint.js", import.meta.url), "utf8");
+assert.match(receivingSource, /createRawMaterialLabelPrintFrame\(\)/);
+assert.match(receivingSource, /shouldOpenLabelPrintAfterReview/);
+assert.ok(receivingSource.indexOf("createRawMaterialLabelPrintFrame()") < receivingSource.indexOf("onOfficeReviewConfirm()"), "print frame is opened in the click, before the review request");
+assert.match(officeHandler, /printRawMaterialLabelFrame/);
+assert.equal(/finally\s*\{[^}]*classList\.remove\("raw-material-label-printing"\)/s.test(officeHandler), false, "print styles must stay until the preview closes");
+assert.match(printRunner, /afterprint/);
+assert.match(printRunner, /buildRawMaterialLabelPrintDocument/);
 assert.ok(pageSource.includes("receivingReceiptTab"), "receiving list should follow the acted sheet into its next tab");
 assert.ok(pageSource.includes("actedRecord"), "receiving detail should stay on the sheet that was just confirmed or marked");
 const printCss = readFileSync(new URL("../src/styles/features/raw-material-roll-label.css", import.meta.url), "utf8");

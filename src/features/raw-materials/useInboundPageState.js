@@ -15,6 +15,7 @@ import { findRawMaterialProductionTaskCandidate } from "./rawMaterialInboundWork
 import { officeReviewFieldsForSubmit, officeReviewSubmitBlocker } from "../../domain/officeRawMaterialInboundFlow.js";
 import { assertRawMaterialDeliveryNotePageCapacity, buildRawMaterialOcrReviewAction, getRawMaterialOcrReviewSaveFailureMessage, prepareRawMaterialCapturePages, resolveRawMaterialAttachStage, resolveRawMaterialOcrReviewCompletion } from "./rawMaterialInboundPageActions.js";
 import { confirmInApp } from "../../shared/ui/confirmDialog.js";
+import { createRawMaterialLabelPrintFrame, isRawMaterialLabelPrintFrame, printRawMaterialLabelFrame } from "./runRawMaterialLabelPrint.js";
 
 
 export function useInboundPageState({
@@ -473,17 +474,27 @@ export function useInboundPageState({
     }
   }
 
-  async function handlePrintLabels(inboundOverride) {
+  async function handlePrintLabels(inboundOverride, preparedFrame) {
     // 「这批都对，去打印」passes the freshly reviewed inbound; a click passes an event.
+    // The print frame is created in that same click, before the review await.
+    const frame = isRawMaterialLabelPrintFrame(inboundOverride)
+      ? inboundOverride
+      : isRawMaterialLabelPrintFrame(preparedFrame) ? preparedFrame : createRawMaterialLabelPrintFrame();
     const activeInbound = inboundOverride?.id && Array.isArray(inboundOverride.rolls) ? inboundOverride : mobileSelected ?? selected;
-    if (!activeInbound || printState.disabled || !canPrintRawMaterialLabels(activeInbound)) return null;
-    flushSync(() => setPrintSheetInbound(activeInbound));
-    document.body.classList.add("raw-material-label-printing");
-    try {
-      window.print();
-    } finally {
-      document.body.classList.remove("raw-material-label-printing");
+    if (!activeInbound || printState.disabled || !canPrintRawMaterialLabels(activeInbound)) {
+      frame?.remove();
+      return null;
     }
+    flushSync(() => setPrintSheetInbound(activeInbound));
+    const sheet = document.body?.querySelector(":scope > .raw-material-label-print-sheet");
+    const opened = sheet ? await printRawMaterialLabelFrame(frame, sheet.outerHTML) : false;
+    if (!sheet) frame?.remove();
+    if (!opened) {
+      setPrintSheetInbound(null);
+      setOcrReviewSubmitError("打印窗口没有打开。请再点一次打印。");
+      return null;
+    }
+    setOcrReviewSubmitError("");
     const labelCount = activeInbound.rolls?.filter((roll) => roll.inventoryStatus !== "可用").length || 0;
     if (!(await confirmInApp({ title: "确认打印结果", message: `请看打印机：${labelCount} 张 76×130 面单都出来了吗？\n没出来就点取消，系统不会记成已打印。`, confirmLabel: "都已打印" }))) {
       setPrintSheetInbound(null);
@@ -538,12 +549,14 @@ export function useInboundPageState({
 
   async function handleReprintLabel(roll) {
     if (!selected || !roll || printState.disabled) return null;
+    const frame = createRawMaterialLabelPrintFrame();
     flushSync(() => setPrintSheetInbound({ ...selected, rolls: [roll] }));
-    document.body.classList.add("raw-material-label-printing");
-    try {
-      window.print();
-    } finally {
-      document.body.classList.remove("raw-material-label-printing");
+    const sheet = document.body?.querySelector(":scope > .raw-material-label-print-sheet");
+    const opened = sheet ? await printRawMaterialLabelFrame(frame, sheet.outerHTML) : false;
+    if (!sheet) frame?.remove();
+    if (!opened) {
+      setPrintSheetInbound(null);
+      return null;
     }
     if (!(await confirmInApp({ title: "确认打印结果", message: `请确认卷标 ${roll.id} 已从打印机正常输出。\n如果取消或打印失败，请点“取消”，系统不会记录本次重打。`, confirmLabel: "已正常打印" }))) {
       setPrintSheetInbound(null);

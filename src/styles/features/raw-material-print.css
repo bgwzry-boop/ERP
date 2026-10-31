@@ -5,7 +5,10 @@
     display: none !important;
   }
   /* The desktop shell pins html/body/#root to min-width 1180px and full height.
-     Left on <html>, Chrome shrinks the page to its 67% floor, so release it too. */
+     Left on <html>, Chrome shrinks the page to its 67% floor, so release it too.
+     :has() is not reliable in every print snapshot, so the class is also set on <html>. */
+  html.raw-material-label-printing,
+  html.raw-material-label-printing body,
   html:has(body.raw-material-label-printing),
   body.raw-material-label-printing {
     width: 76mm !important;
@@ -14,6 +17,14 @@
     min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
+  }
+  html.raw-material-label-printing #root,
+  body.raw-material-label-printing #root {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    height: 0 !important;
+    min-height: 0 !important;
   }
   body.raw-material-label-printing {
     margin: 0 !important;

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildRawMaterialQrMatrix } from "../src/domain/rawMaterialLabelQr.js";
-import { RAW_MATERIAL_ROLL_LABEL_FIT_CELLS, buildRawMaterialRollLabelCss, fitRollLabelCellText } from "../src/domain/rawMaterialRollLabelTemplate.js";
+import { RAW_MATERIAL_ROLL_LABEL_FIT_CELLS, buildRawMaterialRollLabelCss, fitRollLabelCellText, rawMaterialRollLabelPlacement } from "../src/domain/rawMaterialRollLabelTemplate.js";
+import { buildRawMaterialLabelPrintDocument } from "../src/domain/rawMaterialLabelPrintDocument.js";
 import {
   RAW_MATERIAL_ROLL_LABEL_COMPANY,
   RAW_MATERIAL_ROLL_LABEL_EXECUTION_STANDARD,
@@ -69,13 +70,26 @@ assert.equal(sheet.includes("BAGWIN"), false);
 assert.equal(sheet.includes('colSpan="4"'), true);
 assert.equal(sheet.includes('colSpan="5"'), true);
 assert.match(css, /@page roll-label\s*\{[^}]*size:\s*76\.00mm 130\.00mm/s);
-assert.match(css, /\.raw-material-roll-print-page\s*\{[^}]*height:\s*130\.00mm[^}]*padding-top:\s*14\.33mm/s, "artwork is centred on the 130mm page even when the dialog sets 边距 无");
+assert.match(css, /\.raw-material-roll-print-page\s*\{[^}]*height:\s*130\.00mm[^}]*padding-top:\s*8\.00mm/s, "artwork starts under the 8mm Yunda logo band even when the dialog sets 边距 无");
 assert.match(sheet, /createPortal\(sheet, document\.body\)/, "print sheet sits directly under <body> so the label is not shrunk");
+assert.match(sheet, /preserveAspectRatio="xMidYMid meet"/, "QR must stay square");
 assert.match(readFileSync(new URL("../src/styles/features/raw-material-print.css", import.meta.url), "utf8"), /body\.raw-material-label-printing > :not\(\.raw-material-label-print-sheet\)\s*\{[^}]*display:\s*none/s);
+assert.match(readFileSync(new URL("../src/styles/features/raw-material-print.css", import.meta.url), "utf8"), /html\.raw-material-label-printing #root/);
+const placement = rawMaterialRollLabelPlacement();
+assert.equal(placement.scale, 1, "uniform scale is width-limited on 76mm paper");
+assert.equal(placement.offsetTopMm, 8);
+assert.equal(placement.widthMm, 76);
+assert.equal(placement.heightMm, 101.33);
+assert.ok(placement.bottomGapMm >= 6, "bottom logo band stays clear");
+assert.equal(placement.qrMm, 25.4);
+const printDocument = buildRawMaterialLabelPrintDocument("<section class=\"raw-material-label-print-sheet\"></section>");
+assert.match(printDocument, /@page\s*\{[^}]*size:\s*76\.00mm 130\.00mm;\s*margin:\s*0/s);
+assert.match(printDocument, /min-width:\s*0 !important/);
+assert.equal(printDocument.includes("1180px"), false, "label print document must not carry the desktop shell min-width");
 assert.match(css, /\.is-measure\s*\{[^}]*font-size:\s*9pt/s);
 assert.match(css, /\.is-measure\s*\{[^}]*padding-left:\s*2\.90mm/s);
 assert.match(css, /\.is-measure\s*\{[^}]*text-align:\s*left/s);
-assert.match(css, /width:\s*25\.61mm;\s*height:\s*26\.90mm/);
+assert.match(css, /width:\s*25\.40mm;\s*height:\s*25\.40mm/);
 assert.match(css, /left:\s*0\.38mm;\s*top:\s*0\.47mm/);
 assert.match(css, /height:\s*101\.33mm/);
 assert.match(css, /padding:\s*0\.00mm /);
