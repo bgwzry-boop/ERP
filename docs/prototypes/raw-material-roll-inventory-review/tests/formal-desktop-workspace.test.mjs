@@ -249,14 +249,16 @@ test("employee age and factory tenure derive from maintained dates", () => {
 });
 
 test("desktop topbar gives its leading space to global search", async () => {
-  const [appSource, stylesSource] = await Promise.all([
+  const [appSource, stylesSource, searchSource] = await Promise.all([
     readSource("../src/App.jsx"),
     readSource("../src/styles.css"),
+    readSource("../src/GlobalSearch.jsx"),
   ]);
 
   assert.doesNotMatch(appSource, /<strong>虎门工厂<\/strong>/, "topbar should not repeat a fixed factory label before global search");
   assert.doesNotMatch(stylesSource, /\.topbar\s*>\s*strong/, "removed factory-label styling should not remain as dead CSS");
-  assert.match(appSource, /<header className="topbar">\s*<label className="global-search">/, "global search should be the first topbar content control");
+  assert.match(appSource, /<header className="topbar">\s*<GlobalSearch\b/, "global search should be the first topbar content control");
+  assert.match(searchSource, /<label className="global-search"/, "the search control keeps the global-search field");
 });
 
 test("4174 payroll route mounts the formal payroll workbench instead of the review fixture", async () => {

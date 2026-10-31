@@ -528,11 +528,11 @@ function buildWorkspaceConfigs(formal) {
   };
 };
 
-function GenericWorkspace({ config, onNavigate, detailExtra }) {
-  const [query, setQuery] = useState("");
+function GenericWorkspace({ config, onNavigate, detailExtra, focus = null }) {
+  const [query, setQuery] = useState(focus?.query || "");
   const [status, setStatus] = useState("全部状态");
   const [mode, setMode] = useState(config.modes?.[0] || "全部");
-  const [selectedId, setSelectedId] = useState(config.rows[0]?.id || "");
+  const [selectedId, setSelectedId] = useState(focus?.recordId || config.rows[0]?.id || "");
   const [notice, setNotice] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -975,7 +975,7 @@ export function TodoWorkspace({ formal, onNavigate }) {
   </div>;
 }
 
-function OrderPoolWorkspace({ formal, onNavigate }) {
+function OrderPoolWorkspace({ formal, onNavigate, focus = null }) {
   const [mutationId,setMutationId]=useState("");
   const [groupCorrectionId,setGroupCorrectionId]=useState("");
   const machineLabels = useMemo(() => buildMachineLabels(formal.data.machines), [formal.data.machines]);
@@ -987,9 +987,9 @@ function OrderPoolWorkspace({ formal, onNavigate }) {
     risk: riskFor(line),
     machine: line.machineId ? (machineLabels.get(line.machineId) || line.machineId) : "机台待确认",
   })), [formal.data.orderLines, machineLabels]);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(focus?.query || "");
   const [tab, setTab] = useState("全部订单");
-  const [selectedId, setSelectedId] = useState(officeOrders[0]?.id || "");
+  const [selectedId, setSelectedId] = useState(focus?.recordId || officeOrders[0]?.id || "");
   const [notice, setNotice] = useState("");
   const rows = officeOrders.filter((order) => {
     const queryMatch = !query.trim() || Object.values(order).flat().join(" ").toLowerCase().includes(query.trim().toLowerCase());
@@ -1028,12 +1028,13 @@ export function FocusedProductionWorkspace({ formal, onNavigate, taskId, loadDet
   return <GenericWorkspace key={taskId} config={{ ...config, onRefresh: () => setAttempt(value => value + 1) }} formal={focusedFormal} focusId={taskId} detailExtra={() => <ProductionPhotoReview key={`${taskId}:${detail.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}:${JSON.stringify(formal.authState?.permissions?.actionPermissions)}`} detail={detail} authState={formal.authState} onSaved={() => refreshAfterProductionPhotoReview({ readTodos: () => formal.actions.readCollection("todos"), refreshDetail: () => setAttempt(value => value + 1) })} />} onNavigate={onNavigate} />;
 }
 
-export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId = "" }) {
+export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId = "", workspaceFocus = null }) {
+  const focus = workspaceFocus?.navId === navId ? workspaceFocus : null;
   if (navId === "production-tasks" && productionFocusId) return <FocusedProductionWorkspace key={`${productionFocusId}:${formal.authState?.session?.accessToken || ""}`} formal={formal} onNavigate={onNavigate} taskId={productionFocusId} />;
   if (["customer-statements", "print-devices"].includes(navId)) return <FinanceOperationsWorkspace key={navId} formal={formal} navId={navId} onNavigate={onNavigate} />;
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-entry") return <OrderPricingEntryWorkspace key={`${formal.authState?.session?.accessToken || ""}:${formal.entryDraftId || "new"}`} formal={formal} onNavigate={onNavigate} />;
-  if (navId === "order-pool") return <OrderPoolWorkspace formal={formal} onNavigate={onNavigate} />;
+  if (navId === "order-pool") return <OrderPoolWorkspace key={focus?.token || "order-pool"} formal={formal} focus={focus} onNavigate={onNavigate} />;
   if (navId === "outbound-delivery") return <FulfillmentWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "supplier-month-end") return <SupplierSettlementWorkspace formal={formal} />;
   if (navId === "inventory-query") return <FinishedGoodsInventoryWorkspace category="无纺布袋" formal={formal} onNavigate={onNavigate} title="无纺布袋库存" />;
@@ -1044,7 +1045,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   const configs = buildWorkspaceConfigs(formal);
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;
-  return <GenericWorkspace key={navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} onNavigate={onNavigate}
+  return <GenericWorkspace key={focus?.token || navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} focus={focus} onNavigate={onNavigate}
     detailExtra={navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
 }
 
