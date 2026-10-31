@@ -824,6 +824,27 @@ const renyiCompactReturnDraft = buildRawMaterialInboundDraftFromOcr({
   ]) }] },
 });
 assert.equal(renyiCompactReturnDraft.supplierName, "人意无纺布");
+
+// Field case 2026-10-30: a 人意 return note photographed while 「送货单」 was selected.
+const renyiReturnUnderDeliverySelection = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-RETURN-UNDER-DELIVERY",
+  documentDirectionHint: "supplier_delivery",
+  knownSupplierNames: ["人意无纺布"],
+  supplierNameHint: "人意无纺布",
+  ocr: { tables: [{ cells: buildCells([
+    ["人意无纺布销售单"],
+    ["品名称", "颜色", "数量", "重\n量\n单位:千克\n单价", "金额"],
+    ["退带色布", "1", "-68", "-68", "11.8", "-802.4"],
+    ["计", "1", "负捌佰零贰.肆", "-802.4"],
+  ]) }] },
+});
+assert.equal(renyiReturnUnderDeliverySelection.documentDirection, "supplier_return", "negative material lines must not become stock even when 送货单 was selected");
+assert.equal(renyiReturnUnderDeliverySelection.documentDirectionSource, "ocr_return_evidence_over_capture_selection");
+assert.equal(renyiReturnUnderDeliverySelection.rolls.length, 0, "a return note never creates rolls to label");
+assert.ok(renyiReturnUnderDeliverySelection.statementDifferences.some((item) => item.includes("已按退货单处理")));
+assert.equal(renyiReturnUnderDeliverySelection.totalWeightKg, -68);
+assert.equal(renyiReturnUnderDeliverySelection.amount, -802.4);
+
 assert.equal(renyiCompactReturnDraft.supplierNameSource, "operator_capture_selection");
 assert.equal(renyiCompactReturnDraft.ocrLines.length, 1, "the compact 计 footer must never become a second return material line");
 assert.equal(renyiCompactReturnDraft.ocrLines[0].values.productName, "退带色布");
