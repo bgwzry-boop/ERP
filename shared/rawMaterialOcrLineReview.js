@@ -314,16 +314,17 @@ function validateLineValues(values, lineId, {
   const unitPrice = Math.abs(Number(values.unitPrice) || 0);
   const amount = Math.abs(Number(values.amount) || 0);
   const totalWeightKg = Math.abs(Number(values.totalWeightKg) || 0);
+  const description = [cleanText(values.supplierColor) || cleanText(values.factoryColor) || cleanText(values.productName), cleanText(values.spec), `${values.rollCount}卷/件`].filter(Boolean).join(" · ");
   if (!(unitPrice > 0)) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_UNIT_PRICE_REQUIRED",
-      `OCR 明细行 ${lineId || "待确认"} 的单价必须大于 0。`,
+      `“${description}”未取得有效单价，请在明细中对照原单核对单价。`,
     );
   }
   if (!(amount > 0)) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_REQUIRED",
-      `OCR 明细行 ${lineId || "待确认"} 的金额必须大于 0。`,
+      `“${description}”未取得有效金额，请在明细中对照原单核对金额。`,
     );
   }
   const rollCount = positiveInteger(values.rollCount, 0);
@@ -348,7 +349,7 @@ function validateLineValues(values, lineId, {
   if (!approximatelyEqualMoney(amount, roundNumber(totalWeightKg * unitPrice, 2))) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_CALCULATION_MISMATCH",
-      `OCR 明细行 ${lineId || "待确认"} 的重量 × 单价与行金额不一致。`,
+      `“${description}”的重量 × 单价与行金额不一致，请对照原单核对。`,
     );
   }
   if (values.rollWeightsKg.length && activeRollIndices.length) {
