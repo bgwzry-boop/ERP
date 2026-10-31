@@ -885,3 +885,7 @@ function buildCells(rows) {
 function pickSpec(spec) {
   return [spec.specRaw, spec.gramWeightGsm, spec.widthCm, spec.lengthM, spec.materialCategory, spec.specNeedsReview];
 }
+
+// Keep grouped-price regression in the existing parser suite without replacing
+// the shared API check list maintained by other feature branches.
+await import("./check-raw-material-group-pricing.mjs");
