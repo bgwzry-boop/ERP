@@ -7,6 +7,7 @@ import { resolveRawMaterialFactoryColor } from "../../shared/rawMaterialFactoryC
 import { classifyRawMaterialSupplierReturnCategory } from "../../shared/rawMaterialSupplierReturn.js";
 import { RAW_MATERIAL_SUPPLIER_PROFILES } from "../../shared/rawMaterialSupplierProfiles.js";
 import { normalizeRawMaterialSourceRowIndex } from "../../shared/rawMaterialOcrSourcePosition.js";
+import { resolveRawMaterialGroupedPricing } from "./rawMaterialGroupedPricing.mjs";
 
 const headerAliases = {
   productName: ["品名", "品名称", "商品名称", "商品全名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
@@ -30,7 +31,7 @@ const keyValueAliases = {
   receivedAt: ["送货日期", "单据日期", "日期"],
 };
 
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 21;
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 22;
 
 export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
   delivery: "supplier_delivery",
@@ -74,7 +75,8 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   const receivedAt = normalizeRecognizedDate(
     findKeyValue(allRows, keyValueAliases.receivedAt).value || inferRecognizedDate(allText),
   ) || cleanText(input.receivedAt);
-  const lineCandidates = tableRows.flatMap((rows, tableIndex) => extractTableLines(rows, tableIndex, tables[tableIndex]));
+  const groupedPricing = supplierProfile?.key === "renyi_zhengheng" && documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery;
+  const lineCandidates = tableRows.flatMap((rows, tableIndex) => extractTableLines(rows, tableIndex, tables[tableIndex], groupedPricing));
   const lines = lineCandidates.length ? lineCandidates : [buildFallbackLine(allRows)];
   const colorResolutionOptions = {
     colorAliases: input.colorAliases,
@@ -227,7 +229,7 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   };
 }
 
-function extractTableLines(rows, tableIndex, table = {}) {
+function extractTableLines(rows, tableIndex, table = {}, groupedPricing = false) {
   if (!rows.length) return [];
   const header = rows
     .map((row, rowIndex) => ({ row, rowIndex, score: row.reduce((total, cell) => total + (matchHeaderKey(cell.text) ? 1 : 0), 0) }))
@@ -239,7 +241,7 @@ function extractTableLines(rows, tableIndex, table = {}) {
     const key = matchHeaderKey(cell.text);
     if (key && !columns.has(key)) columns.set(key, cell.colTl);
   }
-  return rows.slice(header.rowIndex + 1).map((row, offset) => {
+  const lines = rows.slice(header.rowIndex + 1).map((row, offset) => {
     if (shouldSkipRecognizedRow(row)) return null;
     const sequential = parseSequentialLine({ layout: sequentialLayout, row });
     if (sequential) {
@@ -247,6 +249,7 @@ function extractTableLines(rows, tableIndex, table = {}) {
         lineId: `OCR-T${tableIndex + 1}-R${header.rowIndex + offset + 2}`,
         sourcePageIndex: table.sourcePageIndex,
         sourceRowIndex: header.rowIndex + offset + 1,
+        groupPricingRowIndex: row[0]?.rowTl,
         sourceBounds: buildSourceBounds(row, table.imageWidth, table.imageHeight),
         ...sequential,
         sourceText: row.map((cell) => cell.text).join(" | "),
@@ -269,7 +272,9 @@ function extractTableLines(rows, tableIndex, table = {}) {
       confidences,
       sourceText: row.map((cell) => cell.text).join(" | "),
     };
-  }).filter(Boolean);
+  });
+  if (groupedPricing && sequentialLayout === "variable_roll_weights") resolveRawMaterialGroupedPricing(lines);
+  return lines.filter(Boolean);
 }
 
 function detectSequentialLayout(headerRow) {
@@ -451,6 +456,10 @@ function parseVariableRollWeightLine(cells) {
   if (!rollWeightsKg.length) return null;
   const rollWeightTotal = roundNumber(sum(rollWeightsKg), 3);
   let remaining = texts.slice(weightStart + rollCount).map(parseNumber);
+  const groupPricingCandidate = remaining.length === 3 && remaining[0] > rollWeightTotal
+    && texts.slice(weightStart + rollCount).every(text => /^\d+(?:\.\d+)?$/u.test(text))
+    ? { totalWeightKg: remaining[0], unitPrice: remaining[1], amount: remaining[2] }
+    : undefined;
   let totalWeightKg = rollWeightTotal;
   if (remaining.length >= 3 && approximatelyEqual(remaining[0], rollWeightTotal)) {
     totalWeightKg = remaining[0];
@@ -487,6 +496,7 @@ function parseVariableRollWeightLine(cells) {
   });
   if (amountNormalizationReason) confidences.amount = 0;
   return {
+    groupPricingCandidate,
     values: enrichRawMaterialSpecValues({
       productName,
       materialType: "无纺布",
@@ -640,6 +650,7 @@ function normalizeLine(input = {}, index, {
     sourceRowIndex: normalizeRawMaterialSourceRowIndex(input.sourceRowIndex),
     sourceBounds: normalizeSourceBounds(input.sourceBounds),
     sourceText: cleanText(input.sourceText),
+    ...(input.pricingSource ? { pricingSource: input.pricingSource } : {}),
     factoryColorResolution,
     reviewStatus: "待人工复核",
     values: normalizedSpecValues,
