@@ -93,6 +93,11 @@ const aliasToStandardName = new Map([
   ["宝蓝色", "宝蓝"],
   ["天兰", "天蓝"],
   ["天蓝色", "天蓝"],
+  // Suppliers often write 兰 for 蓝 on handwritten/printed delivery notes.
+  ["海兰", "海蓝"],
+  ["湖兰", "湖蓝"],
+  ["牛仔兰", "牛仔蓝"],
+  ["雾霾兰", "雾霾蓝"],
   ["桔色", "橘色"],
   ["桔红", "橘色"],
   ["橘红", "橘色"],
