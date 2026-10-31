@@ -153,9 +153,13 @@ test("outbound delivery and supplier month-end share the complete review list-de
   assert.match(workspacesSource, /navId === "supplier-month-end"\) return <SupplierSettlementWorkspace/, "supplier month-end should use its current-shell workspace");
   assert.match(workspacesSource, /className="business-workbench fulfillment-workbench"/, "outbound delivery should reuse the standard list-detail anatomy");
   assert.match(workspacesSource, /className="business-workbench supplier-settlement-workbench"/, "supplier month-end should reuse the standard list-detail anatomy");
-  for (const label of ["订货数量", "累计实出", "currentQtyLabel", "剩余未实出", "对账关联", "金额以正式对账记录为准", "打开对账收款"]) {
+  for (const label of ["订货数量", "累计实出", "currentQtyLabel", "剩余未实出", "交付方式", "包装", "要求时间", "出库库位", "对账关联", "金额以正式对账记录为准", "打开对账收款"]) {
     assert.ok(workspacesSource.includes(label), `outbound detail should retain ${label}`);
   }
+  assert.match(workspacesSource, /<h2>\{selected\?\.productTitle/, "outbound detail title stays the live product name from the current staging header");
+  assert.match(workspacesSource, /business-detail-subtitle">\{selected\.goods\}/, "the full goods specification stays under the product title");
+  assert.match(workspacesSource, /className="fulfillment-fold"><summary>交付事实/, "delivery facts stay collapsed under the quantity summary");
+  assert.match(workspacesSource, /className="fulfillment-fold"><summary>对账说明/, "statement copy stays collapsed while the statement action remains available");
   for (const label of ["对账确认", "生成应付", "付款登记", "付款确认"]) {
     assert.ok(workspacesSource.includes(label), `supplier settlement should retain ${label}`);
   }

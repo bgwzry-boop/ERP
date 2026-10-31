@@ -1,6 +1,13 @@
-.desktop-fulfillment-operations { display: grid; gap: 14px; }
+.desktop-fulfillment-operations { display: grid; gap: 10px; }
 .desktop-fulfillment-operations h3, .desktop-fulfillment-operations p { margin: 0; }
+.desktop-fulfillment-operations h3 { font-size: 13px; }
 .desktop-fulfillment-operations p { font-size: 13px; line-height: 1.65; color: var(--ink-muted, var(--erp-text-faint)); overflow-wrap: anywhere; }
+.fulfillment-package-entry { display: grid; gap: 8px; margin: 0; }
+.fulfillment-package-entry > .primary { width: 100%; }
+.desktop-fulfillment-operations .fulfillment-note > summary { cursor: pointer; color: var(--ink-soft, var(--erp-text-faint)); font-size: 12px; font-weight: 650; }
+.desktop-fulfillment-operations .fulfillment-note > :not(summary) { margin-top: 6px; }
+.desktop-fulfillment-operations .mixed-package-workbench { padding: 4px 0 0; }
+.desktop-fulfillment-operations .mixed-package-workbench h3 { margin: 0; font-size: 14px; }
 .desktop-fulfillment-operations fieldset { min-width: 0; display: grid; gap: 10px; margin: 0; padding: 14px 0 0; border: 0; border-top: 1px solid var(--line, var(--erp-border-subtle)); }
 .desktop-fulfillment-operations legend { padding: 0 8px 0 0; font-weight: 650; font-size: 14px; }
 .desktop-fulfillment-operations label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }

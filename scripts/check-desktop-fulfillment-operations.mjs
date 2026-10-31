@@ -17,8 +17,12 @@ const fulfillment={id:'F-DESKTOP',lineId:'OL-DESKTOP',method:'送货',qty:5000,s
 const formal={data:{orderLines:[{id:'OL-DESKTOP',orderType:'现货通货'}],packingTasks:[],employeeAccountReviews:[driver,recommendedOnly]},permissionContext:{actionPermissions:['packing.complete','fulfillment.dispatch.update']},actions:{refreshAll:async()=>{}}};
 const render=(f=fulfillment,ctx=formal)=>renderToStaticMarkup(createElement(DesktopFulfillmentOperations,{fulfillment:f,formal:ctx}));
 const html=render();assert.match(html,/按实物登记包裹/);assert.match(html,/通货可混装/);assert.match(html,/同一订单可混装尺寸和颜色/);assert.doesNotMatch(html,/混装登记暂未接入/);assert.match(html,/正在读取可派单司机/);assert.doesNotMatch(html,/仅档案司机/);
+assert.match(html,/登记 \/ 更正实物包裹/,"stock mixing stays reachable from the summary action");
+assert.match(html,/<div hidden="">/,"the package workbench stays out of the default view");
 const customHtml=render({...fulfillment,id:'F-CUSTOM',lineId:'OL-CUSTOM'},{...formal,data:{...formal.data,orderLines:[{id:'OL-CUSTOM',orderType:'定制印刷'}],packingTasks:[{id:'PKT-CUSTOM',orderLineId:'OL-CUSTOM',status:'待打包'}]}});
 assert.match(customHtml,/定制单不混装/);assert.doesNotMatch(customHtml,/混装登记暂未接入|按实物登记包裹|同一订单可混装/);
+assert.match(customHtml,/登记本明细包裹/,"custom packing stays available from the summary action");
+assert.match(customHtml,/<div hidden="">/,"custom per-package entry stays collapsed until opened");
 assert.match(customHtml, /<legend>登记实际包裹<\/legend>/, "forbidding custom mixing must not hide the independent packing form");
 assert.match(customHtml, /逐包数量（每行一包，可修改）/);
 assert.match(customHtml, /核对并登记包裹/);
