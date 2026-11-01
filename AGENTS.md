@@ -35,7 +35,8 @@ Prototype-specific design decisions:
 - 2026-10-30 负责人确认收货逐卷颜色用紧凑格式 `厂内标准色（厂家票面色）`，例如 `红色（红色） / 宝蓝（宝蓝） / 海蓝（海兰）`，即使名称相同也保留括号中的票面色。电脑和手机核对行一致，删除每卷重复的“暂用票面色，厂内色待统一”等说明；厂内色未确认时只显示票面色，不为了凑格式编造对应关系。本条是显示规范，示例不自动写入任何供应商的颜色映射。
 
 - 2026-10-30 负责人确认原料颜色逐步统一：尚无厂内对应关系时，先用厂家票面颜色完成逐卷人工核对、入库、卷标和领料，不得仅因缺映射阻断。supplierColor 保留票面叫法，factoryColor 未确认就留空，复核卷以 factoryColorMappingStatus = supplier_provisional 标记暂用票面色，界面注明待统一；不得自动新建标准色或从整单第一行借颜色。后续按供应商汇总票面色，工作人员手写厂内对应色，有权限人员再据此维护可审计映射。映射只影响后续识别和当前明确回填的待复核草稿，不静默重写已入库历史。此规则优先于下文较早的“未映射即阻断”及“必须选厂内色”表述。无票面色且无有效厂内色仍需核实，非空厂内色仍须来自维护的标准色库。
-- 选定收货方向但不可变 OCR 原文或表格出现明确退货证据时，保留原选择和原图，电脑及手机均提示冲突并阻断收货复核。由人显式点击“改为退货单核对”，复用有权限、有版本校验和审计的保存表格重解析，不重复请求云 OCR，不生成入库卷码；已复核记录不能用此动作改方向。
+- 2026-11-01 负责人确认：新识别单据的自动退货判定仅指“原材料供应商退货”：到厂原材料因质量等问题退回供应商，供应商开具退货单，工作人员用高拍仪、手机或上传原图识别。有明确退货标题或物料退货负数等不可变票面证据时，即使拍摄时误选“送货单”，也自动建立 `supplier_return` 原材料退货草稿，并说明自动改向依据；保留拍摄选择、原图、OCR 原文与来源。只有历史欠款为负、证据不足或相互矛盾时不能据此自动认定整单退货，仍需人工判断。自动判方向后仍为“已识别待复核”，由人核对物料、重量、单价和金额；不生成入库卷标，不自动确认退货、扣库存、结算或付款。已入库原料的实物退厂继续走“供应商退货暂存区 → 已退厂”扫码出库，确认退厂时只扣减一次。此规则只覆盖原材料退回供应商，不扩展为客户成品退货、销售退单或订单取消，也不改变颜色规则。本条取代此前对所有新拍单一律要求手动改方向的规定；代码与部署状态仍须另行核验。
+- 已保存为收货方向的旧草稿若不可变 OCR 原文或表格出现明确退货证据，电脑及手机继续提示冲突并阻断收货复核，由人显式点击“改为退货单核对”。该动作复用有权限、有版本校验和审计的保存表格重解析，不重复请求云 OCR，不生成入库卷码；不得通过普通草稿刷新、重试或解析器升级静默批量改写旧草稿，已复核或已入库记录更不得自动改向。
 
 - Packing entry follows the accepted business boundary: common/stock orders may use the physical mixed-package workbench, but custom orders must retain an independent per-line packing entry using the signed `/packing-tasks/{id}/complete` command. Hiding custom packing because mixing is forbidden is a regression. Custom packing requires explicitly entered per-package quantities, physical checks, a written basis and a confirmation summary; an uncertain receipt retains the exact request/idempotency key instead of generating duplicate packages. Keep the existing custom express-label/trusted-print flow separate from stock mixed-group package labels.
 
