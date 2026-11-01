@@ -9,6 +9,7 @@ import {
   TagOutlined,
 } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { RawMaterialColorDisplay } from "./RawMaterialColorDisplay.jsx";
 import { formatRawMaterialColorDisplay } from "./rawMaterialColorDisplay.js";
 import { downloadOfficeAttachmentContent } from "../../services/officeAttachmentApiClient.js";
 import { RAW_MATERIAL_OCR_NORMALIZED_MAX_EDGE } from "../../services/rawMaterialDeliveryNoteImageClient.js";
@@ -444,7 +445,7 @@ export function RawMaterialMobileOcrReview({
 
                 <div className="raw-material-mobile-review-line-summary">
                   <span className="raw-material-mobile-review-color" style={{ "--roll-color": getRollColor(color) }} aria-hidden="true" />
-                  <span className="line-color" title={isSupplierReturn ? undefined : formatRawMaterialColorDisplay(color, supplierColor)}>{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : formatRawMaterialColorDisplay(color, supplierColor)}</span>
+                  <span className="line-color" title={isSupplierReturn ? undefined : formatRawMaterialColorDisplay(color, supplierColor)}>{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : <RawMaterialColorDisplay factoryColor={color} supplierColor={supplierColor} />}</span>
                   <span className={`line-spec ${!specReady && !isSupplierReturn ? "has-blocker" : ""}`}>{isSupplierReturn ? `${specDisplay} · ${returnPriceDisplay}` : specDisplay}</span>
                   <span className="line-weight">{Math.abs(weight) > 0 ? formatWeight(weight, true) : `本${isSupplierReturn ? "件" : "卷"}重量待补`}</span>
                   <em className={`line-status ${reviewed ? "is-reviewed" : blockers.length ? "has-blocker" : ""}`}>
