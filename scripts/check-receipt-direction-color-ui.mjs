@@ -51,9 +51,21 @@ try {
       const ticket = element.querySelector('.raw-material-ticket-color');
       const factoryStyle = getComputedStyle(factory);
       const ticketStyle = getComputedStyle(ticket);
-      const row = element.closest('.office-roll-row').getBoundingClientRect();
+      const rowElement = element.closest('.office-roll-row');
+      const row = rowElement.getBoundingClientRect();
       const text = element.getBoundingClientRect();
-      const widthCell = element.closest('.office-roll-row').querySelector('.office-roll-fact:nth-of-type(2)').getBoundingClientRect();
+      const widthCell = rowElement.querySelector('.office-roll-fact:nth-of-type(2)').getBoundingClientRect();
+      const label = rowElement.querySelector('strong');
+      const chip = rowElement.querySelector('.raw-material-color-chip').getBoundingClientRect();
+      const labelBox = label.getBoundingClientRect();
+      const separated = [...document.querySelectorAll('.office-roll-row')].every((item) => {
+        const roll = item.querySelector('strong');
+        const swatch = item.querySelector('.raw-material-color-chip');
+        if (!roll || !swatch) return true;
+        const rollBox = roll.getBoundingClientRect();
+        const swatchBox = swatch.getBoundingClientRect();
+        return roll.scrollWidth <= roll.clientWidth + 1 && swatchBox.left >= rollBox.right + 6 && swatchBox.left >= rollBox.left + roll.scrollWidth + 6;
+      });
       return {
         text: element.textContent,
         factorySize: factoryStyle.fontSize,
@@ -63,6 +75,9 @@ try {
         fitsText: element.scrollWidth <= element.clientWidth + 1,
         insideRow: text.right <= row.right + 0.5 && text.bottom <= row.bottom + 0.5,
         clearOfWidth: text.right <= widthCell.left + 0.5,
+        labelFits: label.scrollWidth <= label.clientWidth + 1,
+        chipAfterLabel: chip.left >= labelBox.right + 6,
+        separated,
       };
     });
     assert.equal(ticketMetrics.text, '宝蓝（宝兰）');
@@ -73,6 +88,9 @@ try {
     assert.equal(ticketMetrics.fitsText, true, `ticket colour overflowed its cell at ${width}px`);
     assert.equal(ticketMetrics.insideRow, true);
     assert.equal(ticketMetrics.clearOfWidth, true);
+    assert.equal(ticketMetrics.labelFits, true, `roll number was clipped at ${width}px`);
+    assert.equal(ticketMetrics.chipAfterLabel, true, `colour chip overlapped the roll number at ${width}px`);
+    assert.equal(ticketMetrics.separated, true, `a roll number still meets its colour chip at ${width}px`);
     await page.locator('.office-roll-row').filter({hasText:'海兰'}).first().getByRole('button',{name:'改这一卷',exact:true}).click();
     await page.getByRole('button',{name:'维护厂家颜色对应',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'厂家颜色资料'});
