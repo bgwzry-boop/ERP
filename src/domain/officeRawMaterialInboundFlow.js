@@ -10,6 +10,7 @@ import {
   formatRawMaterialMobileSpec,
   parseRawMaterialSpec,
 } from "../../shared/rawMaterialSpec.js";
+import { evaluateRawMaterialOneClickInbound, isPendingStickConfirmRoll } from "./rawMaterialWholeRollPolicy.js";
 
 export const OFFICE_LABEL_PAPER = Object.freeze({
   widthMm: 76,
@@ -91,36 +92,15 @@ export function officePhysicalRollCount(inbound = {}) {
   return Number.isInteger(declared) && declared > 0 ? declared : actual;
 }
 
-export function evaluateOfficeInboundCompletion(inbound = {}, stickCount) {
-  const rollCount = officePhysicalRollCount(inbound);
-  const pending = listOfficePendingAttachRolls(inbound);
-  if (officeHasMismatch(inbound)) {
-    return { allowed: false, pending, rollCount, reason: "有卷对不上，先单独处理，整单不能一次入库。" };
-  }
-  if (!pending.length) {
-    return { allowed: false, pending, rollCount, reason: "没有待入库的卷。" };
-  }
-  const stuck = parseStickCount(stickCount);
-  if (stuck == null) {
-    return { allowed: false, pending, rollCount, reason: "先填写已经贴上的标签张数。" };
-  }
-  if (stuck !== rollCount) {
-    return {
-      allowed: false,
-      pending,
-      rollCount,
-      reason: `已贴 ${stuck} 张，这单有 ${rollCount} 卷。张数对不上，先回院子核对，不要入库。`,
-    };
-  }
-  if (pending.length !== rollCount) {
-    return {
-      allowed: false,
-      pending,
-      rollCount,
-      reason: `还有 ${pending.length} 卷待入库，和这单 ${rollCount} 卷不一致，不能一次入库。`,
-    };
-  }
-  return { allowed: true, pending, rollCount, reason: "" };
+export function evaluateOfficeInboundCompletion(inbound = {}) {
+  const gate = evaluateRawMaterialOneClickInbound(inbound);
+  const pending = (inbound.rolls ?? []).filter(isPendingStickConfirmRoll);
+  return {
+    allowed: gate.allowed,
+    pending,
+    rollCount: gate.rollCount,
+    reason: gate.blocker,
+  };
 }
 
 export function buildOfficeMatchedAttachPayload(inbound = {}, roll = {}) {
@@ -133,7 +113,7 @@ export function buildOfficeMatchedAttachPayload(inbound = {}, roll = {}) {
     checkedColor: facts.color,
     checkedSpec: roll.spec || inbound.spec || facts.specLabel,
     location: "原料库-可用区",
-    verificationNote: "办公室核对已贴张数与卷数一致，一次确认入库。",
+    verificationNote: "办公室确认本卷标签与实物一致。",
   };
 }
 
@@ -253,12 +233,6 @@ function describeOfficeRollFacts(roll = {}, inbound = {}) {
 
 function officeHasMismatch(inbound = {}) {
   return (inbound.rolls ?? []).some((roll) => String(roll.labelStatus || "").includes("不符") || roll.inventoryStatus === "待确认");
-}
-
-function parseStickCount(value) {
-  const text = String(value ?? "").trim();
-  if (!/^(?:0|[1-9]\d*)$/u.test(text)) return null;
-  return Number(text);
 }
 
 function readWeightDraft(value, count) {

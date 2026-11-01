@@ -3,6 +3,7 @@ import {
   recognizeOfficeRawMaterialDeliveryNote,
   updateOfficeRawMaterialInboundAction,
 } from "../src/services/officeRawMaterialApiClient.js";
+import { toRawMaterialInboundActionSlug } from "../shared/rawMaterialInboundActionSlugs.js";
 
 const mebibyte = 1024 * 1024;
 const sourceFiles = [
@@ -96,6 +97,59 @@ const corrected = await updateOfficeRawMaterialInboundAction({
   },
 });
 assert.equal(corrected.inbound.documentDirection, "supplier_return");
+
+for (const action of ["本单已贴齐/一键入库", "one_click_inbound", "one-click-inbound"]) {
+  assert.equal(toRawMaterialInboundActionSlug(action), "one-click-inbound", `${action} must map to the one-click inbound route`);
+}
+assert.equal(toRawMaterialInboundActionSlug("确认入库"), "", "an unlabeled confirm must not invent a route");
+const missingAction = await updateOfficeRawMaterialInboundAction({
+  action: "确认入库",
+  expectedRevision: 4,
+  inboundId: "RMI-ONE-CLICK",
+  operatorId: "U-OFFICE-A",
+}, {
+  apiBaseUrl: "http://erp.test/api",
+  fetchImpl: async () => {
+    throw new Error("a missing action slug must not call the server");
+  },
+});
+assert.equal(missingAction.blocked, true);
+assert.equal(missingAction.error.code, "RAW_MATERIAL_INBOUND_ACTION_INVALID");
+assert.equal(missingAction.error.message, "缺少原材料入库单或动作。");
+
+const oneClickCalls = [];
+const oneClick = await updateOfficeRawMaterialInboundAction({
+  action: "本单已贴齐/一键入库",
+  expectedRevision: 4,
+  inboundId: "RMI-ONE-CLICK",
+  location: "原料库-可用区",
+  operatorId: "U-OFFICE-A",
+  verificationNote: "办公室确认本单已贴齐，一键入库。",
+}, {
+  apiBaseUrl: "http://erp.test/api",
+  fetchImpl: async (url, init) => {
+    oneClickCalls.push({ url, init });
+    const body = JSON.parse(init.body);
+    assert.equal(body.expectedRevision, 4);
+    assert.equal(body.location, "原料库-可用区");
+    assert.equal(body.verificationNote, "办公室确认本单已贴齐，一键入库。");
+    return jsonResponse({
+      inbound: {
+        id: "RMI-ONE-CLICK",
+        revision: 5,
+        status: "已贴标/可用库存",
+        rolls: [{ id: "RM-1", inventoryStatus: "可用", labelStatus: "已贴标/可用库存" }],
+      },
+    });
+  },
+});
+assert.equal(oneClick.blocked, undefined);
+assert.equal(oneClick.source, "api");
+assert.equal(oneClick.inbound.status, "已贴标/可用库存");
+assert.deepEqual(oneClickCalls.map((call) => call.url), [
+  "http://erp.test/api/raw-material-inbounds/RMI-ONE-CLICK/one-click-inbound",
+]);
+assert.notEqual(oneClick.error?.message, "缺少原材料入库单或动作。");
 
 let oversizeFetchCount = 0;
 const oversize = await recognizeOfficeRawMaterialDeliveryNote({

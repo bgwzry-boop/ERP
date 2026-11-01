@@ -104,13 +104,21 @@ const printed = {
 };
 assert.equal(resolveOfficeInboundStep(printed), "complete");
 assert.equal(officeInboundUsesCountGate(printed), true);
-assert.equal(evaluateOfficeInboundCompletion(printed, "").allowed, false);
-assert.match(evaluateOfficeInboundCompletion(printed, "1").reason, /张数对不上/);
-assert.equal(evaluateOfficeInboundCompletion(printed, "2").allowed, true);
+assert.equal(evaluateOfficeInboundCompletion(printed).allowed, true, "printed pending rolls inbound without a typed stick count");
+assert.equal(evaluateOfficeInboundCompletion(printed).reason, "");
 assert.deepEqual(
-  evaluateOfficeInboundCompletion(printed, "2").pending.map((roll) => roll.id),
+  evaluateOfficeInboundCompletion(printed).pending.map((roll) => roll.id),
   ["RM-A", "RM-B"],
 );
+const unprinted = {
+  ...printed,
+  rolls: [
+    printed.rolls[0],
+    { ...printed.rolls[1], labelStatus: "待生成标签", inventoryStatus: "不可用" },
+  ],
+};
+assert.equal(evaluateOfficeInboundCompletion(unprinted).allowed, false, "print must finish before one-click inbound");
+assert.match(evaluateOfficeInboundCompletion(unprinted).reason, /不能一键入库/);
 assert.equal(buildOfficeMatchedAttachPayload(printed, printed.rolls[0]).matchResult, "matched");
 assert.equal(buildOfficeMatchedAttachPayload(printed, printed.rolls[0]).checkedColor, "本白");
 
@@ -121,8 +129,8 @@ const mismatched = {
     { ...printed.rolls[1], labelStatus: "标签或实物不符/待确认", inventoryStatus: "待确认" },
   ],
 };
-assert.equal(evaluateOfficeInboundCompletion(mismatched, "2").allowed, false);
-assert.match(evaluateOfficeInboundCompletion(mismatched, "2").reason, /对不上/);
+assert.equal(evaluateOfficeInboundCompletion(mismatched).allowed, false);
+assert.match(evaluateOfficeInboundCompletion(mismatched).reason, /异常/);
 assert.equal(officeInboundUsesCountGate(mismatched), false);
 
 assert.equal(receivingReceiptTab({ status: "已识别待复核" }), "待核对");
@@ -178,9 +186,13 @@ assert.match(printRunner, /buildRawMaterialLabelPrintDocument/);
 assert.ok(pageSource.includes("receivingReceiptTab"), "receiving list should follow the acted sheet into its next tab");
 assert.ok(pageSource.includes("actedRecord"), "receiving detail should stay on the sheet that was just confirmed or marked");
 const printCss = readFileSync(new URL("../src/styles/features/raw-material-roll-label.css", import.meta.url), "utf8");
-for (const text of ["扫描或上传", "核对每一卷的颜色、宽幅、公斤", "这批都对，去打印", "改这一卷", "已贴张数", "确认入库", "76×130"]) {
+for (const text of ["扫描或上传", "核对每一卷的颜色、宽幅、公斤", "这批都对，去打印", "改这一卷", "不用填已贴张数", "本单已贴齐/一键入库", "76×130"]) {
   assert.ok(pageSource.includes(text), `office inbound screen should say ${text}`);
 }
+const officeFlowSource = readFileSync(new URL("../src/features/raw-materials/OfficeInboundFlow.jsx", import.meta.url), "utf8");
+assert.equal(officeFlowSource.includes("office-stick-count"), false, "desktop one-click inbound no longer asks for a stick count");
+assert.match(officeFlowSource, /submitInboundAction\(onAction, inbound, "本单已贴齐\/一键入库"/);
+assert.match(officeFlowSource, /不是按识别出来的行数入库/);
 assert.match(printCss, /size:\s*76(?:\.00)?mm 130(?:\.00)?mm/, "label print page should use 76×130 waybill paper");
 assert.equal(pageSource.includes("原材料卷标"), false, "the printed label should not repeat a generic label heading");
 

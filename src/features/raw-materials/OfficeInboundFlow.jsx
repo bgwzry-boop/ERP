@@ -46,25 +46,23 @@ export function OfficeInboundFlow({
   const [directionError, setDirectionError] = useState("");
   const blockedRow = rows.find((row) => row.blocker);
   const [editingId, setEditingId] = useState("");
-  const [stickCount, setStickCount] = useState("");
   const [completing, setCompleting] = useState(false);
-  const completion = evaluateOfficeInboundCompletion(inbound, stickCount);
+  const completion = evaluateOfficeInboundCompletion(inbound);
   const countGate = officeInboundUsesCountGate(inbound);
 
   useEffect(() => {
     setEditingId("");
-    setStickCount("");
     setDirectionError("");
   }, [inbound?.id, inbound?.status]);
 
   async function completeInbound() {
-    const decision = evaluateOfficeInboundCompletion(inbound, stickCount);
+    const decision = evaluateOfficeInboundCompletion(inbound);
     if (!decision.allowed || attachState?.disabled || completing) return;
     setCompleting(true);
     try {
       await submitInboundAction(onAction, inbound, "本单已贴齐/一键入库", {
         location: "原料库-可用区",
-        verificationNote: "办公室核对已贴张数与卷数一致，本单已贴齐。",
+        verificationNote: "办公室确认本单已贴齐，一键入库。",
       });
     } finally {
       setCompleting(false);
@@ -124,7 +122,7 @@ export function OfficeInboundFlow({
         rows={rows}
       /> : null}
       {canEdit && blockedRow && !directionConflict ? <p className="office-inbound-block" role="status">第 {blockedRow.physicalRollIndex} 卷{blockedRow.blocker}</p> : null}
-      {step === "complete" && completion.reason && (stickCount.trim() || !completion.reason.startsWith("先填写")) ? (
+      {step === "complete" && completion.reason ? (
         <p className="office-inbound-block" role="status">{completion.reason}</p>
       ) : null}
       {reviewBlocker && !directionConflict ? (
@@ -172,7 +170,7 @@ export function OfficeInboundFlow({
             className="primary-action"
             disabled={Boolean(printState?.disabled) || !printableCount}
             onClick={onPrint}
-            title="一卷一标。打印标签只是待贴标，贴到实物并回办公室核对张数后才入库"
+            title="一卷一标。打印标签只是待贴标，回办公室确认整单已贴齐后才入库"
             type="button"
           >
             打印 {printableCount} 张 · 76×130
@@ -180,25 +178,14 @@ export function OfficeInboundFlow({
         ) : null}
         {step === "complete" ? (
           <>
-            <label className="office-stick-count">
-              <span>已贴张数</span>
-              <input
-                inputMode="numeric"
-                min="0"
-                onChange={(event) => setStickCount(event.target.value)}
-                step="1"
-                type="number"
-                value={stickCount}
-              />
-              <em>/{completion.rollCount}</em>
-            </label>
+            <p className="office-inbound-note">不用填已贴张数。这一下表示整单标签都已贴上，不是按识别出来的行数入库。</p>
             <button
               className="primary-action"
               disabled={Boolean(attachState?.disabled) || !completion.allowed || completing}
               onClick={completeInbound}
               type="button"
             >
-              {completing ? "正在入库…" : "确认入库"}
+              {completing ? "正在入库…" : "本单已贴齐/一键入库"}
             </button>
           </>
         ) : null}
