@@ -25,6 +25,9 @@ export function mergeReviewedSupplierReturnsIntoStatement(statementResult = {}, 
     .sort((left, right) => returnDate(left).localeCompare(returnDate(right)) || cleanText(left.id).localeCompare(cleanText(right.id)));
 
   for (const supplierReturn of reviewedReturns) {
+    // A same-weight/same-price return from another month cannot consume this
+    // period's Excel row before the actual current-period return is matched.
+    if (statementMonths.size && !returnBelongsToStatementPeriod(supplierReturn, statementMonths)) continue;
     const evidence = buildSupplierReturnEvidence(supplierReturn);
     const matchingRow = findMatchingReturnRow(rows, supplierReturn, usedRowIds);
     if (matchingRow) {
@@ -121,7 +124,18 @@ function scoreReturnMatch(candidate = {}, supplierReturn = {}) {
   let score = 0;
   const inboundId = cleanText(supplierReturn.id);
   const documentNo = cleanText(supplierReturn.deliveryNoteNo);
-  if (inboundId && cleanText(candidate.matchedInboundId || candidate.sourceReturnInboundId) === inboundId) score += 120;
+  const existingSourceId = cleanText(candidate.sourceReturnInboundId);
+  if (existingSourceId && existingSourceId !== inboundId) return -Infinity;
+  const candidateSupplier = cleanText(candidate.supplierName);
+  if (candidateSupplier && !suppliersAreEquivalent(candidateSupplier, supplierReturn.supplierName)) return -Infinity;
+  const exactSource = Boolean(inboundId && [cleanText(candidate.matchedInboundId), existingSourceId].includes(inboundId));
+  const exactDocument = documentNo && cleanText(candidate.documentNo || candidate.sourceDocumentNo) === documentNo;
+  const candidateDate = documentDay(candidate.documentDate || candidate.sourceDocumentDate);
+  const supplierReturnDate = documentDay(returnDate(supplierReturn));
+  // Explicit identity remains authoritative. Fuzzy amounts/weights cannot
+  // override two known, contradictory document dates.
+  if (!exactSource && !exactDocument && candidateDate && supplierReturnDate && candidateDate !== supplierReturnDate) return -Infinity;
+  if (exactSource) score += 120;
   if (documentNo && cleanText(candidate.documentNo || candidate.sourceDocumentNo) === documentNo) score += 110;
   if (documentNo && cleanText(candidate.label).includes(documentNo)) score += 100;
 
@@ -135,13 +149,20 @@ function scoreReturnMatch(candidate = {}, supplierReturn = {}) {
   if (Number.isFinite(candidateWeight) && Number.isFinite(returnWeight) && Math.abs(Math.abs(candidateWeight) - Math.abs(returnWeight)) <= 0.1) {
     score += 25;
   }
-  const candidateDate = cleanText(candidate.documentDate || candidate.sourceDocumentDate);
-  const supplierReturnDate = returnDate(supplierReturn);
-  if (candidateDate && supplierReturnDate && candidateDate.slice(0, 10) === supplierReturnDate.slice(0, 10)) score += 20;
+  if (candidateDate && supplierReturnDate && candidateDate === supplierReturnDate) score += 20;
   if (suppliersAreEquivalent(candidate.supplierName, supplierReturn.supplierName)) score += 20;
   if (textIntersects(candidate.spec || candidate.productName, [supplierReturn.spec, supplierReturn.productName, supplierReturn.materialType])) score += 10;
   if (textIntersects(candidate.color, [supplierReturn.supplierColor, supplierReturn.factoryColor])) score += 10;
   return score;
+}
+
+function documentDay(value) {
+  const match = cleanText(value).match(/^(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?=$|日|T|\s)/u);
+  if (!match) return "";
+  const [, year, month, day] = match;
+  const canonical = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const date = new Date(`${canonical}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === canonical ? canonical : "";
 }
 
 function buildErpReturnAdjustment(supplierReturn, evidence) {

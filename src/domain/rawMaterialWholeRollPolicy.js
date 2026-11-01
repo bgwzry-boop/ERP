@@ -19,14 +19,23 @@ export function resolveRawMaterialWholeRollMachine(machineId) {
   // 丝印 has no machine queue: its tasks sit in one pool, so the workshop itself is a valid target.
   if (text === "丝印车间") return "丝印车间";
   const print = text.toUpperCase().match(/^(?:PRINT-0([1-9])|([1-9])号丝印机|丝印(?:机)?-0([1-9]))$/);
-  if (print) return `${print.slice(1).find(Boolean)}号丝印机`;
+  if (print) {
+    const label = `${print.slice(1).find(Boolean)}号丝印机`;
+    return RAW_MATERIAL_WHOLE_ROLL_PRINT_MACHINE_LABELS.includes(label) ? label : "";
+  }
   const direct = text.match(/^([1-9])号机$/);
-  if (direct) return `${direct[1]}号机`;
+  if (direct) return RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS.includes(text) ? text : "";
   const upper = text.toUpperCase();
   const bag = upper.match(/^BAG-0([1-9])$/);
-  if (bag) return `${Number(bag[1])}号机`;
+  if (bag) {
+    const label = `${Number(bag[1])}号机`;
+    return RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS.includes(label) ? label : "";
+  }
   const legacy = text.match(/^制袋(?:机)?-0([1-9])$/);
-  if (legacy) return `${Number(legacy[1])}号机`;
+  if (legacy) {
+    const label = `${Number(legacy[1])}号机`;
+    return RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS.includes(label) ? label : "";
+  }
   if (text === "1号制袋机") return "1号机";
   return "";
 }

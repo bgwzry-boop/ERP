@@ -15,3 +15,5 @@ assert.deepEqual(reconciled.addedSupplierReturnIds, []);
 assert.deepEqual(reconciled.linkedSupplierReturnIds, []);
 assert.equal(reconciled.adjustments.length, 0);
 console.log("Supplier identity checks passed: no substring cross-supplier return/credit assignment; explicit accepted aliases retained.");
+
+await import("./check-raw-material-return-period-matching.mjs");

@@ -221,3 +221,5 @@ for (const action of ["review_leftover", "复核余料可用", "return_leftover"
 }
 
 console.log("raw-material whole-roll policy checks passed");
+
+await import("./check-raw-material-machine-range.mjs");

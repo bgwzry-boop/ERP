@@ -85,7 +85,16 @@ export function createProductionSchedulingCommandService({
         cleanText(body.publishedScheduleId) ||
         cleanText(beforeTask.publishedScheduleId) ||
         nextPlainId("SCH", `${machineId}-${productionTaskId}-${compactTimestamp(publishedAt)}`);
-      const taskStatus = body.taskStatus ?? resolvePublishedProductionTaskStatus({ taskType, beforeTask, beforeOrderLine });
+      const taskStatus = resolvePublishedProductionTaskStatus({ taskType, beforeTask, beforeOrderLine });
+      const lineStatus = resolvePublishedProductionLineStatus({ taskType, beforeOrderLine, taskStatus });
+      if ((body.taskStatus != null && cleanText(body.taskStatus) !== taskStatus)
+        || (body.lineStatus != null && cleanText(body.lineStatus) !== lineStatus)) {
+        return businessError(
+          409,
+          "PRODUCTION_SCHEDULE_STATUS_CONFLICT",
+          "排产状态由服务器按当前工序确定，不能通过排产请求改为其他生产或交付状态。请刷新后重试。",
+        );
+      }
       const productionTask = {
         ...beforeTask,
         id: productionTaskId,
@@ -105,7 +114,6 @@ export function createProductionSchedulingCommandService({
         createdAt: beforeTask.createdAt ?? publishedAt,
         updatedAt: publishedAt,
       };
-      const lineStatus = body.lineStatus ?? resolvePublishedProductionLineStatus({ taskType, beforeOrderLine, taskStatus });
       const orderLine = {
         ...beforeOrderLine,
         orderLineId: beforeOrderLine.orderLineId ?? beforeOrderLine.id,

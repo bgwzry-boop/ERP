@@ -661,6 +661,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
         workspace,
         reviewId,
         paidAmount: body.paidAmount ?? body.amount,
+        roundingAmount: body.roundingAmount,
         paymentMethod: body.paymentMethod,
         paymentAccount: body.paymentAccount,
         paymentReferenceNo: body.paymentReferenceNo,

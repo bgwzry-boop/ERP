@@ -26,30 +26,37 @@ export function printRawMaterialLabelFrame(frame, sheetHtml) {
     iframe?.remove?.();
     return Promise.resolve(false);
   }
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(buildRawMaterialLabelPrintDocument(sheetHtml));
-  iframe.contentDocument.close();
   const win = iframe.contentWindow;
-  let opened = false;
-  win.addEventListener("beforeprint", () => {
-    opened = true;
-  });
-  win.focus();
-  win.print();
-  if (!opened) {
-    iframe.remove();
-    return Promise.resolve(false);
-  }
   return new Promise((resolve) => {
+    let opened = false;
     let settled = false;
-    const finish = () => {
+    let fallback;
+    const beforePrint = () => { opened = true; };
+    const afterPrint = () => finish(opened);
+    const finish = (result) => {
       if (settled) return;
       settled = true;
-      win.removeEventListener("afterprint", finish);
+      win.removeEventListener("beforeprint", beforePrint);
+      win.removeEventListener("afterprint", afterPrint);
+      if (fallback !== undefined) clearTimeout(fallback);
       iframe.remove();
-      resolve(true);
+      resolve(result);
     };
-    win.addEventListener("afterprint", finish);
-    setTimeout(finish, 120000);
+    // Blocking print implementations dispatch afterprint before print() returns.
+    // Install both listeners first so closing the dialog cannot be missed.
+    win.addEventListener("beforeprint", beforePrint);
+    win.addEventListener("afterprint", afterPrint);
+    try {
+      iframe.contentDocument.open();
+      iframe.contentDocument.write(buildRawMaterialLabelPrintDocument(sheetHtml));
+      iframe.contentDocument.close();
+      win.focus();
+      win.print();
+      if (settled) return;
+      if (!opened) finish(false);
+      else fallback = setTimeout(() => finish(true), 120000);
+    } catch {
+      finish(false);
+    }
   });
 }

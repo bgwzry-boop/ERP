@@ -310,3 +310,5 @@ for (const machine of [{id:"DISABLED",machineType:"bag_making",enabled:false,sta
  const moved = await service.moveMachineQueueItem({workspace,operatorId:"U-OFFICE",body:{productionTaskId:"PT-1",targetMachineId:machine.id,expectedRevision:1}});
  assert.equal(moved.code,result.code);
 }
+
+await import("./check-production-scheduling-status-authority.mjs");

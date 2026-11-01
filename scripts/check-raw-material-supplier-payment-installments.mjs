@@ -96,3 +96,5 @@ assert.equal(supplierSettlementState(legacy).completedCount, 4);
 assert.equal(supplierSettlementState({ supplierPaymentConfirmationId: "RMSPAY-OLD" }).completedCount, 4, "legacy rows without paymentStatus stay settled");
 
 console.log("raw-material supplier payment installment check passed: installments add up, 抹零 only clears the balance, overpayment blocked, legacy single payments preserved.");
+
+await import("./check-supplier-payment-command-rounding.mjs");

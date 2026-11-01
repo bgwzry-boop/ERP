@@ -117,3 +117,5 @@ assert.match(sheet, /fitRollLabelCellText\(label\.inboundNo/);
 assert.match(css, /td\.is-fit-wrap\s*\{[^}]*white-space:\s*normal/s);
 
 console.log("raw-material roll label checks passed: locked 76×130mm template, company facts, and scannable roll-code QR.");
+
+await import("./check-raw-material-label-print-lifecycle.mjs");
