@@ -19,8 +19,25 @@ const ocr = {tables: [{cells: cells([
   ['本单金额','-802.40'],
 ])}]};
 const input = {inboundId:'RMI-TEST-DIRECTION', knownSupplierNames:['人意无纺布'], ocr};
-const before = {...buildRawMaterialInboundDraftFromOcr({...input, documentDirectionHint:'supplier_delivery'}), sourceAttachmentId:'ATT-TEST-SOURCE', sourceAttachmentIds:['ATT-TEST-SOURCE'], ocrSourceDigest:'unchanged-source-digest'};
-assert.equal(before.documentDirection, 'supplier_delivery', 'never silently override capture choice');
+const capturedUnderDelivery = buildRawMaterialInboundDraftFromOcr({...input, documentDirectionHint:'supplier_delivery'});
+assert.equal(capturedUnderDelivery.documentDirection, 'supplier_return', 'negative material lines override a 送货单 capture selection');
+assert.equal(capturedUnderDelivery.documentDirectionSource, 'ocr_return_evidence_over_capture_selection');
+assert.equal(capturedUnderDelivery.totalWeightKg, -68);
+assert.equal(capturedUnderDelivery.rolls.length, 0);
+// Drafts already stored as delivery keep the explicit correction gate.
+const before = {
+  ...capturedUnderDelivery,
+  documentDirection: 'supplier_delivery',
+  documentDirectionSource: 'operator_capture_selection',
+  documentTypeLabel: '送货单',
+  totalWeightKg: 68,
+  amount: 802.4,
+  statementDifferences: capturedUnderDelivery.statementDifferences.filter((item) => !item.includes('已按退货单处理')),
+  sourceAttachmentId: 'ATT-TEST-SOURCE',
+  sourceAttachmentIds: ['ATT-TEST-SOURCE'],
+  ocrSourceDigest: 'unchanged-source-digest',
+};
+assert.equal(before.documentDirection, 'supplier_delivery', 'drafts already saved as 送货单 stay blocked until an explicit correction');
 assert.equal(before.totalWeightKg, 68);
 assert.equal(hasStrongRawMaterialSupplierReturnEvidence(before), true);
 assert.match(officeReviewSubmitBlocker(before), /退货/);
