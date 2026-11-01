@@ -83,7 +83,7 @@ Current decision baseline: 2026-10-22 version unification; V8.306 is a historica
 - Roy’s whole-roll rule is authoritative for raw-material stock. Each physical roll is the stock unit. The roll inventory defaults to available yard stock (`可用`); colour plus width filters show the available count and drill into those rolls. Machine-side and unconfirmed rolls stay out of that default view.
 - Raw material is whole-roll in and whole-roll out. Partial issue, split-roll outbound, leftover return, and leftover review back to available stock are disabled. Outbound is scan against a task (bag-making machines `1号机`–`9号机`, or the 丝印 pool), then confirm; available stock decreases by one roll and the roll becomes `机边领用`, including any leftover that remains on the machine. On 2026-10-24 Roy reconfirmed that `return_leftover` and `review_leftover` hard-reject any write back to `可用`.
 - On 2026-10-24 Roy confirmed common-goods mixed packing. Stock and printed-stock orders, including pickups under about 1000 pieces, may share one package across lines, colours and sizes, with per-item quantities and an in-package total. Custom orders are refused and are not offered the mixed entry. The quantity example is not a numeric ceiling.
-- After labels are printed and physically applied, office uses `本单已贴齐/一键入库`. It is blocked unless the printed label count, roll count, and pending stick-confirm roll count are equal and no exception roll remains. Matching rolls become available; exception rolls stay out.
+- After labels are printed and physically applied, office uses `本单已贴齐/一键入库`. On 2026-11-01 Roy removed the desktop typed stuck-label count: the button itself is the whole-order stick confirmation, not an OCR line quantity. It is blocked unless the printed label count, roll count, and pending stick-confirm roll count are equal and no exception roll remains. Printing alone does not make rolls available. Matching rolls become available; exception rolls stay out.
 
 ## Runtime And Security
 
@@ -100,7 +100,7 @@ Current decision baseline: 2026-10-22 version unification; V8.306 is a historica
 - Page headings contain the title and real page-local controls only. Repeated subtitles, duplicate facts, decorative KPI strips and universal dashboard templates remain removed.
 - Long phone states scroll within their frame; blocking/error/confirmation/result states remain reachable and role boundaries remain explicit.
 - Detailed active presentation and workflow decisions live in `AGENTS.md`; this file records the current cross-domain authority and release decisions rather than duplicating the full UI specification.
-- Office desktop is the primary raw-material inbound surface: scan or upload the delivery note, review color / width / kilograms, print one 76×130mm label per roll, then complete inbound in one click only when the stuck-label count equals the roll count. The default receiving view is the roll ledger, without step narration or a second document grid. Existing review, print and per-roll attach commands remain the server contract.
+- Office desktop is the primary raw-material inbound surface: scan or upload the delivery note, review color / width / kilograms, print one 76×130mm label per roll, then complete inbound with `本单已贴齐/一键入库` without typing a stuck-label count. The print and exception gate still blocks that action. The default receiving view is the roll ledger, without step narration or a second document grid. Existing review, print and per-roll attach commands remain the server contract.
 
 ## Engineering
 

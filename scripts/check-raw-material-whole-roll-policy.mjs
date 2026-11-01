@@ -100,6 +100,29 @@ assert.equal(opened.inbound.rolls.every((item) => item.inventoryStatus === "可�
 assert.equal(opened.inbound.rolls.every((item) => item.labelStatus === "已贴标/可用库存"), true);
 assert.equal(opened.inbound.labelVerificationSummary.oneClickInbound, true);
 
+const reviewedForPrint = {
+  ...pendingInbound,
+  id: "RMI-WHOLE-PRINT",
+  status: "已复核待打印标签",
+  rolls: [
+    roll("RM-PRINT-01", { labelStatus: "待打印标签", inventoryStatus: "不可用" }),
+    roll("RM-PRINT-02", { labelStatus: "待打印标签", inventoryStatus: "不可用" }),
+  ],
+};
+const printedOnly = applyRawMaterialInboundAction({
+  inbounds: [reviewedForPrint],
+  inboundId: reviewedForPrint.id,
+  action: "打印卷标",
+  operatorId: "U-OFFICE-A",
+  operatorName: "办公室A",
+  serverNow: "2026-10-21T01:00:00.000Z",
+  body: { expectedRevision: 1 },
+});
+assert.equal(printedOnly.inbound.status, "已打印待贴标");
+assert.equal(printedOnly.inbound.rolls.every((item) => item.labelStatus === "已打印待贴标"), true);
+assert.equal(printedOnly.inbound.rolls.every((item) => item.inventoryStatus === "不可用"), true, "printing alone must not mark rolls available");
+assert.equal(evaluateRawMaterialOneClickInbound(printedOnly.inbound).allowed, true);
+
 const exceptionInbound = {
   ...pendingInbound,
   id: "RMI-WHOLE-EX",

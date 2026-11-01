@@ -6,6 +6,7 @@ export function toRawMaterialInboundActionSlug(action) {
   if (value === "打印卷标" || value === "print_labels" || value === "print-labels") return "print-labels";
   if (value === "暂缓打印卷标" || value === "defer_labels" || value === "defer-labels") return "defer-labels";
   if (value === "确认贴标入库" || value === "attach_confirm" || value === "attach-confirm") return "attach-confirm";
+  if (value === "本单已贴齐/一键入库" || value === "one_click_inbound" || value === "one-click-inbound") return "one-click-inbound";
   if (value === "作废卷标" || value === "void_label" || value === "void-label") return "void-label";
   if (value === "重打卷标" || value === "reprint_label" || value === "reprint-label") return "reprint-label";
   if (value === "供应商退货暂存" || value === "stage_supplier_return" || value === "stage-supplier-return") return "stage-supplier-return";
