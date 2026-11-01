@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.jsx";
+import { installInternalWorkbenchDeliveryGuard } from "./config/deliveryDemoSurface.js";
 import { establishLocalPreviewIdentity } from "./config/localPreviewIdentity.js";
 import { exposeReleaseIdentity } from "./config/releaseIdentity.js";
 import "./styles/tokens.css";
@@ -11,6 +12,7 @@ import "./styles/shell.css";
 import "./styles/components.css";
 import "./styles/interface-polish.css";
 
+installInternalWorkbenchDeliveryGuard();
 exposeReleaseIdentity();
 const identityGuard = establishLocalPreviewIdentity("bagwin-formal-workbench-root");
 

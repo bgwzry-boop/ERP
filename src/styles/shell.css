@@ -5,6 +5,40 @@
   overflow: hidden;
 }
 
+#erp-internal-workbench-delivery-guard {
+  position: fixed;
+  z-index: 2147483646;
+  top: 0;
+  right: 0;
+  left: 0;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 2px solid var(--erp-danger);
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  user-select: none;
+}
+
+html[data-erp-delivery-surface="internal-workbench"] .app-shell,
+html[data-erp-delivery-surface="internal-workbench"] .runtime-login-shell {
+  height: calc(100vh - 36px);
+  min-height: calc(100vh - 36px);
+  margin-top: 36px;
+}
+
 body:has(.runtime-login-shell) {
   min-width: 0;
 }

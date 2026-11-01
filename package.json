@@ -11,7 +11,7 @@
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "review:dev": "node scripts/run-complete-review-dev.mjs",
     "review:check": "node scripts/check-complete-review-preview.mjs && node scripts/check-review-viewport-reversal.mjs && node scripts/check-review-viewport-live-readonly.mjs && node scripts/check-canonical-colour-conflict.mjs && node scripts/check-receipt-direction-color-ui.mjs",
-    "review:identity:check": "node scripts/check-complete-review-identity.mjs && node scripts/check-local-preview-identity.mjs",
+    "review:identity:check": "node scripts/check-complete-review-identity.mjs && node scripts/check-local-preview-identity.mjs && node scripts/check-delivery-demo-surface.mjs",
     "review:ocr-env:check": "node scripts/check-complete-review-ocr-env.mjs",
     "review:staging-current:check": "node scripts/check-staging-current-ref.mjs",
     "mobile-role-flow-atlas:check": "node scripts/check-mobile-role-flow-atlas.mjs",

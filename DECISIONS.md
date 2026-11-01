@@ -95,7 +95,7 @@ Current decision baseline: 2026-10-22 version unification; V8.306 is a historica
 ## Frontend And UI
 
 - The accepted dark/orange PC shell, list-plus-detail workbench and approved phone atlas remain the visual sources of truth. Production-TV is excluded from the current PC/mobile migration unless explicitly reopened.
-- Local `4174` has one identity: the complete review app `bagwin-complete-review-4174`. The root workbench is fixed to `5173`; each Vite app rejects the other's port. Review delivery requires the canonical launcher plus an app-id/navigation/API health check, and a retained document reloads if the server behind its origin changes.
+- Local `4174` has one identity: the complete review app `bagwin-complete-review-4174`. The root workbench is fixed to `5173`; each Vite app rejects the other's port. Review delivery requires the canonical launcher plus an app-id/navigation/API health check, and a retained document reloads if the server behind its origin changes. On 2026-11-01 owner-facing walkthrough screenshots and recordings must use staging `https://erp-staging.luxingpack.com/` or local port `4174`; `?internalWorkbench=1` stays private debugging and shows `内部工作台 · 非测试站壳 · 禁止当交付演示`.
 - Shared `SemanticTag`, colour tokens and business vocabulary are system contracts. Type, requirement, operational state and assignment remain distinct; text is always present and red is reserved for blocking/exception states.
 - Page headings contain the title and real page-local controls only. Repeated subtitles, duplicate facts, decorative KPI strips and universal dashboard templates remain removed.
 - Long phone states scroll within their frame; blocking/error/confirmation/result states remain reachable and role boundaries remain explicit.
