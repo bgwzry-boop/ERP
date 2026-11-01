@@ -4,10 +4,18 @@
 // Only per-roll text, the QR, and the Code 39 may change.
 //
 // 2026-10-30: Yunda 76×130 face paper keeps preprinted logos in the top corners
-// and small type in the bottom corners. The locked art is placed in the
-// printable band (8mm top, 6mm bottom) at the largest uniform scale that still
-// fits that band. Width is the limiting edge, so the scale stays 1; a taller
-// scale would exceed 76mm and Chrome would shrink the page back down.
+// and small type in the bottom corners. The locked art is placed in that
+// printable band at the largest uniform scale that still fits. Width is the
+// limiting edge, so the scale stays 1; a taller scale would exceed 76mm and
+// Chrome would shrink the page back down.
+//
+// 2026-11-01 reprint: the preprinted header is taller than the first 8mm
+// estimate. On the physical sheet the yellow 韵达 mark plus the three service
+// lines (hotline, site, BB-A code) reach about 11.5mm from the paper top, and
+// 袋袋赢 / 卷料标签 were sitting in that band. The mark is the highest ink and
+// starts 0.35mm into the art, so a 14mm page offset puts it about 3mm below
+// the measured preprinted ink. The extra 6mm comes out of the former bottom
+// gap; the 6mm tip band stays clear and the art is not scaled down.
 
 const sum = (values) => values.reduce((total, value) => total + value, 0);
 const mm = (value) => `${value.toFixed(2)}mm`;
@@ -26,8 +34,9 @@ export const RAW_MATERIAL_ROLL_LABEL_TEMPLATE = Object.freeze({
   qrMm: 25.4,
   barcodeMm: 7.39,
   // Logo safe band on the physical 76×130 Yunda sheet. Not an @page margin:
-  // the print dialog's 边距「无」would discard a page margin.
-  safeTopMm: 8,
+  // the print dialog's 边距「无」would discard a page margin. Top is 14mm so
+  // the brand row clears the preprinted header measured on 2026-11-01.
+  safeTopMm: 14,
   safeBottomMm: 6,
 });
 
