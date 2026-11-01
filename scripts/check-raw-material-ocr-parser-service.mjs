@@ -910,3 +910,6 @@ function pickSpec(spec) {
 // Keep grouped-price regression in the existing parser suite without replacing
 // the shared API check list maintained by other feature branches.
 await import("./check-raw-material-group-pricing.mjs");
+await import("./check-raw-material-document-direction-evidence.mjs");
+await import("./check-raw-material-return-evidence-integration.mjs");
+await import("./check-raw-material-return-direction-guards.mjs");

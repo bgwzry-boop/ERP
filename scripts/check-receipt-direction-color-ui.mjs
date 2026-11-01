@@ -185,3 +185,5 @@ try {
   }
   console.log('PASS desktop 1440/800 and phone 390: direction guard/retry/correction, source colours and mapping refill; ticket colour is 2px larger inside parentheses; all tested business writes mocked.');
 } finally {await browser.close();}
+
+await import("./check-raw-material-return-direction-ui.mjs");

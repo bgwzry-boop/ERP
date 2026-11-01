@@ -28,6 +28,8 @@ import {
 } from "../../../shared/rawMaterialFactoryColors.js";
 import {
   hasStrongRawMaterialSupplierReturnEvidence,
+  hasAmbiguousRawMaterialSupplierReturnEvidence,
+  RAW_MATERIAL_MIXED_DIRECTION_MESSAGE,
   isRawMaterialSupplierReturnFabric,
   RAW_MATERIAL_SUPPLIER_RETURN_CATEGORIES,
 } from "../../../shared/rawMaterialSupplierReturn.js";
@@ -256,7 +258,8 @@ export function RawMaterialMobileOcrReview({
     />
   ) : null;
   const directionConflict = hasStrongRawMaterialSupplierReturnEvidence(selected);
-  const directionCorrection = directionConflict ? (
+  const ambiguousDirection = hasAmbiguousRawMaterialSupplierReturnEvidence(selected);
+  const directionCorrection = ambiguousDirection ? <p className="raw-material-mobile-review-blocker" role="alert">{RAW_MATERIAL_MIXED_DIRECTION_MESSAGE}</p> : directionConflict ? (
     <SupplierReturnDirectionCorrection
       disabled={directionCorrectionDisabled}
       error={directionCorrectionError}
@@ -282,7 +285,7 @@ export function RawMaterialMobileOcrReview({
   const reviewedCount = reviewedRollIds.filter((reviewId) => activeReviewRolls.some((roll) => roll.reviewId === reviewId)).length;
   const documentBlockers = getMobileOcrDocumentBlockers(selected?.ocrReviewFields, documentDraft);
   const allReviewed = activeReviewRolls.length > 0 && reviewedCount === activeReviewRolls.length;
-  const canSubmit = allReviewed && documentBlockers.length === 0 && !directionConflict && !directionCorrecting;
+  const canSubmit = allReviewed && documentBlockers.length === 0 && !directionConflict && !ambiguousDirection && !directionCorrecting;
 
   function updateLineField(lineId, key, value) {
     setReviewedRollIds((current) => current.filter((reviewId) => !reviewId.startsWith(`${lineId}:`)));
@@ -574,6 +577,8 @@ export function RawMaterialMobileOcrReview({
         <button disabled={disabled || submitting || !canSubmit} onClick={() => onSubmit?.({ excludedRolls })} type="button">
           {submitting
             ? "正在提交…"
+            : ambiguousDirection
+              ? "请先核对混合方向"
             : directionConflict
               ? "请先核对退货方向"
             : documentBlockers.length

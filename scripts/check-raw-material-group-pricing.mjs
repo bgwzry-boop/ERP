@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildRawMaterialInboundDraftFromOcr, createRawMaterialOcrParserService } from "../server/services/rawMaterialOcrParserService.mjs";
+import { buildRawMaterialInboundDraftFromOcr, createRawMaterialOcrParserService, RAW_MATERIAL_OCR_PARSER_VERSION } from "../server/services/rawMaterialOcrParserService.mjs";
 import { createRawMaterialCommandService } from "../server/services/rawMaterialCommandService.mjs";
 import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInboundCommandService.mjs";
 import { applyRawMaterialOcrReview, applyRawMaterialOcrReparse } from "../server/rawMaterialInboundOcrSupport.mjs";
@@ -20,7 +20,7 @@ const build = (rows, options = {}) => buildRawMaterialInboundDraftFromOcr({
   ocr: { tables: [{ cells: cells([header, ...rows]) }] }, ...options,
 });
 const draft = build([...cloth, ...strips, ["本单金额", "9403.24"]]);
-assert.equal(draft.ocrParserVersion, 22);
+assert.equal(draft.ocrParserVersion, RAW_MATERIAL_OCR_PARSER_VERSION);
 assert.deepEqual(draft.ocrLines.map(l => l.values.unitPrice), [11.8, 11.8, 11.8, 12, 12]);
 assert.deepEqual(draft.ocrLines.map(l => l.values.amount), [2549.98, 2532.28, 2136.98, 984, 1200]);
 assert.equal(draft.ocrCalculatedLineAmount, 9403.24);
@@ -84,7 +84,7 @@ workspace.rawMaterialInboundRepository = { async applyInboundAction(input) {
 const service = createRawMaterialCommandService({rawMaterialOcrParserService:createRawMaterialOcrParserService(),tencentCloudTableOcrService:{recognizeTable(){throw Error("must not call cloud OCR");}}});
 const upgradedCommand = await service.recordInboundAction({workspace,inboundId:stale.id,actionSlug:"reparse-ocr",operatorId:"TEST",body:{expectedRevision:1,documentDirectionHint:stale.documentDirection,supplierNameHint:stale.supplierName}});
 assert.ok(upgradedCommand.inbound,JSON.stringify(upgradedCommand));
-assert.equal(upgradedCommand.inbound.ocrParserVersion,22);
+assert.equal(upgradedCommand.inbound.ocrParserVersion,RAW_MATERIAL_OCR_PARSER_VERSION);
 assert.equal(upgradedCommand.inbound.revision,2);
 assert.equal(upgradedCommand.inbound.sourceAttachmentId,"ATT-ORIGINAL");
 assert.equal(upgradedCommand.inbound.ocrCalculatedLineAmount,9403.24);

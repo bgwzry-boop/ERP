@@ -370,9 +370,10 @@ export function createRawMaterialCommandService(dependencies = {}) {
             rawMaterialOcrParserService,
             sourceDigest: cleanText(existingInbound.ocrSourceDigest) || cleanText(existingInbound.id),
             workspace,
+            allowDirectionCorrection: true,
           });
           if (!reparsed.operationLogId) {
-            throw Object.assign(new Error("这张旧草稿没有可重新解析的 OCR 表格，请返回后按“供应商退货”重新拍摄。"), {
+            throw Object.assign(new Error("这张草稿暂无可重新解析的内容，请刷新后继续核对；更正方向或供应商时需明确选择。"), {
               statusCode: 409,
               code: "RAW_MATERIAL_OCR_REPARSE_NOT_AVAILABLE",
             });
@@ -977,10 +978,15 @@ async function reparseStaleOcrDraft({
   rawMaterialOcrParserService,
   sourceDigest,
   workspace,
+  allowDirectionCorrection = false,
 }) {
   const parserVersion = Number(rawMaterialOcrParserService?.parserVersion) || 1;
   const existingParserVersion = Number(existingInbound?.ocrParserVersion) || 1;
-  const normalizedDirectionHint = normalizeDocumentDirectionHint(documentDirectionHint);
+  const existingDirection = normalizeDocumentDirectionHint(existingInbound?.documentDirection) || "supplier_delivery";
+  // Re-scanning an existing photo is a retry, not consent to change its direction.
+  const normalizedDirectionHint = allowDirectionCorrection
+    ? normalizeDocumentDirectionHint(documentDirectionHint) || existingDirection
+    : existingDirection;
   const normalizedSupplierNameHint = cleanText(supplierNameHint);
   const directionChanged = normalizedDirectionHint && normalizedDirectionHint !== cleanText(existingInbound?.documentDirection);
   const supplierHintChanged = normalizedSupplierNameHint && normalizedSupplierNameHint !== cleanText(existingInbound?.supplierName);
@@ -995,6 +1001,7 @@ async function reparseStaleOcrDraft({
   const reparsedDraft = preserveReparsedOcrEvidence(rawMaterialOcrParserService.buildInboundDraft({
     colorAliases: workspace.colorAliases,
     documentDirectionHint: normalizedDirectionHint,
+    preserveDocumentDirection: true,
     inboundId: existingInbound.id,
     knownSupplierNames: collectKnownSupplierNames(workspace),
     ocr: {
@@ -1015,9 +1022,15 @@ async function reparseStaleOcrDraft({
     standardColors: workspace.standardColors,
     supplierNameHint: normalizedSupplierNameHint,
   }), existingInbound);
+  if (!directionChanged && cleanText(existingInbound.documentDirectionSource)) {
+    reparsedDraft.documentDirectionSource = existingInbound.documentDirectionSource;
+  }
+  reparsedDraft.documentCaptureDirection = normalizeDocumentDirectionHint(existingInbound.documentCaptureDirection)
+    || (existingInbound.documentDirectionSource === "ocr_return_evidence_over_capture_selection" ? "supplier_delivery" : existingDirection);
   const idempotencyPayload = {
     sourceDigest,
     parserVersion,
+    expectedRevision: Number(existingInbound.revision ?? 1),
     documentDirectionHint: normalizedDirectionHint,
     supplierNameHint: normalizedSupplierNameHint,
   };
@@ -1048,6 +1061,7 @@ function buildRawMaterialOcrReparseIdempotencyKey(payload = {}) {
     .update(JSON.stringify({
       sourceDigest: cleanText(payload.sourceDigest),
       parserVersion,
+      expectedRevision: Number(payload.expectedRevision ?? 1),
       documentDirectionHint: cleanText(payload.documentDirectionHint),
       supplierNameHint: cleanText(payload.supplierNameHint),
     }))

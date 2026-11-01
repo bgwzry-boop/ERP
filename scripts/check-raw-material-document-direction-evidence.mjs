@@ -1,0 +1,60 @@
+import assert from "node:assert/strict";
+import { inspectRawMaterialDocumentDirectionEvidence as inspect } from "../shared/rawMaterialDocumentDirectionEvidence.js";
+
+const header = ["品名", "颜色", "规格", "数量", "重量", "单价", "金额"];
+const positive = ["无纺布", "红色", "78*90*1500", "1", "100", "10", "1000"];
+const negative = ["无纺布", "宝蓝", "78*90*1500", "1", "-20", "10", "-200"];
+const variableHeader = ["商品名称", "颜色", "数量", "重\n量\n单位:千克\n单价", "金额"];
+function verify(rows, expected, label, rawText = "") {
+  const result = inspect({ rows, rawText });
+  assert.deepEqual({ hasReturnEvidence: result.hasReturnEvidence, ambiguous: result.ambiguous }, expected, label);
+  if (result.hasReturnEvidence) assert.ok(result.reason, label);
+  return result;
+}
+const delivery = { hasReturnEvidence: false, ambiguous: false };
+const returned = { hasReturnEvidence: true, ambiguous: false };
+const ambiguous = { hasReturnEvidence: true, ambiguous: true };
+verify([header, positive], delivery, "normal delivery");
+verify([["备注", "退货请填写退货单编号"], header, positive], delivery, "instruction mentioning a return is not a title");
+verify([["备注", "退货单"], header, positive], delivery, "standalone note value must not bypass its row context");
+verify([["备注\n退货单"], header, positive], delivery, "multiline note context");
+verify([["备注", "本单不是退货单"], header, positive], delivery, "negative title mention");
+verify([header, [...positive, "退货单"]], delivery, "a material row's remark is not a whole-paper title");
+verify([header, positive, ["本单是退货单"]], delivery, "a statement in prose is not a standalone heading");
+for (const label of ["上期欠款", "上期布料欠款", "布料余额", "无纺布扣款", "无纺布折扣", "布料运费", "纸管费", "纸管扣重", "本期应付", "布料累计欠款"]) {
+  verify([[label, "-200"], header, positive], delivery, `${label} is accounting, not a negative material row`);
+}
+verify([header, negative], returned, "negative physical material row");
+verify([header, [...negative.slice(0, 4), "−20", "10", "－200"]], returned, "unicode minus");
+verify([header, positive, negative], ambiguous, "mixed delivery and return must not flip the whole paper");
+verify([header, negative, positive], ambiguous, "mixed order is irrelevant");
+verify([["河北测试供应商销售退货单"], header, positive], returned, "explicit title may use positive printed magnitudes");
+verify([["退料单"], header, positive], returned, "return-material title");
+verify([header, positive, ["退货单"]], returned, "supplier's standalone bottom title");
+verify([["退货单"], header, positive, negative], returned, "explicit whole-paper return title owns printed magnitudes");
+verify([header, [...positive.slice(0, 5), "-10", "1000"]], delivery, "negative unit price alone is not return evidence");
+verify([header, [...positive.slice(0, 4), "0", "-10", "0"]], delivery, "zero physical values and negative unit price");
+verify([header, [...positive.slice(0, 3), "-1", "100", "10", "1000"]], returned, "negative material quantity");
+verify([header, [...positive.slice(0, 6), "-1000"]], returned, "negative material amount");
+const regularNoSpecHeader = ["品名", "颜色", "数量", "重量", "单价", "金额"];
+verify([regularNoSpecHeader, ["无纺布", "红色", "2", "200", "-10", "2000"]], delivery, "ordinary quantity two is not evidence for two weight columns");
+verify([regularNoSpecHeader, ["无纺布", "红色", "2", "200", "10", "-2000"]], returned, "ordinary quantity two retains its explicit amount column");
+verify([variableHeader, ["退带色布", "1", "-68", "-68", "11.8", "-802.4"]], returned, "real no-spec Renyi return");
+verify([["退带色布", "1", "-68", "-68", "11.8", "-802.4"]], returned, "no-header/no-spec Renyi return");
+verify([negative], returned, "historical saved source line with spec but no table header");
+verify([["78*90*1500", "海兰", "1", "−68"]], returned, "historical saved variable source line");
+verify([variableHeader, ["78*90*1500", "海兰", "2", "-108.3", "-107.8", "-216.1", "11.8", "-2549.98"]], returned, "multiple returned physical rolls with positive count/price");
+verify([["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"], ["退带色布", "4", "-4.2", "-24.2", "-73.7", "-5.2", "-107.3", "9.6", "-1030.08"]], returned, "Renyi separate roll-weight and total header");
+verify([variableHeader, ["78*90*1500", "海兰", "2", "108.3", "107.8", "216.1", "-11.8", "2549.98"]], delivery, "negative price in variable columns is not a return");
+verify([variableHeader, ["78*90*1500", "海兰", "2", "108.3", "-107.8", "0.5", "11.8", "5.9"]], ambiguous, "mixed physical rolls on one row");
+verify([variableHeader, ["米黄条", "1", "82", "0"], ["梅红条", "1", "-100", "-100", "12", "-1200"]], ambiguous, "positive and negative handle lines");
+verify([variableHeader, ["78*90*1500", "海兰", "1", "100", "-11.8"]], delivery, "ambiguous trailing token must not be assumed a negative price or amount");
+const numberedHeader = ["编号", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"];
+verify([numberedHeader, ["12", "梅兰", "78*90*1500", "公斤", "-107.9", "9.7", "-1046.63", ""]], returned, "named colour with a specification");
+verify([numberedHeader, ["12", "梅兰", "78*90*1500", "公斤", "107.9", "-9.7", "1046.63", ""]], delivery, "numbered layout still excludes price");
+verify([header, positive].map((row) => row.map((text, colTl) => ({ text, colTl }))), delivery, "cell object rows");
+verify([[{ text: "品名", colTl: 1 }, { text: "规格", colTl: 3 }, { text: "数量", colTl: 5 }, { text: "单价", colTl: 6 }, { text: "金额", colTl: 7 }], [{ text: "无纺布", colTl: 1 }, { text: "78*90*1500", colTl: 3 }, { text: "-68", colTl: 5 }, { text: "11.8", colTl: 6 }, { text: "-802.4", colTl: 7 }]], returned, "sparse original cell column coordinates");
+verify([], returned, "raw text standalone title fallback", "测试供应商\n销售退货单\n物料");
+verify([], delivery, "raw text mentions are not titles", "备注：退货请填写退货单编号");
+verify([], delivery, "raw text multiline note label preserves context", "备注\n退货单");
+console.log("PASS raw-material return evidence: explicit titles and physical negatives; debt/note/price exclusions; mixed-direction guard; Renyi variable rolls and source coordinates.");

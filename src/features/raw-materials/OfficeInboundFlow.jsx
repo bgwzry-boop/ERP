@@ -5,7 +5,7 @@ import { formatRawMaterialColorDisplay } from "./rawMaterialColorDisplay.js";
 import { submitInboundAction } from "./submitInbound.js";
 import { getRawMaterialColorValue } from "./RawMaterialInboundWorkbench.jsx";
 import { FACTORY_STANDARD_COLORS } from "../../../shared/factoryStandardColors.js";
-import { hasStrongRawMaterialSupplierReturnEvidence } from "../../../shared/rawMaterialSupplierReturn.js";
+import { hasStrongRawMaterialSupplierReturnEvidence, hasAmbiguousRawMaterialSupplierReturnEvidence, RAW_MATERIAL_MIXED_DIRECTION_MESSAGE } from "../../../shared/rawMaterialSupplierReturn.js";
 import {
   applyOfficeRollCorrection,
   buildOfficeReviewRows,
@@ -43,6 +43,7 @@ export function OfficeInboundFlow({
   const printableCount = listOfficePrintableRolls(inbound).length;
   const isReturn = inbound?.documentDirection === "supplier_return";
   const directionConflict = hasStrongRawMaterialSupplierReturnEvidence(inbound);
+  const ambiguousDirection = hasAmbiguousRawMaterialSupplierReturnEvidence(inbound);
   const [directionError, setDirectionError] = useState("");
   const blockedRow = rows.find((row) => row.blocker);
   const [editingId, setEditingId] = useState("");
@@ -99,6 +100,7 @@ export function OfficeInboundFlow({
   }
   return (
     <section className="office-inbound-flow raw-material-ocr-review-panel" aria-label="办公室收货">
+      {canEdit && ambiguousDirection ? <p className="office-inbound-block" role="alert">{RAW_MATERIAL_MIXED_DIRECTION_MESSAGE}</p> : null}
       {canEdit && directionConflict ? <section className="office-direction-conflict" aria-label="退货单方向纠正">
         <strong>原单含退货明细，不能按收货入库</strong>
         <p>请对照原图确认。改为退货后，重量和金额按负数核对，不要求补入库颜色、规格，也不生成入库卷标。</p>
@@ -107,7 +109,7 @@ export function OfficeInboundFlow({
         </button>
         {directionError ? <p role="alert">{directionError}</p> : null}
       </section> : null}
-      {!directionConflict ? <OfficeRollTable
+      {!directionConflict && !ambiguousDirection ? <OfficeRollTable
         canEdit={canEdit}
         isReturn={isReturn}
         onMapColor={onOpenColorMapping ? (row) => onOpenColorMapping({
@@ -125,7 +127,7 @@ export function OfficeInboundFlow({
       {step === "complete" && completion.reason ? (
         <p className="office-inbound-block" role="status">{completion.reason}</p>
       ) : null}
-      {reviewBlocker && !directionConflict ? (
+      {reviewBlocker && !directionConflict && !ambiguousDirection ? (
         // Supplier missing: fill it in right here instead of hunting in the OCR section.
         <label className="office-inbound-supplier">
           <span>供应商还没填，填好后就能点「这批都对，去打印」</span>
@@ -149,7 +151,7 @@ export function OfficeInboundFlow({
               title={reviewBlocker || reviewState?.title || ""}
               type="button"
             >
-              {submitting ? "正在保存…" : directionConflict ? "请先核对退货方向" : isReturn ? "确认退货，不入库" : "这批都对，去打印"}
+              {submitting ? "正在保存…" : ambiguousDirection ? "请先核对混合方向" : directionConflict ? "请先核对退货方向" : isReturn ? "确认退货，不入库" : "这批都对，去打印"}
             </button>
             {isReturn ? null : (
               <button

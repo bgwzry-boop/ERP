@@ -1,7 +1,7 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { normalizeRawMaterialSourceRowIndex } from "../shared/rawMaterialOcrSourcePosition.js";
 import { enrichRawMaterialSpecValues } from "../shared/rawMaterialSpec.js";
-import { hasStrongRawMaterialSupplierReturnEvidence } from "../shared/rawMaterialSupplierReturn.js";
+import { hasStrongRawMaterialSupplierReturnEvidence, hasAmbiguousRawMaterialSupplierReturnEvidence, RAW_MATERIAL_MIXED_DIRECTION_MESSAGE } from "../shared/rawMaterialSupplierReturn.js";
 import {
   applyRawMaterialOcrLineReviews,
   buildRawMaterialOcrReviewedRolls,
@@ -21,6 +21,9 @@ export function applyRawMaterialOcrReview({ before = {}, reviewFields, lineRevie
       statusCode: 409,
       code: "RAW_MATERIAL_OCR_REVIEW_NOT_ALLOWED",
     });
+  }
+  if (isOcrDraft && hasAmbiguousRawMaterialSupplierReturnEvidence(before)) {
+    throw Object.assign(new Error(RAW_MATERIAL_MIXED_DIRECTION_MESSAGE), { statusCode: 409, code: "RAW_MATERIAL_DOCUMENT_DIRECTION_AMBIGUOUS" });
   }
   if (isOcrDraft && hasStrongRawMaterialSupplierReturnEvidence(before)) {
     throw Object.assign(new Error("原单含退货明细，与当前收货方向不一致。请对照原图，先点“改为退货单核对”；不能按正数收货入库。"), {
@@ -111,7 +114,7 @@ export function applyRawMaterialOcrReparse({ before = {}, reparsedInbound = {} }
     });
   }
   const replacementKeys = [
-    "documentDirection", "documentDirectionSource", "documentTypeLabel", "supplierOcrProfileKey", "supplierOcrProfileProvisional",
+    "documentDirection", "documentCaptureDirection", "documentDirectionEvidence", "documentDirectionSource", "documentTypeLabel", "supplierOcrProfileKey", "supplierOcrProfileProvisional",
     "documentPriceReferenceOnly", "priceAuthority",
     "supplierName", "deliveryNoteNo", "receivedAt", "materialType", "productName", "spec", "specRaw", "specDisplay",
     "gramWeightGsm", "widthCm", "lengthM", "materialCategory", "specNeedsReview", "specReviewReason",
