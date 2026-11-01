@@ -25,7 +25,9 @@
 
 .office-roll-color-text {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .raw-material-workbench.is-receiving-view {

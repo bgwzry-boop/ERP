@@ -46,6 +46,51 @@ try {
     await page.locator('.office-roll-row').filter({hasText:'海兰'}).first().waitFor();
     assert.deepEqual(await page.locator('.office-roll-color-text').allTextContents(),['海兰','海兰','米黄','米黄','宝蓝（宝兰）','宝蓝（宝兰）','米黄','梅红']);
     assert.equal(await page.locator('.office-roll-color-text small').count(),0);
+    const ticketMetrics = await page.locator('.office-roll-color-text').filter({hasText:'宝蓝（宝兰）'}).first().evaluate((element) => {
+      const factory = element.querySelector('.raw-material-factory-color');
+      const ticket = element.querySelector('.raw-material-ticket-color');
+      const factoryStyle = getComputedStyle(factory);
+      const ticketStyle = getComputedStyle(ticket);
+      const rowElement = element.closest('.office-roll-row');
+      const row = rowElement.getBoundingClientRect();
+      const text = element.getBoundingClientRect();
+      const widthCell = rowElement.querySelector('.office-roll-fact:nth-of-type(2)').getBoundingClientRect();
+      const label = rowElement.querySelector('strong');
+      const chip = rowElement.querySelector('.raw-material-color-chip').getBoundingClientRect();
+      const labelBox = label.getBoundingClientRect();
+      const separated = [...document.querySelectorAll('.office-roll-row')].every((item) => {
+        const roll = item.querySelector('strong');
+        const swatch = item.querySelector('.raw-material-color-chip');
+        if (!roll || !swatch) return true;
+        const rollBox = roll.getBoundingClientRect();
+        const swatchBox = swatch.getBoundingClientRect();
+        return roll.scrollWidth <= roll.clientWidth + 1 && swatchBox.left >= rollBox.right + 6 && swatchBox.left >= rollBox.left + roll.scrollWidth + 6;
+      });
+      return {
+        text: element.textContent,
+        factorySize: factoryStyle.fontSize,
+        ticketSize: ticketStyle.fontSize,
+        sameFamily: factoryStyle.fontFamily === ticketStyle.fontFamily,
+        sameWeight: factoryStyle.fontWeight === ticketStyle.fontWeight,
+        fitsText: element.scrollWidth <= element.clientWidth + 1,
+        insideRow: text.right <= row.right + 0.5 && text.bottom <= row.bottom + 0.5,
+        clearOfWidth: text.right <= widthCell.left + 0.5,
+        labelFits: label.scrollWidth <= label.clientWidth + 1,
+        chipAfterLabel: chip.left >= labelBox.right + 6,
+        separated,
+      };
+    });
+    assert.equal(ticketMetrics.text, '宝蓝（宝兰）');
+    assert.equal(ticketMetrics.factorySize, '12px');
+    assert.equal(ticketMetrics.ticketSize, '14px');
+    assert.equal(ticketMetrics.sameFamily, true);
+    assert.equal(ticketMetrics.sameWeight, true);
+    assert.equal(ticketMetrics.fitsText, true, `ticket colour overflowed its cell at ${width}px`);
+    assert.equal(ticketMetrics.insideRow, true);
+    assert.equal(ticketMetrics.clearOfWidth, true);
+    assert.equal(ticketMetrics.labelFits, true, `roll number was clipped at ${width}px`);
+    assert.equal(ticketMetrics.chipAfterLabel, true, `colour chip overlapped the roll number at ${width}px`);
+    assert.equal(ticketMetrics.separated, true, `a roll number still meets its colour chip at ${width}px`);
     await page.locator('.office-roll-row').filter({hasText:'海兰'}).first().getByRole('button',{name:'改这一卷',exact:true}).click();
     await page.getByRole('button',{name:'维护厂家颜色对应',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'厂家颜色资料'});
@@ -94,5 +139,49 @@ try {
     await page.screenshot({path:`${out}/mobile-${fixture===directionFixture?'return':'colour'}.png`,fullPage:true});
     assert.deepEqual(errors,[]);await page.close();
   }
-  console.log('PASS desktop 1440/800 and phone 390: direction guard/retry/correction, source colours and mapping refill; all tested business writes mocked.');
+  {
+    const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'});
+    const errors=[];page.on('pageerror',e=>errors.push(e.message));
+    await page.route('**/api/raw-material-inbounds**',async route=>{
+      if(route.request().method()==='GET') return route.fulfill({json:{items:[colourFixture],page:1,pageSize:200,total:1}});
+      return route.fulfill({status:404,json:{message:'unexpected write'}});
+    });
+    await page.goto('http://127.0.0.1:4174/?receiptTicketColor=1&erpViewport=mobile#material-receiving');
+    await page.getByRole('button',{name:'核对全部卷材',exact:true}).click();
+    const line=page.locator('.line-color').filter({hasText:'宝蓝（宝兰）'}).first();
+    await line.waitFor();
+    const mobileMetrics=await line.evaluate((element)=>{
+      const factory=element.querySelector('.raw-material-factory-color');
+      const ticket=element.querySelector('.raw-material-ticket-color');
+      const factoryStyle=getComputedStyle(factory);
+      const ticketStyle=getComputedStyle(ticket);
+      const self=element.getBoundingClientRect();
+      const summary=element.closest('.raw-material-mobile-review-line-summary').getBoundingClientRect();
+      const next=element.nextElementSibling.getBoundingClientRect();
+      return {
+        text:element.textContent,
+        factorySize:factoryStyle.fontSize,
+        ticketSize:ticketStyle.fontSize,
+        sameFamily:factoryStyle.fontFamily===ticketStyle.fontFamily,
+        sameWeight:factoryStyle.fontWeight===ticketStyle.fontWeight,
+        overflow:getComputedStyle(element).overflowX,
+        nowrap:getComputedStyle(element).whiteSpace,
+        insideSummary:self.right<=summary.right+0.5 && self.left>=summary.left-0.5,
+        clearOfSpec:self.right<=next.left+0.5,
+      };
+    });
+    assert.equal(mobileMetrics.text,'宝蓝（宝兰）');
+    assert.equal(mobileMetrics.factorySize,'14px');
+    assert.equal(mobileMetrics.ticketSize,'16px');
+    assert.equal(mobileMetrics.sameFamily,true);
+    assert.equal(mobileMetrics.sameWeight,true);
+    assert.equal(mobileMetrics.nowrap,'nowrap');
+    assert.notEqual(mobileMetrics.overflow,'visible');
+    assert.equal(mobileMetrics.insideSummary,true);
+    assert.equal(mobileMetrics.clearOfSpec,true);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    assert.deepEqual(errors,[]);
+    await page.close();
+  }
+  console.log('PASS desktop 1440/800 and phone 390: direction guard/retry/correction, source colours and mapping refill; ticket colour is 2px larger inside parentheses; all tested business writes mocked.');
 } finally {await browser.close();}

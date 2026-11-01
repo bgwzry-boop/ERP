@@ -1,5 +1,14 @@
 @import "./raw-material-roll-label.css";
 
+/* 括号内的厂家票面色比厂内色大 2px。字体、字重跟随所在行，不单独换字体。 */
+.raw-material-ticket-color {
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: calc(1em + 2px);
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
 .raw-material-view-tabs {
   display: grid;
   min-height: 40px;

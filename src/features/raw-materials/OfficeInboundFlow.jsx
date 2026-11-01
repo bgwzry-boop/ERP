@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "../../styles/features/office-inbound-flow.css";
+import { RawMaterialColorDisplay } from "./RawMaterialColorDisplay.jsx";
 import { formatRawMaterialColorDisplay } from "./rawMaterialColorDisplay.js";
 import { submitInboundAction } from "./submitInbound.js";
 import { getRawMaterialColorValue } from "./RawMaterialInboundWorkbench.jsx";
@@ -235,8 +236,8 @@ function OfficeRollTable({ canEdit, isReturn, editingId, onEdit, onSave, onMapCo
           <strong>第 {row.physicalRollIndex} 卷</strong>
           <span className="office-roll-fact">
             <i aria-hidden="true" className="raw-material-color-chip" style={{ "--raw-roll-color": getRawMaterialColorValue(row.color) }} />
-            <span className="office-roll-color-text">
-              {isReturn ? row.color || row.lineDraft?.returnMaterialCategory || row.supplierColor || "原单未写颜色" : formatRawMaterialColorDisplay(row.color, row.supplierColor)}
+            <span className="office-roll-color-text" title={isReturn ? undefined : formatRawMaterialColorDisplay(row.color, row.supplierColor)}>
+              {isReturn ? row.color || row.lineDraft?.returnMaterialCategory || row.supplierColor || "原单未写颜色" : <RawMaterialColorDisplay factoryColor={row.color} supplierColor={row.supplierColor} />}
             </span>
           </span>
           <span className="office-roll-fact">{row.widthCm ? `${formatFactNumber(row.widthCm)}cm` : isReturn ? "原单未写（可留空）" : "宽幅待补"}</span>
