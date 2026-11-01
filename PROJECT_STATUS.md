@@ -14,6 +14,8 @@ Updated: 2026-10-24. Staging, the repository default entry and the owner's main 
 
 Current values come from live frontend/API identities and remote refs, not this document. The pre-governance observation on 2026-10-22 was `955bb6055e1cff44a3b212f21754e7a8dc908c42`, version `staging-20261022-raw-material-r1`, lock `a511759603149771950b90fc9d770e2ad546754cb661d75d5d80e4fcdb35d8d2`; preserve it as history only. A cache-busting query does not prove the response's identity. The [controlled release rules](docs/development/controlled-release-governance.zh-CN.md) govern every conversation and target.
 
+On 2026-11-01, owner-facing walkthrough screenshots and recordings use the staging shell or local `4174` only. The `5173` `?internalWorkbench=1` workbench is private debugging and shows `内部工作台 · 非测试站壳 · 禁止当交付演示`.
+
 ## October 24 P1 Corrections And Controlled Release
 
 The original 98 questions map to 27 work groups. The previous seven P1 corrections remain intact; R4 covers formal office quotes and authorized per-order prices, grouped printing, real mixed packages, restricted exact settlement and finance actions, formal order corrections, and temporary-hold conversion. Confirmed office-payment, phone-registration and silk-screen rest rules remain authoritative.
