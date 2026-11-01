@@ -3,7 +3,7 @@ import {
   canReviewRawMaterialInbound,
 } from "./rawMaterialInboundListState.js";
 import { projectRawMaterialOcrPhysicalRollReviewRows } from "../../shared/rawMaterialOcrLineReview.js";
-import { hasStrongRawMaterialSupplierReturnEvidence } from "../../shared/rawMaterialSupplierReturn.js";
+import { hasStrongRawMaterialSupplierReturnEvidence, hasAmbiguousRawMaterialSupplierReturnEvidence, RAW_MATERIAL_MIXED_DIRECTION_MESSAGE } from "../../shared/rawMaterialSupplierReturn.js";
 import {
   RAW_MATERIAL_HANDLE_WIDTH_CM,
   RAW_MATERIAL_STANDARD_HANDLE_GSM,
@@ -42,6 +42,7 @@ export function officeReviewFieldsForSubmit(inbound = {}, documentDraft = {}) {
 }
 
 export function officeReviewSubmitBlocker(inbound = {}, documentDraft = {}) {
+  if (hasAmbiguousRawMaterialSupplierReturnEvidence(inbound)) return RAW_MATERIAL_MIXED_DIRECTION_MESSAGE;
   if (inbound?.documentDirection === "supplier_return") return "";
   if (hasStrongRawMaterialSupplierReturnEvidence(inbound)) return "原单含退货明细，请先改为退货单核对，不能按收货入库。";
   if (!clean(officeReviewFieldsForSubmit(inbound, documentDraft).supplierName)) {

@@ -8,6 +8,7 @@ import { classifyRawMaterialSupplierReturnCategory } from "../../shared/rawMater
 import { RAW_MATERIAL_SUPPLIER_PROFILES } from "../../shared/rawMaterialSupplierProfiles.js";
 import { normalizeRawMaterialSourceRowIndex } from "../../shared/rawMaterialOcrSourcePosition.js";
 import { resolveRawMaterialGroupedPricing } from "./rawMaterialGroupedPricing.mjs";
+import { inspectRawMaterialDocumentDirectionEvidence } from "../../shared/rawMaterialDocumentDirectionEvidence.js";
 
 const headerAliases = {
   productName: ["品名", "品名称", "商品名称", "商品全名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
@@ -31,7 +32,7 @@ const keyValueAliases = {
   receivedAt: ["送货日期", "单据日期", "日期"],
 };
 
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 22;
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 23;
 
 export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
   delivery: "supplier_delivery",
@@ -58,10 +59,13 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   const allCells = tables.flatMap((table) => table.cells);
   const allText = allCells.map((cell) => cell.text).filter(Boolean).join("\n");
   const documentDirectionHint = normalizeDocumentDirectionHint(input.documentDirectionHint);
-  const inferredDocumentDirection = inferDocumentDirection({ allRows, allText });
+  const directionEvidence = inspectRawMaterialDocumentDirectionEvidence({ rows: allRows, rawText: allText });
+  const inferredDocumentDirection = directionEvidence.hasReturnEvidence && !directionEvidence.ambiguous
+    ? RAW_MATERIAL_DOCUMENT_DIRECTIONS.return : RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery;
   // A return note photographed while 「送货单」 was selected must not become stock:
   // negative material lines or a 退货单 title win over the capture selection.
   const documentDirectionOverridden = documentDirectionHint === RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery
+    && input.preserveDocumentDirection !== true
     && inferredDocumentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return;
   const documentDirection = documentDirectionOverridden
     ? RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
@@ -174,6 +178,8 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     id: inboundId,
     revision: 1,
     documentDirection,
+    documentCaptureDirection: documentDirectionHint,
+    documentDirectionEvidence: directionEvidence,
     documentDirectionSource: documentDirectionOverridden
       ? "ocr_return_evidence_over_capture_selection"
       : documentDirectionHint ? "operator_capture_selection" : "ocr_inference",
@@ -886,22 +892,6 @@ function normalizeDocumentDirectionHint(value) {
   if (direction === RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery) return direction;
   if (direction === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return) return direction;
   return "";
-}
-
-function inferDocumentDirection({ allRows = [], allText = "" } = {}) {
-  if (/(?:退货单|退料单|退库单)/u.test(allText)) return RAW_MATERIAL_DOCUMENT_DIRECTIONS.return;
-  const hasNegativeMaterialLine = allRows.some((row) => {
-    const texts = row.map((cell) => cleanText(cell.text)).filter(Boolean);
-    if (!texts.length) return false;
-    const joined = texts.join(" ");
-    if (/^(?:合计|总计|上期欠款|本单金额|累计欠款)/u.test(joined)) return false;
-    const identity = texts.slice(0, 2).join(" ");
-    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|退料|退卷|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
-    return hasMaterialIdentity && texts.slice(1).some((text) => parseNumber(text) < 0);
-  });
-  return hasNegativeMaterialLine
-    ? RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
-    : RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery;
 }
 
 function extractDeclaredDocumentAmount(rows, { documentDirection = RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery } = {}) {

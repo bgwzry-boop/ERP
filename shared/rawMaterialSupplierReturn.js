@@ -1,4 +1,11 @@
+import { inspectRawMaterialDocumentDirectionEvidence } from "./rawMaterialDocumentDirectionEvidence.js";
+
 export const RAW_MATERIAL_SUPPLIER_RETURN_CATEGORIES = ["黑白布", "彩布", "废布"];
+export const RAW_MATERIAL_MIXED_DIRECTION_MESSAGE = "原单同时包含送货和退货明细，请分别核实，不能整单按同一方向确认。";
+
+export function hasAmbiguousRawMaterialSupplierReturnEvidence(input = {}) {
+  return inspectSupplierReturnEvidence(input).ambiguous;
+}
 
 export function classifyRawMaterialSupplierReturnCategory(input = {}) {
   const supplierColor = cleanText(input.supplierColor).replace(/\s+/gu, "");
@@ -26,30 +33,25 @@ export function isRawMaterialSupplierReturnFabric(input = {}) {
 
 export function hasStrongRawMaterialSupplierReturnEvidence(input = {}) {
   if (cleanText(input.documentDirection) === "supplier_return") return false;
-  const rawText = [
-    input.ocrRawText,
-    ...(Array.isArray(input.ocrLines) ? input.ocrLines.map((line) => line?.sourceText) : []),
-  ].map(cleanText).filter(Boolean).join("\n");
-  if (/(?:销售退货单|退货单|退料单)/u.test(rawText)) return true;
-  // Read the immutable table rows: OCR may split a material name and its
-  // negative weights across newlines, while draft values already use the hint.
-  const sourceRows = [
-    ...(Array.isArray(input.ocrTableRows) ? input.ocrTableRows.flat() : []),
-    ...(Array.isArray(input.ocrLines) ? input.ocrLines.map((line) => cleanText(line?.sourceText).split(/[|\n]/u)) : []),
-  ];
-  if (sourceRows.some((row) => {
-    if (!Array.isArray(row)) return false;
-    const cells = row.map(cleanText).filter(Boolean);
-    const identity = cells.slice(0, 2).join(" ");
-    if (/^(?:合计|总计|上期欠款|本单金额|累计欠款|备注)/u.test(identity)) return false;
-    if (/退带色(?:布|条)|退料|退卷/u.test(identity)) return true;
-    const material = /布|条|膜|纸/u.test(identity) || /\d+\s*[*×]\s*\d+/u.test(cells[0] || "");
-    return material && cells.slice(1).some((cell) => /(?:^|\s)[-−－]\s*\d/u.test(cell));
-  })) return true;
-  if ((Array.isArray(input.ocrLines) ? input.ocrLines : []).some((line) => (
-    Number(line?.values?.totalWeightKg) < 0 || Number(line?.values?.amount) < 0
-  ))) return true;
-  return /(?:布|条|彩色|白色|黑色|退带色)[^\n]{0,40}-\s*\d/u.test(rawText);
+  const evidence = inspectSupplierReturnEvidence(input);
+  if (evidence.hasReturnEvidence) return !evidence.ambiguous;
+  // Compatibility for old records which retained only signed recognized values.
+  if (!input.ocrRawText && !input.ocrTableRows?.length && !input.ocrLines?.some(line => line.sourceText)) {
+    return (Array.isArray(input.ocrLines) ? input.ocrLines : []).some((line) => (
+      Number(line?.values?.totalWeightKg) < 0 || Number(line?.values?.amount) < 0
+    ));
+  }
+  return false;
+}
+
+function inspectSupplierReturnEvidence(input) {
+  const hasText = row => Array.isArray(row) && row.some(cell => cleanText(cell));
+  const rows = (Array.isArray(input.ocrTableRows) ? input.ocrTableRows.flat() : []).filter(hasText);
+  const lineRows = (input.ocrLines ?? []).map(line => cleanText(line?.sourceText).split(/[|\n]/u)).filter(hasText);
+  return inspectRawMaterialDocumentDirectionEvidence({
+    rows: rows.length ? rows : lineRows,
+    rawText: input.ocrRawText,
+  });
 }
 
 function cleanText(value) {

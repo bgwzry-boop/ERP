@@ -4,7 +4,7 @@ import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
 import { officeInboundUsesCountGate, shouldOpenLabelPrintAfterReview } from "../../domain/officeRawMaterialInboundFlow.js";
 import { createRawMaterialLabelPrintFrame } from "./runRawMaterialLabelPrint.js";
 import { submitInboundAction } from "./submitInbound.js";
-import { hasStrongRawMaterialSupplierReturnEvidence } from "../../../shared/rawMaterialSupplierReturn.js";
+import { hasStrongRawMaterialSupplierReturnEvidence, hasAmbiguousRawMaterialSupplierReturnEvidence } from "../../../shared/rawMaterialSupplierReturn.js";
 import {
   canConfirmRawMaterialConsumptionRoll,
   canIssueRawMaterialRoll,
@@ -74,7 +74,7 @@ export function RawMaterialInboundReceivingSections({
   } = actionStates;
   const handlePrintLabels = onPrintLabels;
   const handleReprintLabel = onReprintLabel;
-  const directionConflict = hasStrongRawMaterialSupplierReturnEvidence(selected);
+  const directionConflict = hasStrongRawMaterialSupplierReturnEvidence(selected) || hasAmbiguousRawMaterialSupplierReturnEvidence(selected);
 
   return (
     <>
