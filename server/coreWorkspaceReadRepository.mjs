@@ -442,6 +442,7 @@ function toEmployee(row) {
     baseHourlyWage: number(row.base_hourly_wage),
     positionAllowanceHourly: number(row.position_allowance_hourly),
     wageEffectiveFrom: clean(row.wage_effective_from),
+    probationEndDate: clean(row.probation_end_date),
     attendanceProvider: clean(row.attendance_provider).toLowerCase(),
     attendanceExternalId: clean(row.attendance_external_id),
     attendanceMappingUpdatedBy: clean(row.attendance_mapping_updated_by),

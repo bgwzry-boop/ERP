@@ -68,6 +68,18 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       "wageEffectiveFrom",
     );
     if (wageEffectiveFrom.error) return wageEffectiveFrom.error;
+    // Older clients do not send the probation date; keep the stored value then.
+    const probationEndDate = Object.prototype.hasOwnProperty.call(body, "probationEndDate")
+      ? normalizeOptionalIsoDate(body.probationEndDate, "probationEndDate")
+      : { value: cleanText(before.probationEndDate) };
+    if (probationEndDate.error) return probationEndDate.error;
+    if (hireDate.value && probationEndDate.value && probationEndDate.value < hireDate.value) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_PROBATION_DATE_INVALID",
+        "转正日期不能早于入职日期。",
+      );
+    }
     if (birthDate.value && hireDate.value && birthDate.value >= hireDate.value) {
       return businessError(
         400,
@@ -136,6 +148,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       baseHourlyWage: baseHourlyWage.value,
       positionAllowanceHourly: positionAllowanceHourly.value,
       wageEffectiveFrom: wageEffectiveFrom.value,
+      probationEndDate: probationEndDate.value,
       attendanceProvider,
       attendanceExternalId,
       attendanceMappingUpdatedBy: attendanceMappingChanged
@@ -1162,6 +1175,7 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
     baseHourlyWage: nonNegativeNumber(employee.baseHourlyWage),
     positionAllowanceHourly: nonNegativeNumber(employee.positionAllowanceHourly),
     wageEffectiveFrom: cleanText(employee.wageEffectiveFrom),
+    probationEndDate: cleanText(employee.probationEndDate),
     attendanceProvider: cleanText(employee.attendanceProvider),
     attendanceExternalId: cleanText(employee.attendanceExternalId),
     attendanceMappingUpdatedBy: cleanText(employee.attendanceMappingUpdatedBy),
@@ -1582,6 +1596,7 @@ function employeeProfileAuditSnapshot(employee = {}) {
     baseHourlyWage: nonNegativeNumber(employee.baseHourlyWage),
     positionAllowanceHourly: nonNegativeNumber(employee.positionAllowanceHourly),
     wageEffectiveFrom: cleanText(employee.wageEffectiveFrom),
+    probationEndDate: cleanText(employee.probationEndDate),
     attendanceProvider: cleanText(employee.attendanceProvider),
     attendanceExternalId: cleanText(employee.attendanceExternalId),
   };

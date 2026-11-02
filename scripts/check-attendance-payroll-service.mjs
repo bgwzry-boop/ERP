@@ -670,6 +670,10 @@ assert.equal(draft.payrollLines[0].seniorityAward, 0);
 assert.equal(draft.payrollLines[0].calculation.seniorityYears, 4);
 assert.equal(draft.payrollLines[0].calculation.asOf, "2026-08-31T15:59:59.999Z");
 const originalNetWage = draft.payrollLines[0].netWage;
+// Owner decision 2026-11-02: the draft starts from the position's default monthly 绩效 (办公室 500).
+assert.equal(draft.payrollLines[0].performanceAward, 500);
+assert.equal(draft.payrollLines[0].calculation.performanceAward, 500);
+assert.deepEqual(draft.payrollLines[0].calculation.withholding, { insuranceDepositWithheld: 0, heldWage: 0, payableNow: originalNetWage, yearEndSettlement: 0 });
 const createRunQuery = buildCreatePayrollRunQuery({
   payrollRun: draft.payrollRun,
   payrollLines: draft.payrollLines,
@@ -751,11 +755,11 @@ assert.equal(workspace.payrollLineAdjustments.length, 0);
 
 const adjusted = await adjustmentAttempt(["ATT-PAYROLL-ADJUSTMENT-1"]);
 assert.equal(adjusted.payrollLine.performanceAward, 300);
-assert.equal(adjusted.payrollLine.netWage, Number((originalNetWage + 225).toFixed(2)));
+assert.equal(adjusted.payrollLine.netWage, Number((originalNetWage - 500 + 225).toFixed(2)));
 assert.equal(workspace.payrollLineAdjustments.length, 1);
 assert.deepEqual(workspace.payrollLineAdjustments[0].evidenceAttachmentIds, ["ATT-PAYROLL-ADJUSTMENT-1"]);
 assert.deepEqual(workspace.payrollLineAdjustments[0].previousValues, {
-  performanceAward: 0,
+  performanceAward: 500,
   leaveDeduction: 0,
   otherDeduction: 0,
 });
@@ -771,16 +775,46 @@ assert.doesNotMatch(adjustmentQuery.text, /BEGIN;/);
 assert.doesNotMatch(adjustmentQuery.text, /COMMIT;/);
 assert.ok(adjustmentQuery.values.includes("本月绩效确认；请假与其他扣款凭会计附件核定。"));
 
+// Owner 2026-11-02: a loss deduction agreed with management may take 综合绩效 below zero.
+const lossAdjusted = await service.updatePayrollLineAdjustment({
+  workspace,
+  payrollRunId: draft.payrollRun.id,
+  employeeId: "ERP-0001",
+  operatorId: "U-FINANCE-A",
+  body: {
+    performanceAward: -60,
+    leaveDeduction: 50,
+    otherDeduction: 25,
+    reason: "损耗过大，经管理协商扣绩效。",
+    evidenceAttachmentIds: ["ATT-PAYROLL-ADJUSTMENT-1"],
+  },
+});
+assert.equal(lossAdjusted.payrollLine.performanceAward, -60);
+assert.equal(lossAdjusted.payrollLine.netWage, Number((originalNetWage - 500 - 60 - 75).toFixed(2)));
+assert.equal(lossAdjusted.adjustment.previousValues.performanceAward, 300);
+assert.equal(service.buildPayrollExport({ workspace, payrollRunId: draft.payrollRun.id }).rows[0].performanceAward, -60);
+await assert.rejects(
+  service.updatePayrollLineAdjustment({
+    workspace,
+    payrollRunId: draft.payrollRun.id,
+    employeeId: "ERP-0001",
+    operatorId: "U-FINANCE-A",
+    body: { performanceAward: -200000, leaveDeduction: 0, otherDeduction: 0, reason: "越界", evidenceAttachmentIds: ["ATT-PAYROLL-ADJUSTMENT-1"] },
+  }),
+  (error) => error.code === "PAYROLL_ADJUSTMENT_AMOUNT_INVALID",
+);
+await adjustmentAttempt(["ATT-PAYROLL-ADJUSTMENT-1"]);
+
 const history = service.buildPayrollHistory({ workspace, employeeId: "ERP-0001" });
 assert.equal(history.total, 1);
-assert.equal(history.items[0].adjustments.length, 1);
-assert.equal(history.items[0].payrollLine.netWage, Number((originalNetWage + 225).toFixed(2)));
+assert.equal(history.items[0].adjustments.length, 3);
+assert.equal(history.items[0].payrollLine.netWage, Number((originalNetWage - 500 + 225).toFixed(2)));
 
 const payrollExport = service.buildPayrollExport({ workspace, payrollRunId: draft.payrollRun.id });
 assert.match(payrollExport.fileName, /工资表-2026-08-第1版-draft\.csv/);
 assert.equal(payrollExport.rows.length, 1);
 assert.equal(payrollExport.rows[0].name, "测试员工");
-assert.equal(payrollExport.rows[0].netWage, Number((originalNetWage + 225).toFixed(2)));
+assert.equal(payrollExport.rows[0].netWage, Number((originalNetWage - 500 + 225).toFixed(2)));
 assert.match(payrollExport.digest, /^[a-f0-9]{64}$/);
 await assert.rejects(
   service.createPayrollExport({
