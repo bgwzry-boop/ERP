@@ -528,7 +528,9 @@ assert.match(
   /rawMaterial:\s*\{\s*view: "inbound",\s*firstReleaseMode: firstReleaseMode,[\s\S]*?printerDeviceQa,/,
   "App should pass dynamic printer state into the registered raw-material receiving page",
 );
-assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
+// Since the 2026-11-02 redesign, field edits stay on the page and one explicit confirm submits the review.
+assertIncludes(officePageSource, "这批都对，去打印", "page should require explicit review of OCR fields");
+assertIncludes(officePageSource, "本页修改将在下方统一复核时提交", "OCR field edits must not save or confirm by themselves");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
 assertIncludes(rawMaterialPageSource, "分卷重量 kg", "page should allow exact per-roll weights to be reviewed");
 assertIncludes(receiveDialogSource, "未确认不入库", "page should keep OCR separate from inventory availability");
