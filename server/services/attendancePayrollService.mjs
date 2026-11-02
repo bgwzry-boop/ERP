@@ -59,7 +59,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     const pendingExceptionCount = days.filter((day) => day.status === "pending_review").length;
     const activePolicy = findActivePayrollPolicy(workspace, `${safeMonth}-01`);
     const estimate = activePolicy && confirmedDays.length && resolvePayrollPositionRate(activePolicy, employee.payrollPositionKey)
-      ? calculatePayrollEstimate({ employee, days: confirmedDays, policyVersion: activePolicy, asOf: calculationAsOf })
+      ? calculatePayrollEstimate({ employee, days: confirmedDays, policyVersion: activePolicy, asOf: calculationAsOf, month: safeMonth })
       : null;
     return {
       employee: employeeProjection(employee, calculationAsOf),
@@ -104,7 +104,7 @@ export function createAttendancePayrollService(dependencies = {}) {
         const totalWorkMinutes = confirmedDays.reduce((sum, day) => sum + day.workMinutes, 0);
         const pendingExceptionCount = days.filter((day) => day.status === "pending_review").length;
         const estimate = activePolicy && confirmedDays.length && resolvePayrollPositionRate(activePolicy, employee.payrollPositionKey)
-          ? calculatePayrollEstimate({ employee, days: confirmedDays, policyVersion: activePolicy, asOf: calculationAsOf })
+          ? calculatePayrollEstimate({ employee, days: confirmedDays, policyVersion: activePolicy, asOf: calculationAsOf, month: safeMonth })
           : null;
         const blockers = employeePayrollInputBlockers(employee, days, safeMonth, activePolicy);
         if (!activePolicy) blockers.push("计薪规则未发布");
@@ -422,7 +422,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     if (!versionLabel || versionLabel.length > 120) {
       throw businessError(400, "PAYROLL_POLICY_VERSION_LABEL_INVALID", "计薪规则版本名称必填且不能超过 120 个字符。");
     }
-    const policy = validatePolicy(body.policy);
+    const policy = validatePayrollPolicy(body.policy);
     const changedAt = now().toISOString();
     const requestedId = cleanText(body.id);
     const existing = requestedId
@@ -564,8 +564,8 @@ export function createAttendancePayrollService(dependencies = {}) {
       updatedAt: changedAt,
     };
     const payrollLines = prepared.map(({ employee, days }) => {
-      const calculation = calculatePayrollEstimate({ employee, days, policyVersion: activePolicy, asOf: calculationAsOf });
-      return {
+      const calculation = calculatePayrollEstimate({ employee, days, policyVersion: activePolicy, asOf: calculationAsOf, month });
+      return withWithholding({
         id: `PAYL-${randomUUID()}`,
         payrollRunId: payrollRun.id,
         employeeId: employee.id,
@@ -573,7 +573,7 @@ export function createAttendancePayrollService(dependencies = {}) {
         baseWage: calculation.baseWage,
         positionAllowance: calculation.positionAllowance,
         seniorityAward: calculation.seniorityAward,
-        performanceAward: 0,
+        performanceAward: calculation.performanceAward,
         overtimeWage: calculation.overtimeWage,
         leaveDeduction: 0,
         otherDeduction: 0,
@@ -582,7 +582,7 @@ export function createAttendancePayrollService(dependencies = {}) {
         calculation,
         createdAt: changedAt,
         updatedAt: changedAt,
-      };
+      }, { employee, month, policy: activePolicy.policy });
     });
     return workspace.attendancePayrollRepository.createPayrollRun({
       workspace,
@@ -665,7 +665,8 @@ export function createAttendancePayrollService(dependencies = {}) {
       2,
     );
     const netWage = round(Math.max(0, grossWage - leaveDeduction - otherDeduction), 2);
-    const payrollLine = {
+    const runPolicy = (workspace.payrollPolicyVersions ?? []).find((item) => item.id === payrollRun.policyVersionId)?.policy ?? {};
+    const payrollLine = withWithholding({
       ...current,
       ...newValues,
       grossWage,
@@ -681,7 +682,7 @@ export function createAttendancePayrollService(dependencies = {}) {
         },
       },
       updatedAt: changedAt,
-    };
+    }, { employee, month: payrollRun.payrollMonth, policy: runPolicy });
     const adjustment = {
       id: `PAYA-${randomUUID()}`,
       payrollLineId: current.id,
@@ -750,10 +751,21 @@ export function createAttendancePayrollService(dependencies = {}) {
         right.payrollRun.payrollMonth.localeCompare(left.payrollRun.payrollMonth) ||
         Number(right.payrollRun.revision) - Number(left.payrollRun.revision),
       );
+    // Deposit and held wage from the latest revision of each confirmed month wait for the year-end settlement.
+    const latestByMonth = new Map();
+    for (const item of allItems) {
+      if (!new Set(["reviewed", "locked", "paid"]).has(item.payrollRun.status)) continue;
+      if (!latestByMonth.has(item.payrollRun.payrollMonth)) latestByMonth.set(item.payrollRun.payrollMonth, item);
+    }
+    const yearEndSettlement = [...latestByMonth.values()].reduce((sum, item) => ({
+      insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.payrollLine.calculation?.withholding?.insuranceDepositWithheld), 2),
+      heldWage: round(sum.heldWage + nonNegativeNumber(item.payrollLine.calculation?.withholding?.heldWage), 2),
+    }), { insuranceDeposit: 0, heldWage: 0 });
     return {
       employee: employeeProjection(employee, now()),
       items: allItems.slice(0, safeLimit),
       total: allItems.length,
+      yearEndSettlement,
     };
   }
 
@@ -768,6 +780,8 @@ export function createAttendancePayrollService(dependencies = {}) {
       ["performanceAward", "绩效/奖励"], ["overtimeWage", "加班工资"],
       ["leaveDeduction", "请假/缺勤扣款"], ["otherDeduction", "其他扣款"],
       ["grossWage", "应发工资"], ["netWage", "实发工资"],
+      ["insuranceDepositWithheld", "保险押金（年底结算）"], ["heldWage", "压月工资（年底结算）"],
+      ["payableNow", "本次发放"],
     ].map(([key, label]) => ({ key, label }));
     const rows = (workspace.payrollLines ?? [])
       .filter((line) => line.payrollRunId === payrollRunId)
@@ -788,6 +802,11 @@ export function createAttendancePayrollService(dependencies = {}) {
           otherDeduction: nonNegativeNumber(line.otherDeduction),
           grossWage: nonNegativeNumber(line.grossWage),
           netWage: nonNegativeNumber(line.netWage),
+          insuranceDepositWithheld: nonNegativeNumber(line.calculation?.withholding?.insuranceDepositWithheld),
+          heldWage: nonNegativeNumber(line.calculation?.withholding?.heldWage),
+          payableNow: line.calculation?.withholding
+            ? nonNegativeNumber(line.calculation.withholding.payableNow)
+            : nonNegativeNumber(line.netWage),
         };
       });
     const digest = sha256(JSON.stringify({ payrollRun, columns, rows }));
@@ -911,7 +930,7 @@ export function buildAttendanceDays({ workspace, employee, month } = {}) {
     });
 }
 
-function calculatePayrollEstimate({ employee, days, policyVersion, asOf }) {
+export function calculatePayrollEstimate({ employee, days, policyVersion, asOf, month = "" }) {
   const policy = policyVersion.policy ?? {};
   const regularMinutesPerDay = Number(policy.regularMinutesPerDay);
   const overtimeMultiplier = Number(policy.overtimeMultiplier);
@@ -932,13 +951,20 @@ function calculatePayrollEstimate({ employee, days, policyVersion, asOf }) {
   const baseWage = isDaily
     ? round(attendanceDayCount * nonNegativeNumber(positionRate.dailyWage), 2)
     : round((totalWorkMinutes / 60) * hourlyWage, 2);
-  const positionAllowance = isDaily ? 0 : round((totalWorkMinutes / 60) * allowanceHourly, 2);
+  // No 岗位补贴 before the employee's probation ends (owner decision 2026-11-02).
+  const probationEndDate = cleanText(employee.probationEndDate);
+  const allowanceMinutes = days
+    .filter((day) => !probationEndDate || cleanText(day.workDate) >= probationEndDate)
+    .reduce((sum, day) => sum + day.workMinutes, 0);
+  const positionAllowance = isDaily ? 0 : round((allowanceMinutes / 60) * allowanceHourly, 2);
+  const hiredThisMonth = Boolean(month) && cleanText(employee.hireDate).slice(0, 7) === month;
+  const performanceAward = hiredThisMonth ? 0 : nonNegativeNumber(positionRate.monthlyPerformance);
   const overtimeWage = isDaily
     ? 0
     : round((overtimeMinutes / 60) * hourlyWage * Math.max(0, overtimeMultiplier - 1), 2);
   const seniorityYears = completedYears(employee.hireDate, asOf);
   const seniorityAward = resolveSeniorityAward(policy.seniorityAwards, seniorityYears);
-  const grossWage = round(baseWage + positionAllowance + overtimeWage + seniorityAward, 2);
+  const grossWage = round(baseWage + positionAllowance + overtimeWage + seniorityAward + performanceAward, 2);
   return {
     totalWorkMinutes,
     attendanceDayCount,
@@ -955,6 +981,9 @@ function calculatePayrollEstimate({ employee, days, policyVersion, asOf }) {
     overtimeWage,
     seniorityYears,
     seniorityAward,
+    performanceAward,
+    probationEndDate,
+    allowanceWorkMinutes: allowanceMinutes,
     grossWage,
     netWage: grossWage,
     policyVersionId: policyVersion.id,
@@ -970,7 +999,7 @@ function calculatePayrollEstimate({ employee, days, policyVersion, asOf }) {
   };
 }
 
-function validatePolicy(value) {
+export function validatePayrollPolicy(value) {
   const policy = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const regularMinutesPerDay = Number(policy.regularMinutesPerDay);
   const overtimeMultiplier = Number(policy.overtimeMultiplier);
@@ -1037,6 +1066,7 @@ function validatePolicy(value) {
         mode,
         baseHourlyWage: round(baseHourlyWage, 2),
         positionAllowanceHourly: round(positionAllowanceHourly, 2),
+        ...validateMonthlyPerformance(item),
       };
     }
     if (mode === "daily") {
@@ -1047,17 +1077,62 @@ function validatePolicy(value) {
       if (hasPolicyRateValue(item?.baseHourlyWage) || hasPolicyRateValue(item?.positionAllowanceHourly)) {
         throw businessError(400, "PAYROLL_POLICY_DAILY_HOURLY_FIELDS_REJECTED", "日薪岗位不能同时配置时薪字段。");
       }
-      return { payrollPositionKey, positionName, mode, dailyWage: round(dailyWage, 2) };
+      return { payrollPositionKey, positionName, mode, dailyWage: round(dailyWage, 2), ...validateMonthlyPerformance(item) };
     }
     throw businessError(400, "PAYROLL_POLICY_POSITION_MODE_INVALID", "工资岗位计薪方式只能是 hourly 或 daily。");
   }).sort((left, right) => left.payrollPositionKey.localeCompare(right.payrollPositionKey));
+  const newHireInsuranceDeposit = policy.newHireInsuranceDeposit === undefined ? 0 : Number(policy.newHireInsuranceDeposit);
+  if (!Number.isFinite(newHireInsuranceDeposit) || newHireInsuranceDeposit < 0 || newHireInsuranceDeposit > 100000) {
+    throw businessError(400, "PAYROLL_POLICY_INSURANCE_DEPOSIT_INVALID", "新员工保险押金必须在 0 到 100000 元之间。");
+  }
   return {
     schemaVersion: "payroll-policy-v2",
     regularMinutesPerDay,
     overtimeMultiplier,
     seniorityAwards,
     positionRates,
+    ...(newHireInsuranceDeposit ? { newHireInsuranceDeposit: round(newHireInsuranceDeposit, 2) } : {}),
   };
+}
+
+// Owner decision 2026-11-02: each position has a default monthly 综合绩效.
+function validateMonthlyPerformance(item = {}) {
+  if (item.monthlyPerformance === undefined || item.monthlyPerformance === null || item.monthlyPerformance === "") return {};
+  const monthlyPerformance = Number(item.monthlyPerformance);
+  if (!Number.isFinite(monthlyPerformance) || monthlyPerformance < 0 || monthlyPerformance > 100000) {
+    throw businessError(400, "PAYROLL_POLICY_PERFORMANCE_INVALID", "岗位默认绩效必须在 0 到 100000 元之间。");
+  }
+  return { monthlyPerformance: round(monthlyPerformance, 2) };
+}
+
+// Owner's 2026 wage book (confirmed 2026-11-02):
+// - the hire month pays no default 绩效 and withholds the insurance deposit;
+// - the next month's wage is held back entirely;
+// - both are paid out at the year-end wage settlement.
+export function resolveNewHireWithholding({ employee = {}, month, netWage, policy = {} }) {
+  const hireMonth = cleanText(employee.hireDate).slice(0, 7);
+  const deposit = nonNegativeNumber(policy.newHireInsuranceDeposit);
+  const isHireMonth = Boolean(hireMonth) && hireMonth === month;
+  const isHeldMonth = Boolean(hireMonth) && nextPayrollMonth(hireMonth) === month;
+  const insuranceDepositWithheld = isHireMonth ? round(Math.min(deposit, nonNegativeNumber(netWage)), 2) : 0;
+  const heldWage = isHeldMonth ? round(nonNegativeNumber(netWage), 2) : 0;
+  return {
+    insuranceDepositWithheld,
+    heldWage,
+    payableNow: round(Math.max(0, nonNegativeNumber(netWage) - insuranceDepositWithheld - heldWage), 2),
+    yearEndSettlement: round(insuranceDepositWithheld + heldWage, 2),
+  };
+}
+
+function nextPayrollMonth(month) {
+  const [year, value] = month.split("-").map(Number);
+  if (!year || !value) return "";
+  return value === 12 ? `${year + 1}-01` : `${year}-${String(value + 1).padStart(2, "0")}`;
+}
+
+function withWithholding(line, { employee, month, policy }) {
+  const withholding = resolveNewHireWithholding({ employee, month, netWage: line.netWage, policy });
+  return { ...line, calculation: { ...(line.calculation ?? {}), withholding } };
 }
 
 function hasPolicyRateValue(value) {
@@ -1219,6 +1294,7 @@ function employeeProjection(employee = {}, asOf = new Date()) {
     payrollPositionKey: cleanText(employee.payrollPositionKey),
     hireDate: cleanText(employee.hireDate),
     seniorityYears: completedYears(employee.hireDate, asOf),
+    probationEndDate: cleanText(employee.probationEndDate),
     profileStatus: cleanText(employee.profileStatus),
     departedAt: cleanText(employee.departedAt),
     departureEffectiveDate: employeeDepartureDate(employee),

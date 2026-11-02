@@ -28,6 +28,7 @@ import {
 } from "../../services/officeAttachmentApiClient.js";
 import {
   PAYROLL_POSITION_CATALOG,
+  PAYROLL_NEW_HIRE_INSURANCE_DEPOSIT,
   PAYROLL_SENIORITY_AWARDS,
   payrollPositionPolicyRates,
 } from "../../../shared/payrollPositionCatalog.js";
@@ -91,7 +92,14 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [policyOpen, setPolicyOpen] = useState(false);
-  const [policyForm, setPolicyForm] = useState({ versionLabel: "", effectiveFrom: "", regularHours: "", overtimeMultiplier: "", seniorityAwards: "" });
+  const [policyForm, setPolicyForm] = useState({
+    versionLabel: "",
+    effectiveFrom: "",
+    regularHours: "",
+    // Owner's wage book pays overtime hours at the normal rate (2026-11-02).
+    overtimeMultiplier: "1",
+    seniorityAwards: PAYROLL_SENIORITY_AWARDS.map((tier) => `${tier.minYears}:${tier.monthlyAmount}`).join("\n"),
+  });
   const [reviewForm, setReviewForm] = useState({ workDate: "", status: "approved", adjustedHours: "", explanation: "" });
   const [paymentReference, setPaymentReference] = useState("");
   const [runDetail, setRunDetail] = useState(null);
@@ -317,6 +325,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
       overtimeMultiplier: Number(policyForm.overtimeMultiplier),
       seniorityAwards,
       positionRates: payrollPositionPolicyRates(),
+      newHireInsuranceDeposit: PAYROLL_NEW_HIRE_INSURANCE_DEPOSIT,
     };
     const success = await perform("policy", async () => {
       const draftResult = await saveOfficePayrollPolicy({

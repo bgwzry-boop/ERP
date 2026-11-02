@@ -474,6 +474,10 @@ export function EmployeeProfileEditor({ review, actionState, onSave }) {
           <input type="date" value={draft.hireDate} onChange={(event) => update("hireDate", event.target.value)} />
         </label>
         <label>
+          <span>转正日期</span>
+          <input type="date" value={draft.probationEndDate} title="转正前不算岗位补贴和默认绩效；留空表示已转正" onChange={(event) => update("probationEndDate", event.target.value)} />
+        </label>
+        <label>
           <span>工资岗位</span>
           <select value={draft.payrollPositionKey} onChange={(event) => update("payrollPositionKey", event.target.value)}>
             <option value="">待负责人复核</option>
@@ -537,6 +541,7 @@ function employeeProfileDraft(review = {}) {
     baseHourlyWage: String(review.baseHourlyWage ?? 0),
     positionAllowanceHourly: String(review.positionAllowanceHourly ?? 0),
     wageEffectiveFrom: review.wageEffectiveFrom || "",
+    probationEndDate: review.probationEndDate || "",
     attendanceProvider: review.attendanceProvider || "",
     attendanceExternalId: review.attendanceExternalId || "",
     remark: review.remark || "",

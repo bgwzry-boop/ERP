@@ -229,6 +229,7 @@ SELECT json_build_object(
       'baseHourlyWage', employees.base_hourly_wage,
       'positionAllowanceHourly', employees.position_allowance_hourly,
       'wageEffectiveFrom', COALESCE(employees.wage_effective_from::TEXT, ''),
+      'probationEndDate', COALESCE(employees.probation_end_date::TEXT, ''),
       'attendanceProvider', employees.attendance_provider,
       'attendanceExternalId', employees.attendance_external_id,
       'attendanceMappingUpdatedBy', COALESCE(employees.attendance_mapping_updated_by, ''),
@@ -357,7 +358,7 @@ updated_employee_assignments AS (
 employee_identity_updates (
   id, name, account_enabled, profile_status, requested_enabled, remark,
   birth_date, hire_date, payroll_position_key, base_hourly_wage, position_allowance_hourly, wage_effective_from,
-  attendance_provider, attendance_external_id, attendance_mapping_updated_by,
+  probation_end_date, attendance_provider, attendance_external_id, attendance_mapping_updated_by,
   attendance_mapping_updated_at, departed_at, departure_effective_date, departed_by, departure_reason, updated_at
 ) AS (
   ${employeeIdentityRows.length > 0
@@ -365,7 +366,7 @@ employee_identity_updates (
     : `SELECT
         NULL::TEXT, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT,
         NULL::DATE, NULL::DATE, NULL::TEXT, NULL::NUMERIC, NULL::NUMERIC, NULL::DATE,
-        NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ,
+        NULL::DATE, NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ,
         NULL::TIMESTAMPTZ, NULL::DATE, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ
       WHERE FALSE`}
 ),
@@ -383,6 +384,7 @@ updated_employee_identities AS (
     base_hourly_wage = employee_identity_updates.base_hourly_wage,
     position_allowance_hourly = employee_identity_updates.position_allowance_hourly,
     wage_effective_from = employee_identity_updates.wage_effective_from,
+    probation_end_date = employee_identity_updates.probation_end_date,
     attendance_provider = employee_identity_updates.attendance_provider,
     attendance_external_id = employee_identity_updates.attendance_external_id,
     attendance_mapping_updated_by = employee_identity_updates.attendance_mapping_updated_by,
@@ -792,6 +794,7 @@ function normalizeRuntimeIdentityEmployeeUpdates(records = []) {
       wageEffectiveFrom: normalizeIsoDate(
         record?.wageEffectiveFrom ?? record?.wage_effective_from,
       ),
+      probationEndDate: normalizeIsoDate(record?.probationEndDate ?? record?.probation_end_date),
       attendanceProvider: cleanText(record?.attendanceProvider ?? record?.attendance_provider).toLowerCase(),
       attendanceExternalId: cleanText(
         record?.attendanceExternalId ?? record?.attendance_external_id,
@@ -827,6 +830,7 @@ function runtimeEmployeeIdentitySqlRow(record, parameters) {
     ${parameters.number(record.baseHourlyWage)},
     ${parameters.number(record.positionAllowanceHourly)},
     ${parameters.nullableText(record.wageEffectiveFrom)}::date,
+    ${parameters.nullableText(record.probationEndDate)}::date,
     ${parameters.text(record.attendanceProvider)},
     ${parameters.text(record.attendanceExternalId)},
     ${parameters.nullableText(record.attendanceMappingUpdatedBy)},
@@ -1017,6 +1021,7 @@ function normalizeRuntimeIdentityEmployeeAccount(record = {}) {
       record.positionAllowanceHourly ?? record.position_allowance_hourly,
     ),
     wageEffectiveFrom: normalizeIsoDate(record.wageEffectiveFrom ?? record.wage_effective_from),
+    probationEndDate: normalizeIsoDate(record.probationEndDate ?? record.probation_end_date),
     attendanceProvider: cleanText(record.attendanceProvider ?? record.attendance_provider).toLowerCase(),
     attendanceExternalId: cleanText(record.attendanceExternalId ?? record.attendance_external_id),
     attendanceMappingUpdatedBy: cleanText(

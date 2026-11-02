@@ -1,17 +1,22 @@
 const catalog = [
-  { key: "PAY-BAG", name: "制袋机-理袋女工", people: 10, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 5, scope: "1–9号制袋机", note: "原表包含3月14日前的调薪前记录" },
-  { key: "PAY-PRINT", name: "印刷机-男工", people: 4, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 5, scope: "1–4号印刷机" },
-  { key: "PAY-MALE", name: "普工-男杂工", people: 4, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 3, scope: "按车间安排", note: "原表包含3月份的调薪前记录" },
-  { key: "PAY-FEMALE", name: "女杂工", people: 3, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 2, scope: "按车间安排", note: "原表包含3月份的调薪前记录" },
-  { key: "PAY-LEAD", name: "普工组长", people: 1, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 5, scope: "生产车间" },
-  { key: "PAY-WARE", name: "库管-女", people: 1, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 5, scope: "库房 / 出库" },
-  { key: "PAY-OFFICE", name: "办公室-女", people: 2, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 2, scope: "办公室", note: "原表包含2–3月份的调薪前记录" },
-  { key: "PAY-HANDLE", name: "提手-拿袋", people: 1, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 2, scope: "提手工序", note: "原表另保留早期“提手”岗位名称" },
-  { key: "PAY-TECH", name: "技术工", people: 1, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 5, scope: "技术支持" },
-  { key: "PAY-DRIVER", name: "送货司机", people: 2, mode: "daily", dailyWage: 180, scope: "送货 / 提货" },
+  { key: "PAY-BAG", name: "制袋机-理袋女工", people: 10, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 5, scope: "1–9号制袋机", note: "原表包含3月14日前的调薪前记录", monthlyPerformance: 300 },
+  { key: "PAY-PRINT", name: "印刷机-男工", people: 4, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 5, scope: "1–4号印刷机", monthlyPerformance: 300 },
+  { key: "PAY-MALE", name: "普工-男杂工", people: 4, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 3, scope: "按车间安排", note: "原表包含3月份的调薪前记录", monthlyPerformance: 300 },
+  { key: "PAY-FEMALE", name: "女杂工", people: 3, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 2, scope: "按车间安排", note: "原表包含3月份的调薪前记录", monthlyPerformance: 500 },
+  { key: "PAY-LEAD", name: "普工组长", people: 1, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 5, scope: "生产车间", monthlyPerformance: 0 },
+  { key: "PAY-WARE", name: "库管-女", people: 1, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 5, scope: "库房 / 出库", monthlyPerformance: 300 },
+  { key: "PAY-OFFICE", name: "办公室-女", people: 2, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 2, scope: "办公室", note: "原表包含2–3月份的调薪前记录", monthlyPerformance: 500 },
+  { key: "PAY-HANDLE", name: "提手-拿袋", people: 1, mode: "hourly", baseHourlyWage: 10, positionAllowanceHourly: 2, scope: "提手工序", note: "原表另保留早期“提手”岗位名称", monthlyPerformance: 500 },
+  { key: "PAY-TECH", name: "技术工", people: 1, mode: "hourly", baseHourlyWage: 15, positionAllowanceHourly: 5, scope: "技术支持", monthlyPerformance: 1300 },
+  { key: "PAY-DRIVER", name: "送货司机", people: 2, mode: "daily", dailyWage: 180, scope: "送货 / 提货", monthlyPerformance: 300 },
 ];
 
 export const PAYROLL_POSITION_CATALOG = Object.freeze(catalog.map((position) => Object.freeze({ ...position })));
+
+// Owner's 2026 wage book (confirmed 2026-11-02): a new hire has this insurance
+// deposit withheld from the first pay; it is paid back at the year-end settlement
+// if the employee stays to year end.
+export const PAYROLL_NEW_HIRE_INSURANCE_DEPOSIT = 952;
 
 export const PAYROLL_SENIORITY_AWARDS = Object.freeze([
   { minYears: 1, monthlyAmount: 30 },
@@ -37,6 +42,7 @@ export function payrollPositionPolicyRates() {
         positionName: position.name,
         mode: position.mode,
         dailyWage: position.dailyWage,
+        monthlyPerformance: position.monthlyPerformance ?? 0,
       }
     : {
         payrollPositionKey: position.key,
@@ -44,6 +50,7 @@ export function payrollPositionPolicyRates() {
         mode: position.mode,
         baseHourlyWage: position.baseHourlyWage,
         positionAllowanceHourly: position.positionAllowanceHourly,
+        monthlyPerformance: position.monthlyPerformance ?? 0,
       });
 }
 
