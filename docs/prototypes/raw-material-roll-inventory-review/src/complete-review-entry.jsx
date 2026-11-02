@@ -82,10 +82,14 @@ if (identityGuard) {
       ]);
       // 品牌橙改版层必须在上面两份样式之后加载（它覆盖其中的外观）。
       await import("./brand-refresh.css");
+      // 独立设计评审只在本地开发入口启用，不进入受控构建或正式收货流程。
+      const receivingDesignPreview = import.meta.env.DEV
+        && currentUrl.searchParams.get("designReview") === "receiving-focus-v1";
+      if (receivingDesignPreview) await import("./receiving-focus-shell.css");
       const { App } = await import("./App.jsx");
       root.render(
         <React.StrictMode>
-          <App />
+          <App receivingDesignPreview={receivingDesignPreview} />
         </React.StrictMode>,
       );
     }

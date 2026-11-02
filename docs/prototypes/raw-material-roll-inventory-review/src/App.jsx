@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppstoreOutlined,
   BellOutlined,
@@ -59,6 +59,11 @@ import {
 import { useFormalDesktopWorkspace } from "./useFormalDesktopWorkspace.js";
 import { FormalReceivingWorkspace } from "./FormalReceivingWorkspace.jsx";
 import { GlobalSearch } from "./GlobalSearch.jsx";
+import { ReviewDialog } from "./ReviewDialog.jsx";
+
+const ReceivingFocusPreview = import.meta.env.DEV
+  ? lazy(() => import("./ReceivingFocusPreview.jsx").then(module => ({ default: module.ReceivingFocusPreview })))
+  : null;
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
@@ -474,7 +479,7 @@ function SourceDialog({ roll, onClose }) {
   return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="source-title" aria-modal="true" className="receive-dialog source-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>来源追溯</span><h2 id="source-title">{roll.source}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><dl><div><dt>当前卷码</dt><dd>{roll.id}</dd></div><div><dt>供应商</dt><dd>{roll.supplier}</dd></div><div><dt>供应商单号</dt><dd>未提供</dd></div><div><dt>OCR 来源</dt><dd>第 1 行 · 第 1 卷</dd></div><div><dt>权威卷料事实</dt><dd>{roll.color} · {roll.spec} · {formatInventoryRollAmount(roll)}</dd></div></dl><p className="source-disclosure">票据与 OCR 原文仅用于追溯；卷料库存以逐卷人工确认后的颜色、规格和重量为准。</p></section></div>;
 }
 
-export function App({ permissionContext = defaultPermissionContext }) {
+export function App({ permissionContext = defaultPermissionContext, receivingDesignPreview = false }) {
   const formal = useFormalDesktopWorkspace();
   const resolvedPermissionContext = formal.permissionContext || permissionContext;
   // 导航角标和铃铛与「公共待办 · 未处理」列表使用同一规则和同一份服务器数据，不再写死数字。
@@ -486,11 +491,12 @@ export function App({ permissionContext = defaultPermissionContext }) {
   );
   const visibleRawMaterialViews = useMemo(() => getVisibleRawMaterialViews(resolvedPermissionContext), [resolvedPermissionContext]);
   const [view, setView] = useState(() => {
+    if (receivingDesignPreview) return "收货录入";
     const hashNavId = window.location.hash.replace(/^#/, "");
     const hashView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
     return visibleViews.includes(hashView) ? hashView : getDefaultWorkspaceView(permissionContext);
   });
-  const [expandedGroups, setExpandedGroups] = useState(() => new Set(pcNavGroups.map((group) => group.id)));
+  const [expandedGroups, setExpandedGroups] = useState(() => new Set(receivingDesignPreview ? ["materials"] : pcNavGroups.map((group) => group.id)));
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiptFocusId, setReceiptFocusId] = useState("");
   const [productionFocusId,setProductionFocusId] = useState("");
@@ -501,10 +507,12 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const [stockOperation, setStockOperation] = useState(null);
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
+  const [designExitTarget, setDesignExitTarget] = useState("");
   const searchToken = useRef(0);
   const activeView = visibleViews.includes(view) ? view : getDefaultWorkspaceView(permissionContext);
   const activeNavId = viewNavMap[activeView] || "";
   const isRawMaterialView = visibleRawMaterialViews.includes(activeView);
+  const isDesignReceiving = Boolean(import.meta.env.DEV && receivingDesignPreview && activeView === "收货录入");
   const canManageSupplierColors = hasEffectivePermission(
     resolvedPermissionContext,
     "master_data.raw_material_color.manage",
@@ -523,12 +531,17 @@ export function App({ permissionContext = defaultPermissionContext }) {
     const handleHashChange = () => {
       if (formal.orderEntryWritePending) { window.history.replaceState(null, "", `#${activeNavId}`); return; }
       const hashNavId = window.location.hash.replace(/^#/, "");
+      if (receivingDesignPreview && hashNavId !== "material-receiving") {
+        if (navViewMap[hashNavId]) setDesignExitTarget(hashNavId);
+        window.history.replaceState(null, "", "#material-receiving");
+        return;
+      }
       const nextView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
       if (nextView && visibleViews.includes(nextView)) setView(nextView);
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [visibleViews, formal.orderEntryWritePending, activeNavId]);
+  }, [visibleViews, formal.orderEntryWritePending, activeNavId, receivingDesignPreview]);
   const toggleGroup = (groupId) => {
     setExpandedGroups((current) => {
       const next = new Set(current);
@@ -542,6 +555,10 @@ export function App({ permissionContext = defaultPermissionContext }) {
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
     const nextView = navViewMap[normalizedNavId];
     const allowed = Boolean(nextView && visibleViews.includes(nextView));
+    if (receivingDesignPreview && allowed && normalizedNavId !== "material-receiving") {
+      setDesignExitTarget(normalizedNavId);
+      return;
+    }
     setWorkspaceFocus(allowed && focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === normalizedNavId ? focus.workspaceFocus : null);
     setProductionFocusId(focus.productionTaskId || "");
     if (allowed) {
@@ -592,13 +609,13 @@ export function App({ permissionContext = defaultPermissionContext }) {
     }
   };
 
-  return <div className="app-shell" data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
+  return <div className={`app-shell${isDesignReceiving ? " design-review-shell" : ""}`} data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
     <Sidebar activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar allowedNavIds={allowedNavIds} onCreateOrder={() => navigate("order-entry")} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} searchData={formal.data} searchPending={formal.meta.loading} unhandledTodoCount={unhandledTodoCount} />
-    <main className={`page${isRawMaterialView ? "" : " business-page"}`}>
+    <main className={`page${isRawMaterialView ? "" : " business-page"}${isDesignReceiving ? " design-review-page" : ""}`}>
       {formal.meta.loading ? <div className="formal-sync-banner">正在读取正式服务器数据…</div> : null}
       {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">本次操作结果正在核对，请先确认结果；结果未明时按原内容重试。</div> : null}
       {!formal.meta.loading && Object.keys(formal.meta.errors).length ? <div className="formal-sync-banner error">部分正式接口读取失败；失败页面不会回退到静态数据。<button onClick={() => void formal.actions.refreshAll()} type="button">重试</button></div> : null}
-      {isRawMaterialView ? <header className="workbench-dock">
+      {isRawMaterialView && !isDesignReceiving ? <header className="workbench-dock">
         <div className="dock-primary">{visibleRawMaterialViews.includes("卷料库存") ? <InventoryStatusCards summary={currentInventorySummary} /> : null}</div>
         <div className="dock-actions">
           {canManageSupplierColors ? <button className="factory-color-entry" onClick={() => setColorMappingOpen(true)} type="button">厂家颜色资料</button> : null}
@@ -607,10 +624,21 @@ export function App({ permissionContext = defaultPermissionContext }) {
         </div>
       </header> : null}
       {activeView === "卷料库存" ? <RollInventory formal={formal} onOpenOperations={canOperateStock ? setStockOperation : undefined} onOpenSource={setSourceRoll} sourceRolls={currentInventoryRolls} /> : null}
-      {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={openReceive} records={receiptRecords} /> : null}
+      {isDesignReceiving ? <Suspense fallback={<p role="status">正在打开收货界面试稿…</p>}><ReceivingFocusPreview /></Suspense>
+        : activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={openReceive} records={receiptRecords} /> : null}
       {activeNavId === "raw-material-cost" ? <RawMaterialCostWorkspace formal={formal} /> : null}
       {!isRawMaterialView && activeNavId !== "raw-material-cost" ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} workspaceFocus={workspaceFocus} /> : null}
     </main>
+    {isDesignReceiving && designExitTarget ? <ReviewDialog className="design-exit-dialog" labelledBy="design-exit-title" onClose={() => setDesignExitTarget("")}>
+      <h2 id="design-exit-title">查看现有{navViewMap[designExitTarget]}？</h2>
+      <p>这次试稿只调整收货页。继续将离开示例演示，打开现有本地工作台。</p>
+      <div><button type="button" onClick={() => setDesignExitTarget("")}>继续看试稿</button><button className="primary" type="button" onClick={() => {
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.delete("designReview");
+        nextUrl.hash = designExitTarget;
+        window.location.assign(nextUrl.toString());
+      }}>查看现有工作台</button></div>
+    </ReviewDialog> : null}
     {receiveOpen ? <RawMaterialReceiveDialog busy={receiveBusy} error={receiveError} inbounds={formal.data.rawMaterialInbounds} onClose={() => { if (!receiveBusyRef.current) setReceiveOpen(false); }} onRecognize={recognizeReceiptPages} /> : null}
     {sourceRoll ? <SourceDialog onClose={() => setSourceRoll(null)} roll={sourceRoll} /> : null}
     {stockOperation ? <RawMaterialStockOperationsDialog key={`${stockOperation.source}:${stockOperation.id}`} formal={formal} inboundId={stockOperation.source} rollId={stockOperation.id} onClose={() => setStockOperation(null)} /> : null}
