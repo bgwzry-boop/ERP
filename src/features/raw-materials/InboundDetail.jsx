@@ -9,7 +9,8 @@ const RawMaterialMobileOcrReview = lazy(() => import("./RawMaterialMobileOcrRevi
   default: module.RawMaterialMobileOcrReview,
 })));
 
-export function InboundDetail({ state }) {
+export function InboundDetail({ state, headerFacts = null, focusedReceipt = false }) {
+  const [actionDock, setActionDock] = useState(null);
   const {
     authState,
     currentUser,
@@ -59,7 +60,7 @@ export function InboundDetail({ state }) {
   return (<DetailPane
         className={`raw-material-detail-pane ${mobileOcrReviewActive ? "has-mobile-ocr-review" : ""}`}
         title={selected?.supplierName ?? "原材料入库"}
-        subtitle={selected?.status ?? "原材料入库"}
+        subtitle={focusedReceipt ? "本单信息" : selected?.status ?? "原材料入库"}
       >
         <button className="raw-material-mobile-back" onClick={() => handleMobileStageChange("home")} type="button">返回收货步骤</button>
         {mobileOcrReviewActive ? (
@@ -105,9 +106,11 @@ export function InboundDetail({ state }) {
         ) : null}
         {selected ? (
           <>
-            <RawMaterialDetailOverview selected={selected} />
+            {focusedReceipt ? null : <RawMaterialDetailOverview selected={selected} />}
+            {headerFacts}
             <div className="raw-material-detail-scroll">
               <RawMaterialInboundReceivingSections
+                actionDock={focusedReceipt ? actionDock : null}
                 authState={authState}
                 operatorId={currentUser?.userId}
                 sourcePreviewDataUrls={deliveryNotePreviewByInboundId[selected.id]}
@@ -157,6 +160,7 @@ export function InboundDetail({ state }) {
                 selected={selected}
               />
             </div>
+            {focusedReceipt ? <div className="formal-receiving-action-dock" ref={setActionDock} /> : null}
           </>
         ) : (
           <DataState title="暂无原材料入库单" detail="调整视图或搜索条件后重试。" compact />

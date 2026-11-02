@@ -101,6 +101,10 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
       receiptStageCounts: json?.receiptStageCounts,
     };
   } catch (error) {
+    if (options.serverRequired) return {
+      source: "api_error", blocked: true, items: [], page, pageSize, total: 0,
+      error: { code: "RAW_MATERIAL_INBOUND_API_UNAVAILABLE", message: error?.message ?? String(error) },
+    };
     const items = filterLocalRawMaterialInbounds(localInbounds, filters);
     const size = Math.max(1, Number(pageSize) || 200);
     const start = Math.max(0, (Math.max(1, Number(page) || 1) - 1) * size);
@@ -116,6 +120,25 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
         message: error?.message ?? String(error),
       },
     };
+  }
+}
+
+// A selected receipt remains addressable when its queue page or stage changes.
+export async function getOfficeRawMaterialInbound({ authState, operatorId, inboundId } = {}, options = {}) {
+  try {
+    const response = await requestRawMaterialApi(`/raw-material-inbounds/${encodeURIComponent(inboundId)}`, {
+      ...options, authState, operatorId,
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true,
+      error: toRawMaterialApiError(json, response.status, "收货单详情读取失败。") };
+    const inbound = json?.inbound && normalizeRawMaterialInbound(json.inbound);
+    if (!inbound?.id || inbound.id !== inboundId) return { source: "api_error", blocked: true,
+      error: { code: "RAW_MATERIAL_INBOUND_DETAIL_INVALID", message: "收货单详情与当前选择不一致，请重试。" } };
+    return { source: "api", inbound };
+  } catch (error) {
+    return { source: "api_error", blocked: true,
+      error: { code: "RAW_MATERIAL_INBOUND_DETAIL_UNAVAILABLE", message: error?.message ?? String(error) } };
   }
 }
 

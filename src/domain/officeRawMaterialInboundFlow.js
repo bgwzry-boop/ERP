@@ -46,7 +46,7 @@ export function officeReviewSubmitBlocker(inbound = {}, documentDraft = {}) {
   if (inbound?.documentDirection === "supplier_return") return "";
   if (hasStrongRawMaterialSupplierReturnEvidence(inbound)) return "原单含退货明细，请先改为退货单核对，不能按收货入库。";
   if (!clean(officeReviewFieldsForSubmit(inbound, documentDraft).supplierName)) {
-    return "供应商还没确认。请展开「单据与 OCR 原文」，补上供应商后再点「这批都对，去打印」。";
+    return "供应商还没确认。请补上供应商后再点「这批都对，去打印」。";
   }
   return "";
 }
@@ -156,7 +156,11 @@ export function applyOfficeRollCorrection({ lineDrafts = {}, documentDraft = {},
   const count = positiveCount(row.lineRollCount);
   const stored = lineDrafts[lineId];
   const current = { ...(stored && Object.keys(stored).length ? stored : draftFromLineValues(row.line?.values)) };
-  if (correction.color != null) current.factoryColor = clean(correction.color);
+  const supplierColorChanged = correction.supplierColor != null && clean(correction.supplierColor) !== clean(current.supplierColor);
+  if (correction.supplierColor != null) current.supplierColor = clean(correction.supplierColor);
+  // A corrected ticket name is not evidence for reusing its former factory mapping.
+  if (supplierColorChanged) current.factoryColor = "";
+  else if (correction.color != null) current.factoryColor = clean(correction.color);
   if (correction.widthCm != null && clean(correction.widthCm)) {
     current.spec = replaceWidthInSpec(current.spec || row.spec, correction.widthCm);
   }

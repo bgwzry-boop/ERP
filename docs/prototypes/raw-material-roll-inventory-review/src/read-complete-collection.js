@@ -1,6 +1,6 @@
 // The desktop filters operate on a complete collection. Never present a first
 // page (or a partially failed scan) as the full business ledger.
-export async function readCompleteCollection(readPage, { pageSize = 200, maxPages = 100 } = {}) {
+export async function readCompleteCollection(readPage, { pageSize = 200, maxPages = 100, isCurrent = () => true } = {}) {
   const items = [];
   const identities = new Set();
   let expectedTotal;
@@ -9,7 +9,9 @@ export async function readCompleteCollection(readPage, { pageSize = 200, maxPage
     error: { code: "REVIEW_COLLECTION_INCOMPLETE", message } });
   try {
     for (let page = 1; page <= maxPages; page += 1) {
+      if (!isCurrent()) return { source: "superseded" };
       const result = await readPage({ page, pageSize });
+      if (!isCurrent()) return { source: "superseded" };
       if (result?.source !== "api" || result.blocked) return fail(result?.error?.message || "列表读取失败，请重试。");
       const { total, items: batch } = result;
       const actualSize = result.pageSize ?? pageSize;

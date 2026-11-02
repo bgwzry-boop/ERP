@@ -1,3 +1,4 @@
+import { fulfillReceiptRead, selectReceiptRow, selectReceiptTab } from "./receipt-ui-read-fixtures.mjs";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
@@ -49,8 +50,7 @@ try {
           writes.push({ method: request.method(), path });
           return route.abort();
         }
-        if (path === "/api/raw-material-inbounds") return route.fulfill({ json: { items: [inbound], page: 1, pageSize: 200, total: 1 } });
-        if (path === `/api/raw-material-inbounds/${inbound.id}`) return route.fulfill({ json: { inbound } });
+        if (await fulfillReceiptRead(route, [inbound])) return;
         return route.continue();
       });
       try {
@@ -73,14 +73,14 @@ try {
           }
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         } else {
-          if (name === "automatic-return") await page.getByRole("tab", { name: "退货单 1", exact: true }).click();
-          await page.locator("button.receipt-row").filter({ hasText: inbound.id }).waitFor();
+          if (name === "automatic-return") await selectReceiptTab(page, "退货单 1");
+          await selectReceiptRow(page, inbound.id);
           if (name === "mixed-directions") {
             await page.getByRole("alert").filter({ hasText: "原单同时包含送货和退货明细" }).first().waitFor();
             assert.equal(await page.getByRole("button", { name: "请先核对混合方向", exact: true }).isDisabled(), true);
             assert.equal(await page.locator(".office-roll-table").count(), 0);
-            await page.getByText("单据与 OCR 原文", { exact: true }).click();
-            assert.equal(await page.getByRole("button", { name: "确认人工复核", exact: true }).isDisabled(), true, "the expanded OCR panel cannot bypass mixed-direction review");
+            await page.getByText("单据与识别明细", { exact: true }).click();
+            assert.equal(await page.getByRole("button", { name: "确认人工复核", exact: true }).count(), 0, "the expanded OCR panel must not offer a second review bypass");
           } else {
             const confirm = page.getByRole("button", { name: name === "automatic-return" ? "确认退货，不入库" : "这批都对，去打印", exact: true });
             await confirm.waitFor();

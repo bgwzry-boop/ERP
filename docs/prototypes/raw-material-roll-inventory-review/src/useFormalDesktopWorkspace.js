@@ -1,5 +1,7 @@
 import { mergeRawMaterialCurrentInbound } from "../../../../shared/rawMaterialCurrentInbound.js";
 import { readCompleteCollection, createReadGenerationGuard } from "./read-complete-collection.js";
+import { UNLOADED_READ, beginRead, finishRead, invalidateRead, workspaceReadDependencies } from "./formal-workspace-read-state.js";
+import { useReceivingData } from "./useReceivingData.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initializeSeedAuth } from "../../../../src/services/officeAuthService.js";
 import { listOfficeTodos } from "../../../../src/services/officeTodoApiClient.js";
@@ -85,10 +87,6 @@ function resultError(result, label) {
   return result?.error?.message || `${label}未从正式接口读取。`;
 }
 
-function normalizeItems(result) {
-  return result?.source === "api" && Array.isArray(result.items) ? result.items : [];
-}
-
 function replaceEmployeeReview(items, review) {
   if (!review?.employeeId) return items;
   return items.map((item) => item.employeeId === review.employeeId ? review : item);
@@ -107,62 +105,72 @@ export function useFormalDesktopWorkspace() {
   }, []);
   const authStateRef = useRef(null);
   const [data, setData] = useState(emptyData);
-  const [meta, setMeta] = useState({ loading: true, errors: {}, lastSyncedAt: "" });
+  const [activeView, setActiveViewState] = useState("");
+  const activeViewRef = useRef("");
+  const [collections, setCollections] = useState({});
+  const collectionsRef = useRef({});
+  const pendingReads = useRef(new Map());
+  const setActiveView = useCallback(navId => {
+    activeViewRef.current = navId;
+    setActiveViewState(navId);
+  }, []);
+  const updateCollectionState = useCallback((key, next) => {
+    collectionsRef.current = { ...collectionsRef.current, [key]: next };
+    setCollections(collectionsRef.current);
+  }, []);
+  const receiptReader = useReceivingData({ authState, active: activeView === "material-receiving", operatorId });
+  const { acceptInbound, lookupInbound, getDetailState } = receiptReader;
+  const { refreshReceipts } = receiptReader.actions;
 
   const live = useRef(false);
   const readGuard = useRef(createReadGenerationGuard());
-  const refreshVersion = useRef(0);
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
 
-  const readCollection = useCallback(async (key, session = authStateRef.current) => {
+  const readCollection = useCallback((key, session = authStateRef.current, { reusePending = false } = {}) => {
+    if (!readDefinitions[key] || !session?.authenticated || !session?.session?.accessToken) {
+      return Promise.resolve({ source: "api_error", blocked: true, error: { message: "正式接口身份验证未通过。" } });
+    }
+    const token = session.session.accessToken;
+    const pendingKey = `${token}:${key}`;
+    if (reusePending && pendingReads.current.has(pendingKey)) return pendingReads.current.get(pendingKey);
     const generation = readGuard.current.begin(key);
-    const result = await readCompleteCollection(params => readDefinitions[key](session, params));
-    if (!live.current || !readGuard.current.current(key, generation)
-      || session?.session?.accessToken !== authStateRef.current?.session?.accessToken) return { source: "superseded" };
-    setData(current => ({ ...current, [key]: normalizeItems(result) }));
-    setMeta(current => {
-      const errors = { ...current.errors };
-      const error = resultError(result, key);
-      if (error) errors[key] = error; else delete errors[key];
-      return { ...current, errors };
-    });
-    return result;
-  }, []);
+    updateCollectionState(key, beginRead(collectionsRef.current[key]));
+    const promise = (async () => {
+      const isCurrent = () => live.current && readGuard.current.current(key, generation)
+        && token === authStateRef.current?.session?.accessToken;
+      const result = await readCompleteCollection(params => readDefinitions[key](session, params), { isCurrent });
+      if (!isCurrent()) return { source: "superseded" };
+      // A failed refresh does not erase the last complete, successful snapshot.
+      if (result.source === "api" && !result.blocked) setData(current => ({ ...current, [key]: result.items }));
+      updateCollectionState(key, finishRead(collectionsRef.current[key], result));
+      return result;
+    })();
+    pendingReads.current.set(pendingKey, promise);
+    void promise.finally(() => { if (pendingReads.current.get(pendingKey) === promise) pendingReads.current.delete(pendingKey); });
+    return promise;
+  }, [updateCollectionState]);
 
   const refreshAll = useCallback(async (requestedAuthState) => {
     const nextAuthState = requestedAuthState?.authenticated ? requestedAuthState : authStateRef.current;
-    const version = ++refreshVersion.current;
     if (!nextAuthState?.authenticated || !nextAuthState?.session?.accessToken) {
-      setData(emptyData);
-      setMeta({ loading: false, errors: { auth: "正式接口身份验证未通过。" }, lastSyncedAt: "" });
       return { source: "api_error", blocked: true };
     }
-    setMeta(current => ({ ...current, loading: true }));
-    const entries = await Promise.all(Object.keys(readDefinitions).map(async key => [key, await readCollection(key, nextAuthState)]));
-    if (!live.current || version !== refreshVersion.current) return { source: "superseded" };
+    const keys = workspaceReadDependencies[activeViewRef.current] || [];
+    const entries = await Promise.all(keys.map(async key => [key, await readCollection(key, nextAuthState)]));
+    if (activeViewRef.current === "material-receiving") entries.push(["receiving", await refreshReceipts()]);
     const errors = Object.fromEntries(entries.filter(([, value]) => value.source !== "superseded" && resultError(value, "列表")).map(([key, value]) => [key, resultError(value, key)]));
-    setMeta(current => ({ ...current, loading: false,
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) }));
     return { source: Object.keys(errors).length ? "api_partial" : "api", errors };
-  }, [readCollection]);
+  }, [readCollection, refreshReceipts]);
 
+  const ensureSearchData = useCallback(() => Promise.all(["orderLines", "statements"].map(key => {
+    const state = collectionsRef.current[key];
+    return state?.hasLoaded && !state.stale ? { source: "api" } : readCollection(key, authStateRef.current, { reusePending: true });
+  })), [readCollection]);
   useEffect(() => {
-    let pending = false;
-    const refresh = async () => {
-      if (pending || document.visibilityState === "hidden" || !authStateRef.current?.authenticated) return;
-      pending = true;
-      try { await readCollection("rawMaterialInbounds"); }
-      finally { pending = false; }
-    };
-    const timer = window.setInterval(refresh, 15_000);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [readCollection]);
+    if (!authState?.authenticated) return;
+    // Each page owns its dependency reads; no background full-ERP timer.
+    for (const key of workspaceReadDependencies[activeView] || []) void readCollection(key, authStateRef.current, { reusePending: true });
+  }, [activeView, authState?.session?.accessToken, authState?.authenticated, readCollection]);
 
   useEffect(() => {
     let active = true;
@@ -170,14 +178,29 @@ export function useFormalDesktopWorkspace() {
       if (!active) return;
       authStateRef.current = nextAuthState;
       setAuthState(nextAuthState);
-      return refreshAll(nextAuthState);
     });
     return () => { active = false; };
-  }, [refreshAll]);
+  }, []);
+
+  const acceptRawMaterialInbound = useCallback(inbound => {
+    acceptInbound(inbound);
+    readGuard.current.begin("rawMaterialInbounds");
+    pendingReads.current.delete(`${authStateRef.current?.session?.accessToken}:rawMaterialInbounds`);
+    if (collectionsRef.current.rawMaterialInbounds?.hasLoaded) {
+      setData(current => ({ ...current, rawMaterialInbounds: mergeRawMaterialCurrentInbound(current.rawMaterialInbounds, inbound) }));
+      updateCollectionState("rawMaterialInbounds", invalidateRead(collectionsRef.current.rawMaterialInbounds));
+      if ((workspaceReadDependencies[activeViewRef.current] || []).includes("rawMaterialInbounds")) void readCollection("rawMaterialInbounds");
+    }
+  }, [acceptInbound, readCollection, updateCollectionState]);
 
   const updateRawMaterialInbound = useCallback(async (action, inboundId, options = {}) => {
-    const target = data.rawMaterialInbounds.find((item) => item.id === inboundId);
+    const target = [lookupInbound(inboundId), data.rawMaterialInbounds.find((item) => item.id === inboundId)]
+      .filter(Boolean).sort((left, right) => Number(right.revision || 0) - Number(left.revision || 0))[0];
     if (!target) return { source: "ui_error", blocked: true, error: { message: `未找到入库单 ${inboundId}。` } };
+    const state = activeViewRef.current === "material-receiving" ? getDetailState(inboundId) : collectionsRef.current.rawMaterialInbounds;
+    if (state?.stale || state?.error || state?.loading || (activeViewRef.current === "material-receiving" && !state?.hasLoaded)) {
+      return { source: "ui_error", blocked: true, error: { message: "这张单据尚未完成最新读取，请刷新成功后再操作。" } };
+    }
     const result = await updateOfficeRawMaterialInboundAction({
       authState: authStateRef.current,
       operatorId,
@@ -188,14 +211,10 @@ export function useFormalDesktopWorkspace() {
       ...options,
     }, readOptions);
     if (result.source === "api" && result.inbound?.id) {
-      readGuard.current.begin("rawMaterialInbounds");
-      setData((current) => ({
-        ...current,
-        rawMaterialInbounds: mergeRawMaterialCurrentInbound(current.rawMaterialInbounds, result.inbound),
-      }));
+      acceptRawMaterialInbound(result.inbound);
     }
     return result;
-  }, [data.rawMaterialInbounds]);
+  }, [data.rawMaterialInbounds, lookupInbound, getDetailState, acceptRawMaterialInbound]);
 
   const recognizeRawMaterialPages = useCallback(async ({ pages = [], documentDirectionHint = "supplier_delivery", supplierNameHint = "", onProgress } = {}) => {
     if (!pages.length) return { source: "ui_error", blocked: true, error: { message: "请先添加送货单照片或 PDF。" } };
@@ -213,14 +232,10 @@ export function useFormalDesktopWorkspace() {
       useNewModel: false,
     }, readOptions);
     if (result.source === "api" && result.inbound?.id) {
-      readGuard.current.begin("rawMaterialInbounds");
-      setData((current) => ({
-        ...current,
-        rawMaterialInbounds: mergeRawMaterialCurrentInbound(current.rawMaterialInbounds, result.inbound),
-      }));
+      acceptRawMaterialInbound(result.inbound);
     }
     return result;
-  }, []);
+  }, [acceptRawMaterialInbound]);
 
   // Retain the single-file action for existing callers. The exact source File
   // must travel with the OCR copy, including when a large photo is normalized.
@@ -269,6 +284,14 @@ export function useFormalDesktopWorkspace() {
     ...input, authState: authStateRef.current, operatorId, draftRows: input.rows,
   }, readOptions), []);
 
+  const acceptEmployeeReview = useCallback(review => {
+    readGuard.current.begin("employeeAccountReviews");
+    pendingReads.current.delete(`${authStateRef.current?.session?.accessToken}:employeeAccountReviews`);
+    setData(current => ({ ...current, employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, review) }));
+    updateCollectionState("employeeAccountReviews", invalidateRead(collectionsRef.current.employeeAccountReviews));
+    if ((workspaceReadDependencies[activeViewRef.current] || []).includes("employeeAccountReviews")) void readCollection("employeeAccountReviews");
+  }, [readCollection, updateCollectionState]);
+
   const updateEmployeeProfile = useCallback(async (review, profile = {}) => {
     const employeeId = String(review?.employeeId || "").trim();
     if (!employeeId) return { source: "ui_error", blocked: true, error: { message: "缺少正式员工编号。" } };
@@ -279,13 +302,10 @@ export function useFormalDesktopWorkspace() {
       ...profile,
     }, readOptions);
     if (result.source === "api" && result.employeeAccountReview?.employeeId) {
-      setData((current) => ({
-        ...current,
-        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
-      }));
+      acceptEmployeeReview(result.employeeAccountReview);
     }
     return result;
-  }, []);
+  }, [acceptEmployeeReview]);
 
   const confirmEmployeeIdentity = useCallback(async (review, confirmation = {}) => {
     const result = await confirmOfficeMasterDataEmployeeIdentity({
@@ -298,13 +318,10 @@ export function useFormalDesktopWorkspace() {
       reason: confirmation.reason,
     }, readOptions);
     if (result.source === "api" && result.employeeAccountReview?.employeeId) {
-      setData((current) => ({
-        ...current,
-        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
-      }));
+      acceptEmployeeReview(result.employeeAccountReview);
     }
     return result;
-  }, []);
+  }, [acceptEmployeeReview]);
 
   const enableEmployeeAccount = useCallback(async (review) => {
     const result = await enableOfficeMasterDataEmployeeAccount({
@@ -318,13 +335,10 @@ export function useFormalDesktopWorkspace() {
       reviewNote: "管理员已复核员工身份、岗位、机台和账号角色。",
     }, readOptions);
     if (result.source === "api" && result.employeeAccountReview?.employeeId) {
-      setData((current) => ({
-        ...current,
-        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
-      }));
+      acceptEmployeeReview(result.employeeAccountReview);
     }
     return result;
-  }, []);
+  }, [acceptEmployeeReview]);
 
   const issueEmployeePassword = useCallback(async (review) => {
     const result = await issueOfficeMasterDataEmployeeAccountPassword({
@@ -338,30 +352,31 @@ export function useFormalDesktopWorkspace() {
       issueNote: "管理员发放员工首次临时登录密码。",
     }, readOptions);
     if (result.source === "api" && result.employeeAccountReview?.employeeId) {
-      setData((current) => ({
-        ...current,
-        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
-      }));
+      acceptEmployeeReview(result.employeeAccountReview);
     }
     return result;
-  }, []);
+  }, [acceptEmployeeReview]);
 
   // 供应商月结：上传对账单 → 核对 → 确认对账 → 生成应付 → 登记付款（可分次、可抹零）。
   const precheckSupplierStatement = useCallback(async (file, supplierName = "") => {
     if (!file) return { source: "ui_error", blocked: true, error: { message: "请选择供应商月结 Excel。" } };
+    // Matching cannot use a receipt queue page or a stale complete snapshot.
+    const inbounds = await readCollection("rawMaterialInbounds");
+    if (inbounds.source !== "api" || !inbounds.complete) return { source: "ui_error", blocked: true,
+      error: { message: inbounds.error?.message || "完整入库记录尚未读取成功，暂不能核对月结。" } };
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await precheckRawMaterialSupplierStatementWorkbook({
         bytes,
         fileName: file.name,
         supplierName,
-        existingInbounds: data.rawMaterialInbounds,
+        existingInbounds: inbounds.items,
       });
       return { source: "local_precheck", result };
     } catch (error) {
       return { source: "ui_error", blocked: true, error: { message: `Excel 无法读取，请确认是 .xlsx 文件：${error?.message || error}` } };
     }
-  }, [data.rawMaterialInbounds]);
+  }, [readCollection]);
 
   const runSupplierStatementWrite = useCallback(async (write) => {
     const result = await write({
@@ -416,6 +431,10 @@ export function useFormalDesktopWorkspace() {
     }, readOptions)), [runSupplierStatementWrite]);
 
   const actions = useMemo(() => ({
+    ...receiptReader.actions,
+    setActiveView,
+    readCollection,
+    ensureSearchData,
     focusOrderDraft,
     setOrderEntryWritePending,
     confirmEmployeeIdentity,
@@ -437,7 +456,24 @@ export function useFormalDesktopWorkspace() {
     confirmSupplierStatement,
     generateSupplierPayable,
     confirmSupplierPayment,
-  }), [precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
+  }), [receiptReader.actions, setActiveView, readCollection, ensureSearchData, precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
+
+  const requiredStates = (workspaceReadDependencies[activeView] || []).map(key => [key, collections[key] || UNLOADED_READ]);
+  if (activeView === "material-receiving") requiredStates.push(["receiving", receiptReader.receiving]);
+  const errors = Object.fromEntries(requiredStates.filter(([, state]) => state.error).map(([key, state]) => [key, state.error]));
+  const authFailed = Boolean(authState && (!authState.authenticated || !authState.session?.accessToken));
+  if (authFailed) errors.auth = "正式接口身份验证未通过。";
+  const syncedDates = requiredStates.map(([, state]) => state.lastSyncedAt).filter(Boolean).sort();
+  const meta = {
+    loading: !authState || (!authFailed && requiredStates.some(([, state]) => state.loading || state.status === "unloaded")),
+    hasLoaded: !authFailed && requiredStates.every(([, state]) => state.hasLoaded),
+    blockingError: authFailed || requiredStates.some(([, state]) => state.error && !state.hasLoaded),
+    pendingInitial: !authState || (!authFailed && requiredStates.some(([, state]) => !state.hasLoaded && (state.loading || state.status === "unloaded"))),
+    errors, collections, stale: requiredStates.some(([, state]) => state.stale),
+    lastSyncedAt: syncedDates.length ? new Date(syncedDates[0]).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "",
+    search: { loading: ["orderLines", "statements"].some(key => !collections[key]?.hasLoaded || collections[key]?.loading),
+      error: ["orderLines", "statements"].map(key => collections[key]?.error).filter(Boolean).join("；") },
+  };
 
   return {
     actions,
@@ -445,6 +481,7 @@ export function useFormalDesktopWorkspace() {
     orderEntryWritePending,
     authState,
     data,
+    receiving: receiptReader.receiving,
     meta,
     operatorId,
     permissionContext: authState?.permissions || null,

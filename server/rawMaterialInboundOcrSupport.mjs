@@ -1,98 +1,10 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { normalizeRawMaterialSourceRowIndex } from "../shared/rawMaterialOcrSourcePosition.js";
-import { enrichRawMaterialSpecValues } from "../shared/rawMaterialSpec.js";
-import { hasStrongRawMaterialSupplierReturnEvidence, hasAmbiguousRawMaterialSupplierReturnEvidence, RAW_MATERIAL_MIXED_DIRECTION_MESSAGE } from "../shared/rawMaterialSupplierReturn.js";
-import {
-  applyRawMaterialOcrLineReviews,
-  buildRawMaterialOcrReviewedRolls,
-  validateRawMaterialOcrLineReviewSummary,
-} from "../shared/rawMaterialOcrLineReview.js";
+export { applyRawMaterialInboundReview as applyRawMaterialOcrReview } from "../shared/rawMaterialInboundReview.js";
 import {
   normalizeRawMaterialOcrPages,
   normalizeRawMaterialOcrTextList,
 } from "./rawMaterialOcrMetadataNormalizers.mjs";
-
-export function applyRawMaterialOcrReview({ before = {}, reviewFields, lineReviews, operatorName, operatorId, now, standardColors = [] }) {
-  const isOcrDraft = cleanText(before.ocrProvider) === "tencent_cloud_table_v3";
-  const documentDirection = cleanText(before.documentDirection) || "supplier_delivery";
-  const isSupplierReturn = documentDirection === "supplier_return";
-  if (isOcrDraft && cleanText(before.status) !== "已识别待复核") {
-    throw Object.assign(new Error("Only pending OCR drafts can be reviewed."), {
-      statusCode: 409,
-      code: "RAW_MATERIAL_OCR_REVIEW_NOT_ALLOWED",
-    });
-  }
-  if (isOcrDraft && hasAmbiguousRawMaterialSupplierReturnEvidence(before)) {
-    throw Object.assign(new Error(RAW_MATERIAL_MIXED_DIRECTION_MESSAGE), { statusCode: 409, code: "RAW_MATERIAL_DOCUMENT_DIRECTION_AMBIGUOUS" });
-  }
-  if (isOcrDraft && hasStrongRawMaterialSupplierReturnEvidence(before)) {
-    throw Object.assign(new Error("原单含退货明细，与当前收货方向不一致。请对照原图，先点“改为退货单核对”；不能按正数收货入库。"), {
-      statusCode: 409,
-      code: "RAW_MATERIAL_DOCUMENT_DIRECTION_CONFLICT",
-    });
-  }
-  const reviewedValues = isOcrDraft ? resolveReviewedOcrValues(before, reviewFields, { documentDirection }) : {};
-  if (isOcrDraft) Object.assign(reviewedValues, enrichRawMaterialSpecValues(reviewedValues));
-  if (isOcrDraft) validateReviewedOcrValues(reviewedValues, { documentDirection });
-  const reviewedLines = isOcrDraft
-    ? applyRawMaterialOcrLineReviews({
-        lines: before.ocrLines,
-        lineReviews,
-        operatorName,
-        operatorId,
-        now,
-        documentDirection, standardColors,
-      })
-    : before.ocrLines;
-  if (isOcrDraft) validateRawMaterialOcrLineReviewSummary({
-    lines: reviewedLines,
-    reviewValues: reviewedValues,
-    documentDirection,
-    amountReferenceOnly: before.documentPriceReferenceOnly === true,
-  });
-  return {
-    ...before,
-    ...reviewedValues,
-    status: isSupplierReturn ? "退货单已复核" : "已复核待打印标签",
-    ocrStatus: isSupplierReturn ? "退货明细人工复核已通过；不生成入库卷标、不增加库存，进入厂家负数对账依据" : "人工复核已通过",
-    ocrReviewFields: isOcrDraft
-      ? (before.ocrReviewFields ?? []).map((field) => {
-          const value = Object.hasOwn(reviewedValues, field.key) ? reviewedValues[field.key] : field.value;
-          return {
-            ...field,
-            value,
-            reviewStatus: areValuesEqual(value, field.recognizedValue) ? "人工接受" : "人工修改",
-            reviewedBy: operatorName,
-            reviewedByUserId: operatorId,
-            reviewedAt: now,
-          };
-        })
-      : before.ocrReviewFields,
-    ocrLines: reviewedLines,
-    reviewedBy: operatorName,
-    reviewedByUserId: operatorId,
-    reviewedAt: now,
-    nextStep: isSupplierReturn
-      ? "退货复核已留档并作为负数厂家对账依据；不进入入库打印和可用库存。实物退厂使用独立退货出库流程。"
-      : "打印系统卷标；标签打印后仍需逐卷与实物人工核对，确认一致才算可用原料。",
-    note: isSupplierReturn
-      ? "该单据为供应商退货方向，保存带符号的退货复核和原单证据，供厂家月结抵扣；不生成入库卷标、不增加库存。"
-      : before.note,
-    rolls: isSupplierReturn
-      ? []
-      : isOcrDraft
-      ? buildRawMaterialOcrReviewedRolls({
-          inboundId: before.id,
-          existingRolls: before.rolls,
-          lines: reviewedLines,
-          documentDirection,
-        })
-      : (before.rolls ?? []).map((roll) => ({
-          ...roll,
-          labelStatus: roll.inventoryStatus === "可用" ? roll.labelStatus : "待打印标签",
-        })),
-  };
-}
 
 export function applyRawMaterialOcrReparse({ before = {}, reparsedInbound = {} }) {
   const currentVersion = Number(before.ocrParserVersion) || 1;
@@ -229,45 +141,6 @@ COMMIT;
   };
 }
 
-function resolveReviewedOcrValues(inbound, reviewFields, { documentDirection = "supplier_delivery" } = {}) {
-  const allowedKeys = new Set([
-    "supplierName", "deliveryNoteNo", "materialType", "productName", "spec", "supplierColor",
-    "factoryColor", "rollCount", "totalWeightKg", "unit", "unitPrice", "amount",
-  ]);
-  const submitted = Array.isArray(reviewFields)
-    ? Object.fromEntries(reviewFields.map((field) => [cleanText(field?.key), field?.value]))
-    : reviewFields && typeof reviewFields === "object" ? reviewFields : {};
-  const values = {};
-  for (const field of inbound.ocrReviewFields ?? []) {
-    if (allowedKeys.has(field.key)) values[field.key] = Object.hasOwn(submitted, field.key) ? submitted[field.key] : field.value;
-  }
-  for (const [key, value] of Object.entries(submitted)) if (allowedKeys.has(key)) values[key] = value;
-  for (const key of ["rollCount", "totalWeightKg", "unitPrice", "amount"]) values[key] = Number(values[key]) || 0;
-  if (documentDirection === "supplier_return") {
-    values.totalWeightKg = values.totalWeightKg ? -Math.abs(values.totalWeightKg) : 0;
-    values.amount = values.amount ? -Math.abs(values.amount) : 0;
-  }
-  for (const key of allowedKeys) {
-    if (!["rollCount", "totalWeightKg", "unitPrice", "amount"].includes(key)) values[key] = cleanText(values[key]);
-  }
-  return values;
-}
-
-function validateReviewedOcrValues(values, { documentDirection = "supplier_delivery" } = {}) {
-  const missing = [];
-  if (!cleanText(values.supplierName)) missing.push("供应商");
-  if (!cleanText(values.materialType) && !cleanText(values.productName)) missing.push("材料/品名");
-  if (documentDirection !== "supplier_return" && !cleanText(values.spec)) missing.push("规格");
-  if (!cleanText(values.unit)) missing.push("单位");
-  if (!Number.isInteger(Number(values.rollCount)) || Number(values.rollCount) <= 0 || Number(values.rollCount) > 500) missing.push("卷/件数（1-500）");
-  if (missing.length) {
-    throw Object.assign(new Error(`OCR 人工复核未完成：${missing.join("、")}`), {
-      statusCode: 422,
-      code: "RAW_MATERIAL_OCR_REVIEW_REQUIRED_FIELDS_MISSING",
-    });
-  }
-}
-
 function normalizeReviewFields(fields) {
   return (Array.isArray(fields) ? fields : []).map((field) => ({
     ...field,
@@ -328,10 +201,6 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   ${parameters.text(operationLog.reason)}, ${parameters.nullableText(operationLog.operatorId)}, ${parameters.text(operationLog.pageKey)},
   ${parameters.timestamp(operationLog.occurredAt)}, ${parameters.timestamp(operationLog.createdAt)}
 ) ON CONFLICT (id) DO NOTHING RETURNING id`;
-}
-
-function areValuesEqual(left, right) {
-  return typeof left === "number" || typeof right === "number" ? Number(left) === Number(right) : cleanText(left) === cleanText(right);
 }
 
 function cleanText(value) {

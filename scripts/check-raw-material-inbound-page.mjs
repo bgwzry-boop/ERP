@@ -40,7 +40,11 @@ const appSource = [
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const completeReviewAppSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/App.jsx", import.meta.url), "utf8");
-assert.match(completeReviewAppSource, /<FormalReceivingWorkspace key=\{selected\?\.id \|\| "no-receipt"\}/u, "changing receipts must remount its local OCR review state instead of reusing another receipt's draft");
+// Since the 2026-11-02 receiving redesign the workspace is mounted by ReceiptWorkspace.
+const receiptWorkspaceSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/ReceiptWorkspace.jsx", import.meta.url), "utf8");
+const formalReceivingWorkspaceSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/FormalReceivingWorkspace.jsx", import.meta.url), "utf8");
+assert.match(receiptWorkspaceSource, /<FormalReceivingWorkspace key=\{receiving\.selectedId\}/u, "changing receipts must remount its local OCR review state instead of reusing another receipt's draft");
+assert.match(formalReceivingWorkspaceSource, /key=\{`\$\{props\.selectedId \|\| "no-receipt"\}:\$\{draftEpoch\}`\}/u, "the review body also remounts per receipt and on an explicit draft reload");
 const rawMaterialSupplierProfilesSource = readFileSync(new URL("../shared/rawMaterialSupplierProfiles.js", import.meta.url), "utf8");
 const rawMaterialSupplierColorMappingDialogSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx", import.meta.url), "utf8");
 const rawMaterialControllerSource = readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
@@ -524,7 +528,9 @@ assert.match(
   /rawMaterial:\s*\{\s*view: "inbound",\s*firstReleaseMode: firstReleaseMode,[\s\S]*?printerDeviceQa,/,
   "App should pass dynamic printer state into the registered raw-material receiving page",
 );
-assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
+// Since the 2026-11-02 redesign, field edits stay on the page and one explicit confirm submits the review.
+assertIncludes(officePageSource, "这批都对，去打印", "page should require explicit review of OCR fields");
+assertIncludes(officePageSource, "本页修改将在下方统一复核时提交", "OCR field edits must not save or confirm by themselves");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
 assertIncludes(rawMaterialPageSource, "分卷重量 kg", "page should allow exact per-roll weights to be reviewed");
 assertIncludes(receiveDialogSource, "未确认不入库", "page should keep OCR separate from inventory availability");

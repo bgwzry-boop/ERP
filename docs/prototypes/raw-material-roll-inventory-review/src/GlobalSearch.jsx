@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchOutlined } from "@ant-design/icons";
 import { searchGlobalDesktopRecords } from "./globalSearch.js";
 
-export function GlobalSearch({ allowedNavIds, data, onSelect, pending = false }) {
+export function GlobalSearch({ allowedNavIds, data, onSelect, onRequestData, pending = false, error = "" }) {
   const rootRef = useRef(null);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -71,10 +71,11 @@ export function GlobalSearch({ allowedNavIds, data, onSelect, pending = false })
       onChange={(event) => {
         const next = event.target.value;
         setQuery(next);
+        if (next.trim()) void onRequestData?.();
         setActiveIndex(0);
         setOpen(Boolean(next.trim()));
       }}
-      onFocus={() => { if (trimmed) setOpen(true); }}
+      onFocus={() => { void onRequestData?.(); if (trimmed) setOpen(true); }}
       onKeyDown={onKeyDown}
       placeholder="搜索 客户 / 订单 / 尺寸 / 颜色 / 单据"
       role="combobox"
@@ -82,6 +83,7 @@ export function GlobalSearch({ allowedNavIds, data, onSelect, pending = false })
       value={query}
     />
     {open && trimmed ? <div className="global-search-panel">
+      {error ? <p className="global-search-empty" role="alert">客户或订单读取失败，当前搜索结果可能不完整。<button type="button" onClick={() => void onRequestData?.()}>重新读取</button></p> : null}
       {results.length ? <ul aria-label="搜索结果" id="global-search-results" role="listbox">
         {results.map((result, index) => <li key={`${result.kind}:${result.recordId}`} role="presentation">
           <button
@@ -98,7 +100,7 @@ export function GlobalSearch({ allowedNavIds, data, onSelect, pending = false })
             <small>{result.detail}</small>
           </button>
         </li>)}
-      </ul> : <p className="global-search-empty" role="status">{pending ? "正在读取客户和订单…" : "没有匹配的客户或订单"}</p>}
+      </ul> : <p className="global-search-empty" role="status">{pending ? "正在读取客户和订单…" : error ? "请重新读取后再搜索。" : "没有匹配的客户或订单"}</p>}
     </div> : null}
   </label>;
 }

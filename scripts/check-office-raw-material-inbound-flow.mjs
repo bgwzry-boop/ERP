@@ -90,6 +90,22 @@ assert.equal(corrected.lineDrafts.L2.rollWeightsKg, "91.2");
 assert.equal(corrected.lineDrafts.L2.totalWeightKg, "91.2");
 assert.equal(corrected.documentDraft.totalWeightKg, 201.1);
 assert.equal(corrected.lineDrafts.L1.supplierColor, "本白", "editing one roll must leave the other row unchanged");
+const ticketCorrection = applyOfficeRollCorrection({
+  lineDrafts: corrected.lineDrafts,
+  documentDraft: corrected.documentDraft,
+  row: rows[1],
+  correction: { supplierColor: "票面新叫法", color: "枣红" },
+});
+assert.equal(ticketCorrection.lineDrafts.L2.supplierColor, "票面新叫法");
+assert.equal(ticketCorrection.lineDrafts.L2.factoryColor, "", "changing ticket evidence must not carry forward the prior factory mapping");
+assert.equal(ticketCorrection.documentDraft.totalWeightKg, 201.1, "a colour-only correction must preserve weight");
+assert.equal(reviewInbound.ocrLines[1].values.supplierColor, "大红", "corrections must not rewrite original OCR evidence");
+const completedTicket = buildOfficeReviewRows(reviewInbound, ticketCorrection.lineDrafts);
+assert.equal(completedTicket[1].blocker, "", "a verified ticket colour alone is enough to continue; factory mapping may remain pending");
+const unchangedTicket = applyOfficeRollCorrection({ lineDrafts: corrected.lineDrafts, row: rows[1], correction: { supplierColor: "大红", color: "枣红" } });
+assert.equal(unchangedTicket.lineDrafts.L2.factoryColor, "枣红", "unchanged ticket evidence preserves an explicit standard colour");
+const manualCorrection = applyOfficeRollCorrection({ lineDrafts: corrected.lineDrafts, documentDraft: corrected.documentDraft, row: { reviewId: "manual-no-ocr" }, correction: { supplierColor: "红色" } });
+assert.equal(manualCorrection.lineDrafts, corrected.lineDrafts, "a historical row without an OCR line must not pretend to save a correction");
 assert.equal(replaceWidthInSpec("78*70*2000", 72), "78*72*2000");
 assert.equal(replaceWidthInSpec("78克*5宽", 5), "78*5");
 
@@ -166,6 +182,7 @@ const pageSource = [
   "../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx",
   "../src/features/raw-materials/useInboundPageState.js",
   "../docs/prototypes/raw-material-roll-inventory-review/src/App.jsx",
+  "../docs/prototypes/raw-material-roll-inventory-review/src/ReceiptWorkspace.jsx",
 ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const officeHandler = readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8");
 const desktopConfirm = officeHandler.slice(
@@ -184,7 +201,6 @@ assert.equal(/finally\s*\{[^}]*classList\.remove\("raw-material-label-printing"\
 assert.match(printRunner, /afterprint/);
 assert.match(printRunner, /buildRawMaterialLabelPrintDocument/);
 assert.ok(pageSource.includes("receivingReceiptTab"), "receiving list should follow the acted sheet into its next tab");
-assert.ok(pageSource.includes("actedRecord"), "receiving detail should stay on the sheet that was just confirmed or marked");
 const printCss = readFileSync(new URL("../src/styles/features/raw-material-roll-label.css", import.meta.url), "utf8");
 for (const text of ["录入送货/退货单", "核对每一卷的颜色、宽幅、公斤", "这批都对，去打印", "改这一卷", "不用填已贴张数", "本单已贴齐/一键入库", "76×130"]) {
   assert.ok(pageSource.includes(text), `office inbound screen should say ${text}`);

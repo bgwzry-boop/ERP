@@ -4,12 +4,9 @@ import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
 import { RawMaterialSourceEvidence } from "./RawMaterialSourceEvidence.jsx";
 import { officeInboundUsesCountGate, shouldOpenLabelPrintAfterReview } from "../../domain/officeRawMaterialInboundFlow.js";
 import { createRawMaterialLabelPrintFrame } from "./runRawMaterialLabelPrint.js";
-import { submitInboundAction } from "./submitInbound.js";
-import { hasStrongRawMaterialSupplierReturnEvidence, hasAmbiguousRawMaterialSupplierReturnEvidence } from "../../../shared/rawMaterialSupplierReturn.js";
 import {
   canConfirmRawMaterialConsumptionRoll,
   canIssueRawMaterialRoll,
-  canPrintRawMaterialLabels,
   canReviewRawMaterialInbound,
   formatRawMaterialDeliveryNoteNo,
 } from "../../domain/rawMaterialInboundListState.js";
@@ -35,6 +32,7 @@ import {
 } from "./rawMaterialInboundOcrDraft.js";
 
 export function RawMaterialInboundReceivingSections({
+  actionDock = null,
   authState,
   operatorId,
   sourcePreviewDataUrls,
@@ -79,20 +77,21 @@ export function RawMaterialInboundReceivingSections({
   } = actionStates;
   const handlePrintLabels = onPrintLabels;
   const handleReprintLabel = onReprintLabel;
-  const directionConflict = hasStrongRawMaterialSupplierReturnEvidence(selected) || hasAmbiguousRawMaterialSupplierReturnEvidence(selected);
+
 
   return (
     <>
 <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
   <RawMaterialSourceEvidence authState={authState} operatorId={operatorId} selected={selected} sourcePreviewDataUrls={sourcePreviewDataUrls} />
   <details className="office-receive-more">
-  <summary>单据与 OCR 原文</summary>
-  {selected.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected) ? (
-    <div className="raw-material-ocr-review-panel">
+  <summary>单据与识别明细</summary>
+  {(selected.ocrLines || []).length ? <ol className="office-source-lines" aria-label="原单识别原文">{selected.ocrLines.map((line, index) => <li key={line.lineId || index}><span>第 {index + 1} 行{Number.isInteger(line.sourcePageIndex) ? ` · 第 ${line.sourcePageIndex + 1} 页` : ""}</span><p>{line.sourceText || Object.values(line.recognizedValues || {}).filter(value => value != null && typeof value !== "object").join(" · ") || "未保留识别原文，请查看原单照片。"}</p></li>)}</ol> : <p className="office-source-empty">该单未保留逐行识别文字，请查看原单照片及下方单据信息。</p>}
+  {(selected.ocrProvider === "tencent_cloud_table_v3" || selected.ocrLines?.length > 0) && canReviewRawMaterialInbound(selected) ? (
+    <details className="office-receive-edit-fields"><summary>修改识别字段</summary><div className="raw-material-ocr-review-panel">
       <div className="raw-material-ocr-review-heading">
         <div>
-          <strong>腾讯云 OCR 人工复核</strong>
-          <span>原图附件 {selected.sourceAttachmentId || "已保存"} · 请求 {selected.ocrRequestId || "待记录"}</span>
+          <strong>核对单据信息与识别字段</strong>
+          <span>修改先保留在本页；逐卷核对后，在下方统一确认。</span>
         </div>
         <span>{selected.ocrStatus}</span>
       </div>
@@ -142,6 +141,7 @@ export function RawMaterialInboundReceivingSections({
                           ...current,
                           [line.lineId]: {
                             ...(current[line.lineId] ?? buildOcrLineReviewDraft(line, selected.documentDirection)),
+                            ...(key === "supplierColor" ? { factoryColor: "" } : {}),
                             [key]: event.target.value,
                           },
                         }))}
@@ -158,60 +158,16 @@ export function RawMaterialInboundReceivingSections({
           })}
         </div>
       ) : null}
-      <button
-        className="primary-action"
-        disabled={reviewState.disabled || directionConflict || directionCorrecting || ocrReviewSubmitting}
-        onClick={() => onOfficeReviewConfirm?.()}
-        type="button"
-      >
-        确认人工复核
-      </button>
-    </div>
+    </div></details>
   ) : null}
-  <div className="action-row raw-material-actions">
-    <button
-      className="primary-action"
-      disabled={reviewState.disabled || directionConflict || directionCorrecting || ocrReviewSubmitting || !canReviewRawMaterialInbound(selected)}
-      title={reviewState.title || (!canReviewRawMaterialInbound(selected) ? "当前状态无需复核" : "")}
-      onClick={selected.ocrProvider === "tencent_cloud_table_v3" ? () => onOfficeReviewConfirm?.() : () => onAction?.("复核送货单", selected.id)}
-    >
-      复核送货单
-    </button>
-    <button
-      disabled={voidDraftState.disabled || selected.status !== "已识别待复核"}
-      title={voidDraftState.title || (selected.status !== "已识别待复核" ? "只有未复核、未打印、未形成库存的误录草稿可以作废" : "保留原图和操作审计，不形成库存")}
-      onClick={() => {
-        const reason = globalThis.prompt?.("请输入作废误录草稿的原因（必填）：", "");
-        if (!String(reason ?? "").trim()) return;
-        onAction?.("作废误录草稿", selected.id, { reason: String(reason).trim() });
-      }}
-      type="button"
-    >
-      作废误录草稿
-    </button>
-    <button
-      disabled={printState.disabled || !canPrintRawMaterialLabels(selected)}
-      title={printState.title || (!canPrintRawMaterialLabels(selected) ? "先完成送货单复核" : "打印标签只是待贴标，贴到实物并核对后才入库")}
-      onClick={handlePrintLabels}
-    >
-      打印一卷一标
-    </button>
-    <button
-      disabled={exceptionState.disabled || selected.status === "入库异常/待确认"}
-      title={exceptionState.title || ""}
-      onClick={() => onAction?.("标记异常", selected.id, { reason: "页面手工标记异常。" })}
-    >
-      标记异常
-    </button>
-  </div>
   <InfoGrid
     rows={[
       ["原料", `${selected.productName || selected.materialType} / ${selected.materialType}`],
       ["外部/内部单号", formatRawMaterialDeliveryNoteNo(selected)],
       ["规格颜色", `${formatRawMaterialStructuredSpec(selected)} / ${selected.supplierColor} -> ${selected.factoryColor}`],
       ["主要查询键", `${selected.factoryColor || selected.supplierColor || "颜色待补"} / ${selected.widthCm || "?"}cm / ${selected.gramWeightGsm || "?"}克`],
-      ["同色同宽可用", `${selectedStock?.availableWeightKg || 0}kg / ${selectedStock?.availableRollCount || 0}卷`],
-      ...(firstReleaseMode ? [] : [["订单支持", formatRawMaterialOrderSupport(selectedOrderSupport, selectedTaskCandidate)]]),
+      ...(selectedStock ? [["同色同宽可用", `${selectedStock.availableWeightKg || 0}kg / ${selectedStock.availableRollCount || 0}卷`]] : []),
+      ...(firstReleaseMode || !selectedOrderSupport ? [] : [["订单支持", formatRawMaterialOrderSupport(selectedOrderSupport, selectedTaskCandidate)]]),
       ["卷/件数", `${selected.rollCount || selected.rolls?.length || 0}`],
       ["重量/单位", `${formatRawMaterialWeight(selected)} / ${selected.unit || "未填"}`],
       ["单价/金额", canViewCost ? formatRawMaterialCost(selected, money) : "成本权限可见"],
@@ -223,6 +179,7 @@ export function RawMaterialInboundReceivingSections({
   </details>
   <h3 className="office-receiving-title">{selected.documentDirection === "supplier_return" ? "退货核对" : "收货核对"}</h3>
   <OfficeInboundFlow
+    actionDock={actionDock}
     actionError={actionError}
     attachState={attachState}
     documentDraft={ocrReviewDraft}
@@ -243,9 +200,7 @@ export function RawMaterialInboundReceivingSections({
       // browser still treats the later print as the same gesture.
       const frame = selected.documentDirection === "supplier_return" ? null : createRawMaterialLabelPrintFrame();
       try {
-        const reviewed = selected.ocrProvider === "tencent_cloud_table_v3"
-          ? await onOfficeReviewConfirm()
-          : await submitInboundAction(onAction, selected, "复核送货单");
+        const reviewed = await onOfficeReviewConfirm();
         if (shouldOpenLabelPrintAfterReview(reviewed, { printDisabled: Boolean(printState?.disabled) })) {
           await handlePrintLabels(reviewed, frame);
         } else {
@@ -262,6 +217,22 @@ export function RawMaterialInboundReceivingSections({
     reviewState={reviewState}
     submitting={ocrReviewSubmitting}
   />
+  <details className="office-receive-other-actions"><summary>其他单据操作</summary>
+  <div className="action-row raw-material-actions">
+    <button
+      disabled={voidDraftState.disabled || selected.status !== "已识别待复核"}
+      title={voidDraftState.title || (selected.status !== "已识别待复核" ? "只有未复核、未打印、未形成库存的误录草稿可以作废" : "保留原图和操作审计，不形成库存")}
+      onClick={() => {
+        const reason = globalThis.prompt?.("请输入作废误录草稿的原因（必填）：", "");
+        if (!String(reason ?? "").trim()) return;
+        onAction?.("作废误录草稿", selected.id, { reason: String(reason).trim() });
+      }}
+      type="button"
+    >
+      作废误录草稿
+    </button>
+  </div>
+  </details>
 </section>
 <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本", "扫码出库"].includes(detailTab))}>
 <h3>{detailTab === "入库标签" ? "卷/件标签" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>

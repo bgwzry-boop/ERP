@@ -6,7 +6,7 @@ import { readRawMaterialConsumptionMeasurement } from "../../shared/rawMaterialC
 import { rawMaterialRollFacts } from "../../shared/rawMaterialRollFacts.js";
 import { applyRawMaterialCostMarginLocalAction, buildRawMaterialCostMarginToastText } from "./rawMaterialCostMarginLocalActions.js";
 import { roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
-import { applyRawMaterialOcrLineReviews, buildRawMaterialOcrReviewedRolls, validateRawMaterialOcrLineReviewSummary } from "../../shared/rawMaterialOcrLineReview.js";
+import { applyRawMaterialInboundReview } from "../../shared/rawMaterialInboundReview.js";
 import { applyLocalRawMaterialInboundLabelAction } from "./rawMaterialInboundLocalLabelActions.js";
 import { applyRawMaterialInboundLocalDraftAction } from "./rawMaterialInboundLocalDraftActions.js";
 import { assertWholeRollIssue } from "./rawMaterialWholeRollPolicy.js";
@@ -101,67 +101,15 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
       return updatedItem ?? item;
     }
     if (action === "复核送货单") {
-      if (item.ocrProvider === "tencent_cloud_table_v3") {
-        const reviewValues = buildLocalOcrReviewValues(item, options.reviewFields);
-        const reviewedLines = applyRawMaterialOcrLineReviews({
-          lines: item.ocrLines,
-          lineReviews: options.lineReviews,
-          operatorName,
-          now,
-          documentDirection: item.documentDirection || "supplier_delivery",
-          standardColors: options.standardColors,
-        });
-        validateRawMaterialOcrLineReviewSummary({
-          lines: reviewedLines,
-          reviewValues,
-          documentDirection: item.documentDirection || "supplier_delivery",
-          amountReferenceOnly: item.documentPriceReferenceOnly === true,
-        });
-        const isSupplierReturn = item.documentDirection === "supplier_return";
-        updatedItem = {
-          ...item,
-          ...reviewValues,
-          status: isSupplierReturn ? "退货单已复核" : "已复核待打印标签",
-          ocrStatus: isSupplierReturn
-            ? `退货人工复核已通过，${reviewedLines.length} 行明细作为负数对账依据`
-            : `人工复核已通过，${reviewedLines.length} 行明细已确认`,
-          ocrReviewFields: (item.ocrReviewFields ?? []).map((field) => {
-            const value = Object.hasOwn(reviewValues, field.key) ? reviewValues[field.key] : field.value;
-            return {
-              ...field,
-              value,
-              reviewStatus: String(value) === String(field.recognizedValue ?? "") ? "人工接受" : "人工修改",
-              reviewedBy: operatorName,
-              reviewedAt: now,
-            };
-          }),
-          ocrLines: reviewedLines,
-          reviewedBy: operatorName,
-          reviewedAt: now,
-          nextStep: isSupplierReturn
-            ? "退货复核已留档；不生成卷码、标签或库存。"
-            : "打印系统卷标；标签贴到实物后仍需逐卷人工核对才算可用原料。",
-          rolls: buildRawMaterialOcrReviewedRolls({
-            inboundId: item.id,
-            existingRolls: item.rolls,
-            lines: reviewedLines,
-            documentDirection: item.documentDirection || "supplier_delivery",
-          }),
-        };
-        return updatedItem;
-      }
-      updatedItem = {
-        ...item,
-        status: "已复核待打印标签",
-        ocrStatus: "人工复核已通过",
-        reviewedBy: operatorName,
-        reviewedAt: now,
-        nextStep: "打印系统卷标；标签贴到实物后仍需逐卷人工核对才算可用原料。",
-        rolls: (item.rolls ?? []).map((roll) => ({
-          ...roll,
-          labelStatus: roll.inventoryStatus === "可用" ? roll.labelStatus : "待打印标签",
-        })),
-      };
+      updatedItem = applyRawMaterialInboundReview({
+        before: item,
+        reviewFields: options.reviewFields,
+        lineReviews: options.lineReviews,
+        operatorName,
+        operatorId: input.operatorId,
+        now,
+        standardColors: options.standardColors,
+      });
       return updatedItem;
     }
     const labelActionItem = applyLocalRawMaterialInboundLabelAction(item, {
@@ -462,26 +410,4 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
     return item;
   });
   return { items: nextItems, updatedItem };
-}
-
-function buildLocalOcrReviewValues(item = {}, reviewFields = {}) {
-  const numericKeys = new Set(["rollCount", "totalWeightKg", "unitPrice", "amount"]);
-  const editableKeys = [
-    "supplierName",
-    "deliveryNoteNo",
-    "materialType",
-    "productName",
-    "spec",
-    "supplierColor",
-    "factoryColor",
-    "rollCount",
-    "totalWeightKg",
-    "unit",
-    "unitPrice",
-    "amount",
-  ];
-  return Object.fromEntries(editableKeys.map((key) => {
-    const rawValue = Object.hasOwn(reviewFields ?? {}, key) ? reviewFields[key] : item[key];
-    return [key, numericKeys.has(key) ? Number(rawValue) || 0 : String(rawValue ?? "").trim()];
-  }));
 }

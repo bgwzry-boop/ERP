@@ -1,0 +1,10 @@
+.workspace-empty { min-height: 180px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; padding: 28px; text-align: center; color: var(--erp-text-muted); }
+.workspace-empty > .anticon { font-size: 24px; }
+.workspace-empty strong { color: var(--erp-text); font-size: 14px; }
+.workspace-empty p { max-width: 38em; margin: 0; font-size: 14px; line-height: 1.6; }
+.workspace-empty.is-error > .anticon { color: var(--erp-danger); }
+.workspace-read-notice { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding: 10px 14px; background: var(--erp-surface-subtle); color: var(--erp-text-muted); font-size: 14px; }
+.workspace-read-notice span { flex: 1; }
+.workspace-read-notice.error { background: var(--erp-danger-bg); color: var(--erp-danger); }
+.workspace-read-notice button { flex: 0 0 auto; }
+.workspace-data-snapshot { margin: 0; color: var(--erp-text-muted); font-size: 12px; line-height: 1.5; }
