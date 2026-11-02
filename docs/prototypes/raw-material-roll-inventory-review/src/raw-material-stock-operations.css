@@ -1,0 +1,32 @@
+.raw-stock-operations-dialog { box-sizing: border-box; width: min(720px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; overflow: auto; color: var(--erp-text); background: var(--erp-surface); border: 1px solid var(--erp-border-subtle); border-radius: 10px; font: inherit; }
+.raw-stock-operations-dialog::backdrop { background: var(--erp-overlay); }
+.raw-stock-operations-dialog > header, .raw-stock-operations-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
+.raw-stock-operations-dialog > header { border-bottom: 1px solid var(--erp-border-subtle); }
+.raw-stock-operations-dialog > header span, .raw-stock-operations-dialog > footer span { color: var(--erp-text-muted); font-size: 12px; }
+.raw-stock-operations-dialog h2 { margin: 4px 0 0; font-size: 20px; }
+.raw-stock-operations-scroll { padding: 18px 20px; }
+.raw-stock-operations-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.raw-stock-operations-dialog .detail-section[hidden] { display: none; }
+.raw-stock-operations-dialog .raw-material-roll-section h3 { margin: 20px 0 12px; font-size: 15px; }
+.raw-stock-operations-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 0; font-size: 13px; }
+.raw-stock-operations-facts div { min-width: 0; }
+.raw-stock-operations-facts dt { color: var(--erp-text-muted); margin-bottom: 4px; }
+.raw-stock-operations-facts dd { margin: 0; overflow-wrap: anywhere; }
+.raw-stock-operations-dialog .raw-material-roll-list { display: grid; gap: 8px; }
+.raw-stock-operations-dialog .raw-material-roll-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--erp-border-subtle); border-radius: 6px; }
+.raw-stock-operations-dialog .raw-material-roll-row > * { min-width: 0; }
+.raw-stock-operations-dialog .raw-material-roll-row > div { display: grid; gap: 4px; }
+.raw-stock-operations-dialog .raw-material-roll-row :is(strong, span) { overflow-wrap: anywhere; font-size: 13px; }
+.raw-stock-operations-dialog .raw-material-label-verification { display: grid; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--erp-border-subtle); font-size: 14px; }
+.raw-stock-operations-dialog .raw-material-label-verification label { display: grid; gap: 6px; }
+.raw-stock-operations-dialog :is(select, textarea) { box-sizing: border-box; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--erp-control-border); border-radius: 5px; color: inherit; background: var(--erp-surface); font: inherit; }
+.raw-stock-operations-dialog textarea { min-height: 70px; resize: vertical; }
+.raw-stock-operations-dialog .action-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.raw-stock-operations-dialog button { min-height: 36px; padding: 7px 12px; border: 1px solid var(--erp-control-border); border-radius: 5px; color: inherit; background: var(--erp-surface); font: inherit; cursor: pointer; }
+.raw-stock-operations-dialog button.primary-action { color: var(--erp-accent-ink); background: var(--erp-accent-strong); border-color: var(--erp-accent-strong); }
+.raw-stock-operations-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.raw-stock-operations-dialog button:focus-visible { outline: 2px solid var(--erp-accent-strong); outline-offset: 3px; }
+.raw-stock-operations-dialog .raw-stock-operations-error { color: var(--erp-danger); font-size: 14px; }
+.raw-stock-operations-dialog .raw-stock-operations-notice { color: var(--erp-success); font-size: 14px; }
+.raw-stock-operations-dialog > footer { border-top: 1px solid var(--erp-border-subtle); }
+@media (max-width: 520px) { .raw-stock-operations-dialog > header, .raw-stock-operations-dialog > footer, .raw-stock-operations-scroll { padding: 14px; } .raw-stock-operations-facts { grid-template-columns: minmax(0, 1fr); } }

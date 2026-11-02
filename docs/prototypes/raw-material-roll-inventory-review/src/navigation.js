@@ -69,6 +69,7 @@ export const pcNavGroups = [
     items: [
       { id: "customer-statements", label: "对账收款", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview"] },
       { id: "supplier-month-end", label: "供应商月结", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview", "raw_material.supplier_payable.create"] },
+      { id: "raw-material-cost", label: "原料成本", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["raw_material.cost.view"] },
       { id: "payroll-attendance", label: "工资核算", allowedRoleKeys: ["management", "finance"], permissionKeys: ["payroll.preview"] },
     ],
   },
@@ -106,6 +107,7 @@ export const navViewMap = Object.freeze({
   "laminated-inventory": "覆膜袋",
   "customer-statements": "对账收款",
   "supplier-month-end": "供应商月结",
+  "raw-material-cost": "原料成本",
   "payroll-attendance": "工资核算",
   "customer-records": "客户档案",
   "general-prices": "成品资料",
@@ -146,6 +148,7 @@ export function getDefaultWorkspaceView(permissionContext = {}) {
   if (visibleViews.has("卷料库存")) return "卷料库存";
   if (visibleViews.has("供应商月结")) return "供应商月结";
   if (visibleViews.has("收货录入")) return "收货录入";
+  if (visibleViews.has("原料成本")) return "原料成本";
   return "卷料库存";
 }
 

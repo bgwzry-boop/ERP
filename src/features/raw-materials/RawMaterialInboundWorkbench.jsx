@@ -33,7 +33,6 @@ import {
 import { DEFAULT_RAW_MATERIAL_ROLL_INVENTORY_STATUS } from "../../domain/rawMaterialWholeRollPolicy.js";
 
 export const RAW_MATERIAL_INBOUND_TABS = RAW_MATERIAL_INBOUND_VIEW_KEYS;
-export const RAW_MATERIAL_DETAIL_TABS = ["入库标签", "领料成本", "供应商账", "记录"];
 
 const RAW_MATERIAL_METRIC_LABELS = {
   入库单: ["待复核", "待打印", "待贴标", "可用卷/件"],

@@ -1,6 +1,7 @@
 import { RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS, resolveRawMaterialWholeRollMachine } from "../../domain/rawMaterialWholeRollPolicy.js";
 import { InfoGrid, StatusPill } from "../../shared/ui/operational.jsx";
 import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
+import { RawMaterialSourceEvidence } from "./RawMaterialSourceEvidence.jsx";
 import { officeInboundUsesCountGate, shouldOpenLabelPrintAfterReview } from "../../domain/officeRawMaterialInboundFlow.js";
 import { createRawMaterialLabelPrintFrame } from "./runRawMaterialLabelPrint.js";
 import { submitInboundAction } from "./submitInbound.js";
@@ -34,6 +35,10 @@ import {
 } from "./rawMaterialInboundOcrDraft.js";
 
 export function RawMaterialInboundReceivingSections({
+  authState,
+  operatorId,
+  sourcePreviewDataUrls,
+  rollId = "",
   actionError = "",
   actionStates,
   canViewCost,
@@ -79,49 +84,9 @@ export function RawMaterialInboundReceivingSections({
   return (
     <>
 <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
-  <OfficeInboundFlow
-    actionError={actionError}
-    attachState={attachState}
-    documentDraft={ocrReviewDraft}
-    exceptionState={exceptionState}
-    inbound={selected}
-    lineDrafts={ocrLineReviewDraft}
-    onAction={onAction}
-    onCorrectDirection={onCorrectDirection}
-    directionCorrecting={directionCorrecting}
-    onOpenColorMapping={onOpenColorMapping}
-    colorMappingState={colorMappingState}
-    onDocumentDraftChange={setOcrReviewDraft}
-    onException={onOfficeException}
-    onLineDraftsChange={setOcrLineReviewDraft}
-    onPrint={handlePrintLabels}
-    onReview={async () => {
-      // Open the print frame in this click, before the review request, so the
-      // browser still treats the later print as the same gesture.
-      const frame = selected.documentDirection === "supplier_return" ? null : createRawMaterialLabelPrintFrame();
-      try {
-        const reviewed = selected.ocrProvider === "tencent_cloud_table_v3"
-          ? await onOfficeReviewConfirm()
-          : await submitInboundAction(onAction, selected, "复核送货单");
-        if (shouldOpenLabelPrintAfterReview(reviewed, { printDisabled: Boolean(printState?.disabled) })) {
-          await handlePrintLabels(reviewed, frame);
-        } else {
-          frame?.remove();
-        }
-        return reviewed;
-      } catch (error) {
-        frame?.remove();
-        throw error;
-      }
-    }}
-    onVerifyRoll={(roll) => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
-    printState={printState}
-    reviewState={reviewState}
-    submitting={ocrReviewSubmitting}
-  />
+  <RawMaterialSourceEvidence authState={authState} operatorId={operatorId} selected={selected} sourcePreviewDataUrls={sourcePreviewDataUrls} />
   <details className="office-receive-more">
   <summary>单据与 OCR 原文</summary>
-  <h3>入库动作</h3>
   {selected.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected) ? (
     <div className="raw-material-ocr-review-panel">
       <div className="raw-material-ocr-review-heading">
@@ -256,11 +221,52 @@ export function RawMaterialInboundReceivingSections({
     ]}
   />
   </details>
+  <h3 className="office-receiving-title">{selected.documentDirection === "supplier_return" ? "退货核对" : "收货核对"}</h3>
+  <OfficeInboundFlow
+    actionError={actionError}
+    attachState={attachState}
+    documentDraft={ocrReviewDraft}
+    exceptionState={exceptionState}
+    inbound={selected}
+    lineDrafts={ocrLineReviewDraft}
+    onAction={onAction}
+    onCorrectDirection={onCorrectDirection}
+    directionCorrecting={directionCorrecting}
+    onOpenColorMapping={onOpenColorMapping}
+    colorMappingState={colorMappingState}
+    onDocumentDraftChange={setOcrReviewDraft}
+    onException={onOfficeException}
+    onLineDraftsChange={setOcrLineReviewDraft}
+    onPrint={handlePrintLabels}
+    onReview={async () => {
+      // Open the print frame in this click, before the review request, so the
+      // browser still treats the later print as the same gesture.
+      const frame = selected.documentDirection === "supplier_return" ? null : createRawMaterialLabelPrintFrame();
+      try {
+        const reviewed = selected.ocrProvider === "tencent_cloud_table_v3"
+          ? await onOfficeReviewConfirm()
+          : await submitInboundAction(onAction, selected, "复核送货单");
+        if (shouldOpenLabelPrintAfterReview(reviewed, { printDisabled: Boolean(printState?.disabled) })) {
+          await handlePrintLabels(reviewed, frame);
+        } else {
+          frame?.remove();
+        }
+        return reviewed;
+      } catch (error) {
+        frame?.remove();
+        throw error;
+      }
+    }}
+    onVerifyRoll={(roll) => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
+    printState={printState}
+    reviewState={reviewState}
+    submitting={ocrReviewSubmitting}
+  />
 </section>
 <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本", "扫码出库"].includes(detailTab))}>
 <h3>{detailTab === "入库标签" ? "卷/件标签" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>
 <div className="raw-material-roll-list">
-  {(selected.rolls ?? []).filter((roll) => detailTab !== "入库标签" || /不符|作废|重打/.test(roll.labelStatus || "")).map((roll) => {
+  {(selected.rolls ?? []).filter((roll) => (!rollId || roll.id === rollId) && (detailTab !== "入库标签" || /不符|作废|重打/.test(roll.labelStatus || ""))).map((roll) => {
     const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用" && !officeInboundUsesCountGate(selected);
     const canIssueRoll = canIssueRawMaterialRoll(roll);
     const canConfirmConsumption = canConfirmRawMaterialConsumptionRoll(roll);

@@ -69,15 +69,33 @@ async function openCamera(deviceId, mediaDevices = navigator.mediaDevices) {
   throw [firstError, lastError].find((cause) => cause?.name === "NotReadableError") || lastError || firstError;
 }
 
-export function DeliveryNoteCameraCapture({ onCapture, onClose }) {
+export function DeliveryNoteCameraCapture({ onCapture, onClose, completeLabel = "拍好了，开始识别", maxPages = Infinity }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const panelRef = useRef(null);
+  const pagesRef = useRef([]);
+  const mountedRef = useRef(false);
+  const captureRef = useRef(false);
+  const finishingRef = useRef(false);
   const [devices, setDevices] = useState([]);
   const [deviceId, setDeviceId] = useState(readStoredDevice);
   const [pages, setPages] = useState([]);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [capturing, setCapturing] = useState(false);
+  const pageLimit = Number.isFinite(Number(maxPages)) ? Math.max(0, Math.floor(Number(maxPages))) : Infinity;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const previous = document.activeElement;
+    panelRef.current?.querySelector("button")?.focus();
+    return () => {
+      mountedRef.current = false;
+      pagesRef.current.forEach(page => URL.revokeObjectURL(page.url));
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,31 +140,57 @@ export function DeliveryNoteCameraCapture({ onCapture, onClose }) {
 
   async function takePhoto() {
     const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
-    if (!blob) return;
-    const file = new File([blob], `送货单-高拍仪-${pages.length + 1}.jpg`, { type: "image/jpeg" });
-    setPages((current) => [...current, { file, url: URL.createObjectURL(blob) }]);
+    if (!ready || !video?.videoWidth || captureRef.current || finishingRef.current || pagesRef.current.length >= pageLimit) return;
+    captureRef.current = true;
+    setCapturing(true);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) throw new Error("拍照失败，请重试。");
+      if (!mountedRef.current || pagesRef.current.length >= pageLimit) return;
+      const file = new File([blob], `送货单-高拍仪-${pagesRef.current.length + 1}.jpg`, { type: "image/jpeg" });
+      const nextPages = [...pagesRef.current, { file, url: URL.createObjectURL(blob) }];
+      pagesRef.current = nextPages;
+      setPages(nextPages);
+    } catch (cause) {
+      if (mountedRef.current) setError(cause?.message || "拍照失败，请重试。");
+    } finally {
+      captureRef.current = false;
+      if (mountedRef.current) setCapturing(false);
+    }
   }
 
   function finish() {
-    if (!pages.length) return;
-    onCapture?.(pages.map((page) => page.file));
-    pages.forEach((page) => URL.revokeObjectURL(page.url));
+    if (!pagesRef.current.length || captureRef.current || finishingRef.current) return;
+    finishingRef.current = true;
+    onCapture?.(pagesRef.current.map((page) => page.file));
     onClose?.();
   }
 
+  function close() {
+    if (!captureRef.current && !finishingRef.current) onClose?.();
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
+    if (event.key !== "Tab") return;
+    const controls = [...panelRef.current.querySelectorAll("button:not(:disabled), select:not(:disabled)")];
+    if (!controls.length) { event.preventDefault(); return; }
+    const first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+
   return (
-    <div className="delivery-note-camera" role="dialog" aria-modal="true" aria-label="摄像头 / 高拍仪拍送货单">
-      <div className="delivery-note-camera-panel">
+    <div className="delivery-note-camera" role="dialog" aria-modal="true" aria-label="摄像头 / 高拍仪拍送货单" onKeyDown={handleKeyDown}>
+      <div className="delivery-note-camera-panel" ref={panelRef}>
         <header>
           <strong>摄像头 / 高拍仪拍送货单</strong>
           {devices.length > 1 || (error && devices.length) ? (
-            <select aria-label="选择摄像头" onChange={(event) => chooseDevice(event.target.value)} value={deviceId}>
+            <select aria-label="选择摄像头" disabled={capturing} onChange={(event) => chooseDevice(event.target.value)} value={deviceId}>
               <option value="">默认摄像头</option>
               {devices.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `摄像头 ${index + 1}`}</option>)}
             </select>
@@ -161,10 +205,10 @@ export function DeliveryNoteCameraCapture({ onCapture, onClose }) {
           </div>
         ) : <p className="delivery-note-camera-hint">把送货单放平在高拍仪下，整张都进取景框再拍。多页就连拍几张。</p>}
         <footer>
-          <button onClick={onClose} type="button">取消</button>
+          <button disabled={capturing} onClick={close} type="button">取消</button>
           {error ? <button onClick={() => setAttempt((value) => value + 1)} type="button">重试</button> : null}
-          <button disabled={!ready} onClick={takePhoto} type="button">{pages.length ? `再拍一页（已拍 ${pages.length} 页）` : "拍照"}</button>
-          <button className="primary-action" disabled={!pages.length} onClick={finish} type="button">拍好了，开始识别</button>
+          <button disabled={!ready || capturing || pages.length >= pageLimit} onClick={takePhoto} type="button">{capturing ? "正在拍照…" : pages.length >= pageLimit ? `已拍 ${pages.length} 页` : pages.length ? `再拍一页（已拍 ${pages.length} 页）` : "拍照"}</button>
+          <button className="primary-action" disabled={!pages.length || capturing} onClick={finish} type="button">{completeLabel}</button>
         </footer>
       </div>
     </div>

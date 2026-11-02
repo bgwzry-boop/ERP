@@ -1,0 +1,54 @@
+.raw-material-cost-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 32%) minmax(0, 1fr);
+  gap: var(--erp-space-2);
+  min-width: 0;
+  min-height: 0;
+  padding-top: var(--erp-space-2);
+}
+
+.raw-material-cost-list,
+.raw-material-cost-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-surface);
+}
+
+.raw-material-cost-list > header,
+.raw-material-cost-detail > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--erp-space-3);
+  min-height: 54px;
+  padding: var(--erp-space-3) var(--erp-space-4);
+  border-bottom: 1px solid var(--erp-border);
+}
+
+.raw-material-cost-list > header h2,
+.raw-material-cost-detail > header h2 { font-size: 17px; }
+.raw-material-cost-list > header button { display: inline-flex; align-items: center; gap: var(--erp-space-1); min-height: 32px; padding: 0 var(--erp-space-2); border: 0; border-radius: var(--erp-radius-sm); background: transparent; font-size: 12px; }
+.raw-material-cost-list > header button:hover { background: var(--erp-surface-subtle); }
+.raw-material-cost-workspace button:disabled { cursor: default; opacity: .55; }
+.raw-material-cost-search { display: flex; align-items: center; gap: var(--erp-space-2); margin: var(--erp-space-3); padding: 0 var(--erp-space-3); min-height: 36px; border: 1px solid var(--erp-control-border); border-radius: var(--erp-radius-sm); color: var(--erp-text-muted); }
+.raw-material-cost-search input { min-width: 0; width: 100%; border: 0; background: transparent; font-size: 13px; }
+.raw-material-cost-records { min-height: 0; overflow-y: auto; }
+.raw-material-cost-records > button { display: grid; gap: var(--erp-space-1); width: 100%; padding: var(--erp-space-3) var(--erp-space-4); border: 0; border-top: 1px solid var(--erp-border); background: var(--erp-surface); text-align: left; }
+.raw-material-cost-records > button:hover { background: var(--erp-surface-subtle); }
+.raw-material-cost-records > button.selected { background: var(--erp-accent-soft); }
+.raw-material-cost-records strong { font-size: 14px; }
+.raw-material-cost-records span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.raw-material-cost-records small { color: var(--erp-text-muted); font-size: 12px; }
+.raw-material-cost-detail > header { display: block; }
+.raw-material-cost-detail > header p { margin-top: var(--erp-space-1); overflow-wrap: anywhere; color: var(--erp-text-muted); font-size: 12px; }
+.raw-material-cost-detail-scroll { min-height: 0; overflow-y: auto; }
+.raw-material-cost-detail .raw-material-actions { flex-wrap: wrap; gap: var(--erp-space-2); }
+.raw-material-cost-detail .raw-material-actions button { min-height: 36px; font-size: 13px; }
+.raw-material-cost-detail .detail-section h3 { font-size: 14px; }
+.raw-material-cost-error { padding: var(--erp-space-3) var(--erp-space-4); color: var(--erp-danger); font-size: 13px; }
+.raw-material-cost-saving { padding: var(--erp-space-2) var(--erp-space-4); color: var(--erp-text-muted); font-size: 13px; }

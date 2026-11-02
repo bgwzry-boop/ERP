@@ -137,7 +137,7 @@ test("finance account sees finance work without raw-material execution menus", (
   assert(!itemIds.includes("roll-inventory"));
   assert(!itemIds.includes("production-tasks"));
   assert.deepEqual(getVisibleRawMaterialViews(finance), []);
-  assert.deepEqual(getVisibleWorkspaceViews(finance), ["订单池", "对账收款", "供应商月结", "工资核算"]);
+  assert.deepEqual(getVisibleWorkspaceViews(finance), ["订单池", "对账收款", "供应商月结", "原料成本", "工资核算"]);
   assert.equal(getDefaultWorkspaceView(finance), "供应商月结");
   assert.equal(hasEffectivePermission(finance, "order.create"), false);
 });
@@ -153,7 +153,33 @@ test("raw-material receiving permission alone never exposes supplier month-end",
   assert(itemIds.includes("material-receiving"));
   assert(itemIds.includes("roll-inventory"));
   assert(!itemIds.includes("supplier-month-end"));
+  assert(!itemIds.includes("raw-material-cost"));
   assert.deepEqual(getVisibleWorkspaceViews(rawMaterialOnly), ["订单池", "收货录入", "卷料库存"]);
+});
+
+test("raw-material cost stays in finance and requires its exact view permission", () => {
+  assert(!visibleItemIds(defaultPermissionContext).includes("raw-material-cost"), "office keeps its existing lack of cost visibility");
+  for (const roleKey of ["finance", "management"]) {
+    const account = permissionContextFor(roleKey, roleKey);
+    assert(visibleGroup(account, "finance").items.some((item) => item.id === "raw-material-cost"));
+    assert(!visibleGroup(account, "materials")?.items.some((item) => item.id === "raw-material-cost"));
+    const denied = { ...account, ...resolvePermissionAssignment({ roles: [roleKey], denyPermissions: ["raw_material.cost.view"] }) };
+    assert(!visibleItemIds(denied).includes("raw-material-cost"), `${roleKey} cost writes do not substitute for the denied view permission`);
+    assert(!getVisibleWorkspaceViews(denied).includes("原料成本"));
+  }
+  const viewOnly = {
+    user: { userId: "COST-VIEW-ONLY", defaultRole: "finance" },
+    roles: ["finance"], buttonPermissions: [], actionPermissions: ["raw_material.cost.view"],
+  };
+  assert(visibleItemIds(viewOnly).includes("raw-material-cost"));
+  assert.equal(getDefaultWorkspaceView(viewOnly), "原料成本", "a cost-only finance account starts at its available workspace");
+  for (const permission of ["raw_material.cost.allocate", "raw_material.cost.confirm", "raw_material.cost.calibrate", "raw_material.margin.snapshot", "raw_material.margin.review"]) {
+    assert.equal(hasEffectivePermission(viewOnly, permission), false);
+  }
+  assert.equal(navViewMap["raw-material-cost"], "原料成本");
+  assert(dedicatedWorkspaceIds.includes("raw-material-cost"));
+  const officeWithReviewedGrant = { ...defaultPermissionContext, ...resolvePermissionAssignment({ roles: ["office"], allowPermissions: ["raw_material.cost.view"] }) };
+  assert(visibleItemIds(officeWithReviewedGrant).includes("raw-material-cost"), "an existing explicit view grant remains effective");
 });
 
 test("management account receives the complete desktop hierarchy", () => {

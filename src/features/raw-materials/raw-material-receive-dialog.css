@@ -1,0 +1,59 @@
+.raw-material-receive-backdrop {
+  position: fixed; inset: 0; z-index: var(--erp-z-modal); display: grid; place-items: center;
+  padding: 24px; background: var(--erp-overlay);
+}
+.raw-material-receive-dialog {
+  position: relative; width: min(680px, 100%); max-height: calc(100dvh - 48px); overflow: auto;
+  border-radius: var(--erp-radius-md); background: var(--erp-surface); color: var(--erp-text);
+  box-shadow: var(--erp-shadow-panel); font-size: 13px;
+}
+.raw-material-receive-dialog > header, .raw-material-receive-dialog > footer {
+  display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+}
+.raw-material-receive-dialog > header { justify-content: space-between; border-bottom: 1px solid var(--erp-border); }
+.raw-material-receive-dialog h2 { margin: 0; font-size: 18px; line-height: 1.4; }
+.raw-material-receive-dialog button, .raw-material-receive-dialog select {
+  min-height: 36px; border: 1px solid var(--erp-control-border); border-radius: var(--erp-radius-sm);
+  padding: 6px 12px; background: var(--erp-surface); color: var(--erp-text); font: inherit; cursor: pointer;
+}
+.raw-material-receive-dialog button:hover:not(:disabled) { border-color: var(--erp-accent); }
+.raw-material-receive-dialog button:focus-visible, .raw-material-receive-dialog select:focus-visible { outline: 2px solid var(--erp-focus); outline-offset: 2px; }
+.raw-material-receive-dialog button:disabled { cursor: default; opacity: .55; }
+.raw-material-receive-dialog .raw-material-receive-close { display: grid; place-items: center; width: 36px; padding: 0; border-color: transparent; }
+.raw-material-receive-body { display: grid; gap: 16px; padding: 20px; }
+.raw-material-receive-direction { display: flex; gap: 8px; }
+.raw-material-receive-direction button { min-width: 100px; }
+.raw-material-receive-direction button[aria-pressed="true"] { border-color: var(--erp-accent); background: var(--erp-accent-soft); color: var(--erp-accent); font-weight: 700; }
+.raw-material-receive-supplier { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 12px; }
+.raw-material-receive-sources { display: flex; flex-wrap: wrap; gap: 12px; }
+.raw-material-receive-sources button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 1; min-height: 44px; white-space: nowrap; }
+.raw-material-receive-sources svg { color: var(--erp-accent); font-size: 18px; }
+.raw-material-receive-page-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.raw-material-receive-page-heading > span { font-size: 12px; color: var(--erp-text-muted); }
+.raw-material-receive-empty { display: grid; place-items: center; min-height: 140px; background: var(--erp-surface-subtle); border: 1px dashed var(--erp-control-border); color: var(--erp-text-muted); }
+.raw-material-receive-pages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.raw-material-receive-pages li { display: grid; gap: 4px; min-width: 0; }
+.raw-material-receive-dialog .raw-material-receive-thumbnail { padding: 0; overflow: hidden; }
+.raw-material-receive-thumbnail img { display: block; width: 100%; height: 150px; object-fit: contain; background: var(--erp-surface-subtle); }
+.raw-material-receive-thumbnail strong { display: block; padding: 8px; border-top: 1px solid var(--erp-border); font-size: 12px; }
+.raw-material-receive-dialog .raw-material-receive-remove { border-color: transparent; color: var(--erp-text-muted); }
+.raw-material-receive-dialog .raw-material-receive-remove:hover:not(:disabled) { color: var(--erp-danger); border-color: var(--erp-danger); }
+.raw-material-receive-progress, .raw-material-receive-error { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.raw-material-receive-progress { color: var(--erp-text-muted); }
+.raw-material-receive-error { color: var(--erp-danger); }
+.raw-material-receive-dialog > footer { position: sticky; bottom: 0; flex-wrap: wrap; border-top: 1px solid var(--erp-border); background: var(--erp-surface); }
+.raw-material-receive-dialog > footer > span { flex: 1; font-size: 12px; color: var(--erp-text-muted); }
+.raw-material-receive-dialog .raw-material-receive-primary { border-color: var(--erp-accent); background: var(--erp-accent); color: var(--erp-accent-ink); }
+.raw-material-receive-preview { position: fixed; inset: 24px; z-index: calc(var(--erp-z-modal) + 1); display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--erp-surface); border-radius: var(--erp-radius-md); }
+.raw-material-receive-preview header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.raw-material-receive-preview img { width: 100%; min-height: 0; flex: 1; object-fit: contain; }
+@media (max-width: 767px) {
+  .raw-material-receive-backdrop { padding: 12px; }
+  .raw-material-receive-dialog { max-height: calc(100dvh - 24px); font-size: 14px; }
+  .raw-material-receive-dialog > header, .raw-material-receive-dialog > footer, .raw-material-receive-body { padding: 16px; }
+  .raw-material-receive-dialog button, .raw-material-receive-dialog select { min-height: 44px; }
+  .raw-material-receive-pages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .raw-material-receive-supplier { grid-template-columns: 1fr; gap: 8px; }
+  .raw-material-receive-dialog > footer > span { flex-basis: 100%; }
+  .raw-material-receive-preview { inset: 12px; }
+}
