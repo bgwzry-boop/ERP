@@ -22,7 +22,7 @@ import {
   getRawMaterialInboundTone,
   RAW_MATERIAL_INBOUND_VIEW_KEYS,
 } from "../../domain/rawMaterialInboundListState.js";
-import { getFactoryStandardColorSwatch } from "../../../shared/factoryStandardColors.js";
+import { getRawMaterialDisplayColorSwatch } from "./rawMaterialColorDisplay.js";
 import {
   buildRawMaterialAvailableDistribution,
   buildRawMaterialRollLedger,
@@ -371,8 +371,8 @@ function getRawMaterialRollStatusKey(status) {
   return "unknown";
 }
 
-export function getRawMaterialColorValue(color) {
-  return getFactoryStandardColorSwatch(color, "#9aa6b2");
+export function getRawMaterialColorValue(color, supplierColor = "") {
+  return getRawMaterialDisplayColorSwatch(color, supplierColor);
 }
 
 export function RawMaterialDetailOverview({ selected }) {

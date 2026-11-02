@@ -224,7 +224,7 @@ function OfficeRollTable({ canEdit, isReturn, editingId, onEdit, onSave, onMapCo
         <div className={row.blocker ? "office-roll-row is-blocked" : "office-roll-row"} key={row.reviewId} role="row">
           <strong>第 {row.physicalRollIndex} 卷</strong>
           <span className="office-roll-fact">
-            <i aria-hidden="true" className="raw-material-color-chip" style={{ "--raw-roll-color": getRawMaterialColorValue(row.color) }} />
+            <i aria-hidden="true" className="raw-material-color-chip" style={{ "--raw-roll-color": getRawMaterialColorValue(row.color, row.supplierColor) }} />
             <span className="office-roll-color-text" title={isReturn ? undefined : formatRawMaterialColorDisplay(row.color, row.supplierColor)}>
               {isReturn ? row.color || row.lineDraft?.returnMaterialCategory || row.supplierColor || "原单未写颜色" : <RawMaterialColorDisplay factoryColor={row.color} supplierColor={row.supplierColor} />}
             </span>
