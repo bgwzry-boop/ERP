@@ -90,6 +90,7 @@ export function buildSystemHealthResponse({ workspace = {}, openapi = {}, now = 
     now: toIsoTimestamp(now()),
     release: projectReleaseIdentity(workspace.releaseIdentity),
     firstReleaseScope: projectFirstReleaseScope(workspace.firstReleaseScope),
+    rawMaterialUntaskedIssue: { allowed: workspace.rawMaterialUntaskedIssueAllowed !== false },
     openapi: {
       valid: openapi.valid === true,
       pathCount: nonNegativeInteger(openapi.pathCount),

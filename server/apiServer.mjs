@@ -45,6 +45,7 @@ import {
   evaluateFirstReleaseWrite,
   resolveFirstReleaseScope,
 } from "./services/firstReleaseScopeService.mjs";
+import { resolveRawMaterialUntaskedIssueAllowed } from "./services/rawMaterialUntaskedIssuePolicy.mjs";
 import { hydratePersistentWorkspaceState } from "./services/persistentWorkspaceHydrationService.mjs";
 import {
   getRequestAuthContext,
@@ -190,6 +191,7 @@ export function createApiServer(options = {}) {
   }));
   workspace.securityPolicy = securityPolicy;
   workspace.firstReleaseScope = firstReleaseScope;
+  workspace.rawMaterialUntaskedIssueAllowed = resolveRawMaterialUntaskedIssueAllowed({ runtimeConfig: { production: runtimeConfig.isProduction } });
   workspace.phoneVerificationSender = effectiveOptions.phoneVerificationSender;
   if (
     securityPolicy.phoneRegistrationEnabled === true &&

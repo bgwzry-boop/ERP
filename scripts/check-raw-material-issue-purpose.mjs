@@ -68,3 +68,20 @@ assert.match(page, /taskCheck\.ok/, "a mismatching roll cannot be issued");
 assert.match(page, /试用期：没有任务，直接出库/, "trial fallback without tasks");
 
 console.log("raw-material issue/picking check passed: workshop task lists, print-to-bag hand-off without rescan, roll-vs-task mismatch pop-up, camera scanning, trial fallback.");
+
+// Owner decision 2026-11-02: untasked scan outbound stays for the trial and closes in production.
+{
+  const { resolveRawMaterialUntaskedIssueAllowed, assertRawMaterialUntaskedIssueAllowed } = await import("../server/services/rawMaterialUntaskedIssuePolicy.mjs");
+  const { strict: policyAssert } = await import("node:assert");
+  policyAssert.equal(resolveRawMaterialUntaskedIssueAllowed({ env: {}, runtimeConfig: { production: false } }), true, "trial/staging keeps the no-task outbound");
+  policyAssert.equal(resolveRawMaterialUntaskedIssueAllowed({ env: {}, runtimeConfig: { production: true } }), false, "production requires a task by default");
+  policyAssert.equal(resolveRawMaterialUntaskedIssueAllowed({ env: { ERP_RAW_MATERIAL_UNTASKED_ISSUE: "allow" }, runtimeConfig: { production: true } }), true);
+  policyAssert.equal(resolveRawMaterialUntaskedIssueAllowed({ env: { ERP_RAW_MATERIAL_UNTASKED_ISSUE: "block" }, runtimeConfig: { production: false } }), false);
+  policyAssert.throws(() => resolveRawMaterialUntaskedIssueAllowed({ env: { ERP_RAW_MATERIAL_UNTASKED_ISSUE: "maybe" } }), /allow or block/);
+  policyAssert.doesNotThrow(() => assertRawMaterialUntaskedIssueAllowed({ rawMaterialUntaskedIssueAllowed: false }, "PT-1"));
+  policyAssert.doesNotThrow(() => assertRawMaterialUntaskedIssueAllowed({ rawMaterialUntaskedIssueAllowed: true }, ""));
+  policyAssert.throws(() => assertRawMaterialUntaskedIssueAllowed({ rawMaterialUntaskedIssueAllowed: false }, ""), (error) => error.code === "RAW_MATERIAL_ISSUE_TASK_REQUIRED" && error.statusCode === 409);
+  const { readFileSync: readPolicySource } = await import("node:fs");
+  policyAssert.match(readPolicySource(new URL("../server/rawMaterialTraceabilityActionService.mjs", import.meta.url), "utf8"), /assertRawMaterialUntaskedIssueAllowed\(workspace, productionTaskId\)/);
+  policyAssert.match(readPolicySource(new URL("../src/features/raw-materials/RawMaterialScannerPage.jsx", import.meta.url), "utf8"), /rawMaterialUntaskedIssue\?\.allowed === false/);
+}
