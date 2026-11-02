@@ -40,7 +40,11 @@ const appSource = [
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const completeReviewAppSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/App.jsx", import.meta.url), "utf8");
-assert.match(completeReviewAppSource, /<FormalReceivingWorkspace key=\{selected\?\.id \|\| "no-receipt"\}/u, "changing receipts must remount its local OCR review state instead of reusing another receipt's draft");
+// Since the 2026-11-02 receiving redesign the workspace is mounted by ReceiptWorkspace.
+const receiptWorkspaceSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/ReceiptWorkspace.jsx", import.meta.url), "utf8");
+const formalReceivingWorkspaceSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/FormalReceivingWorkspace.jsx", import.meta.url), "utf8");
+assert.match(receiptWorkspaceSource, /<FormalReceivingWorkspace key=\{receiving\.selectedId\}/u, "changing receipts must remount its local OCR review state instead of reusing another receipt's draft");
+assert.match(formalReceivingWorkspaceSource, /key=\{`\$\{props\.selectedId \|\| "no-receipt"\}:\$\{draftEpoch\}`\}/u, "the review body also remounts per receipt and on an explicit draft reload");
 const rawMaterialSupplierProfilesSource = readFileSync(new URL("../shared/rawMaterialSupplierProfiles.js", import.meta.url), "utf8");
 const rawMaterialSupplierColorMappingDialogSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx", import.meta.url), "utf8");
 const rawMaterialControllerSource = readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
