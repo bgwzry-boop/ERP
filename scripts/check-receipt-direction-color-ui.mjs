@@ -73,6 +73,8 @@ try {
         sameFamily: factoryStyle.fontFamily === ticketStyle.fontFamily,
         sameWeight: factoryStyle.fontWeight === ticketStyle.fontWeight,
         fitsText: element.scrollWidth <= element.clientWidth + 1,
+        colorRoom: element.closest('.office-roll-fact').clientWidth - chip.width - parseFloat(getComputedStyle(element.closest('.office-roll-fact')).columnGap || 0),
+        textScroll: element.scrollWidth,
         insideRow: text.right <= row.right + 0.5 && text.bottom <= row.bottom + 0.5,
         clearOfWidth: text.right <= widthCell.left + 0.5,
         labelFits: label.scrollWidth <= label.clientWidth + 1,
@@ -86,6 +88,7 @@ try {
     assert.equal(ticketMetrics.sameFamily, true);
     assert.equal(ticketMetrics.sameWeight, true);
     assert.equal(ticketMetrics.fitsText, true, `ticket colour overflowed its cell at ${width}px`);
+    assert.ok(ticketMetrics.colorRoom >= ticketMetrics.textScroll + 12, `common ticket colour has less than 12px spare at ${width}px (${ticketMetrics.colorRoom} vs ${ticketMetrics.textScroll})`);
     assert.equal(ticketMetrics.insideRow, true);
     assert.equal(ticketMetrics.clearOfWidth, true);
     assert.equal(ticketMetrics.labelFits, true, `roll number was clipped at ${width}px`);
@@ -168,9 +171,13 @@ try {
         nowrap:getComputedStyle(element).whiteSpace,
         insideSummary:self.right<=summary.right+0.5 && self.left>=summary.left-0.5,
         clearOfSpec:self.right<=next.left+0.5,
+        fitsText:element.scrollWidth<=element.clientWidth+1,
+        colorWidth:element.getBoundingClientRect().width,
       };
     });
     assert.equal(mobileMetrics.text,'宝蓝（宝兰）');
+    assert.equal(mobileMetrics.fitsText,true,'phone review colour column still clips 宝蓝（宝兰）');
+    assert.ok(mobileMetrics.colorWidth>=92,'phone review colour column is narrower than 宝蓝（宝兰）');
     assert.equal(mobileMetrics.factorySize,'14px');
     assert.equal(mobileMetrics.ticketSize,'16px');
     assert.equal(mobileMetrics.sameFamily,true);

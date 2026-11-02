@@ -215,7 +215,7 @@ button.roll-row.selected { background: var(--erp-neutral-bg); box-shadow: inset 
 .trace-panel .trace-color .color-chip { width: 12px; height: 12px; }
 .text-action { display: flex; align-items: center; gap: 5px; justify-self: start; margin-left: 13px; padding: 0; border: 0; background: transparent; color: var(--blue); font-size: 11px; font-weight: 650; }
 
-.secondary-workbench { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(680px,1fr) 360px; gap: 8px; padding-top: 3px; }
+.secondary-workbench { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(680px,1fr) 416px; gap: 8px; padding-top: 3px; }
 .secondary-list { display: grid; grid-template-rows: 56px auto minmax(0,1fr); }
 .secondary-list > header { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--line); }
 .secondary-list h2 { font-size: 17px; }
@@ -365,11 +365,12 @@ button.receipt-row:hover, button.statement-row:hover, button.receipt-row.selecte
    min-height: 0;
    border: 0;
  }
-.formal-receiving-workspace .raw-material-detail-scroll { overflow: auto; }
+.formal-receiving-workspace .raw-material-detail-scroll { overflow: auto; scrollbar-gutter: stable; }
 .formal-receiving-workspace .office-roll-table { min-width: 0; }
+/* 2026-11-02：常见双字厂内色（票面色）必须完整可见。色列最小宽度覆盖 14px 色块、4px 间距和 12/14px 的「某某（某某）」，滚动条占位不再把色名挤成省略号。 */
 .formal-receiving-workspace .office-roll-head,
 .formal-receiving-workspace .office-roll-row {
-  grid-template-columns: 64px minmax(0, 1fr) 50px 52px 56px;
+  grid-template-columns: 64px minmax(118px, 1.8fr) 50px 52px 56px;
   column-gap: 6px;
   padding: 8px 7px;
 }
