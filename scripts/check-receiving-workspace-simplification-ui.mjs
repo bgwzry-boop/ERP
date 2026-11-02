@@ -185,6 +185,12 @@ async function checkDesktop(width) {
     assert.equal(await pane.locator("details.raw-material-receipt-history").evaluate(element => element.open), false);
     assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "米色"], "viewing source/history must preserve both colour identities");
 
+    // Both notes intentionally reuse their first OCR line id. An unsubmitted
+    // edit must never become a different receipt's displayed or submitted facts.
+    await pane.locator(".office-roll-row").first().getByRole("button", { name: "改这一卷", exact: true }).click();
+    await pane.getByLabel("本卷公斤", { exact: true }).fill("69");
+    await pane.getByRole("button", { name: "保存这一卷", exact: true }).click();
+    assert.match(await pane.locator(".office-roll-table").innerText(), /69kg/u);
     await page.getByRole("tab", { name: "退货单 1", exact: true }).click();
     await pane.getByRole("heading", { name: "退货核对", exact: true }).waitFor();
     await pane.getByRole("button", { name: "确认退货，不入库", exact: true }).waitFor();

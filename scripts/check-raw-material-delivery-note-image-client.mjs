@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import { frontendAssetFileNames } from "../vite.config.mjs";
+
+assert.equal(frontendAssetFileNames({names:["pdf.worker.min.mjs"]}), "assets/[name]-[hash].js", "PDF module assets must receive a nosniff-safe JavaScript URL");
+assert.equal(frontendAssetFileNames({name:"pdf.worker.min.mjs"}), "assets/[name]-[hash].js");
+assert.equal(frontendAssetFileNames({names:["receipt.png"]}), "assets/[name]-[hash][extname]", "non-module audit image names remain unchanged");
 import {
   prepareRawMaterialDeliveryNoteFile,
   prepareRawMaterialDeliveryNotePages,

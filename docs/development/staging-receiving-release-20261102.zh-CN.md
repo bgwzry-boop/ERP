@@ -14,3 +14,7 @@
 排除：PR #32 两项CI失败（公共待办确认栏底部746px超出720px视口），不得以截图检查成功代替完整测试。旧PR #19及历史草稿也不纳入。
 
 本说明不是已部署声明。须由完整测试、同锁构建、受控deploy、备份/数据摘要比对、实际公网PC/手机验收、finalize后再证明已发布。最终身份与证据留存忽略目录`.erp-local-storage/deployment/staging-20261102-receiving-r1`，canonical仅在服务器验证后推进。
+
+## 公网深层验收与r2补强
+
+r1已切换后深层验收发现两项正式构建问题，未交付为业务验收完成：PDF URL资产`.mjs`被既有Nginx返回application/octet-stream并由nosniff拒绝；快速切单可沿用上一单同lineId的OCR编辑草稿。r2统一将模块URL资产发为`.js`（不放宽nosniff、不改服务器安全配置），并以selected inbound ID隔离正式收货详情组件生命周期；补充模块资产命名和未提交重量切单隔离回归。必须使用新提交、新锁、r2版本再构建/发布，前后数据保持不变。

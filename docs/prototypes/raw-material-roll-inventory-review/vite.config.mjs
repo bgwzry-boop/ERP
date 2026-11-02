@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { controlledReleaseHtmlPlugin } from "../../../vite.config.mjs";
+import { controlledReleaseHtmlPlugin, frontendAssetFileNames } from "../../../vite.config.mjs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -130,6 +130,7 @@ export default defineConfig(({ command }) => ({
     outDir: "dist/client",
     rollupOptions: {
       output: {
+        assetFileNames: frontendAssetFileNames,
         manualChunks(id) {
           if (!id.includes("node_modules")) {
             if (id.includes("/src/features/v1-status/")) return "erp-v1-status";
