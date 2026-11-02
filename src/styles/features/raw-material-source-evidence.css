@@ -1,0 +1,91 @@
+.raw-material-source-evidence {
+  padding: var(--erp-space-2) var(--erp-space-3);
+}
+
+.raw-material-source-evidence > button,
+.raw-material-source-dialog button {
+  min-height: 34px;
+  padding: var(--erp-space-1) var(--erp-space-3);
+  border: 1px solid var(--erp-control-border);
+  border-radius: var(--erp-radius-sm);
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.raw-material-source-evidence > button:disabled {
+  color: var(--erp-text-muted);
+  cursor: default;
+}
+
+.raw-material-source-evidence button:focus-visible,
+.raw-material-source-dialog button:focus-visible {
+  outline: 2px solid var(--erp-focus);
+  outline-offset: 2px;
+}
+
+.raw-material-source-dialog {
+  width: min(92vw, 960px);
+  max-height: 90dvh;
+  padding: var(--erp-space-4);
+  overflow: auto;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-lg);
+  background: var(--erp-surface);
+  color: var(--erp-text);
+}
+
+.raw-material-source-dialog::backdrop {
+  background: var(--erp-overlay);
+}
+
+.raw-material-source-dialog header,
+.raw-material-source-dialog nav {
+  display: flex;
+  align-items: center;
+  gap: var(--erp-space-2);
+  margin-bottom: var(--erp-space-3);
+}
+
+.raw-material-source-dialog header {
+  justify-content: space-between;
+}
+
+.raw-material-source-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.raw-material-source-dialog [aria-current="page"] {
+  border-color: var(--erp-accent);
+  color: var(--erp-accent);
+}
+
+.raw-material-source-dialog img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.raw-material-source-dialog object {
+  width: 100%;
+  min-height: 65dvh;
+}
+
+.raw-material-receipt-history {
+  border-top: 1px solid var(--erp-border-subtle);
+}
+
+.raw-material-receipt-history > summary {
+  min-height: 36px;
+  padding: var(--erp-space-2) var(--erp-space-3);
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.raw-material-receipt-history > div {
+  padding: 0 var(--erp-space-3) var(--erp-space-3);
+}

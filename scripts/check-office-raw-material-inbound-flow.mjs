@@ -186,7 +186,7 @@ assert.match(printRunner, /buildRawMaterialLabelPrintDocument/);
 assert.ok(pageSource.includes("receivingReceiptTab"), "receiving list should follow the acted sheet into its next tab");
 assert.ok(pageSource.includes("actedRecord"), "receiving detail should stay on the sheet that was just confirmed or marked");
 const printCss = readFileSync(new URL("../src/styles/features/raw-material-roll-label.css", import.meta.url), "utf8");
-for (const text of ["扫描或上传", "核对每一卷的颜色、宽幅、公斤", "这批都对，去打印", "改这一卷", "不用填已贴张数", "本单已贴齐/一键入库", "76×130"]) {
+for (const text of ["录入送货/退货单", "核对每一卷的颜色、宽幅、公斤", "这批都对，去打印", "改这一卷", "不用填已贴张数", "本单已贴齐/一键入库", "76×130"]) {
   assert.ok(pageSource.includes(text), `office inbound screen should say ${text}`);
 }
 const officeFlowSource = readFileSync(new URL("../src/features/raw-materials/OfficeInboundFlow.jsx", import.meta.url), "utf8");

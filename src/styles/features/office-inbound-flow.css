@@ -4,6 +4,14 @@
   margin: 0;
 }
 
+.office-receiving-title {
+  margin: 0;
+  padding: var(--erp-space-2) var(--erp-space-3);
+  border-top: 1px solid var(--erp-border-subtle);
+  color: var(--erp-text);
+  font-size: 14px;
+}
+
 .office-direction-conflict {
   display: grid;
   gap: var(--erp-space-2);

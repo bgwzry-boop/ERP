@@ -38,7 +38,7 @@ for (const contract of ["复核送货单", "打印卷标", "确认贴标入库",
 assert.match(rawMaterialPageSource, /precheckRawMaterialSupplierStatementWorkbook/);
 assert.match(rawMaterialPageSource, /canIssueRawMaterialRoll/);
 assert.doesNotMatch(rawMaterialPageSource, /canReviewRawMaterialLeftoverRoll/);
-assert.match(rawMaterialPageSource, /RAW_MATERIAL_DETAIL_TABS/);
+assert.match(rawMaterialPageSource, /ReceiptOperationHistory/, "receipt history remains reachable without unrelated peer tabs");
 assert.match(rawMaterialPageSource, /selectRawMaterialInboundMetrics/);
 assert.match(rawMaterialPageSource, /raw-material-detail-scroll/);
 assert.match(rawMaterialWorkbenchSource, /RAW_MATERIAL_INBOUND_TABS/);

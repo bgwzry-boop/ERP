@@ -20,4 +20,5 @@ export const dedicatedWorkspaceIds = Object.freeze([
   "material-receiving",
   "roll-inventory",
   "supplier-month-end",
+  "raw-material-cost",
 ]);

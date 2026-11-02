@@ -23,6 +23,90 @@ import {
   formatRawMaterialTaskMatch,
 } from "./rawMaterialInboundWorkflow.js";
 
+const costHistoryKeys = [
+  "rawMaterialCostAllocationDrafts",
+  "rawMaterialCostAllocationConfirmations",
+  "rawMaterialCostLossCalibrations",
+  "rawMaterialOrderMarginSnapshots",
+  "rawMaterialOrderMarginReports",
+  "rawMaterialCostAllocationWarnings",
+];
+
+export function RawMaterialCostProcessingSections({
+  actionStates,
+  canViewCost,
+  hidden = false,
+  money,
+  onAction,
+  selected,
+  showRecords = true,
+}) {
+  const {
+    costConfirm: costConfirmState,
+    costDraft: costDraftState,
+    lossCalibration: lossCalibrationState,
+    marginReview: marginReviewState,
+    marginSnapshot: marginSnapshotState,
+  } = actionStates;
+  const costHistory = Object.fromEntries(costHistoryKeys.map((key) => [key, selected[key]]));
+
+  return <div hidden={hidden}>
+    <section className="detail-section operational-detail-section-first raw-material-stage-actions">
+      <h3>成本、损耗与毛利</h3>
+      <div className="action-row raw-material-actions">
+        <button
+          disabled={costDraftState.disabled || !canGenerateRawMaterialCostDraft(selected)}
+          title={costDraftState.title || (!canGenerateRawMaterialCostDraft(selected) ? "需先确认消耗，且领料记录必须已匹配生产任务" : "")}
+          onClick={() => onAction?.("生成成本草稿", selected.id, { note: "V1 生成原材料成本分摊草稿；仍需成本/管理复核。" })}
+          type="button"
+        >生成成本草稿</button>
+        <button
+          disabled={costConfirmState.disabled || !canConfirmRawMaterialCostDraft(selected)}
+          title={costConfirmState.title || (!canConfirmRawMaterialCostDraft(selected) ? "需先生成待复核成本草稿" : "")}
+          onClick={() => onAction?.("确认成本草稿", selected.id, { note: "V1 复核确认原材料成本快照；损耗和毛利仍走独立流程。" })}
+          type="button"
+        >确认成本草稿</button>
+        <button
+          disabled={lossCalibrationState.disabled || !canCalibrateRawMaterialLoss(selected)}
+          title={lossCalibrationState.title || (!canCalibrateRawMaterialLoss(selected) ? "需先确认成本草稿，且不能重复校准损耗" : "")}
+          onClick={() => onAction?.("校准损耗", selected.id, buildRawMaterialLossCalibrationOptions(selected))}
+          type="button"
+        >校准损耗</button>
+        <button
+          disabled={marginSnapshotState.disabled || !canGenerateRawMaterialMarginSnapshot(selected)}
+          title={marginSnapshotState.title || (!canGenerateRawMaterialMarginSnapshot(selected) ? "需先完成损耗校准，且不能重复生成毛利快照" : "")}
+          onClick={() => onAction?.("生成毛利快照", selected.id, buildRawMaterialMarginSnapshotOptions(selected))}
+          type="button"
+        >生成毛利快照</button>
+        <button
+          disabled={marginReviewState.disabled || !canReviewRawMaterialMarginSnapshot(selected)}
+          title={marginReviewState.title || (!canReviewRawMaterialMarginSnapshot(selected) ? "需先生成毛利快照，且订单收入必须完整、不能重复复核" : "")}
+          onClick={() => onAction?.("复核毛利快照", selected.id, buildRawMaterialMarginReviewOptions(selected))}
+          type="button"
+        >复核毛利快照</button>
+      </div>
+    </section>
+    {showRecords ? <>
+      <section className="detail-section">
+        <h3>成本进度</h3>
+        <InfoGrid rows={[
+          ["成本草稿", formatRawMaterialCostDraftSummary(selected, canViewCost, money)],
+          ["成本确认", formatRawMaterialCostConfirmationSummary(selected, canViewCost, money)],
+          ["损耗校准", formatRawMaterialLossCalibrationSummary(selected, canViewCost, money)],
+          ["毛利快照", formatRawMaterialMarginSnapshotSummary(selected, canViewCost, money)],
+          ["毛利报表", formatRawMaterialMarginReportSummary(selected, canViewCost, money)],
+        ]} />
+      </section>
+      <section className="detail-section">
+        <h3>成本记录</h3>
+        {costHistoryKeys.some((key) => costHistory[key]?.length) ? <Suspense fallback={<p role="status">正在展开成本记录…</p>}>
+          <RawMaterialRecordHistory selected={{ id: selected.id, ...costHistory }} canViewCost={canViewCost} money={money} />
+        </Suspense> : <p>暂无成本记录。</p>}
+      </section>
+    </> : null}
+  </div>;
+}
+
 export function RawMaterialInboundSupportingSections({
   actionStates,
   canViewCost,
@@ -44,58 +128,13 @@ export function RawMaterialInboundSupportingSections({
   statementReviews,
 }) {
   const {
-    costConfirm: costConfirmState,
-    costDraft: costDraftState,
-    lossCalibration: lossCalibrationState,
-    marginReview: marginReviewState,
-    marginSnapshot: marginSnapshotState,
     payable: payableState,
     payment: paymentState,
   } = actionStates;
 
   return (
     <>
-      <section className="detail-section operational-detail-section-first raw-material-stage-actions" hidden={firstReleaseMode || detailTab !== "领料成本"}>
-        <h3>领料与成本动作</h3>
-        <p>机边领料只移动原材料状态；成本、损耗和毛利按独立复核步骤推进，不把机器计数或领料记录当成合格产量。</p>
-        <div className="action-row raw-material-actions">
-          <button
-            disabled={costDraftState.disabled || !canGenerateRawMaterialCostDraft(selected)}
-            title={costDraftState.title || (!canGenerateRawMaterialCostDraft(selected) ? "需先确认消耗，且领料记录必须已匹配生产任务" : "")}
-            onClick={() => onAction?.("生成成本草稿", selected.id, { note: "V1 生成原材料成本分摊草稿；仍需成本/管理复核。" })}
-          >
-            生成成本草稿
-          </button>
-          <button
-            disabled={costConfirmState.disabled || !canConfirmRawMaterialCostDraft(selected)}
-            title={costConfirmState.title || (!canConfirmRawMaterialCostDraft(selected) ? "需先生成待复核成本草稿" : "")}
-            onClick={() => onAction?.("确认成本草稿", selected.id, { note: "V1 复核确认原材料成本快照；损耗和毛利仍走独立流程。" })}
-          >
-            确认成本草稿
-          </button>
-          <button
-            disabled={lossCalibrationState.disabled || !canCalibrateRawMaterialLoss(selected)}
-            title={lossCalibrationState.title || (!canCalibrateRawMaterialLoss(selected) ? "需先确认成本草稿，且不能重复校准损耗" : "")}
-            onClick={() => onAction?.("校准损耗", selected.id, buildRawMaterialLossCalibrationOptions(selected))}
-          >
-            校准损耗
-          </button>
-          <button
-            disabled={marginSnapshotState.disabled || !canGenerateRawMaterialMarginSnapshot(selected)}
-            title={marginSnapshotState.title || (!canGenerateRawMaterialMarginSnapshot(selected) ? "需先完成损耗校准，且不能重复生成毛利快照" : "")}
-            onClick={() => onAction?.("生成毛利快照", selected.id, buildRawMaterialMarginSnapshotOptions(selected))}
-          >
-            生成毛利快照
-          </button>
-          <button
-            disabled={marginReviewState.disabled || !canReviewRawMaterialMarginSnapshot(selected)}
-            title={marginReviewState.title || (!canReviewRawMaterialMarginSnapshot(selected) ? "需先生成毛利快照，且订单收入必须完整、不能重复复核" : "")}
-            onClick={() => onAction?.("复核毛利快照", selected.id, buildRawMaterialMarginReviewOptions(selected))}
-          >
-            复核毛利快照
-          </button>
-        </div>
-      </section>
+      <RawMaterialCostProcessingSections actionStates={actionStates} canViewCost={canViewCost} hidden={firstReleaseMode || detailTab !== "领料成本"} money={money} onAction={onAction} selected={selected} showRecords={false} />
       <section className="detail-section raw-material-machine-section" hidden={!(["领料成本", "扫码出库"].includes(detailTab))}>
         <h3>{firstReleaseMode ? "扫码出库记录" : "机边领料 / 消耗"}</h3>
         <InfoGrid

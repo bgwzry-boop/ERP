@@ -61,6 +61,8 @@ const rawMaterialPageSource = [
   readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
 ].join("\n");
 const inboundDetailSource = readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8");
+const receiveDialogSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialReceiveDialog.jsx", import.meta.url), "utf8");
+const costWorkspaceSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/RawMaterialCostWorkspace.jsx", import.meta.url), "utf8");
 const rawMaterialWorkbenchSource = [
   "../src/features/raw-materials/RawMaterialInboundWorkbench.jsx",
   "../src/features/raw-materials/InboundFilters.jsx",
@@ -70,7 +72,7 @@ const rawMaterialRouteSource = readFileSync(new URL("../src/app/routes/RawMateri
 const rawMaterialMobileSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileReceiving.jsx", import.meta.url), "utf8");
 const rawMaterialMobileOcrReviewSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileOcrReview.jsx", import.meta.url), "utf8");
 const rawMaterialPurchaseSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialPurchasePanel.jsx", import.meta.url), "utf8");
-const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${inboundDetailSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}\n${rawMaterialMobileOcrReviewSource}`;
+const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${inboundDetailSource}\n${receiveDialogSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}\n${rawMaterialMobileOcrReviewSource}`;
 const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMaterialInboundListState.js", import.meta.url), "utf8");
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -290,13 +292,17 @@ assertIncludes(officePageSource, "export function RawMaterialInboundPage", "offi
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialInboundListPane", "raw-material list composition should live outside the main page");
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialDetailOverview", "raw-material fixed detail facts should live outside the main page");
 assertIncludes(inboundDetailSource, "RawMaterialInboundReceivingSections", "raw-material receiving actions should live outside the main page");
-assertIncludes(inboundDetailSource, "RawMaterialInboundSupportingSections", "raw-material cost, traceability and statement sections should live outside the main page");
+assert.ok(!inboundDetailSource.includes("RawMaterialInboundSupportingSections"), "receiving must not mount supplier settlement and cost workflows");
+assert.ok(!inboundDetailSource.includes("Segmented"), "receiving keeps a single workflow instead of unrelated peer tabs");
+assertIncludes(inboundDetailSource, "ReceiptOperationHistory", "the receipt operation history stays available in the receiving detail");
+assertIncludes(costWorkspaceSource, "RawMaterialCostProcessingSections", "existing cost actions remain reachable through their dedicated finance workbench");
 assert.ok(rawMaterialInboundPageSource.split("\n").length <= 900, "raw-material main page should remain a compact composition layer");
 assertIncludes(rawMaterialWorkbenchSource, "raw-material-view-tabs", "raw-material views should expose count-bearing tabs");
 assertIncludes(rawMaterialWorkbenchSource, "buildRawMaterialInboundViewItems(inbounds)", "raw-material view counts should use the tested list-state projection");
 assertIncludes(rawMaterialPageSource, "raw-material-detail-scroll", "raw-material detail actions should scroll independently");
-assertIncludes(officePageSource, "OCR 仅预填", "page should clearly label OCR as prefill only");
-assertIncludes(officePageSource, "摄像头 / 高拍仪", "desktop should open the document camera / webcam for delivery notes (2026-10-30)");
+assertIncludes(receiveDialogSource, "识别后逐卷核对，未确认不入库", "the unified intake must state the human-review and inventory boundary");
+assertIncludes(receiveDialogSource, "DeliveryNoteCameraCapture", "the unified desktop intake keeps the working document-camera capture component");
+assert.ok(!inboundDetailSource.includes("handleDesktopDeliveryNoteRecognize"), "current-receipt detail cannot silently start a second new-note capture path");
 assertIncludes(officePageSource, 'capture="environment"', "phone 拍照上传 should request the rear camera");
 assertIncludes(officePageSource, "上传照片", "desktop should keep photo upload next to the camera entry");
 assertIncludes(rawMaterialPageSource, "识别成功：", "successful mobile OCR should expose an inline draft result");
@@ -520,13 +526,13 @@ assert.match(
 assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
 assertIncludes(rawMaterialPageSource, "分卷重量 kg", "page should allow exact per-roll weights to be reviewed");
-assertIncludes(officePageSource, "识别不会直接入库", "page should keep OCR separate from inventory availability");
+assertIncludes(receiveDialogSource, "未确认不入库", "page should keep OCR separate from inventory availability");
 assertIncludes(officePageSource, "打印标签只是待贴标", "page should keep print separate from attach confirmation");
 assertIncludes(rawMaterialListStateSource, "后端 API 已同步", "raw-material list state should expose API sync source");
 assertIncludes(officePageSource, "一卷一标", "page should expose one-label-per-roll rule");
 assertIncludes(officePageSource, "成本权限可见", "page should hide cost without permission");
 assertIncludes(officePageSource, "供应商月结对账只确认", "page should separate supplier matching from payment");
-assertIncludes(officePageSource, "供应商原始单号有则录、没有就留空", "page should state supplier delivery-note numbers are optional");
+assertIncludes(rawMaterialPageSource, "formatRawMaterialDeliveryNoteNo", "receipt facts retain the optional supplier number and mandatory ERP number formatter");
 assertIncludes(officePageSource, "外部/内部单号", "page should distinguish supplier and ERP numbers");
 assertIncludes(officePageSource, "precheckRawMaterialSupplierStatementWorkbook", "page should import supplier statement Excel precheck adapter");
 assertIncludes(officePageSource, "上传月结 Excel", "page should expose supplier statement Excel upload entry");

@@ -10,12 +10,11 @@ import {
 } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RawMaterialColorDisplay } from "./RawMaterialColorDisplay.jsx";
-import { formatRawMaterialColorDisplay } from "./rawMaterialColorDisplay.js";
+import { formatRawMaterialColorDisplay, getRawMaterialDisplayColorSwatch } from "./rawMaterialColorDisplay.js";
 import { downloadOfficeAttachmentContent } from "../../services/officeAttachmentApiClient.js";
 import { RAW_MATERIAL_OCR_NORMALIZED_MAX_EDGE } from "../../services/rawMaterialDeliveryNoteImageClient.js";
 import demoDeliveryNoteUrl from "../../assets/raw-material-delivery-note-sample.jpg";
 import { attachmentUploadLimits } from "../../../shared/attachmentUploadPolicy.js";
-import { getFactoryStandardColorSwatch } from "../../../shared/factoryStandardColors.js";
 import {
   formatRawMaterialMobileSpec,
 } from "../../../shared/rawMaterialSpec.js";
@@ -447,7 +446,7 @@ export function RawMaterialMobileOcrReview({
                 </div>
 
                 <div className="raw-material-mobile-review-line-summary">
-                  <span className="raw-material-mobile-review-color" style={{ "--roll-color": getRollColor(color) }} aria-hidden="true" />
+                  <span className="raw-material-mobile-review-color" style={{ "--roll-color": getRollColor(color, supplierColor) }} aria-hidden="true" />
                   <span className="line-color" title={isSupplierReturn ? undefined : formatRawMaterialColorDisplay(color, supplierColor)}>{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : <RawMaterialColorDisplay factoryColor={color} supplierColor={supplierColor} />}</span>
                   <span className={`line-spec ${!specReady && !isSupplierReturn ? "has-blocker" : ""}`}>{isSupplierReturn ? `${specDisplay} · ${returnPriceDisplay}` : specDisplay}</span>
                   <span className="line-weight">{Math.abs(weight) > 0 ? formatWeight(weight, true) : `本${isSupplierReturn ? "件" : "卷"}重量待补`}</span>
@@ -844,18 +843,8 @@ function normalizeRollWeightsInput(value, count) {
   return Array.from({ length: Math.max(1, count) }, (_, index) => entries[index] ?? "");
 }
 
-function getRollColor(value) {
-  const color = String(value || "").trim();
-  const factorySwatch = getFactoryStandardColorSwatch(color);
-  if (factorySwatch) return factorySwatch;
-  if (/本白|米白|白/u.test(color)) return "var(--erp-roll-white)";
-  if (/枣红/u.test(color)) return "var(--erp-roll-wine)";
-  if (/大红|红/u.test(color)) return "var(--erp-roll-red)";
-  if (/黑/u.test(color)) return "var(--erp-roll-black)";
-  if (/蓝/u.test(color)) return "var(--erp-roll-blue)";
-  if (/绿/u.test(color)) return "var(--erp-roll-green)";
-  if (/黄|金/u.test(color)) return "var(--erp-roll-yellow)";
-  return "var(--erp-roll-neutral)";
+function getRollColor(value, supplierColor = "") {
+  return getRawMaterialDisplayColorSwatch(value, supplierColor, "var(--erp-roll-neutral)");
 }
 
 function formatWeight(value, withSpace = false) {

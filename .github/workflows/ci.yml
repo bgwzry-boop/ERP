@@ -36,6 +36,16 @@ jobs:
           done
           test "$ready" = 1
           node scripts/check-complete-review-preview.mjs
+      - name: Verify receiving and inventory colour swatches
+        env:
+          ERP_COLOR_SWATCH_UI_OUTPUT: .erp-local-storage/ci/color-swatches
+        run: node scripts/check-raw-material-color-swatches-ui.mjs
+      - name: Verify receiving workflow and migrated operations
+        run: |
+          node scripts/check-raw-material-receive-dialog-ui.mjs
+          node scripts/check-receiving-workspace-simplification-ui.mjs
+          node scripts/check-raw-material-stock-operations-dialog.mjs
+          node scripts/check-raw-material-cost-workspace.mjs
       - run: npm test
       - run: npm run test:raw-material
       - run: npm audit --audit-level=high

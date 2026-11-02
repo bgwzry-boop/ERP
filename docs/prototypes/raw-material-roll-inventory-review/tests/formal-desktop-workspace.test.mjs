@@ -132,7 +132,7 @@ test("desktop workbenches consume formal APIs without fixture fallbacks", async 
   assert.match(adapterSource, /prepareRawMaterialDeliveryNoteFile/, "desktop OCR upload should retain source normalization and rotation evidence");
   assert.match(adapterSource, /recognizeOfficeRawMaterialDeliveryNote/, "desktop OCR upload should call the formal server action");
   assert.match(adapterSource, /updateOfficeRawMaterialInboundAction/, "raw-material review actions should persist through the formal API");
-  assert.match(appSource, /function RollInventory\(\{ onOpenSource, sourceRolls = \[\] \}\)/, "roll inventory must render safely while formal data is still loading");
+  assert.match(appSource, /function RollInventory\(\{[^}]*sourceRolls = \[\][^}]*\}\)/, "roll inventory must render safely while formal data is still loading");
   assert.match(appSource, /sourceRolls\[0\]\?\.id \|\| ""/, "roll selection must not dereference an undefined legacy fixture");
   assert.doesNotMatch(appSource, /sourceRolls = rolls/, "roll inventory must not reference the removed fixture variable");
   assert.match(appSource, /selectedRoll \? <><dl>/, "the source rail must render an explicit empty state before formal rolls arrive");
@@ -148,7 +148,8 @@ test("outbound delivery and supplier month-end share the complete review list-de
   ]);
 
   assert.doesNotMatch(appSource, /function StatementWorkspace/, "supplier month-end must not retain its older standalone list shell");
-  assert.match(appSource, /!isRawMaterialView \? <BusinessWorkspace/, "all non-raw-material pages should route through the same complete review workbench surface");
+  assert.match(appSource, /!isRawMaterialView && activeNavId !== "raw-material-cost" \? <BusinessWorkspace/, "existing business pages retain their complete-review workbench while the migrated cost flow has one dedicated entry");
+  assert.match(appSource, /activeNavId === "raw-material-cost" \? <RawMaterialCostWorkspace formal=\{formal\}/, "raw-material cost uses the migrated authoritative cost workbench");
   assert.match(workspacesSource, /navId === "outbound-delivery"\) return <FulfillmentWorkspace/, "outbound delivery should use its current-shell workspace");
   assert.match(workspacesSource, /navId === "supplier-month-end"\) return <SupplierSettlementWorkspace/, "supplier month-end should use its current-shell workspace");
   assert.match(workspacesSource, /className="business-workbench fulfillment-workbench"/, "outbound delivery should reuse the standard list-detail anatomy");

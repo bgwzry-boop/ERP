@@ -3,13 +3,11 @@ import {
   AppstoreOutlined,
   BellOutlined,
   BookOutlined,
-  CameraOutlined,
   CheckCircleFilled,
   CheckOutlined,
   DownOutlined,
   DollarCircleOutlined,
   FileTextOutlined,
-  FileImageOutlined,
   HomeOutlined,
   InfoCircleOutlined,
   PlusOutlined,
@@ -41,6 +39,11 @@ import {
   viewNavMap,
 } from "./navigation.js";
 import { BusinessWorkspace } from "./BusinessWorkspaces.jsx";
+import { RawMaterialCostWorkspace } from "./RawMaterialCostWorkspace.jsx";
+import { RawMaterialStockOperationsDialog } from "./RawMaterialStockOperationsDialog.jsx";
+import { RawMaterialPurchasePanel } from "../../../../src/features/raw-materials/RawMaterialPurchasePanel.jsx";
+import { getUiActionState } from "../../../../src/auth/seedPermissions.js";
+import { RawMaterialReceiveDialog } from "../../../../src/features/raw-materials/RawMaterialReceiveDialog.jsx";
 import { RawMaterialSupplierColorMappingDialog } from "../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx";
 import { ColorChip, FACTORY_COLORS, RAW_MATERIAL_COLOR_NAMES } from "./FactoryColor.jsx";
 import { annotateRawMaterialDeliveryNoteDuplicates } from "../../../../shared/rawMaterialDeliveryNoteDuplicate.js";
@@ -208,7 +211,7 @@ function SelectField({ label, value, onChange, options }) {
   return <label className="select-field"><span className="sr-only">{label}</span><select aria-label={label} onChange={(event) => onChange(event.target.value)} value={value}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
 }
 
-function DistributionRail({ activeBucket, distributionGroups, machineSideCount, onBucketChange, selectedRoll, onOpenSource }) {
+function DistributionRail({ activeBucket, distributionGroups, machineSideCount, onBucketChange, selectedRoll, onOpenSource, onOpenOperations, formal }) {
   return <aside className="distribution-rail" aria-label="可用库存分布">
     <section className="distribution-panel">
       <header><div><h2>可用库存分布</h2><small>不含机边库存</small></div><InfoCircleOutlined /></header>
@@ -240,11 +243,13 @@ function DistributionRail({ activeBucket, distributionGroups, machineSideCount, 
         <div className="trace-wide"><dt>供应商</dt><dd title={selectedRoll.supplier}>{selectedRoll.supplier}</dd></div>
       </dl>
       <button className="text-action" onClick={onOpenSource} type="button">查看来源票据 <RightOutlined /></button></> : <div className="distribution-empty"><strong>暂无可选卷料</strong><span>正式库存读取完成后再查看来源。</span></div>}
+      {selectedRoll && onOpenOperations ? <button className="text-action" onClick={() => onOpenOperations(selectedRoll)} type="button">领料 / 消耗 <RightOutlined /></button> : null}
     </section>
+    {formal?.authState ? <RawMaterialPurchasePanel authState={formal.authState} currentUser={formal.permissionContext?.user} /> : null}
   </aside>;
 }
 
-function RollInventory({ onOpenSource, sourceRolls = [] }) {
+function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [] }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("可用");
   const [width, setWidth] = useState("全部宽幅");
@@ -309,7 +314,7 @@ function RollInventory({ onOpenSource, sourceRolls = [] }) {
       </div>
       <footer className="table-footer"><span>共 {matchingRolls.length} 条</span><div><button type="button">20 条/页 <DownOutlined /></button><button aria-label="上一页" disabled={safePage === 1} onClick={() => setPage(Math.max(1, safePage - 1))} type="button">‹</button>{Array.from({ length: pageCount }, (_, index) => index + 1).map((pageNumber) => <button aria-current={safePage === pageNumber ? "page" : undefined} className={safePage === pageNumber ? "current" : ""} key={pageNumber} onClick={() => setPage(pageNumber)} type="button">{pageNumber}</button>)}<button aria-label="下一页" disabled={safePage === pageCount} onClick={() => setPage(Math.min(pageCount, safePage + 1))} type="button">›</button><span>前往</span><input aria-label="前往页码" max={pageCount} min="1" onChange={(event) => setPage(Math.min(pageCount, Math.max(1, Number(event.target.value) || 1)))} type="number" value={safePage} /><span>页</span></div></footer>
     </section>
-    <DistributionRail activeBucket={activeBucket} distributionGroups={distributionGroups} machineSideCount={inventorySummary.machineSide.count} onBucketChange={setBucket} onOpenSource={() => onOpenSource(selectedRoll)} selectedRoll={selectedRoll} />
+    <DistributionRail activeBucket={activeBucket} distributionGroups={distributionGroups} machineSideCount={inventorySummary.machineSide.count} onBucketChange={setBucket} onOpenSource={() => onOpenSource(selectedRoll)} onOpenOperations={onOpenOperations} formal={formal} selectedRoll={selectedRoll} />
   </div>;
 }
 
@@ -444,7 +449,7 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
   };
   return <><div className="secondary-workbench">
     <section className="secondary-list">
-      <header><h2>收货录入</h2><button className="primary" onClick={onOpenReceive} type="button"><PlusOutlined />录入送货/退货单</button></header>
+      <header><h2>收货录入</h2><button className="primary" onClick={onOpenReceive} type="button"><PlusOutlined aria-hidden="true" />录入送货/退货单</button></header>
       <div aria-label="收货状态" className="secondary-tabs" role="tablist">{receiptTabs.map((tab) => { const count = records.filter((row) => receiptTabFor(row) === tab).length; return <button aria-selected={activeTab === tab} className={activeTab === tab ? "active" : ""} key={tab} onClick={() => selectTab(tab)} role="tab" type="button">{tab} {count}</button>; })}</div>
       <div className="receipt-table">
         <div className="receipt-row head"><span>送货单位 / 票据</span><span>送货时间</span><span>卷/件数</span><span>总重量</span><span>复核入库</span><span>查重结果</span></div>
@@ -463,12 +468,6 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
     </section>
     {formal?.authState ? <FormalReceivingWorkspace formal={formal} notice={notice} selectedId={selected?.id || ""} setSelectedId={setSelectedId} /> : <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />}
   </div><ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} /></>;
-}
-
-function ReceiveDialog({ busy, error, onClose, onFile }) {
-  const cameraRef = useRef(null);
-  const fileRef = useRef(null);
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="receive-title" aria-modal="true" className="receive-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>收货录入</span><h2 id="receive-title">选择送货单来源</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><p>照片或 PDF 会上传到正式服务器并调用腾讯云 OCR；识别后仍需人工复核，当前不会增加可用库存。</p><div className="source-actions"><button disabled={busy} onClick={() => cameraRef.current?.click()} type="button"><CameraOutlined /><span><strong>直接拍照</strong><small>调用相机并上传正式识别</small></span></button><button disabled={busy} onClick={() => fileRef.current?.click()} type="button"><FileImageOutlined /><span><strong>相册 / PDF</strong><small>选择文件并上传正式识别</small></span></button></div><input accept="image/*" capture="environment" hidden onChange={(event) => onFile(event.target.files?.[0])} ref={cameraRef} type="file" /><input accept="image/*,application/pdf" hidden onChange={(event) => onFile(event.target.files?.[0])} ref={fileRef} type="file" />{busy ? <p className="source-disclosure">正在上传并识别，请勿重复提交。</p> : null}{error ? <p className="danger-text">{error}</p> : null}<section className="dedupe-note"><InfoCircleOutlined /><div><strong>系统会进行两层查重</strong><p>先比较原始文件摘要；重拍或重新导出的票据，再比较供应商、单号、日期、规格、颜色和逐卷重量。</p></div></section></section></div>;
 }
 
 function SourceDialog({ roll, onClose }) {
@@ -496,8 +495,10 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const [receiptFocusId, setReceiptFocusId] = useState("");
   const [productionFocusId,setProductionFocusId] = useState("");
   const [receiveBusy, setReceiveBusy] = useState(false);
+  const receiveBusyRef = useRef(false);
   const [receiveError, setReceiveError] = useState("");
   const [sourceRoll, setSourceRoll] = useState(null);
+  const [stockOperation, setStockOperation] = useState(null);
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
   const [workspaceFocus, setWorkspaceFocus] = useState(null);
   const searchToken = useRef(0);
@@ -508,6 +509,8 @@ export function App({ permissionContext = defaultPermissionContext }) {
     resolvedPermissionContext,
     "master_data.raw_material_color.manage",
   );
+  const canOperateStock = !getUiActionState(resolvedPermissionContext, "rawMaterial", "机边领料").disabled
+    || !getUiActionState(resolvedPermissionContext, "rawMaterial", "确认消耗").disabled;
   const receiptRecords = useMemo(() => annotateRawMaterialDeliveryNoteDuplicates(formal.data.rawMaterialInbounds).map((record) => ({
     ...record,
     supplier: record.supplierName || "供应商待确认",
@@ -566,12 +569,14 @@ export function App({ permissionContext = defaultPermissionContext }) {
       return next;
     });
   };
-  const recognizeReceiptFile = async (file) => {
-    if (!file || receiveBusy) return;
+  const openReceive = () => { setReceiveError(""); setReceiveOpen(true); };
+  const recognizeReceiptPages = async (request) => {
+    if (receiveBusyRef.current) return;
+    receiveBusyRef.current = true;
     setReceiveBusy(true);
     setReceiveError("");
     try {
-      const result = await formal.actions.recognizeRawMaterialFile(file);
+      const result = await formal.actions.recognizeRawMaterialPages(request);
       if (result.source !== "api" || !result.inbound?.id) {
         setReceiveError(result.error?.message || "正式 OCR 接口没有生成草稿。");
         return;
@@ -582,6 +587,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
     } catch (error) {
       setReceiveError(error?.message || "送货单文件读取失败。");
     } finally {
+      receiveBusyRef.current = false;
       setReceiveBusy(false);
     }
   };
@@ -597,15 +603,17 @@ export function App({ permissionContext = defaultPermissionContext }) {
         <div className="dock-actions">
           {canManageSupplierColors ? <button className="factory-color-entry" onClick={() => setColorMappingOpen(true)} type="button">厂家颜色资料</button> : null}
           <button className="page-refresh" onClick={() => void formal.actions.refreshAll()} type="button"><ReloadOutlined />刷新</button>
-          {isRawMaterialView && activeView !== "收货录入" && visibleRawMaterialViews.includes("收货录入") ? <button className="receive-entry" onClick={() => setReceiveOpen(true)} type="button"><PlusOutlined />收货录入</button> : null}
+          {isRawMaterialView && activeView !== "收货录入" && visibleRawMaterialViews.includes("收货录入") ? <button className="receive-entry" onClick={openReceive} type="button"><PlusOutlined />收货录入</button> : null}
         </div>
       </header> : null}
-      {activeView === "卷料库存" ? <RollInventory onOpenSource={setSourceRoll} sourceRolls={currentInventoryRolls} /> : null}
-      {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={() => setReceiveOpen(true)} records={receiptRecords} /> : null}
-      {!isRawMaterialView ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} workspaceFocus={workspaceFocus} /> : null}
+      {activeView === "卷料库存" ? <RollInventory formal={formal} onOpenOperations={canOperateStock ? setStockOperation : undefined} onOpenSource={setSourceRoll} sourceRolls={currentInventoryRolls} /> : null}
+      {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={openReceive} records={receiptRecords} /> : null}
+      {activeNavId === "raw-material-cost" ? <RawMaterialCostWorkspace formal={formal} /> : null}
+      {!isRawMaterialView && activeNavId !== "raw-material-cost" ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} workspaceFocus={workspaceFocus} /> : null}
     </main>
-    {receiveOpen ? <ReceiveDialog busy={receiveBusy} error={receiveError} onClose={() => { if (!receiveBusy) setReceiveOpen(false); }} onFile={recognizeReceiptFile} /> : null}
+    {receiveOpen ? <RawMaterialReceiveDialog busy={receiveBusy} error={receiveError} inbounds={formal.data.rawMaterialInbounds} onClose={() => { if (!receiveBusyRef.current) setReceiveOpen(false); }} onRecognize={recognizeReceiptPages} /> : null}
     {sourceRoll ? <SourceDialog onClose={() => setSourceRoll(null)} roll={sourceRoll} /> : null}
+    {stockOperation ? <RawMaterialStockOperationsDialog key={`${stockOperation.source}:${stockOperation.id}`} formal={formal} inboundId={stockOperation.source} rollId={stockOperation.id} onClose={() => setStockOperation(null)} /> : null}
     {colorMappingOpen ? <RawMaterialSupplierColorMappingDialog
       authState={formal.authState}
       currentUser={resolvedPermissionContext.user}

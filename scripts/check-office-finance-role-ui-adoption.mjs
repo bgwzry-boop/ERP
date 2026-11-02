@@ -108,9 +108,9 @@ assert.match(productionSource, /production-detail-scroll/);
 assert.match(productionSource, /buildPrintWorkspaceItems/);
 
 assert.match(rawMaterialSource, /\?\? visibleRecords\[0\] \?\? null/);
-assert.match(rawMaterialSource, /OCR 仅预填/);
+assert.match(read("src/features/raw-materials/RawMaterialReceiveDialog.jsx"), /识别后逐卷核对，未确认不入库/, "the unified intake keeps the human-review and inventory boundary explicit");
 assert.match(rawMaterialSource, /RawMaterialInboundListPane/);
-assert.match(rawMaterialSource, /RAW_MATERIAL_DETAIL_TABS/);
+assert.match(rawMaterialSource, /ReceiptOperationHistory/, "receipt history stays available without the unrelated peer tabs");
 assert.match(rawMaterialSource, /operational-split-workbench/);
 assert.match(rawMaterialSource, /打印标签只是待贴标/);
 assert.match(rawMaterialWorkbenchSource, /原材料状态摘要/);
