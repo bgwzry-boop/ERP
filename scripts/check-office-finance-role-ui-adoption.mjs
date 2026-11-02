@@ -23,6 +23,8 @@ const rawMaterialSource = [
   read("src/features/raw-materials/useInboundPageState.js"),
   read("src/features/raw-materials/InboundDetail.jsx"),
   read("src/features/raw-materials/RawMaterialInboundReceivingSections.jsx"),
+  // The print / attach boundary lives in the receiving flow dock since the 2026-11-02 redesign.
+  read("src/features/raw-materials/OfficeInboundFlow.jsx"),
   read("src/features/raw-materials/RawMaterialInboundSupportingSections.jsx"),
   read("src/features/raw-materials/RawMaterialSupplierStatementReview.jsx"),
   read("src/features/raw-materials/rawMaterialInboundWorkflow.js"),
