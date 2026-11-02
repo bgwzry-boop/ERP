@@ -314,8 +314,8 @@ export function App({ permissionContext = defaultPermissionContext }) {
   });
   const [expandedGroups, setExpandedGroups] = useState(() => {
     try { const saved = JSON.parse(localStorage.getItem("erp.pc.expandedGroups.v1")); if (Array.isArray(saved)) return new Set(saved.filter(id => pcNavGroups.some(group => group.id === id))); } catch { /* Preferences cannot block the workbench. */ }
-    const navId = window.location.hash.slice(1) || viewNavMap[getDefaultWorkspaceView(permissionContext)];
-    return new Set(pcNavGroups.filter(group => group.items.some(item => item.id === navId)).map(group => group.id));
+    // No saved preference: every group starts open, as before, so no page is hidden on first visit.
+    return new Set(pcNavGroups.map((group) => group.id));
   });
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiptFocusId, setReceiptFocusId] = useState("");
