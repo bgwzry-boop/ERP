@@ -106,6 +106,14 @@ npm run controlled-release:finalize -- \
 
 ## 自动复核与完成标准
 
+### 本地存储维护
+
+`npm run local-storage:audit -- --project-root <original-project-path> --report` 仅检查会话元数据、普通/`.zst` 文件大小与旧传输包，不加载历史对话正文。压缩文件体积不能用作上下文长度或会话损坏的判据。
+
+显式增加 `--apply-obsolete-bundles` 时，仅删除 `deployment/erp-staging-01` 中白名单历史预览目录内的普通 `.bundle` 文件，且文件必须至少 30 天未修改、Git bundle 验证成功、全部引用已是本地 `origin/codex/staging-current` 的祖先。执行前先运行本章规定的实时 `release:check` 与 fetch；脚本本身不声称验证了远端。未集成、损坏、近期或符号链接文件保留，其他目录中的当前传输包不受影响。删除前再次核对文件和基线，结果留在忽略的 `.erp-local-storage/hygiene/`。包中的源码仍存在 canonical 历史；清理后本地原始包文件不能直接撤销删除。
+
+该工具从不清理对话、工作树、附件、凭据、业务备份、锁或发布收尾证据。保留【继续评估旧ERP出入库功能】及其工作树；频繁上下文压缩应通过精简输出和整理交接解决，不自动删除历史。`npm run local-storage:check` 覆盖干跑、保留期、未集成提交、损坏包、符号链接、重复清理及压缩会话元数据。
+
 `controlled-release:postdeploy` 是只读最终核验入口；staging 只接受规定公网地址，正式目标必须 HTTPS。只对纯静态 review-site 免 API，其他目标不得关闭 API 检查。每个请求禁用缓存、添加刷新参数、限制超时；失败不泄露响应正文或业务数据。
 
 ```bash
