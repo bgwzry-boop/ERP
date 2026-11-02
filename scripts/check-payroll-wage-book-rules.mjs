@@ -64,6 +64,16 @@ const driver = calculatePayrollEstimate({
   month: "2026-12",
 });
 assert.equal(driver.baseWage, 360);
+// Owner 2026-11-02: drivers are always paid whole days, even for a short day.
+const driverShortDay = calculatePayrollEstimate({
+  employee: { id: "E4", hireDate: "2026-06-03", payrollPositionKey: "PAY-DRIVER" },
+  days: [day("2026-12-01", 4)],
+  policyVersion,
+  asOf,
+  month: "2026-12",
+});
+assert.equal(driverShortDay.attendanceDayCount, 1);
+assert.equal(driverShortDay.baseWage, 180, "a short driver day is a whole 180-yuan day, never 90");
 assert.equal(driver.performanceAward, 300);
 
 // Deposit in the hire month, the whole next month held, nothing afterwards.

@@ -607,14 +607,15 @@ export function createAttendancePayrollService(dependencies = {}) {
     const reason = cleanText(body.reason);
     if (!reason) throw businessError(400, "PAYROLL_ADJUSTMENT_REASON_REQUIRED", "绩效、请假或扣款调整必须填写依据。");
     if (reason.length > 500) throw businessError(400, "PAYROLL_ADJUSTMENT_REASON_TOO_LONG", "调整依据不能超过 500 个字符。");
-    const performanceAward = payrollMoney(body.performanceAward, "performanceAward");
+    // 综合绩效 may go below zero after a loss deduction agreed with management (owner 2026-11-02).
+    const performanceAward = payrollSignedMoney(body.performanceAward, "performanceAward");
     const leaveDeduction = payrollMoney(body.leaveDeduction, "leaveDeduction");
     const otherDeduction = payrollMoney(body.otherDeduction, "otherDeduction");
     const previousValues = adjustmentValues(current);
     const newValues = { performanceAward, leaveDeduction, otherDeduction };
     const evidenceAttachmentIds = uniqueTextList(body.evidenceAttachmentIds);
     const amountChanged = Object.keys(newValues).some(
-      (key) => round(nonNegativeNumber(previousValues[key]), 2) !== round(nonNegativeNumber(newValues[key]), 2),
+      (key) => round(finiteMoney(previousValues[key]), 2) !== round(finiteMoney(newValues[key]), 2),
     );
     if (amountChanged && evidenceAttachmentIds.length === 0) {
       throw businessError(
@@ -796,7 +797,7 @@ export function createAttendancePayrollService(dependencies = {}) {
           baseWage: nonNegativeNumber(line.baseWage),
           positionAllowance: nonNegativeNumber(line.positionAllowance),
           seniorityAward: nonNegativeNumber(line.seniorityAward),
-          performanceAward: nonNegativeNumber(line.performanceAward),
+          performanceAward: finiteMoney(line.performanceAward),
           overtimeWage: nonNegativeNumber(line.overtimeWage),
           leaveDeduction: nonNegativeNumber(line.leaveDeduction),
           otherDeduction: nonNegativeNumber(line.otherDeduction),
@@ -1462,9 +1463,22 @@ function payrollMoney(value, fieldName) {
   return round(number, 2);
 }
 
+function payrollSignedMoney(value, fieldName) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < -100000 || number > 100000000) {
+    throw businessError(400, "PAYROLL_ADJUSTMENT_AMOUNT_INVALID", `${fieldName} 必须是 -100000 到 100000000 之间的金额。`);
+  }
+  return round(number, 2);
+}
+
+function finiteMoney(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? round(number, 2) : 0;
+}
+
 function adjustmentValues(line = {}) {
   return {
-    performanceAward: nonNegativeNumber(line.performanceAward),
+    performanceAward: finiteMoney(line.performanceAward),
     leaveDeduction: nonNegativeNumber(line.leaveDeduction),
     otherDeduction: nonNegativeNumber(line.otherDeduction),
   };

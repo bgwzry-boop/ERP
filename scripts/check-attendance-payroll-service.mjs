@@ -775,9 +775,39 @@ assert.doesNotMatch(adjustmentQuery.text, /BEGIN;/);
 assert.doesNotMatch(adjustmentQuery.text, /COMMIT;/);
 assert.ok(adjustmentQuery.values.includes("本月绩效确认；请假与其他扣款凭会计附件核定。"));
 
+// Owner 2026-11-02: a loss deduction agreed with management may take 综合绩效 below zero.
+const lossAdjusted = await service.updatePayrollLineAdjustment({
+  workspace,
+  payrollRunId: draft.payrollRun.id,
+  employeeId: "ERP-0001",
+  operatorId: "U-FINANCE-A",
+  body: {
+    performanceAward: -60,
+    leaveDeduction: 50,
+    otherDeduction: 25,
+    reason: "损耗过大，经管理协商扣绩效。",
+    evidenceAttachmentIds: ["ATT-PAYROLL-ADJUSTMENT-1"],
+  },
+});
+assert.equal(lossAdjusted.payrollLine.performanceAward, -60);
+assert.equal(lossAdjusted.payrollLine.netWage, Number((originalNetWage - 500 - 60 - 75).toFixed(2)));
+assert.equal(lossAdjusted.adjustment.previousValues.performanceAward, 300);
+assert.equal(service.buildPayrollExport({ workspace, payrollRunId: draft.payrollRun.id }).rows[0].performanceAward, -60);
+await assert.rejects(
+  service.updatePayrollLineAdjustment({
+    workspace,
+    payrollRunId: draft.payrollRun.id,
+    employeeId: "ERP-0001",
+    operatorId: "U-FINANCE-A",
+    body: { performanceAward: -200000, leaveDeduction: 0, otherDeduction: 0, reason: "越界", evidenceAttachmentIds: ["ATT-PAYROLL-ADJUSTMENT-1"] },
+  }),
+  (error) => error.code === "PAYROLL_ADJUSTMENT_AMOUNT_INVALID",
+);
+await adjustmentAttempt(["ATT-PAYROLL-ADJUSTMENT-1"]);
+
 const history = service.buildPayrollHistory({ workspace, employeeId: "ERP-0001" });
 assert.equal(history.total, 1);
-assert.equal(history.items[0].adjustments.length, 1);
+assert.equal(history.items[0].adjustments.length, 3);
 assert.equal(history.items[0].payrollLine.netWage, Number((originalNetWage - 500 + 225).toFixed(2)));
 
 const payrollExport = service.buildPayrollExport({ workspace, payrollRunId: draft.payrollRun.id });
