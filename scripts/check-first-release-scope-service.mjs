@@ -82,6 +82,8 @@ const allowedRoutes = [
   "/api/raw-material-inbounds/RMI-1/print_labels",
   "/api/raw-material-inbounds/RMI-1/attach-confirm",
   "/api/raw-material-inbounds/RMI-1/attach_confirm",
+  "/api/raw-material-inbounds/RMI-1/one-click-inbound",
+  "/api/raw-material-inbounds/RMI-1/one_click_inbound",
   "/api/raw-material-inbounds/RMI-1/void-label",
   "/api/raw-material-inbounds/RMI-1/void_label",
   "/api/raw-material-inbounds/RMI-1/reprint-label",
