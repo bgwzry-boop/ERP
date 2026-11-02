@@ -21,6 +21,9 @@ const rawMaterialInboundActions = new Set([
   "defer_labels",
   "attach-confirm",
   "attach_confirm",
+  // 2026-11-01: office confirms a fully labelled receipt in one step (PR #30).
+  "one-click-inbound",
+  "one_click_inbound",
   "void-label",
   "void_label",
   "reprint-label",
