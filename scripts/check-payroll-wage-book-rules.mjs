@@ -2,7 +2,7 @@
 // position, no 岗位补贴 before probation ends, insurance deposit withheld in the
 // hire month, the next month held back, both settled at year end.
 import assert from "node:assert/strict";
-import { calculatePayrollEstimate, resolveNewHireWithholding, validatePayrollPolicy } from "../server/services/attendancePayrollService.mjs";
+import { calculatePayrollEstimate, createAttendancePayrollService, resolveNewHireWithholding, validatePayrollPolicy } from "../server/services/attendancePayrollService.mjs";
 import { PAYROLL_NEW_HIRE_INSURANCE_DEPOSIT, PAYROLL_POSITION_CATALOG, payrollPositionPolicyRates } from "../shared/payrollPositionCatalog.js";
 
 const performance = Object.fromEntries(PAYROLL_POSITION_CATALOG.map((position) => [position.key, position.monthlyPerformance]));
@@ -89,5 +89,39 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-30" }, m
   "the deposit never exceeds what was earned");
 assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, month: "2026-11", netWage: 2300, policy: {} }).insuranceDepositWithheld, 0,
   "a policy without a deposit withholds nothing");
+
+// The employee's online payslip shows what is paid now and what waits for year end.
+{
+  const service = createAttendancePayrollService({ now: () => new Date("2026-12-10T02:00:00Z") });
+  const line = (id, runId, month, netWage, withholding) => ({
+    id, payrollRunId: runId, employeeId: "E9", attendanceWorkMinutes: 6000, baseWage: netWage, positionAllowance: 0,
+    seniorityAward: 0, performanceAward: 0, overtimeWage: 0, leaveDeduction: 0, otherDeduction: 0, grossWage: netWage, netWage,
+    calculation: { calculationMode: "hourly", attendanceDayCount: 10, withholding },
+  });
+  const workspace = {
+    employees: [{ id: "E9", name: "新员工", roleName: "制袋机-理袋女工", hireDate: "2026-10-16" }],
+    payrollRuns: [
+      { id: "R10", payrollMonth: "2026-10", revision: 1, status: "paid", paidAt: "2026-11-05T02:00:00Z" },
+      { id: "R11", payrollMonth: "2026-11", revision: 1, status: "reviewed" },
+      { id: "R11D", payrollMonth: "2026-11", revision: 2, status: "draft" },
+    ],
+    payrollLines: [
+      line("L10", "R10", "2026-10", 2300, resolveNewHireWithholding({ employee: { hireDate: "2026-10-16" }, month: "2026-10", netWage: 2300, policy })),
+      line("L11", "R11", "2026-11", 5000, resolveNewHireWithholding({ employee: { hireDate: "2026-10-16" }, month: "2026-11", netWage: 5000, policy })),
+      line("L11D", "R11D", "2026-11", 9999, null),
+    ],
+  };
+  const auth = { user: { employeeId: "E9" } };
+  const october = service.buildOwnPayslip({ workspace, authContext: auth, month: "2026-10" });
+  assert.equal(october.payslip.statusLabel, "已发放");
+  assert.equal(october.payslip.insuranceDepositWithheld, 952);
+  assert.equal(october.payslip.payableNow, 1348);
+  const november = service.buildOwnPayslip({ workspace, authContext: auth, month: "2026-11" });
+  assert.equal(november.payslip.netWage, 5000, "the newer draft revision stays hidden");
+  assert.equal(november.payslip.heldWage, 5000);
+  assert.equal(november.payslip.payableNow, 0);
+  assert.deepEqual(november.yearEndSettlement, { year: "2026", insuranceDeposit: 952, heldWage: 5000, total: 5952 });
+  assert.deepEqual(november.availableMonths, ["2026-11", "2026-10"]);
+}
 
 console.log("Payroll wage-book rules passed: position 绩效 defaults, probation allowance, no overtime premium, driver days, new-hire deposit and held month.");

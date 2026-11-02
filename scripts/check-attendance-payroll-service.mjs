@@ -826,8 +826,25 @@ await assert.rejects(
 );
 assert.equal(workspace.payrollExportEvents.length, 0);
 
+const selfAuth = { user: { employeeId: "ERP-0001" } };
+const draftPayslip = service.buildOwnPayslip({ workspace, authContext: selfAuth, month: "2026-08" });
+assert.equal(draftPayslip.payslip, null, "a draft payroll is never shown to the employee");
+assert.deepEqual(draftPayslip.availableMonths, []);
+assert.throws(() => service.buildOwnPayslip({ workspace, authContext: {}, month: "2026-08" }), (error) => error.code === "PAYSLIP_SELF_EMPLOYEE_ID_REQUIRED" && error.statusCode === 403);
 const reviewed = await service.transitionPayrollRun({ workspace, payrollRunId: draft.payrollRun.id, action: "review", operatorId: "U-FINANCE-A" });
 assert.equal(reviewed.payrollRun.status, "reviewed");
+const ownPayslip = service.buildOwnPayslip({ workspace, authContext: selfAuth, month: "2026-08" });
+assert.equal(ownPayslip.employee.employeeId, "ERP-0001");
+assert.equal(ownPayslip.payslip.status, "reviewed");
+assert.equal(ownPayslip.payslip.statusLabel, "已复核，待发放");
+assert.equal(ownPayslip.payslip.netWage, Number((originalNetWage - 500 + 225).toFixed(2)));
+assert.equal(ownPayslip.payslip.payableNow, ownPayslip.payslip.netWage);
+assert.equal(ownPayslip.payslip.items.find((item) => item.label === "综合绩效").amount, 300);
+assert.equal(ownPayslip.payslip.items.find((item) => item.label === "请假/缺勤扣款").amount, -50);
+assert.equal(ownPayslip.payslip.adjustmentReason, "本月绩效确认；请假与其他扣款凭会计附件核定。");
+assert.equal(JSON.stringify(ownPayslip).includes("ATT-PAYROLL-ADJUSTMENT-1"), false, "evidence files stay with the office");
+assert.deepEqual(ownPayslip.availableMonths, ["2026-08"]);
+assert.deepEqual(ownPayslip.yearEndSettlement, { year: "2026", insuranceDeposit: 0, heldWage: 0, total: 0 });
 const formalExport = await service.createPayrollExport({
   workspace,
   payrollRunId: draft.payrollRun.id,

@@ -6584,6 +6584,19 @@ paths:
         "200": { description: 本人考勤, content: { application/json: { schema: { $ref: "#/components/schemas/EmployeeAttendanceResponse" } } } }
         "403": { $ref: "#/components/responses/PermissionDenied" }
 
+  /payroll/me:
+    get:
+      tags: [AttendancePayroll]
+      summary: 员工查看本人线上工资条
+      description: 只返回当前正式登录账号所绑定员工在该月最新一版已复核、已锁定或已发放工资中的本人明细；草稿不可见。另返回本年待年底结算的保险押金与压月工资。
+      operationId: getOwnPayslip
+      parameters:
+        - { name: month, in: query, schema: { type: string, pattern: "^\\d{4}-(0[1-9]|1[0-2])$" } }
+      responses:
+        "200": { description: 本人工资条, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /attendance/employees/{employeeId}:
     get:
       tags: [AttendancePayroll]

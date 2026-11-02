@@ -22,6 +22,7 @@ const writeActionPermissions = {
 };
 const service = {
   buildOwnAttendance(input) { calls.push({ kind: "self", ...input }); return { view: "self" }; },
+  buildOwnPayslip(input) { calls.push({ kind: "payslip", ...input }); return { view: "payslip" }; },
   buildEmployeeAttendance(input) { calls.push({ kind: "employee", ...input }); return { view: "employee" }; },
   buildPayrollWorkbench(input) { calls.push({ kind: "workbench", ...input }); return { view: "workbench" }; },
   buildPayrollReadiness(input) { calls.push({ kind: "readiness", ...input }); return { view: "readiness" }; },
@@ -50,6 +51,8 @@ const common = {
 
 await expectRead("/api/attendance/me?month=2026-08", "attendance.self.read", "self");
 assert.equal(calls.find((call) => call.kind === "self").authContext.user.employeeId, "ERP-0001");
+await expectRead("/api/payroll/me?month=2026-08", "attendance.self.read", "payslip");
+assert.equal(calls.find((call) => call.kind === "payslip").authContext.user.employeeId, "ERP-0001", "the payslip is always the signed-in employee's own");
 await expectRead("/api/attendance/employees/ERP-0001?month=2026-08", "payroll.preview", "employee");
 await expectRead("/api/payroll/workbench?month=2026-08", "payroll.preview", "workbench");
 await expectRead("/api/payroll/readiness?month=2026-08", "payroll.preview", "readiness");
