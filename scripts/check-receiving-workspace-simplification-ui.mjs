@@ -1,3 +1,4 @@
+import { fulfillReceiptRead, selectReceiptRow, selectReceiptTab } from "./receipt-ui-read-fixtures.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
@@ -25,6 +26,7 @@ const delivery = draft("RMI-AUDIT-MULTIPAGE", [table("测试原料厂送货单",
 assert.equal(delivery.ocrLines.length, 2);
 assert.deepEqual(delivery.ocrLines.map(line => line.sourcePageIndex), [0, 1]);
 Object.assign(delivery, {
+  receivedAt: "2026-11-02T01:01:00.000Z",
   deliveryNoteNo: "ANON-NOTE-001", sourceAttachmentId: "AUDIT-SOURCE-P1", sourceAttachmentIds: ["AUDIT-SOURCE-P1", "AUDIT-SOURCE-P2"],
   ocrSourceDigest: "audit-anonymous-multipage", factoryColor: "", supplierColor: "",
 });
@@ -84,9 +86,7 @@ async function openPage(width) {
       report.blockedWrites.push({ width, method: request.method(), path });
       return route.abort();
     }
-    if (path === "/api/raw-material-inbounds") return route.fulfill({ json: { items: records, page: 1, pageSize: 200, total: records.length } });
-    const detail = records.find(item => path === `/api/raw-material-inbounds/${item.id}`);
-    if (detail) return route.fulfill({ json: { inbound: detail } });
+    if (await fulfillReceiptRead(route, records)) return;
     const attachment = /^\/api\/attachments\/([^/]+)\/content$/u.exec(path);
     if (attachment) {
       const id = decodeURIComponent(attachment[1]);
@@ -101,6 +101,7 @@ async function openPage(width) {
   url.searchParams.set("erpViewport", mobile ? "mobile" : "desktop");
   url.hash = "material-receiving";
   await page.goto(url.href);
+  if (!mobile) await selectReceiptRow(page, delivery.id);
   assert.equal(await page.locator('meta[name="erp-app-id"]').getAttribute("content"), "bagwin-complete-review-4174");
   return page;
 }
@@ -119,7 +120,9 @@ async function assertImage(page, pageNumber, attachmentId) {
 
 async function openOcr(pane) {
   const disclosure = pane.locator("details.office-receive-more");
-  if (!(await disclosure.evaluate(element => element.open))) await disclosure.locator("summary").click();
+  if (!(await disclosure.evaluate(element => element.open))) await disclosure.locator(":scope > summary").click();
+  const editable = disclosure.locator("details.office-receive-edit-fields");
+  if (await editable.count() && !(await editable.evaluate(element => element.open))) await editable.locator(":scope > summary").click();
   return disclosure;
 }
 
@@ -177,10 +180,10 @@ async function checkDesktop(width) {
     assert.ok((await history.innerText()).includes("原材料送货单拍照"));
     assert.ok((await history.innerText()).includes(delivery.ocrStatus));
     await page.screenshot({ path: `${output}/details-and-history-${width}.png`, fullPage: true });
-    await page.locator("button.receipt-row").filter({ hasText: other.id }).click();
+    await selectReceiptRow(page, other.id);
     await pane.locator(".raw-material-detail-facts").getByText(other.id, { exact: true }).waitFor();
     assert.equal(await pane.locator("details.raw-material-receipt-history").evaluate(element => element.open), false, "switching receipts must collapse history");
-    await page.locator("button.receipt-row").filter({ hasText: delivery.id }).click();
+    await selectReceiptRow(page, delivery.id);
     await pane.locator(".raw-material-detail-facts").getByText(delivery.id, { exact: true }).waitFor();
     assert.equal(await pane.locator("details.raw-material-receipt-history").evaluate(element => element.open), false);
     assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "米色"], "viewing source/history must preserve both colour identities");
@@ -191,7 +194,8 @@ async function checkDesktop(width) {
     await pane.getByLabel("本卷公斤", { exact: true }).fill("69");
     await pane.getByRole("button", { name: "保存这一卷", exact: true }).click();
     assert.match(await pane.locator(".office-roll-table").innerText(), /69kg/u);
-    await page.getByRole("tab", { name: "退货单 1", exact: true }).click();
+    await selectReceiptTab(page, "退货单 1");
+    await selectReceiptRow(page, returned.id);
     await pane.getByRole("heading", { name: "退货核对", exact: true }).waitFor();
     await pane.getByRole("button", { name: "确认退货，不入库", exact: true }).waitFor();
     assert.equal(await pane.locator(".office-roll-row").count(), 1);
@@ -199,14 +203,14 @@ async function checkDesktop(width) {
     assert.equal(returned.rolls.length, 0);
     await page.screenshot({ path: `${output}/return-${width}.png`, fullPage: true });
 
-    await page.getByRole("tab", { name: "待核对 3", exact: true }).click();
-    await page.locator("button.receipt-row").filter({ hasText: conflict.id }).click();
+    await selectReceiptTab(page, "待核对 3");
+    await selectReceiptRow(page, conflict.id);
     await pane.getByRole("button", { name: "改为退货单核对", exact: true }).waitFor();
     assert.equal(await pane.getByRole("button", { name: "请先核对退货方向", exact: true }).isDisabled(), true);
     assert.equal(await pane.locator(".office-roll-table").count(), 0);
     const conflictOcr = await openOcr(pane);
-    assert.equal(await conflictOcr.getByRole("button", { name: "确认人工复核", exact: true }).isDisabled(), true, "expanded OCR must not bypass direction correction");
-    assert.equal(await conflictOcr.getByRole("button", { name: "复核送货单", exact: true }).isDisabled(), true, "legacy review action must obey the same return-direction gate");
+    assert.equal(await conflictOcr.getByRole("button", { name: "确认人工复核", exact: true }).count(), 0, "expanded OCR must not expose a duplicate review bypass");
+    assert.equal(await conflictOcr.getByRole("button", { name: "复核送货单", exact: true }).count(), 0, "the removed legacy action must not bypass the primary direction gate");
     await page.screenshot({ path: `${output}/return-direction-guard-${width}.png`, fullPage: true });
     report.checks.push({ width, scope: "desktop-receiving", passed: true, initialLayout, noDuplicateCaptureOrTabs: true, noFinanceActions: true, exactTwoOriginalAttachments: true, distinctDecodedImages: true, escapeFocusRestored: true, originalColoursAndOcrUnchanged: true, collapsedHistoryAfterSwitch: true, signedReturnReview: true, expandedOcrDirectionGate: true });
   } catch (error) {

@@ -1,3 +1,4 @@
+import { fulfillReceiptRead, selectReceiptRow, selectReceiptTab } from "./receipt-ui-read-fixtures.mjs";
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {mkdir} from 'node:fs/promises';
@@ -12,7 +13,7 @@ try {
     let current=structuredClone(directionFixture), correctionCalls=0, mappingCalls=0, failCorrection=true;
     await page.route('**/api/raw-material-inbounds**',async route=>{
       const req=route.request();
-      if(req.method()==='GET') return route.fulfill({json:{items:[current,colourFixture],page:1,pageSize:200,total:2}});
+      if (await fulfillReceiptRead(route, [current, colourFixture])) return;
       assert.ok(req.url().endsWith('/'+current.id+'/reparse-ocr'),'unexpected business command');
       correctionCalls++;
       const body=req.postDataJSON();assert.equal(body.documentDirectionHint,'supplier_return');
@@ -28,6 +29,7 @@ try {
       return route.fulfill({json:{mapping:{id:'TEST-MAPPING',supplierSourceId:'人意无纺布',supplierColor:'海兰',factoryColor:'海蓝',enabled:true},operationLogId:'TEST-MAP-AUDIT'}});
     });
     await page.goto(`http://127.0.0.1:4174/?receiptFixTest=${width}&erpViewport=desktop#material-receiving`);
+    await selectReceiptRow(page, current.id);
     await page.getByRole('button',{name:'改为退货单核对',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'请先核对退货方向',exact:true}).isDisabled(),true);
     assert.equal(await page.locator('.office-roll-table').count(),0,'direction conflict must not ask for incoming colours');
@@ -36,13 +38,15 @@ try {
     assert.equal(correctionCalls,1);
     failCorrection=false;
     await page.getByRole('button',{name:'改为退货单核对',exact:true}).click();
-    await page.getByRole('tab',{name:'退货单 1',exact:true}).click();
+    await selectReceiptTab(page, '退货单 1');
+    await selectReceiptRow(page, current.id);
     await page.getByRole('button',{name:'确认退货，不入库',exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:'改为退货单核对',exact:true}).count(),0);
     assert.match(await page.locator('.office-roll-table').innerText(),/-68kg/);
     assert.equal(await page.locator('.office-roll-table').getByText('厂内标准色待确认',{exact:true}).count(),0);
     await page.screenshot({path:`${out}/desktop-return-${width}.png`,fullPage:true});
-    await page.getByRole('tab',{name:'待核对 1',exact:true}).click();
+    await selectReceiptTab(page, '待核对 1');
+    await selectReceiptRow(page, colourFixture.id);
     await page.locator('.office-roll-row').filter({hasText:'海兰'}).first().waitFor();
     assert.deepEqual(await page.locator('.office-roll-color-text').allTextContents(),['海兰','海兰','米黄','米黄','宝蓝（宝兰）','宝蓝（宝兰）','米黄','梅红']);
     assert.equal(await page.locator('.office-roll-color-text small').count(),0);
@@ -116,7 +120,7 @@ try {
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     let current=structuredClone(fixture);
     await page.route('**/api/raw-material-inbounds**',async route=>{
-      if(route.request().method()==='GET') return route.fulfill({json:{items:[current],page:1,pageSize:200,total:1}});
+      if (await fulfillReceiptRead(route, [current])) return;
       assert.ok(route.request().url().endsWith('/'+directionFixture.id+'/reparse-ocr'));
       assert.equal(route.request().postDataJSON().documentDirectionHint,'supplier_return');
       current={...correctedFixture,revision:2};
@@ -146,7 +150,7 @@ try {
     const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1'});
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     await page.route('**/api/raw-material-inbounds**',async route=>{
-      if(route.request().method()==='GET') return route.fulfill({json:{items:[colourFixture],page:1,pageSize:200,total:1}});
+      if (await fulfillReceiptRead(route, [colourFixture])) return;
       return route.fulfill({status:404,json:{message:'unexpected write'}});
     });
     await page.goto('http://127.0.0.1:4174/?receiptTicketColor=1&erpViewport=mobile#material-receiving');

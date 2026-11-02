@@ -1,3 +1,4 @@
+import { fulfillReceiptRead, selectReceiptRow } from "./receipt-ui-read-fixtures.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
@@ -37,6 +38,7 @@ const receipt = buildRawMaterialInboundDraftFromOcr({
 assert.equal(receipt.ocrLines.length, cases.length);
 receipt.factoryColor = "";
 receipt.supplierColor = "";
+receipt.receivedAt = "2026-11-02T00:01:00.000Z";
 receipt.ocrLines.forEach((line, index) => {
   const item = cases[index];
   line.values.factoryColor = item.factory;
@@ -72,9 +74,9 @@ async function openPage(width) {
       report.writes.push({ method: request.method(), path });
       return route.abort();
     }
-    const items = path === "/api/raw-material-inbounds" ? [receipt, stockReceipt] : path === "/api/inventory/items" ? finishedItems : null;
+    if (await fulfillReceiptRead(route, [receipt, stockReceipt])) return;
+    const items = path === "/api/inventory/items" ? finishedItems : null;
     if (items) return route.fulfill({ json: { items, page: 1, pageSize: 200, total: items.length } });
-    if (path === `/api/raw-material-inbounds/${receipt.id}`) return route.fulfill({ json: { inbound: receipt } });
     return route.continue();
   });
   const url = new URL(origin);
@@ -82,6 +84,7 @@ async function openPage(width) {
   url.searchParams.set("erpViewport", mobile ? "mobile" : "desktop");
   url.hash = "material-receiving";
   await page.goto(url.href);
+  if (!mobile) await selectReceiptRow(page, receipt.id);
   assert.equal(await page.locator('meta[name="erp-app-id"]').getAttribute("content"), "bagwin-complete-review-4174");
   if (mobile) await page.getByRole("button", { name: "核对全部卷材", exact: true }).click();
   await page.locator(mobile ? ".raw-material-mobile-review-list > article" : ".office-roll-row").first().waitFor();
@@ -165,6 +168,7 @@ async function checkReceiving(width) {
       assert.equal(await stockRows.count(), 3);
       for (const color of inventoryColors) await assertSwatch(page, stockRows.filter({ has: page.locator(".roll-color", { hasText: new RegExp(`^${color}$`, "u") }) }).locator(".roll-color .color-chip"), getFactoryStandardColorSwatch(color), `physical stock ${color}`);
       await page.screenshot({ path: `${output}/roll-inventory-${width}.png`, fullPage: true });
+      if (!(await page.getByRole("button", { name: "无纺布袋", exact: true }).isVisible())) await page.locator('[data-nav-group="inventory"] > button').click();
       await page.getByRole("button", { name: "无纺布袋", exact: true }).click();
       const goodsRows = page.locator("button.finished-inventory-row");
       await goodsRows.first().waitFor();

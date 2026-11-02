@@ -209,7 +209,8 @@ test("4174 employee workbench reuses the formal audited profile editor and write
   assert.match(workspacesSource, /profileMaintenance:\s*true/, "the approved employee detail should expose formal maintenance");
   assert.match(workspacesSource, /onUpdateEmployeeProfile:\s*formal\.actions\.updateEmployeeProfile/, "the employee workbench should call the formal adapter action");
   assert.match(adapterSource, /updateOfficeMasterDataEmployeeProfile/, "the adapter should persist profile changes through the formal API client");
-  assert.match(adapterSource, /replaceEmployeeReview\(current\.employeeAccountReviews, result\.employeeAccountReview\)/, "a successful save should replace the authoritative employee read model");
+  assert.match(adapterSource, /acceptEmployeeReview\(result\.employeeAccountReview\)/, "a successful save should enter the authoritative employee cache update");
+  assert.match(adapterSource, /replaceEmployeeReview\(current\.employeeAccountReviews, review\)/, "the cache update should replace the employee read model");
   assert.match(formalEditorSource, /export function EmployeeProfileEditor/, "the shared formal editor should be exported for the 4174 shell");
 });
 

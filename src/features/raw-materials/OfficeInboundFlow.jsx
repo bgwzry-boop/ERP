@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "../../styles/features/office-inbound-flow.css";
 import { RawMaterialColorDisplay } from "./RawMaterialColorDisplay.jsx";
 import { formatRawMaterialColorDisplay } from "./rawMaterialColorDisplay.js";
@@ -17,6 +18,7 @@ import {
 } from "../../domain/officeRawMaterialInboundFlow.js";
 
 export function OfficeInboundFlow({
+  actionDock = null,
   actionError = "",
   attachState,
   documentDraft,
@@ -98,57 +100,15 @@ export function OfficeInboundFlow({
       setDirectionError(error?.message || "更正失败，请重试。");
     }
   }
-  return (
-    <section className="office-inbound-flow raw-material-ocr-review-panel" aria-label="办公室收货">
-      {canEdit && ambiguousDirection ? <p className="office-inbound-block" role="alert">{RAW_MATERIAL_MIXED_DIRECTION_MESSAGE}</p> : null}
-      {canEdit && directionConflict ? <section className="office-direction-conflict" aria-label="退货单方向纠正">
-        <strong>原单含退货明细，不能按收货入库</strong>
-        <p>请对照原图确认。改为退货后，重量和金额按负数核对，不要求补入库颜色、规格，也不生成入库卷标。</p>
-        <button disabled={reviewState?.disabled || directionCorrecting || submitting} onClick={correctDirection} type="button">
-          {directionCorrecting ? "正在改为退货单…" : "改为退货单核对"}
-        </button>
-        {directionError ? <p role="alert">{directionError}</p> : null}
-      </section> : null}
-      {!directionConflict && !ambiguousDirection ? <OfficeRollTable
-        canEdit={canEdit}
-        isReturn={isReturn}
-        onMapColor={onOpenColorMapping ? (row) => onOpenColorMapping({
-          supplierName: inbound.supplierName,
-          supplierColor: row.supplierColor,
-          factoryColor: row.color,
-        }) : undefined}
-        mappingDisabled={Boolean(colorMappingState?.disabled) || submitting || !inbound.supplierName}
-        editingId={editingId}
-        onEdit={setEditingId}
-        onSave={saveCorrection}
-        rows={rows}
-      /> : null}
-      {canEdit && blockedRow && !directionConflict ? <p className="office-inbound-block" role="status">第 {blockedRow.physicalRollIndex} 卷{blockedRow.blocker}</p> : null}
-      {step === "complete" && completion.reason ? (
-        <p className="office-inbound-block" role="status">{completion.reason}</p>
-      ) : null}
-      {reviewBlocker && !directionConflict && !ambiguousDirection ? (
-        // Supplier missing: fill it in right here instead of hunting in the OCR section.
-        <label className="office-inbound-supplier">
-          <span>供应商还没填，填好后就能点「这批都对，去打印」</span>
-          <input
-            aria-label="供应商"
-            onChange={(event) => onDocumentDraftChange?.({ ...(documentDraft || {}), supplierName: event.target.value })}
-            placeholder="输入供应商名称"
-            value={documentDraft?.supplierName || ""}
-          />
-        </label>
-      ) : null}
-      {actionAlert ? <p className="office-inbound-block" role="alert">{actionAlert}</p> : null}
-      {markedException && step === "scan" ? <p className="office-inbound-block" role="status">已标记异常。补齐供应商、重量或原图后再重新复核。</p> : null}
-      <div className="office-inbound-actions">
+  const actionControls = (
+    <div className="office-inbound-actions">
         {canEdit ? (
           <>
             <button
               className="primary-action"
               disabled={Boolean(reviewState?.disabled) || submitting || directionCorrecting || Boolean(blockedRow) || Boolean(reviewBlocker) || Boolean(editingId)}
               onClick={() => onReview?.()}
-              title={reviewBlocker || reviewState?.title || ""}
+              title={blockedRow ? `第 ${blockedRow.physicalRollIndex} 卷${blockedRow.blocker}` : reviewBlocker || reviewState?.title || ""}
               type="button"
             >
               {submitting ? "正在保存…" : ambiguousDirection ? "请先核对混合方向" : directionConflict ? "请先核对退货方向" : isReturn ? "确认退货，不入库" : "这批都对，去打印"}
@@ -193,6 +153,53 @@ export function OfficeInboundFlow({
         ) : null}
         {step === "done" ? <span className="office-inbound-done">{isReturn ? "退货单已复核，不入库" : "已入库"}</span> : null}
       </div>
+  );
+  return (
+    <section className="office-inbound-flow raw-material-ocr-review-panel" aria-label="办公室收货">
+      {canEdit && ambiguousDirection ? <p className="office-inbound-block" role="alert">{RAW_MATERIAL_MIXED_DIRECTION_MESSAGE}</p> : null}
+      {canEdit && directionConflict ? <section className="office-direction-conflict" aria-label="退货单方向纠正">
+        <strong>原单含退货明细，不能按收货入库</strong>
+        <p>请对照原图确认。改为退货后，重量和金额按负数核对，不要求补入库颜色、规格，也不生成入库卷标。</p>
+        <button disabled={reviewState?.disabled || directionCorrecting || submitting} onClick={correctDirection} type="button">
+          {directionCorrecting ? "正在改为退货单…" : "改为退货单核对"}
+        </button>
+        {directionError ? <p role="alert">{directionError}</p> : null}
+      </section> : null}
+      {!directionConflict && !ambiguousDirection ? <OfficeRollTable
+        canEdit={canEdit}
+        editingDisabled={submitting || Boolean(reviewState?.disabled)}
+        isReturn={isReturn}
+        onMapColor={onOpenColorMapping ? (row) => onOpenColorMapping({
+          supplierName: inbound.supplierName,
+          supplierColor: row.supplierColor,
+          factoryColor: row.color,
+        }) : undefined}
+        mappingDisabled={Boolean(colorMappingState?.disabled) || submitting || !inbound.supplierName}
+        editingId={editingId}
+        onEdit={setEditingId}
+        onSave={saveCorrection}
+        rows={rows}
+      /> : null}
+      {!directionConflict && !ambiguousDirection && rows.length ? <div className="office-roll-summary"><span>本页明细 <strong>{rows.length}</strong> {isReturn ? "项" : "卷"} · <strong>{formatFactNumber(Math.round(rows.reduce((total, row) => total + (Number(row.weightKg) || 0), 0) * 1000) / 1000)}</strong> kg</span><span>原单总重 {inbound.totalWeightKg == null ? "待确认" : `${formatFactNumber(inbound.totalWeightKg)} kg`}</span></div> : null}
+      {canEdit && blockedRow && !directionConflict ? <div className="office-inbound-block office-inbound-block-locate" role="status"><span>第 {blockedRow.physicalRollIndex} 卷{blockedRow.blocker}{!blockedRow.lineId ? "。该历史卷缺少可编辑的识别明细，需先核实并维护原始逐卷资料。" : ""}</span>{blockedRow.lineId ? <button disabled={submitting || Boolean(reviewState?.disabled)} onClick={() => setEditingId(blockedRow.reviewId)} type="button">定位第 {blockedRow.physicalRollIndex} 卷</button> : null}</div> : null}
+      {step === "complete" && completion.reason ? (
+        <p className="office-inbound-block" role="status">{completion.reason}</p>
+      ) : null}
+      {reviewBlocker && !directionConflict && !ambiguousDirection ? (
+        // Supplier missing: fill it in right here instead of hunting in the OCR section.
+        <label className="office-inbound-supplier">
+          <span>供应商还没填，填好后就能点「这批都对，去打印」</span>
+          <input
+            aria-label="供应商"
+            onChange={(event) => onDocumentDraftChange?.({ ...(documentDraft || {}), supplierName: event.target.value })}
+            placeholder="输入供应商名称"
+            value={documentDraft?.supplierName || ""}
+          />
+        </label>
+      ) : null}
+      {actionAlert ? <p className="office-inbound-block" role="alert">{actionAlert}</p> : null}
+      {markedException && step === "scan" ? <p className="office-inbound-block" role="status">已标记异常。补齐供应商、重量或原图后再重新复核。</p> : null}
+      {actionDock ? createPortal(actionControls, actionDock) : actionControls}
       {step === "complete" && countGate ? (
         <details className="office-inbound-exception">
           <summary>某一卷对不上</summary>
@@ -209,7 +216,7 @@ export function OfficeInboundFlow({
   );
 }
 
-function OfficeRollTable({ canEdit, isReturn, editingId, onEdit, onSave, onMapColor, mappingDisabled, rows }) {
+function OfficeRollTable({ canEdit, isReturn, editingDisabled, editingId, onEdit, onSave, onMapColor, mappingDisabled, rows }) {
   if (!rows.length) return null;
   return (
     <div className="office-roll-table" role="table" aria-label="核对每一卷的颜色、宽幅、公斤">
@@ -232,12 +239,12 @@ function OfficeRollTable({ canEdit, isReturn, editingId, onEdit, onSave, onMapCo
           <span className="office-roll-fact">{row.widthCm ? `${formatFactNumber(row.widthCm)}cm` : isReturn ? "原单未写（可留空）" : "宽幅待补"}</span>
           <span className="office-roll-fact">{Number(row.weightKg) ? `${formatFactNumber(row.weightKg)}kg` : "公斤待补"}</span>
           {canEdit && row.lineId ? (
-            <button onClick={() => onEdit(editingId === row.reviewId ? "" : row.reviewId)} type="button">
-              {editingId === row.reviewId ? "收起" : "改这一卷"}
+            <button disabled={editingDisabled} onClick={() => onEdit(editingId === row.reviewId ? "" : row.reviewId)} type="button">
+              {editingId === row.reviewId ? "收起" : !isReturn && !row.color && !row.supplierColor ? "补颜色" : "改这一卷"}
             </button>
           ) : <span />}
           {editingId === row.reviewId ? (
-            <RollEditor isReturn={isReturn} key={row.reviewId} mappingDisabled={mappingDisabled} onMapColor={onMapColor ? () => { onEdit(""); onMapColor(row); } : undefined} onCancel={() => onEdit("")} onSave={(correction) => onSave(row, correction)} row={row} />
+            <RollEditor disabled={editingDisabled} isReturn={isReturn} key={row.reviewId} mappingDisabled={mappingDisabled} onMapColor={onMapColor ? () => { onEdit(""); onMapColor(row); } : undefined} onCancel={() => onEdit("")} onSave={(correction) => onSave(row, correction)} row={row} />
           ) : null}
         </div>
       ))}
@@ -245,24 +252,35 @@ function OfficeRollTable({ canEdit, isReturn, editingId, onEdit, onSave, onMapCo
   );
 }
 
-function RollEditor({ isReturn, mappingDisabled, onMapColor, onCancel, onSave, row }) {
+function RollEditor({ disabled, isReturn, mappingDisabled, onMapColor, onCancel, onSave, row }) {
   const [color, setColor] = useState(row.color || "");
+  const [supplierColor, setSupplierColor] = useState(row.supplierColor || "");
   const [widthCm, setWidthCm] = useState(row.widthCm || "");
   const [weightKg, setWeightKg] = useState(row.weightKg || "");
+  const editorRef = useRef(null);
+  const supplierChanged = supplierColor.trim() !== String(row.supplierColor || "").trim();
+  useEffect(() => {
+    editorRef.current?.scrollIntoView({ block: "nearest" });
+    editorRef.current?.querySelector("input")?.focus({ preventScroll: true });
+  }, []);
   return (
     <form
       className="office-roll-editor"
+      ref={editorRef}
       onSubmit={(event) => {
         event.preventDefault();
-        onSave({ ...(isReturn ? {} : { color }), widthCm, weightKg });
+        if (disabled) return;
+        onSave({ ...(isReturn ? {} : { color, supplierColor }), widthCm, weightKg });
       }}
     >
-      {!isReturn ? <label>厂内标准色（厂家：{row.supplierColor || "未识别"}）<select required={!row.supplierColor} onChange={(event) => setColor(event.target.value)} value={color}><option value="">{row.supplierColor ? "暂用厂家票面色，后续统一" : "请选择对应的厂内标准色"}</option>{FACTORY_STANDARD_COLORS.map((name) => <option key={name} value={name}>{name}</option>)}</select></label> : null}
-      <label>宽幅 cm<input inputMode="decimal" min="0" onChange={(event) => setWidthCm(event.target.value)} step="0.1" type="number" value={widthCm} /></label>
-      <label>公斤<input aria-label="本卷公斤" inputMode="decimal" min={isReturn ? undefined : "0"} max={isReturn ? "-0.001" : undefined} onChange={(event) => setWeightKg(event.target.value)} step="0.001" type="number" value={weightKg} /></label>
-      <div>
-        {!isReturn && onMapColor && row.supplierColor ? <button disabled={mappingDisabled} onClick={onMapColor} type="button">维护厂家颜色对应</button> : null}
-        <button className="primary-action" type="submit">保存这一卷</button>
+      {!isReturn ? <label>厂家票面颜色<input aria-label={`第 ${row.physicalRollIndex} 卷厂家票面颜色`} disabled={disabled} onChange={(event) => { setSupplierColor(event.target.value); setColor(""); }} placeholder="照原单填写颜色" required={!color} value={supplierColor} /></label> : null}
+      <label>宽幅 cm<input disabled={disabled} inputMode="decimal" min={isReturn ? "0" : "0.1"} onChange={(event) => setWidthCm(event.target.value)} required={!isReturn} step="0.1" type="number" value={widthCm} /></label>
+      <label>公斤<input aria-label="本卷公斤" disabled={disabled} inputMode="decimal" min={isReturn ? undefined : "0.001"} max={isReturn ? "-0.001" : undefined} onChange={(event) => setWeightKg(event.target.value)} required step="0.001" type="number" value={weightKg} /></label>
+      {!isReturn ? <label className="office-roll-standard-color">厂内标准色（可待统一）<select disabled={disabled || supplierChanged} onChange={(event) => setColor(event.target.value)} value={color}><option value="">暂用厂家票面色</option>{FACTORY_STANDARD_COLORS.map((name) => <option key={name} value={name}>{name}</option>)}</select></label> : null}
+      <p className="office-roll-editor-help">{supplierChanged ? "票面色更改后，原厂内色对应暂不沿用。" : "本页修改将在下方统一复核时提交。"}{row.lineRollCount > 1 ? `此识别行的 ${row.lineRollCount} 卷共用颜色和宽幅，公斤仅修改本卷。` : ""}</p>
+      <div className="office-roll-editor-actions">
+        {!isReturn && onMapColor && row.supplierColor ? <button disabled={mappingDisabled || supplierChanged} onClick={onMapColor} type="button">维护厂家颜色对应</button> : null}
+        <button className="primary-action" disabled={disabled} type="submit">保存这一卷</button>
         <button onClick={onCancel} type="button">取消</button>
       </div>
     </form>

@@ -1,3 +1,4 @@
+import { fulfillReceiptRead } from "./receipt-ui-read-fixtures.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
@@ -47,7 +48,7 @@ try {
     });
     await page.route("**/api/**", async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname;
-      if (request.method() === "GET" && path === "/api/raw-material-inbounds") return route.fulfill({ json: { items: current, page: 1, pageSize: 200, total: current.length } });
+      if (await fulfillReceiptRead(route, current)) return;
       if (request.method() === "POST" && path === "/api/attachments/binary") {
         uploads.push({ bytes: request.postDataBuffer(), metadata: JSON.parse(url.searchParams.get("metadata")), name: url.searchParams.get("fileName") });
         return route.fulfill({ json: { attachmentId: `ATT-ANONYMOUS-${uploads.length}`, hasContent: true, status: "uploaded" } });
@@ -71,7 +72,7 @@ try {
     });
     try {
       await page.goto(`http://127.0.0.1:4174/?receiveCapture=${width}&erpViewport=desktop#material-receiving`);
-      await page.locator(".secondary-list > header").getByRole("button", { name: "录入送货/退货单", exact: true }).click();
+      await page.getByRole("button", { name: "录入送货/退货单", exact: true }).click();
       const dialog = page.locator(".raw-material-receive-dialog");
       await dialog.waitFor();
       const png = Buffer.from(await page.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 200; canvas.height = 260; const ctx = canvas.getContext("2d"); ctx.fillStyle = "white"; ctx.fillRect(0, 0, 200, 260); ctx.fillStyle = "black"; ctx.fillText("Anonymous delivery receipt", 10, 60); return canvas.toDataURL("image/png").split(",")[1]; }), "base64");
@@ -128,7 +129,8 @@ try {
       failed = false;
       await dialog.getByRole("button", { name: "开始识别", exact: true }).click();
       await dialog.waitFor({ state: "hidden" });
-      await page.locator("button.receipt-row.selected").filter({ hasText: `RMI-CAPTURE-${nextReturn ? "RETURN" : "DELIVERY"}-${width}` }).waitFor();
+      await page.locator("button.receipt-queue-item.selected").filter({ hasText: `RMI-CAPTURE-${nextReturn ? "RETURN" : "DELIVERY"}-${width}` }).waitFor({ state: "attached" });
+      await page.locator(".formal-receiving-workspace .raw-material-detail-facts").getByText(`RMI-CAPTURE-${nextReturn ? "RETURN" : "DELIVERY"}-${width}`, { exact: true }).waitFor();
       assert.equal(requests.at(-1).documentDirectionHint, "supplier_delivery");
       if (nextReturn) {
         assert.equal(await page.getByRole("tab", { name: "退货单 1", exact: true }).getAttribute("aria-selected"), "true", "server-detected material return is selected without a client override");
@@ -137,7 +139,7 @@ try {
       assert.equal(current[0].status, "已识别待复核", "recognition never confirms stock");
       report.checks.push({ width, scope: "camera-and-multipage", passed: true, originalImageBytesPreserved: true, doubleClickGuard: true, busyGuard: true, failedRetry: true, automaticReturn: nextReturn });
 
-      await page.locator(".secondary-list > header").getByRole("button", { name: "录入送货/退货单", exact: true }).click();
+      await page.getByRole("button", { name: "录入送货/退货单", exact: true }).click();
       await dialog.getByRole("button", { name: "原料退货单", exact: true }).click();
       assert.equal(await dialog.getByRole("button", { name: "上传照片 / PDF", exact: true }).isDisabled(), true);
       await dialog.getByLabel("退货供应商", { exact: true }).selectOption("测试原料厂");

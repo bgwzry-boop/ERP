@@ -125,14 +125,13 @@ assert.equal(
 }
 
 {
-  const reviewed = applyRawMaterialInboundLocalAction([baseInbound], {
+  assert.throws(() => applyRawMaterialInboundLocalAction([baseInbound], {
     action: "复核送货单",
     inboundId: "RMI-1",
     now: "2026-07-12T08:00:00.000Z",
     operatorName: "库房A",
-  }).updatedItem;
-  assert.equal(reviewed.status, "已复核待打印标签");
-  assert.equal(reviewed.rolls[0].inventoryStatus, "可用", "review must not downgrade already available inventory");
+  }), (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_NOT_ALLOWED", "already available inventory must not return to draft review");
+  assert.equal(baseInbound.rolls[0].inventoryStatus, "可用");
 }
 
 {

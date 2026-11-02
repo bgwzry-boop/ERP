@@ -14,12 +14,12 @@
 .app-shell .pc-business-tree { padding: 12px 10px 14px; }
 .app-shell .pc-nav-group { border-top: 0; margin-top: 6px; }
 .app-shell .pc-nav-group-button { min-height: 36px; padding: 0 10px; border-radius: var(--erp-radius-sm); }
-.app-shell .pc-nav-group-button > span:not(.anticon) { color: var(--erp-sidebar-muted); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; }
+.app-shell .pc-nav-group-button > span:not(.anticon) { color: var(--erp-sidebar-muted); font-size: 12px; font-weight: 600; letter-spacing: 0; }
 .app-shell .pc-nav-group-button > .anticon:first-child { color: var(--erp-sidebar-muted); }
 .app-shell .pc-nav-children { gap: 2px; padding: 2px 0 6px; }
 .app-shell .pc-nav-children button { min-height: 36px; padding: 0 10px 0 36px; border-radius: var(--erp-radius-sm); color: var(--erp-sidebar-text); }
 .app-shell .pc-nav-children button > span { font-size: 14px; font-weight: 500; }
-.app-shell .pc-nav-children button.active { background: var(--erp-brand); color: var(--erp-accent-ink); box-shadow: none; }
+.app-shell .pc-nav-children button.active { background: var(--erp-accent); color: var(--erp-accent-ink); box-shadow: none; }
 .app-shell .pc-nav-children button.active > span { font-weight: 600; }
 .app-shell .pc-nav-children button b { min-width: 20px; height: 20px; padding: 0 6px; background: var(--erp-brand); font-size: 12px; font-weight: 700; }
 .app-shell .pc-nav-children button.active b { background: color-mix(in oklch, var(--erp-accent-ink) 26%, transparent); }
