@@ -1422,7 +1422,7 @@
   .raw-material-mobile-review-line-summary {
     min-height: 52px;
     height: auto;
-    grid-template-columns: 14px minmax(30px, 0.55fr) minmax(64px, 1.2fr) minmax(46px, 0.75fr) 42px 82px;
+    grid-template-columns: 14px minmax(92px, 1fr) minmax(20px, 0.55fr) 48px 42px 82px;
     column-gap: 3px;
     padding-inline: 6px;
   }

@@ -2222,7 +2222,7 @@
     width: 100%;
     height: 44px;
     min-height: 44px;
-    grid-template-columns: 16px minmax(34px, 0.6fr) minmax(72px, 1.4fr) minmax(54px, 0.85fr) 50px 88px;
+    grid-template-columns: 16px minmax(96px, 1.15fr) minmax(28px, 0.7fr) 54px 50px 88px;
     align-items: center;
     border: 0;
     background: transparent;
@@ -2592,7 +2592,7 @@
   .raw-material-mobile-review-line-summary {
     height: 48px;
     min-height: 48px;
-    grid-template-columns: 18px minmax(44px, 0.65fr) minmax(104px, 1.45fr) minmax(72px, 0.85fr) 68px 112px;
+    grid-template-columns: 18px minmax(104px, 1.25fr) minmax(72px, 1.05fr) minmax(64px, 0.8fr) 56px minmax(88px, 0.9fr);
     column-gap: 6px;
   }
 
