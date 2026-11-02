@@ -15,25 +15,19 @@ test("4174 收货录入按业务字段扫描并显示把条宽幅", async ({ pag
 
   await expect(page).toHaveTitle(/本地未部署 · 袋袋赢 ERP 完整评审稿/);
   await expect(page.locator('meta[name="erp-app-id"]')).toHaveAttribute("content", "bagwin-complete-review-4174");
-  await expect(page.locator(".receipt-row.head > *")).toHaveText([
-    "送货单位 / 票据",
-    "送货时间",
-    "卷/件数",
-    "总重量",
-    "复核入库",
-    "查重结果",
-  ]);
+  // Since the 2026-11-02 redesign the receipt list is a paged queue, not a six-column table.
+  const queue = page.getByRole("region", { name: "收货单据队列" });
+  await expect(queue.getByRole("tablist", { name: "收货状态" }).getByRole("tab")).toHaveText([/^全部/, /^待核对/, /^退货单/, /^待打印/, /^待贴标/, /^异常/]);
+  await expect(queue.getByLabel("搜索送货单位或单号")).toBeVisible();
 
-  await page.getByRole("tab", { name: /^异常/ }).click();
-  const handleStripReceipt = page.locator("button.receipt-row", { hasText: "RMI-0704-003" });
+  await queue.getByRole("tab", { name: /^异常/ }).click();
+  const handleStripReceipt = queue.locator("button.receipt-queue-item").filter({ has: page.locator('[title*="RMI-0704-003"]') });
   await expect(handleStripReceipt).toBeVisible();
   await handleStripReceipt.click();
 
-  const facts = page.locator(".receipt-facts > div");
-  await expect(facts.nth(0).locator("dt")).toHaveText("类型");
-  await expect(facts.nth(0).locator("dd")).toHaveText("把条");
-  await expect(facts.nth(1).locator("dt")).toHaveText("宽幅");
-  await expect(facts.nth(1).locator("dd")).toHaveText("5cm");
+  const facts = page.locator(".formal-receiving-workspace .receipt-facts");
+  await expect(facts.locator("div").filter({ has: page.locator("dt", { hasText: /^类型$/ }) }).locator("dd")).toHaveText("把条");
+  await expect(facts.locator("div").filter({ has: page.locator("dt", { hasText: /^宽幅$/ }) }).locator("dd")).toHaveText("5cm");
   await expect(page.locator(".formal-receiving-workspace")).toContainText("公斤待补");
   await expect(page.locator(".office-roll-table .office-roll-row")).toHaveCount(4);
   const tableFits = await page.locator(".office-roll-table").evaluate((table) => table.scrollWidth <= table.clientWidth + 1);
@@ -72,5 +66,5 @@ test("714px 电脑收货详情仍使用办公室流程而不是手机核对页",
   await expect(page.locator("html")).toHaveAttribute("data-erp-runtime-family", "desktop");
   await expect(page.locator(".formal-receiving-workspace .office-inbound-flow")).toBeVisible();
   await expect(page.locator(".formal-receiving-workspace .raw-material-mobile-ocr-review")).toHaveCount(0);
-  await expect(page.locator(".receipt-row.head > span")).toHaveCount(6);
+  await expect(page.locator(".receiving-workbench button.receipt-queue-item").first()).toBeAttached();
 });
