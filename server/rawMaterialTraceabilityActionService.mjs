@@ -1,3 +1,4 @@
+import { assertRawMaterialUntaskedIssueAllowed } from "./services/rawMaterialUntaskedIssuePolicy.mjs";
 import { readRawMaterialConsumptionMeasurement } from "../shared/rawMaterialConsumptionMeasurement.js";
 import { assertRawMaterialConsumptionMeasurement } from "../shared/rawMaterialMeasurements.js";
 import { requireRawMaterialCurrentRecord } from "../shared/rawMaterialCurrentRecord.js";
@@ -38,6 +39,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
     const rollId = cleanText(input.body?.rollId);
     let machineId = cleanText(input.body?.machineId);
     const productionTaskId = cleanText(input.body?.productionTaskId);
+    assertRawMaterialUntaskedIssueAllowed(workspace, productionTaskId);
     if (!rollId) {
       throw Object.assign(new Error("机边领料必须选择已确认可用的单卷/件。"), {
         statusCode: 422,

@@ -22,6 +22,7 @@ import {
 } from "../../domain/rawMaterialTaskPicking.js";
 import { getDriverPackageCameraScannerSupport, startDriverPackageCameraScanner } from "../../services/driverPackageCameraScannerClient.js";
 import { listOfficeProductionMachineQueue } from "../../services/officeProductionPackingLazyApi.js";
+import { getAuthApiBaseUrl } from "../../services/officeAuthService.js";
 import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 
 const MOBILE_VIEWS = [
@@ -58,6 +59,16 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
   const [queue, setQueue] = useState({ loading: false, items: [], error: "" });
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [freeMode, setFreeMode] = useState(false);
+  // Trial-only: production servers report allowed=false once tasks are required.
+  const [untaskedIssueAllowed, setUntaskedIssueAllowed] = useState(true);
+  useEffect(() => {
+    let active = true;
+    fetch(`${getAuthApiBaseUrl()}/health`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((health) => { if (active && health?.rawMaterialUntaskedIssue?.allowed === false) setUntaskedIssueAllowed(false); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
   const [scanCode, setScanCode] = useState("");
   const [matchedCode, setMatchedCode] = useState("");
   const [freeTarget, setFreeTarget] = useState("");
@@ -235,8 +246,10 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
               <small>{task.pickedRollCount ? `已领 ${task.pickedRollCount} 卷${task.remainingWeightKg ? `，还差约 ${task.remainingWeightKg}kg` : ""} · ` : ""}{task.customerName || "客户待确认"} · {task.size || "尺寸待确认"} · {task.plannedQty ? `${task.plannedQty} 个` : "数量待确认"} · {task.productionTaskId}</small>
             </button>
           )) : <p className="raw-material-scan-feedback">{workshop} 暂时没有要领料的任务。</p>) : null}
-          <button className="raw-material-free-mode" onClick={() => { setFreeMode(true); resetScan(); }} type="button">试用期：没有任务，直接出库</button>
-          <small className="raw-material-free-mode-note">第一批只上原材料，暂时还没有生产任务时用这个入口；暂不关联订单。正式上线后关闭。</small>
+          {untaskedIssueAllowed ? <>
+            <button className="raw-material-free-mode" onClick={() => { setFreeMode(true); resetScan(); }} type="button">试用期：没有任务，直接出库</button>
+            <small className="raw-material-free-mode-note">第一批只上原材料，暂时还没有生产任务时用这个入口；暂不关联订单。正式上线后关闭。</small>
+          </> : null}
         </section>
       ) : (
         <>
