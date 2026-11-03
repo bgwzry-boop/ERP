@@ -27,6 +27,7 @@ const viewports = [
   { name: "1440", width: 1440, height: 900, viewport: "desktop" },
   { name: "1280", width: 1280, height: 800, viewport: "desktop" },
   // P2-06: narrow office laptops / half-screen windows must not scroll sideways.
+  { name: "1100", width: 1100, height: 800, viewport: "desktop" },
   { name: "800", width: 800, height: 900, viewport: "desktop" },
 ];
 const mobilePages = [["material-receiving", "收货录入-手机"]];
@@ -75,8 +76,10 @@ async function capture({ width, height, viewport, name }, hash, label, fullPage)
       const describe = (node) => `${node.tagName.toLowerCase()}${node.id ? `#${node.id}` : ""}${[...node.classList].slice(0, 3).map((name) => `.${name}`).join("")}`;
       return [...document.querySelectorAll("body *")]
         .map((node) => ({ node, rect: node.getBoundingClientRect(), style: getComputedStyle(node) }))
-        .filter(({ rect, style }) => rect.right > limit + 1 && style.position !== "fixed" && rect.width > 0)
-        .filter(({ node }) => !node.parentElement || node.parentElement.getBoundingClientRect().right <= limit + 1)
+        .filter(({ node, rect, style }) => rect.right > limit + 1 && style.position !== "fixed" && rect.width > 0 && node.getClientRects().length)
+        // Keep the outermost offenders: skip a node whose parent already sticks out.
+        .filter(({ node }) => !node.parentElement || node.parentElement.getBoundingClientRect().right <= limit + 1 || node.parentElement === document.body)
+        .sort((left, right) => right.rect.right - left.rect.right)
         .slice(0, 8)
         .map(({ node, rect, style }) => ({ element: describe(node), path: [node.parentElement, node.parentElement?.parentElement].filter(Boolean).map(describe).reverse().join(" > "), right: Math.round(rect.right), width: Math.round(rect.width), minWidth: style.minWidth, gridTemplateColumns: style.gridTemplateColumns.slice(0, 80) }));
     }) : [];

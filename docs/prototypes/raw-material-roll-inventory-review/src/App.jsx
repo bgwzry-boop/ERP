@@ -9,6 +9,7 @@ import {
   FileTextOutlined,
   HomeOutlined,
   InfoCircleOutlined,
+  MenuOutlined,
   PlusOutlined,
   ReconciliationOutlined,
   ReloadOutlined,
@@ -133,7 +134,7 @@ const pcNavIcons = {
   system: SettingOutlined,
 };
 
-function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permissionContext, unhandledTodoCount = 0 }) {
+function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permissionContext, unhandledTodoCount = 0, navOpen = false }) {
   const visibleGroups = getVisiblePcNavGroups(permissionContext);
   const activeItemRef = useRef(null);
 
@@ -141,7 +142,8 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeNavId]);
 
-  return <aside className="sidebar">
+  // On narrow windows (≤1024px, see narrow-desktop.css) the sidebar is a drawer opened from the topbar.
+  return <aside className={`sidebar${navOpen ? " open" : ""}`} id="erp-main-sidebar">
     <div className="brand">
       <img
         alt="袋袋赢 BAGWIN"
@@ -167,10 +169,11 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
   </aside>;
 }
 
-function Topbar({ allowedNavIds, onCreateOrder, onSearchSelect, onSearchRequest, permissionContext, searchData, searchPending = false, searchError = "", unhandledTodoCount = null }) {
+function Topbar({ navOpen = false, onToggleNav, allowedNavIds, onCreateOrder, onSearchSelect, onSearchRequest, permissionContext, searchData, searchPending = false, searchError = "", unhandledTodoCount = null }) {
   const account = permissionContext.user ?? defaultPermissionContext.user;
   const canCreateOrder = hasEffectivePermission(permissionContext, "order.create");
   return <header className="topbar">
+    <button aria-controls="erp-main-sidebar" aria-expanded={navOpen} aria-label={navOpen ? "收起菜单" : "打开菜单"} className="nav-drawer-toggle" onClick={onToggleNav} type="button"><MenuOutlined /><span>菜单</span></button>
     <GlobalSearch allowedNavIds={allowedNavIds} data={searchData} onSelect={onSearchSelect} onRequestData={onSearchRequest} pending={searchPending} error={searchError} />
     <div className="topbar-actions">
       {canCreateOrder ? <button className="primary top-new-order" onClick={onCreateOrder} type="button"><PlusOutlined />新建订单</button> : null}
@@ -312,6 +315,13 @@ export function App({ permissionContext = defaultPermissionContext }) {
     const hashView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
     return visibleViews.includes(hashView) ? hashView : getDefaultWorkspaceView(permissionContext);
   });
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const close = (event) => { if (event.key === "Escape") setNavOpen(false); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [navOpen]);
   const [expandedGroups, setExpandedGroups] = useState(() => {
     try { const saved = JSON.parse(localStorage.getItem("erp.pc.expandedGroups.v1")); if (Array.isArray(saved)) return new Set(saved.filter(id => pcNavGroups.some(group => group.id === id))); } catch { /* Preferences cannot block the workbench. */ }
     // No saved preference: every group starts open, as before, so no page is hidden on first visit.
@@ -361,6 +371,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
   };
   const navigate = (navId, focus = {}) => {
     if (formal.orderEntryWritePending) return;
+    setNavOpen(false);
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
     const nextView = navViewMap[normalizedNavId];
     const allowed = Boolean(nextView && visibleViews.includes(nextView));
@@ -421,8 +432,9 @@ export function App({ permissionContext = defaultPermissionContext }) {
     }
   };
 
-  return <div className="app-shell" data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
-    <Sidebar activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar allowedNavIds={allowedNavIds} onCreateOrder={() => navigate("order-entry")} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} onSearchRequest={formal.actions.ensureSearchData} searchData={formal.data} searchPending={formal.meta.search.loading} searchError={formal.meta.search.error} unhandledTodoCount={unhandledTodoCount} />
+  return <div className={`app-shell${navOpen ? " nav-open" : ""}`} data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
+    {navOpen ? <div aria-hidden="true" className="nav-drawer-backdrop" onClick={() => setNavOpen(false)} /> : null}
+    <Sidebar navOpen={navOpen} activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar navOpen={navOpen} onToggleNav={() => setNavOpen((open) => !open)} allowedNavIds={allowedNavIds} onCreateOrder={() => navigate("order-entry")} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} onSearchRequest={formal.actions.ensureSearchData} searchData={formal.data} searchPending={formal.meta.search.loading} searchError={formal.meta.search.error} unhandledTodoCount={unhandledTodoCount} />
     <main className={`page${isRawMaterialView ? "" : " business-page"}${activeView === "收货录入" ? " receiving-main-page" : ""}`}>
       {activeView !== "收货录入" ? <CollectionFeedback state={{ loading: formal.meta.loading, error: Object.keys(formal.meta.errors).length > 0, hasLoaded: formal.meta.hasLoaded }} label={activeView} onRetry={() => void formal.actions.refreshAll()} /> : null}
       {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">本次操作结果正在核对，请先确认结果；结果未明时按原内容重试。</div> : null}
