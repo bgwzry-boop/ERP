@@ -2,7 +2,8 @@
    原来整个电脑壳最少 1180px 宽、多出部分直接被裁掉；现在按宽度重新排布，
    字号不缩小，只改结构：
    - ≤1180px：列表和右侧详情改成上下排，各自在框内滚动；
-   - ≤1024px：左侧菜单收进顶栏的「菜单」按钮，点开是抽屉，选完自动收起。 */
+   - ≤1024px：左侧菜单变窄（156px），顶栏搜索、按钮跟着收缩，卷料库存筛选换行；
+   - ≤760px（极窄窗口）：左侧菜单收进顶栏的「菜单」按钮，点开是抽屉，选完自动收起。 */
 
 .nav-drawer-toggle { display: none; }
 .nav-drawer-backdrop { display: none; }
@@ -20,7 +21,27 @@
 }
 
 @media (max-width: 1024px) {
-  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .app-shell,
+  .app-shell:has(.receiving-main-page) { grid-template-columns: 156px minmax(0, 1fr); }
+  .app-shell .brand { padding-inline: 10px; }
+  .app-shell .pc-nav-group-button { padding-inline: 6px; }
+  .app-shell .pc-nav-children button { padding-left: 30px; }
+  .app-shell > .topbar { gap: 10px; padding: 0 12px; }
+  .app-shell .global-search { width: auto; min-width: 0; flex: 1 1 220px; }
+  .app-shell .topbar-actions { min-width: 0; flex: 0 1 auto; gap: 8px; }
+  .app-shell .top-new-order { min-width: 0; padding: 0 12px; }
+  .app-shell .account { min-width: 0; gap: 0; }
+  .app-shell .account span { min-width: 0; }
+  .app-shell .account :is(strong, small) { max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-shell .page { padding-inline: 12px; }
+  .app-shell .workbench-dock { grid-template-columns: minmax(0, 1fr); row-gap: 6px; padding-block: 6px; }
+  .app-shell .dock-status-cards { width: 100%; margin-right: 0; }
+  .app-shell .dock-actions { top: 0; flex-wrap: wrap; justify-content: flex-end; }
+}
+
+@media (max-width: 760px) {
+  .app-shell,
+  .app-shell:has(.receiving-main-page) { grid-template-columns: minmax(0, 1fr); }
   .app-shell > .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
@@ -45,7 +66,6 @@
   }
   .app-shell > .topbar,
   .app-shell > .page { grid-column: 1; }
-  .app-shell > .topbar { gap: 10px; padding: 0 12px; }
   .nav-drawer-toggle {
     min-height: 38px;
     flex: 0 0 auto;
@@ -61,19 +81,27 @@
     font-weight: 650;
   }
   .nav-drawer-toggle:hover { border-color: var(--blue); color: var(--blue); }
-  .app-shell .global-search { width: auto; min-width: 0; flex: 1 1 220px; }
-  .app-shell .topbar-actions { min-width: 0; flex: 0 1 auto; gap: 8px; }
-  .app-shell .top-new-order { min-width: 0; padding: 0 12px; }
-  .app-shell .account { min-width: 0; gap: 0; }
-  .app-shell .account span { min-width: 0; }
-  .app-shell .account :is(strong, small) { max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .app-shell .page { padding-inline: 12px; }
-  .app-shell .workbench-dock { grid-template-columns: minmax(0, 1fr); row-gap: 6px; padding-block: 6px; }
-  .app-shell .dock-status-cards { width: 100%; margin-right: 0; }
-  .app-shell .dock-actions { top: 0; flex-wrap: wrap; justify-content: flex-end; }
 }
 
 @media (max-width: 1024px) {
   /* The dock may wrap to two lines here; let its row grow instead of clipping it. */
   .app-shell .page:not(.business-page) { grid-template-rows: auto minmax(0, 1fr); }
+}
+
+@media (max-width: 1180px) {
+  /* 卷料库存：台账和分布上下排（原样式把分布固定在第 2 列）。 */
+  .app-shell .inventory-workbench > .ledger-panel { grid-column: 1; grid-row: 1; }
+  .app-shell .inventory-workbench > .distribution-rail {
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    align-items: start;
+  }
+  .app-shell .ledger-panel { grid-template-rows: auto minmax(0, 1fr) 46px; }
+  .app-shell .ledger-panel.has-filter-feedback { grid-template-rows: auto 34px minmax(0, 1fr) 46px; }
+  .app-shell .filter-row { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+  .app-shell .filter-row > .roll-search { grid-column: 1 / -1; }
+  /* 台账列多，表格在框内左右滚动，表头跟着一起滚。 */
+  .app-shell .roll-table { overflow-x: auto; }
+  .app-shell .roll-table > * { min-width: 840px; }
 }

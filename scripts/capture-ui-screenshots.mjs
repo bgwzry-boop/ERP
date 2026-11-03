@@ -29,6 +29,7 @@ const viewports = [
   // P2-06: narrow office laptops / half-screen windows must not scroll sideways.
   { name: "1100", width: 1100, height: 800, viewport: "desktop" },
   { name: "800", width: 800, height: 900, viewport: "desktop" },
+  { name: "720", width: 720, height: 900, viewport: "desktop" },
 ];
 const mobilePages = [["material-receiving", "收货录入-手机"]];
 
