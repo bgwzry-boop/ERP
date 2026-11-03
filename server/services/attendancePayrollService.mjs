@@ -20,6 +20,7 @@ export function createAttendancePayrollService(dependencies = {}) {
   return Object.freeze({
     buildEmployeeAttendance,
     buildOwnAttendance,
+    buildOwnPayslip,
     buildPayrollWorkbench,
     buildPayrollReadiness,
     precheckAttendanceSync,
@@ -46,6 +47,46 @@ export function createAttendancePayrollService(dependencies = {}) {
       );
     }
     return buildEmployeeAttendance({ workspace, employeeId, month, selfView: true });
+  }
+
+  // Online payslip (owner decision 2026-10-29): an employee sees only their own
+  // line from the latest reviewed / locked / paid revision of the month. Drafts stay hidden.
+  function buildOwnPayslip({ workspace, authContext, month } = {}) {
+    const employeeId = cleanText(
+      authContext?.user?.employeeId ?? authContext?.employeeId ?? authContext?.user?.employee_id,
+    );
+    if (!employeeId) {
+      throw businessError(403, "PAYSLIP_SELF_EMPLOYEE_ID_REQUIRED", "当前登录账号尚未绑定正式员工编号，无法查看本人工资条。");
+    }
+    const employee = findEmployee(workspace, employeeId);
+    if (!employee) throw businessError(404, "ATTENDANCE_EMPLOYEE_NOT_FOUND", "员工档案不存在。");
+    const safeMonth = normalizeMonth(month, now());
+    const official = new Set(["reviewed", "locked", "paid"]);
+    const runs = new Map((workspace.payrollRuns ?? []).filter((run) => official.has(run.status)).map((run) => [run.id, run]));
+    const ownLines = (workspace.payrollLines ?? [])
+      .filter((line) => line.employeeId === employeeId && runs.has(line.payrollRunId))
+      .map((line) => ({ line, run: runs.get(line.payrollRunId) }));
+    const latestByMonth = new Map();
+    for (const item of ownLines) {
+      const current = latestByMonth.get(item.run.payrollMonth);
+      if (!current || Number(item.run.revision) > Number(current.run.revision)) latestByMonth.set(item.run.payrollMonth, item);
+    }
+    const selected = latestByMonth.get(safeMonth) ?? null;
+    const year = safeMonth.slice(0, 4);
+    const yearEndSettlement = [...latestByMonth.entries()]
+      .filter(([itemMonth]) => itemMonth.startsWith(year))
+      .reduce((sum, [, item]) => ({
+        insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.line.calculation?.withholding?.insuranceDepositWithheld), 2),
+        heldWage: round(sum.heldWage + nonNegativeNumber(item.line.calculation?.withholding?.heldWage), 2),
+      }), { insuranceDeposit: 0, heldWage: 0 });
+    const payslip = selected ? projectPayslip(selected, workspace) : null;
+    return {
+      month: safeMonth,
+      employee: { employeeId, name: cleanText(employee.name), roleName: cleanText(employee.roleName) },
+      payslip,
+      availableMonths: [...latestByMonth.keys()].sort().reverse(),
+      yearEndSettlement: { year, ...yearEndSettlement, total: round(yearEndSettlement.insuranceDeposit + yearEndSettlement.heldWage, 2) },
+    };
   }
 
   function buildEmployeeAttendance({ workspace, employeeId, month, selfView = false } = {}) {
@@ -1453,6 +1494,39 @@ function payrollMonthDateBounds(month) {
   const startDate = `${year}-${String(monthNumber).padStart(2, "0")}-01`;
   const endDate = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
   return { startDate, endDate };
+}
+
+function projectPayslip({ line, run }, workspace) {
+  const withholding = line.calculation?.withholding ?? null;
+  const adjustment = line.calculation?.manualAdjustment ?? null;
+  const netWage = round(Number(line.netWage) || 0, 2);
+  return {
+    payrollMonth: run.payrollMonth,
+    revision: Number(run.revision) || 1,
+    status: run.status,
+    statusLabel: run.status === "paid" ? "已发放" : "已复核，待发放",
+    paidAt: run.status === "paid" ? cleanText(run.paidAt) : "",
+    calculationMode: cleanText(line.calculation?.calculationMode),
+    attendanceHours: round((Number(line.attendanceWorkMinutes) || 0) / 60, 2),
+    attendanceDayCount: Number(line.calculation?.attendanceDayCount) || 0,
+    items: [
+      ["基础工资", line.baseWage],
+      ["岗位补贴", line.positionAllowance],
+      ["加班工资", line.overtimeWage],
+      ["工龄奖", line.seniorityAward],
+      ["综合绩效", line.performanceAward],
+      ["请假/缺勤扣款", -Math.abs(Number(line.leaveDeduction) || 0)],
+      ["其他扣款", -Math.abs(Number(line.otherDeduction) || 0)],
+    ].map(([label, amount]) => ({ label, amount: round(Number(amount) || 0, 2) }))
+      .filter((item) => item.amount !== 0 || ["基础工资", "综合绩效"].includes(item.label)),
+    grossWage: round(Number(line.grossWage) || 0, 2),
+    netWage,
+    insuranceDepositWithheld: round(nonNegativeNumber(withholding?.insuranceDepositWithheld), 2),
+    heldWage: round(nonNegativeNumber(withholding?.heldWage), 2),
+    payableNow: withholding ? round(nonNegativeNumber(withholding.payableNow), 2) : netWage,
+    // Only the reason is shown; evidence files stay with the office.
+    adjustmentReason: adjustment ? cleanText(adjustment.reason) : "",
+  };
 }
 
 function payrollMoney(value, fieldName) {

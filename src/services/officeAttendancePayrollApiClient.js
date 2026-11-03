@@ -28,6 +28,14 @@ export function getMyOfficeAttendance(input = {}, options = {}) {
   }, "本人考勤读取失败。");
 }
 
+export function getMyOfficePayslip(input = {}, options = {}) {
+  return requestJson(`/payroll/me?month=${encodeURIComponent(input.month || "")}`, {
+    ...options,
+    authState: input.authState,
+    operatorId: input.operatorId,
+  }, "本人工资条读取失败。");
+}
+
 export function syncOfficeAttendance(input = {}, options = {}) {
   return requestJson("/attendance/sync", {
     ...options,

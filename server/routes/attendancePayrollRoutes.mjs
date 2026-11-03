@@ -21,6 +21,17 @@ export async function handleAttendancePayrollReadRoutes({
     return true;
   }
 
+  if (url.pathname === "/api/payroll/me") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewOwnAttendance)) return true;
+    const runtimeUser = findRuntimeUser(workspace, authContext?.userId);
+    sendJson(response, 200, attendancePayrollService.buildOwnPayslip({
+      workspace,
+      authContext: { ...authContext, user: runtimeUser },
+      month: url.searchParams.get("month"),
+    }));
+    return true;
+  }
+
   if (url.pathname === "/api/payroll/workbench") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.previewPayroll)) return true;
     sendJson(response, 200, attendancePayrollService.buildPayrollWorkbench({

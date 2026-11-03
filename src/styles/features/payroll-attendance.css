@@ -227,6 +227,19 @@ button.payroll-position-row.selected { background: var(--blue-soft); box-shadow:
 .attendance-mobile-month dl > div { min-height: 58px; display: grid; align-content: center; gap: 4px; border-bottom: 1px solid var(--erp-mobile-field-border); }
 .attendance-mobile-month dt { color: var(--erp-mobile-field-muted); font-size: 11px; }
 .attendance-mobile-month dd { margin: 0; font-size: 13px; font-weight: 650; }
+.attendance-mobile-payslip { margin-top: 10px; padding: 16px 17px 12px; background: var(--erp-mobile-field-surface); }
+.attendance-mobile-payslip > header { display: flex; align-items: flex-start; justify-content: space-between; }
+.attendance-mobile-payslip > header span, .attendance-payslip-status { color: var(--erp-mobile-field-muted); font-size: 12px; }
+.attendance-mobile-payslip > header h2 { margin: 3px 0 0; font-size: 23px; }
+.attendance-mobile-payslip > header svg { color: var(--erp-mobile-field-accent); font-size: 21px; }
+.attendance-mobile-payslip p { margin: 8px 0 0; font-size: 12px; line-height: 1.5; }
+.attendance-mobile-payslip dl { margin: 8px 0 0; border-top: 1px solid var(--erp-mobile-field-border); }
+.attendance-mobile-payslip dl > div { min-height: 38px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--erp-mobile-field-border); }
+.attendance-mobile-payslip dt { color: var(--erp-mobile-field-muted); font-size: 12px; }
+.attendance-mobile-payslip dd { margin: 0; font-size: 13px; font-weight: 650; }
+.attendance-mobile-payslip dd.is-negative, .attendance-mobile-payslip .is-warning { color: var(--erp-mobile-field-warning); }
+.attendance-mobile-payslip dl > div.is-total dt { color: var(--erp-mobile-field-ink); font-weight: 650; }
+.attendance-payslip-reason, .attendance-payslip-yearend { padding: 8px 10px; border-radius: 8px; background: var(--erp-mobile-field-surface-muted); }
 .attendance-mobile-days { margin-top: 10px; padding: 0 17px 8px; }
 .attendance-mobile-days > header { min-height: 54px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--erp-mobile-field-border); }
 .attendance-mobile-days h2 { margin: 0; font-size: 16px; }
