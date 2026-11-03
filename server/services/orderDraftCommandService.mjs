@@ -7,6 +7,7 @@ import { buildOrderDraftQueuePlan } from "../orderDraftQueueDomain.mjs";
 import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
+import { INCOMING_ROLLS_QTY_BASIS, incomingRollCountOf, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
@@ -1266,6 +1267,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         style: line.style ?? "空白袋",
         print: printFlag ? "是" : "否",
         qty: ["number", "string"].includes(typeof line.qty) ? Number(line.qty) : 0,
+        ...normalizeDraftQtyBasis(line),
+        ...(line.printMethod ? { printMethod: String(line.printMethod) } : {}),
+        ...(Number.isSafeInteger(Number(line.printColorCount)) && Number(line.printColorCount) >= 1 ? { printColorCount: Number(line.printColorCount) } : {}),
         fulfillment: line.fulfillmentMethod ?? line.fulfillment ?? "待确认",
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),
@@ -1319,6 +1323,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
       handleColor: row.handleColor,
       style: row.style,
       qty: row.qty,
+      ...(row.qtyBasis ? { qtyBasis: row.qtyBasis, incomingRollCount: row.incomingRollCount } : {}),
+      ...(row.printMethod ? { printMethod: row.printMethod } : {}),
+      ...(row.printColorCount ? { printColorCount: row.printColorCount } : {}),
       fulfillmentMethod: row.fulfillment,
       latestNeededAt: row.latest,
       printFlag: row.print === "是",
@@ -1922,8 +1929,16 @@ function requireFunction(value, name) {
 
 function hasInvalidDraftQuantity(lines,{allowUnknown=false}={}) {
  return Array.isArray(lines) && lines.some(line=>{
+  // 按来料卷数下单的外加工行：数量 0、卷数有效即可（印完才知道数量）。
+  if(isValidIncomingRollsLine({ ...line, orderType: normalizeOrderType(line?.orderType ?? line?.productType) }))return false;
   const raw=line?.qty;
   if(allowUnknown && (raw===undefined || raw===null || raw==="" || raw===0))return false;
   return !["number","string"].includes(typeof raw) || !Number.isSafeInteger(Number(raw)) || Number(raw)<=0 || Number(raw)>2147483647;
  });
+}
+
+function normalizeDraftQtyBasis(line) {
+  const orderType = normalizeOrderType(line.orderType ?? line.productType);
+  if (orderType !== "external_print" || String(line.qtyBasis ?? "").trim() !== INCOMING_ROLLS_QTY_BASIS) return {};
+  return { qtyBasis: INCOMING_ROLLS_QTY_BASIS, incomingRollCount: incomingRollCountOf(line), qty: 0 };
 }

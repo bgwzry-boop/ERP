@@ -25,6 +25,7 @@ export function makeOrderLine(input) {
   };
   return {
     ...orderLine,
+    ...(input.qtyBasis === "incoming_rolls" ? { qtyBasis: "incoming_rolls", incomingRollCount: input.incomingRollCount } : {}),
     ...(input.artworkStatus ? { artworkStatus: input.artworkStatus } : {}),
     ...(input.artworkAttachment ? { artworkAttachment: input.artworkAttachment } : {}),
   };

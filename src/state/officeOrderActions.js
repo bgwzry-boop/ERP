@@ -86,6 +86,8 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
       artworkAttachment: row.artworkAttachment,
       note: getDraftNote(row),
       handleColor: getOptionalColor(row.handleColor),
+      qtyBasis: row.qtyBasis,
+      incomingRollCount: row.incomingRollCount,
     }),
   );
 

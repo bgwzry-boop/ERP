@@ -489,6 +489,9 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
         style: line.style ?? "空白袋",
         print,
         qty: Number(line.qty ?? 0),
+        ...(line.qtyBasis === "incoming_rolls" ? { qtyBasis: "incoming_rolls", incomingRollCount: Number(line.incomingRollCount ?? 0) } : {}),
+        ...(line.printMethod ? { printMethod: line.printMethod } : {}),
+        ...(Number(line.printColorCount) >= 1 ? { printColorCount: Number(line.printColorCount) } : {}),
         fulfillment: line.fulfillmentMethod ?? "待确认",
         latest: line.latestNeededAt ?? "待确认",
         printColor: line.printColor ?? (print === "是" ? "待确认" : "非印刷"),
@@ -614,7 +617,9 @@ function buildQueueIdempotencyKey(sourceMessages, sourceText) {
 
 export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
   return draftRows.map((row, index) => {
-    const printFlag = row.print === "是";
+    // 外加工印刷一定是印刷单。
+    const printFlag = row.print === "是" || normalizeOrderType(row.orderType) === "external_print";
+    const byIncomingRolls = normalizeOrderType(row.orderType) === "external_print" && row.qtyBasis === "incoming_rolls";
     return removeUndefinedFields({
       draftLineId: row.id ?? `DRAFT-LINE-${index + 1}`,
       customerId: row.customerId,
@@ -626,7 +631,11 @@ export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
       handleType: row.handle || "普通提",
       handleColor: row.handleColor || undefined,
       style: row.style || "空白袋",
-      qty: Number(row.qty ?? 0),
+      qty: byIncomingRolls ? 0 : Number(row.qty ?? 0),
+      qtyBasis: byIncomingRolls ? "incoming_rolls" : undefined,
+      incomingRollCount: byIncomingRolls ? Number(row.incomingRollCount ?? 0) : undefined,
+      printMethod: row.printMethod || undefined,
+      printColorCount: Number(row.printColorCount) >= 1 ? Number(row.printColorCount) : undefined,
       estimatedAmount: Number(row.amount ?? 0),
       fulfillmentMethod: row.fulfillment || "待确认",
       latestNeededAt: row.latest || "待确认",

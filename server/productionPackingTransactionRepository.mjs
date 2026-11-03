@@ -113,6 +113,10 @@ export function createLocalProductionPackingTransactionRepository() {
         inventoryLedgerEntries: input.inventoryLedgerEntries ?? [],
         operationLogId: input.operationLog?.id ?? "",
       });
+      if ((input.priceSnapshots ?? []).length) {
+        transaction.priceSnapshots = input.priceSnapshots.map((row) => structuredClone(row));
+        input.workspace.priceSnapshots = [...(input.workspace.priceSnapshots ?? []).filter((row) => !transaction.priceSnapshots.some((next) => next.priceSnapshotId === (row.priceSnapshotId ?? row.id))), ...transaction.priceSnapshots];
+      }
       applyProductionPackingWorkspaceMutation({
         workspace: input.workspace,
         productionTask: transaction.productionTask,
@@ -574,6 +578,7 @@ export function buildRecordProductionReportTransactionQuery(input) {
   if (!productionTask || !workshopReport || !operationLog) {
     throw new Error("Production task, workshop report, and operation log are required for production report transaction");
   }
+  const priceSnapshots = (input.priceSnapshots ?? []).map(normalizeActualPrintPriceSnapshot);
 
   const parameters = createPostgresParameterBinder();
   const writeGuardCtes = buildProductionWriteGuardCtes({
@@ -616,12 +621,16 @@ updated_inventory_items AS (
 inserted_inventory_ledger_entries AS (
   ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters, "write_guard")}
 ),
+inserted_price_snapshots AS (
+  ${buildInsertActualPrintPriceSnapshotsSql(priceSnapshots, parameters)}
+),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters, "write_guard")}
 )
 SELECT json_build_object(
   'productionTask', (SELECT result FROM upserted_production_task),
   'downstreamProductionTask', (SELECT result FROM inserted_downstream_task),
+  'priceSnapshots', (SELECT COALESCE(json_agg(result), '[]'::json) FROM inserted_price_snapshots),
   'todo', (SELECT result FROM inserted_todo),
   'workshopReport', (SELECT result FROM inserted_workshop_report),
   'orderLine', (SELECT result FROM updated_order_line),
@@ -1131,6 +1140,10 @@ function assertProductionStage(input) {
   const externalPrint = normalizeOrderType(input.orderLine?.orderType) === "external_print";
   const noStockEffects = !(input.inventoryAdjustments ?? []).length && !(input.inventoryReservations ?? []).length && !(input.inventoryLedgerEntries ?? []).length;
   if (task?.taskType === "丝印" && externalPrint && (!noStockEffects || !input.packingTask || input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
+  // Only an external print ordered by incoming rolls gets its price at completion.
+  if ((input.priceSnapshots ?? []).length && (!externalPrint || task?.taskType !== "丝印"
+    || String(input.orderLine?.qtyBasis ?? "") !== "incoming_rolls"
+    || input.priceSnapshots.some((row) => row.orderLineId !== lineId || row.chargeableQty !== input.workshopReport?.qualifiedQty))) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
   if (task?.taskType === "丝印" && !externalPrint && (!noStockEffects || input.packingTask || !input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
   const next = input.downstreamProductionTask;
   if (next && (task.taskType !== "丝印" || next.taskType !== "制袋" || next.orderLineId !== lineId || next.plannedQty !== input.workshopReport.qualifiedQty || (input.workspace?.productionTasks ?? []).some(t => (t.id ?? t.productionTaskId) === next.productionTaskId))) throw contractError("PRODUCTION_DOWNSTREAM_TASK_CONFLICT");
@@ -1139,4 +1152,44 @@ function assertProductionStage(input) {
 function assertNewWorkshopReport(input) {
  const reportId = input.workshopReport?.reportId;
  if ((input.workspace?.workshopReports ?? []).some(report => (report.reportId ?? report.id) === reportId)) throw contractError("PRODUCTION_REPORT_ALREADY_EXISTS");
+}
+
+// 按来料卷数下单的外加工：印完按实际数量定价的快照（负责人 2026-11-03）。只允许这一种类型。
+function normalizeActualPrintPriceSnapshot(row = {}) {
+  const snapshot = {
+    priceSnapshotId: String(row.priceSnapshotId ?? row.id ?? "").trim(),
+    orderLineId: String(row.orderLineId ?? "").trim(),
+    snapshotType: String(row.snapshotType ?? "").trim(),
+    versionNo: Number(row.versionNo ?? 1),
+    printPrice: Number(row.printPrice),
+    chargeableQty: Number(row.chargeableQty),
+    finalAmount: Number(row.finalAmount),
+    createdBy: String(row.createdBy ?? "").trim(),
+    createdAt: String(row.createdAt ?? "").trim(),
+    sourceEvidence: row.sourceEvidence && typeof row.sourceEvidence === "object" ? row.sourceEvidence : {},
+  };
+  if (!snapshot.priceSnapshotId || !snapshot.orderLineId || snapshot.snapshotType !== "actual_print_quantity"
+    || !(snapshot.printPrice > 0) || !Number.isSafeInteger(snapshot.chargeableQty) || snapshot.chargeableQty < 1
+    || !Number.isFinite(snapshot.finalAmount) || snapshot.finalAmount < 0) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
+  return snapshot;
+}
+
+function buildInsertActualPrintPriceSnapshotsSql(snapshots, parameters) {
+  if (!snapshots.length) return "SELECT NULL::json AS result WHERE false";
+  const values = snapshots.map((row) => `(
+    ${parameters.text(row.priceSnapshotId)}, ${parameters.text(row.orderLineId)}, ${parameters.text(row.snapshotType)},
+    ${parameters.integer(row.versionNo)}, 0::numeric, ${parameters.number(row.printPrice)}, 0::numeric, 0::numeric,
+    ${parameters.integer(row.chargeableQty)}, ${parameters.number(row.finalAmount)}, ${parameters.nullableText(row.createdBy)},
+    ${parameters.timestamp(row.createdAt)}, ${parameters.text(JSON.stringify(row.sourceEvidence))}::jsonb
+  )`).join(",\n");
+  return `INSERT INTO price_snapshots (
+  id, order_line_id, snapshot_type, version_no, bag_price, print_price, other_fee, adjustment_amount,
+  chargeable_qty, final_amount, created_by, created_at, source_evidence_json
+) SELECT input.* FROM (VALUES ${values}) AS input(
+  id, order_line_id, snapshot_type, version_no, bag_price, print_price, other_fee, adjustment_amount,
+  chargeable_qty, final_amount, created_by, created_at, source_evidence_json
+) CROSS JOIN write_guard AS guard
+WHERE guard.ok
+RETURNING json_build_object('priceSnapshotId', id, 'orderLineId', order_line_id, 'snapshotType', snapshot_type,
+  'printPrice', print_price, 'chargeableQty', chargeable_qty, 'finalAmount', final_amount) AS result`;
 }

@@ -1,3 +1,4 @@
+import { isValidIncomingRollsLine } from "../shared/externalPrintQuantity.js";
 import { latestPriceOrder } from "./orderPricingConfirmation.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -383,7 +384,11 @@ export async function buildOfficeDraftPricingQuote({
           422,
         );
     }
-    if (!resolved.chargeableQty && !override)
+    // 按来料卷数下单的外加工：下单时没有数量，印完按实际印好数量定档计费（负责人 2026-11-03）。
+    const pricedOnActualPrints = base?.sourceEvidence?.pricedOnActualPrints === true && isValidIncomingRollsLine(row);
+    if (pricedOnActualPrints && override)
+      throw fail("ORDER_PRICE_OVERRIDE_INVALID", "按来料卷数下单的外加工印完才有数量和金额，下单时不能改价。", 422);
+    if (!resolved.chargeableQty && !override && !pricedOnActualPrints)
       throw fail("ORDER_PRICE_SOURCE_REQUIRED", "本行缺少合法计价依据。");
     const finalAmount = money(
       (resolved.bagPrice + resolved.printPrice) * resolved.chargeableQty +

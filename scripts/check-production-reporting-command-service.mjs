@@ -376,6 +376,28 @@ workspace.productionTasks.push({ ...workspace.productionTasks.find((task) => tas
 const noMachineCount = await service.completeProductionReport({ workspace, productionTaskId: "PT-EXT2", operatorId: "U-WORKSHOP", body: { qualifiedQty: 4980 } });
 assert.equal(noMachineCount.response?.orderLineStatus, "待打包", JSON.stringify(noMachineCount));
 assert.equal(calls.report.at(-1).workshopReport.evidence.exceptionQty, 0);
+// 按来料卷数下单（同行送 10 卷料，不说印多少个）：印完按实际印好数量定档并计价。
+Object.assign(workspace.orderLines[0], { qty: 0, originalQty: 0, qtyBasis: "incoming_rolls", incomingRollCount: 10, printColor: "红/蓝", printSide: "单面" });
+workspace.priceSnapshots = [{ priceSnapshotId: "PS-CONFIRM", orderLineId: "OL-1", snapshotType: "order_confirm", chargeableQty: 0, finalAmount: 0,
+  sourceEvidence: { kind: "external_print_ladder", pricedOnActualPrints: true, colorCount: 2, printMethod: null, printSide: "单面" } }];
+workspace.productionTasks.push({ ...workspace.productionTasks.find((task) => task.productionTaskId === "PT-EXT"), id: "PT-ROLLS", productionTaskId: "PT-ROLLS", plannedQty: 0 });
+const rollsDone = await service.completeProductionReport({ workspace, productionTaskId: "PT-ROLLS", operatorId: "U-WORKSHOP", body: { qualifiedQty: 4960 } });
+assert.equal(rollsDone.response?.orderLineStatus, "待打包", JSON.stringify(rollsDone));
+const rollsInput = calls.report.at(-1);
+assert.equal(rollsInput.priceSnapshots.length, 1);
+const actualPrice = rollsInput.priceSnapshots[0];
+assert.deepEqual([actualPrice.snapshotType, actualPrice.chargeableQty, actualPrice.printPrice, actualPrice.finalAmount], ["actual_print_quantity", 4960, 0.18, 892.8],
+  "4960 good prints fall in the 2000–4999 tier: 0.09 × 2 colours");
+assert.equal(rollsInput.packingTask.plannedQty, 4960);
+assert.equal(rollsInput.workshopReport.evidence.pricedOnActualPrints, true);
+assert.equal(rollsInput.workshopReport.evidence.incomingRollCount, 10);
+const smallRun = { ...workspace.productionTasks.find((task) => task.productionTaskId === "PT-ROLLS"), id: "PT-ROLLS-2", productionTaskId: "PT-ROLLS-2" };
+workspace.productionTasks.push(smallRun);
+await service.completeProductionReport({ workspace, productionTaskId: "PT-ROLLS-2", operatorId: "U-WORKSHOP", body: { qualifiedQty: 800 } });
+assert.equal(calls.report.at(-1).priceSnapshots[0].printPrice, 0.18, "800 pieces without a chosen method default to 手工 single sided 0.09 × 2");
+delete workspace.orderLines[0].qtyBasis;
+delete workspace.orderLines[0].incomingRollCount;
+workspace.priceSnapshots = [];
 workspace.orderLines[0].qty = 100;
 workspace.orderLines[0].orderType = "定制印刷";
 

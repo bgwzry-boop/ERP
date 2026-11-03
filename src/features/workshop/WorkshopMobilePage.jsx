@@ -1,3 +1,4 @@
+import { incomingRollsLabel } from "../../../shared/externalPrintQuantity.js";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { isStockOrderType } from "../../../shared/orderRouting.js";
 import {
@@ -467,7 +468,7 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
                   rows={[
                     ["货品", `${selectedLine.product} / ${selectedLine.size}`],
                     ["颜色/单双面", `${getLineColorSpecLabel(selectedLine)} / ${getLinePrintSide(selectedLine)}`],
-                    ["数量", `${selectedLine.qty} 个`],
+                    ["数量", incomingRollsLabel(selectedLine) || `${selectedLine.qty} 个`],
                     ["交付", `${selectedLine.fulfillment} · ${selectedLine.latest}`],
                     ["库存键", selectedInventoryItem ? `${selectedInventoryItem.id} / ${selectedInventoryItem.zone}` : "未找到匹配库存键"],
                     ["跨日进度", formatProductionDailyProgressLabel(selectedLine) || "暂无日报数"],

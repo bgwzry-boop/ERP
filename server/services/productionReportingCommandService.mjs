@@ -1,4 +1,6 @@
 import { normalizeOrderType } from "../../shared/orderRouting.js";
+import { incomingRollCountOf, isIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
+import { LARGE_MACHINE_PRINT_PRICE_VERSION, printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 import { getBlockingProductionExceptions } from "../../shared/productionExceptionPolicy.js";
 export function createProductionReportingCommandService({
   buildOperationLog,
@@ -797,6 +799,14 @@ export function createProductionReportingCommandService({
         },
         reason: body.remark ?? "生产报工完成",
       });
+      // 按来料卷数下单的外加工：印完才有数量，按实际印好数量定档并生成计价快照（负责人 2026-11-03）。
+      const actualPrintPriceSnapshot = externalPrint && isIncomingRollsLine(beforeOrderLine)
+        ? buildActualPrintPriceSnapshot(workspace, beforeOrderLine, orderLineId, qualifiedQty, operatorId, completedAt, reportId)
+        : null;
+      if (actualPrintPriceSnapshot?.error) return actualPrintPriceSnapshot.error;
+      if (actualPrintPriceSnapshot) workshopReport.evidence = { ...workshopReport.evidence, pricedOnActualPrints: true,
+        incomingRollCount: incomingRollCountOf(beforeOrderLine), actualPrintPriceSnapshotId: actualPrintPriceSnapshot.priceSnapshotId,
+        actualPrintUnitPrice: actualPrintPriceSnapshot.printPrice, actualPrintAmount: actualPrintPriceSnapshot.finalAmount };
       const transaction = await workspace.productionPackingTransactionRepository.recordProductionReport({
         workspace,
         productionTask,
@@ -804,6 +814,7 @@ export function createProductionReportingCommandService({
         orderLine,
         packingTask,
         machineCapacityBaseline,
+        priceSnapshots: actualPrintPriceSnapshot ? [actualPrintPriceSnapshot] : [],
         inventoryReservations: reservation ? [reservation] : [],
         inventoryAdjustments: inventoryItem ? [
           {
@@ -823,6 +834,38 @@ export function createProductionReportingCommandService({
 
       return success(buildProductionReportResponse(transaction, { productionTaskId, orderLineId, inventoryItemId: inventoryItem?.id ?? "" }));
     },
+  };
+}
+
+function buildActualPrintPriceSnapshot(workspace, orderLine, orderLineId, actualQty, operatorId, createdAt, reportId) {
+  const confirmSnapshot = (workspace.priceSnapshots ?? []).find((row) => String(row.orderLineId ?? row.order_line_id ?? "") === orderLineId
+    && (row.sourceEvidence ?? row.source_evidence_json)?.pricedOnActualPrints === true);
+  const evidence = confirmSnapshot?.sourceEvidence ?? confirmSnapshot?.source_evidence_json ?? {};
+  const colorCount = Number(evidence.colorCount) || resolvePrintColorCount(orderLine);
+  if (!colorCount) return { error: { error: true, statusCode: 409, code: "PRODUCTION_EXTERNAL_PRINT_PRICE_UNKNOWN", message: "外加工印刷颜色数不清楚，不能按实际数量定价；请办公室先核对订单。" } };
+  const printSide = evidence.printSide ?? orderLine.printSide ?? "";
+  const method = evidence.printMethod ?? resolvePrintMethod({}, actualQty);
+  const printPrice = printUnitPriceFor({ orderedQty: actualQty, colorCount, method, printSide });
+  if (!(printPrice > 0)) return { error: { error: true, statusCode: 409, code: "PRODUCTION_EXTERNAL_PRINT_PRICE_UNKNOWN", message: "外加工印刷没有可用的阶梯价，请办公室先核对。" } };
+  const priceSnapshotId = `PS-ACTUAL-${orderLineId}`;
+  return {
+    priceSnapshotId,
+    id: priceSnapshotId,
+    orderLineId,
+    snapshotType: "actual_print_quantity",
+    versionNo: 1,
+    bagPrice: 0,
+    printPrice,
+    otherFee: 0,
+    adjustmentAmount: 0,
+    chargeableQty: actualQty,
+    finalAmount: Math.round((printPrice * actualQty + Number.EPSILON) * 100) / 100,
+    overrideReason: null,
+    createdBy: operatorId,
+    createdAt,
+    sourceEvidence: { kind: "external_print_actual_quantity", priceVersion: LARGE_MACHINE_PRINT_PRICE_VERSION, workshopReportId: reportId,
+      confirmPriceSnapshotId: confirmSnapshot?.priceSnapshotId ?? confirmSnapshot?.id ?? "", actualPrintedQty: actualQty, colorCount,
+      printMethod: method, printSide, billingBasis: "按实际印好数量定档并计费" },
   };
 }
 

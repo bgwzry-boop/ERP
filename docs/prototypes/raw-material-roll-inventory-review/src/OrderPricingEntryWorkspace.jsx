@@ -548,14 +548,7 @@ function OrderPricingEditor({
       privatePrint(line) &&
       !/已交付|已完成|已作废|取消/u.test(line.status || ""),
   );
-  const missing = rows.some(
-    (line) =>
-      !line.customerId ||
-      !line.size ||
-      !(line.color || line.bagColor) ||
-      !Number.isSafeInteger(Number(line.qty)) ||
-      Number(line.qty) < 1,
-  );
+  const missing = rows.some((line) => missingQuoteFields(line).length > 0);
   // Lines converted from a hold use the held stock; only the server can judge them, and it
   // answers ORDER_SHORTAGE_DECISION_REQUIRED if the hold no longer covers them.
   const shortageVisible = shortageAsked || rows.some(isLocalShortage);
@@ -670,7 +663,7 @@ function OrderPricingEditor({
                       <option value="stock_printed">印刷通货</option>
                       <option value="custom_print">定制印刷通货</option>
                       <option value="custom_special">特殊尺寸</option>
-                      <option value="external_print">外来袋印刷</option>
+                      <option value="external_print">外加工印刷（来料加工）</option>
                     </select>
                   </label>
                   <label>
@@ -688,17 +681,49 @@ function OrderPricingEditor({
                       onChange={(e) => update(index, "color", e.target.value)}
                     />
                   </label>
-                  <label>
-                    数量（个）
-                    <input
-                      aria-label={`第${index + 1}行数量`}
-                      inputMode="numeric"
-                      value={line.qty ?? ""}
-                      onChange={(e) =>
-                        update(index, "qty", Number(e.target.value))
-                      }
-                    />
-                  </label>
+                  {line.orderType === "external_print" ? (
+                    <label>
+                      数量按
+                      <select
+                        aria-label={`第${index + 1}行数量按`}
+                        value={byIncomingRolls(line) ? "incoming_rolls" : "pieces"}
+                        onChange={(e) => {
+                          // 同行只送卷料、不说印多少个：按来料卷数下单，印完按实际印好数量定价（负责人 2026-11-03）。
+                          const rolls = e.target.value === "incoming_rolls";
+                          update(index, "qtyBasis", rolls ? "incoming_rolls" : "");
+                          update(index, "qty", rolls ? 0 : "");
+                        }}
+                      >
+                        <option value="pieces">客户说了印多少个</option>
+                        <option value="incoming_rolls">只送卷料，按来料印</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  {byIncomingRolls(line) ? (
+                    <label>
+                      来料卷数
+                      <input
+                        aria-label={`第${index + 1}行来料卷数`}
+                        inputMode="numeric"
+                        value={line.incomingRollCount ?? ""}
+                        onChange={(e) =>
+                          update(index, "incomingRollCount", Number(e.target.value))
+                        }
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      数量（个）
+                      <input
+                        aria-label={`第${index + 1}行数量`}
+                        inputMode="numeric"
+                        value={line.qty ?? ""}
+                        onChange={(e) =>
+                          update(index, "qty", Number(e.target.value))
+                        }
+                      />
+                    </label>
+                  )}
                   <label>
                     提手
                     <select
@@ -1107,7 +1132,7 @@ function OrderPricingEditor({
                   </div>
                   <div>
                     <dt>计费数量</dt>
-                    <dd>{line.chargeableQty} 个</dd>
+                    <dd>{line.sourceEvidence?.base?.pricedOnActualPrints ? "按实际印好数量，印完定档计价" : `${line.chargeableQty} 个`}</dd>
                   </div>
                   <div>
                     <dt>其他费 / 增减额</dt>
@@ -1201,6 +1226,14 @@ function missingQuoteFields(line) {
   if (!line.customerId) lacks.push("客户");
   if (!line.size) lacks.push("规格");
   if (!(line.color || line.bagColor)) lacks.push("袋身颜色");
-  if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 1) lacks.push("数量");
+  if (byIncomingRolls(line)) {
+    const rolls = Number(line.incomingRollCount);
+    if (!Number.isSafeInteger(rolls) || rolls < 1 || rolls > 9999) lacks.push("来料卷数");
+  } else if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 1) lacks.push("数量");
   return lacks;
+}
+
+// 外加工按来料卷数下单：数量印完才有。
+function byIncomingRolls(line) {
+  return line?.orderType === "external_print" && line?.qtyBasis === "incoming_rolls";
 }

@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { findMiniappPriceItem, quoteMiniappCatalogPrice } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
-import { quoteLargeMachinePrint, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
+import { LARGE_MACHINE_PRINT_PRICE_VERSION, quoteLargeMachinePrint, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
+import { incomingRollCountOf, isIncomingRollsLine, isValidIncomingRollsLine } from "../shared/externalPrintQuantity.js";
 
 const clean = value => String(value ?? "").trim();
 const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -146,6 +147,15 @@ export function externalPrintPriceError(message) {
 function resolveExternalPrintRow(source, row) {
   const colorCount = resolvePrintColorCount(row);
   if (!colorCount) throw externalPrintPriceError("外加工印刷要先填清楚印几种颜色（例如「红/蓝」或颜色数），才能按阶梯价计价；草稿已保留。");
+  if (isIncomingRollsLine(row)) {
+    if (!isValidIncomingRollsLine(row)) throw externalPrintPriceError("按来料卷数下单要填来料卷数（1–9999 卷）；草稿已保留。");
+    // 数量印完才知道：单价档位、收费都按实际印好的数量，在印完时定价。
+    return { bagPrice: 0, printPrice: 0, otherFee: 0, amount: 0, priceVersion: LARGE_MACHINE_PRINT_PRICE_VERSION,
+      sourceEvidence: { kind: "external_print_ladder", priceTableId: source.priceTable.id, priceTableVersion: source.priceTable.versionNo,
+        priceVersion: LARGE_MACHINE_PRINT_PRICE_VERSION, pricedOnActualPrints: true, incomingRollCount: incomingRollCountOf(row),
+        colorCount, printMethod: row.printMethod ? resolvePrintMethod(row, 1) : null, printSide: String(row.printSide ?? ""),
+        billingBasis: "按来料卷数下单；印完按实际印好数量定档并计费" } };
+  }
   const quote = quoteLargeMachinePrint({ orderedQty: Number(row.qty), colorCount, method: resolvePrintMethod(row, Number(row.qty)), printSide: row.printSide });
   if (!quote) throw externalPrintPriceError("外加工印刷数量须为大于零的整数，才能按阶梯价计价；草稿已保留。");
   return { bagPrice: 0, printPrice: quote.unitPrice, otherFee: 0, amount: quote.amount,
