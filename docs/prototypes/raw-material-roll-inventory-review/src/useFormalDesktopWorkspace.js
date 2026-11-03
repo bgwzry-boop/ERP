@@ -266,7 +266,7 @@ export function useFormalDesktopWorkspace() {
     idempotencyKey,
   }, readOptions), []);
 
-  const confirmOrderDraft = useCallback(async ({ draftId, clientRevision = 0, rows, sourceText, pricingQuoteId, confirmedAffectedOrderLineIds, idempotencyKey }) => confirmOfficeDraftViaApi({
+  const confirmOrderDraft = useCallback(async ({ draftId, clientRevision = 0, rows, sourceText, pricingQuoteId, confirmedAffectedOrderLineIds, shortageDecision, idempotencyKey }) => confirmOfficeDraftViaApi({
     authState: authStateRef.current,
     operatorId,
     draftId,
@@ -274,7 +274,7 @@ export function useFormalDesktopWorkspace() {
     draftRows: rows,
     sourceText,
     confirmMode: "confirm_now",
-    pricingQuoteId, confirmedAffectedOrderLineIds, idempotencyKey,
+    pricingQuoteId, confirmedAffectedOrderLineIds, shortageDecision, idempotencyKey,
   }, readOptions), []);
 
   const previewOrderDraftSplit = useCallback(async (input) => previewOfficeDraftSplit({

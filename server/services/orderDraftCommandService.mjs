@@ -650,10 +650,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
       return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
     }
     const miniappPricing = await loadMiniappDraftLockedPricing(workspace.orderDraftRepository, previous, lines, workspace);
-    const cancellationResolution = resolveShortageCancellationApplications(workspace, draftId, lines);
-    if (cancellationResolution.error) return cancellationResolution.error;
+    const resolvedCancellations = resolveShortageCancellationApplications(workspace, draftId, lines);
+    if (resolvedCancellations.error) return resolvedCancellations.error;
+    // Owner decision 2026-10-29: on a stock shortage the office records the customer's choice.
+    const shortage = applyCustomerShortageDecision(workspace, resolvedCancellations, body.shortageDecision);
+    if (shortage.error) return shortage.error;
+    const cancellationResolution = shortage.resolution;
     if (!cancellationResolution.activeLines.length) {
       return closeFullyCancelledDraft({
+        reason: shortage.decision ? shortageDecisionReason(shortage.decision) : undefined,
+        shortageDecision: shortage.decision,
         workspace,
         previous,
         draftId,
@@ -669,7 +675,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
       try {
-        assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions);
+        // The quote covers the lines as priced; a shortage decision may only drop some of them.
+        assertOfficeQuoteMatches(officePriceQuote, previous, resolvedCancellations.activeLines, body, actionPermissions);
         if (officePriceQuote.relatedRevisions.length) {
           await refreshPrintingConsumptionFacts(workspace);
           const related = officePriceQuote.relatedRevisions.map(row => {
@@ -756,6 +763,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       status: confirmation.draftStatus,
       lines: mergeDraftLineChecks(cancellationResolution.lines, confirmation.checkedRows),
       generatedOrderNo: confirmation.orderNo,
+      ...(shortage.decision ? { recognitionContext: { ...previous.recognitionContext, shortageDecision: shortage.decision } } : {}),
       revision: expectedRevision,
       clientRevision: expectedRevision,
     });
@@ -769,7 +777,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         orderNo: confirmation.orderNo,
         lineCount: confirmation.newLines.length,
         cancelledDraftLineIds: cancellationResolution.cancelledDraftLineIds,
+        ...(shortage.decision ? { shortageDecision: shortage.decision } : {}),
       },
+      ...(shortage.decision ? { reason: shortageDecisionReason(shortage.decision) } : {}),
     });
     const priceSnapshots = confirmation.newLines.map((line) => ({
       ...toPriceSnapshot(line),
@@ -1139,6 +1149,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     expectedRevision,
     lines,
     cancellationIntents,
+    reason,
+    shortageDecision = null,
   }) {
     const cancelledDraft = buildDraftProjection(previous, {
       id: draftId,
@@ -1164,8 +1176,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
       action: "close_order_draft_shortage_cancellation",
       operatorId,
       before: summarizeDraft(previous),
-      after: { status: "库存不足取消", cancelledDraftLineIds: lines.map((line) => line.id) },
-      reason: "客户明确取消全部缺货/整单明细",
+      after: { status: "库存不足取消", cancelledDraftLineIds: lines.map((line) => line.id), ...(shortageDecision ? { shortageDecision } : {}) },
+      reason: reason || "客户明确取消全部缺货/整单明细",
     });
     const transaction = await workspace.orderDraftRepository.saveOrderDraft({
       workspace,
@@ -1647,6 +1659,71 @@ export function createOrderDraftCommandService(dependencies = {}) {
     return lines.map((line) => checkedById.get(line.id) ?? line);
   }
 
+  // Shortage = a stock line the current (hold-aware) inventory cannot cover; such a line is
+  // otherwise turned into production. The office picks what this customer wants this time:
+  //   cancel_whole     整单取消
+  //   ship_available   有什么发什么，缺的取消
+  //   split_produce    同意分批，缺的安排生产（the previous default）
+  // An older client that sends no decision keeps the previous default, recorded as such.
+  function applyCustomerShortageDecision(workspace, resolution, rawDecision) {
+    const activeLines = resolution.activeLines;
+    if (!activeLines.length) return { resolution, decision: null };
+    const holds = resolveTemporaryHoldConversions(workspace, activeLines);
+    if (holds.error) return { resolution, decision: null };
+    const preview = confirmDraftOrder({
+      draftRows: activeLines,
+      // Only the inventory verdict is used here; prices are resolved later for the kept lines.
+      resolveAmount: () => 0,
+      inventoryRecords: buildHoldAwareInventory(workspace.inventories, holds.byHoldId),
+      orderLines: workspace.orderLines,
+      fulfillments: workspace.fulfillments,
+      customers: workspace.customers,
+    });
+    const shortageLineIds = preview.checkedRows
+      .filter((row) => isStockOrderType(row.orderType) && String(row.inventory ?? "").startsWith("缺货"))
+      .map((row) => row.id);
+    if (!shortageLineIds.length) return { resolution, decision: null };
+    const choice = cleanCommandText(rawDecision?.choice);
+    const note = cleanCommandText(rawDecision?.note).slice(0, 500);
+    if (choice && !Object.hasOwn(SHORTAGE_DECISION_LABELS, choice)) {
+      return { error: businessError(422, "ORDER_SHORTAGE_DECISION_INVALID", "缺货处理只能选：整单取消 / 有什么发什么、缺的取消 / 同意分批、缺的安排生产。") };
+    }
+    // The desktop entry page always sends an object, so it must record the customer's answer;
+    // only an older client that sends nothing falls back to the previous default.
+    if (!choice && rawDecision && typeof rawDecision === "object") {
+      const described = activeLines
+        .filter((line) => shortageLineIds.includes(line.id))
+        .map((line) => [line.size, line.color, Number.isFinite(Number(line.qty)) ? `${line.qty}个` : ""].filter(Boolean).join(" "))
+        .join("；");
+      return { error: businessError(409, "ORDER_SHORTAGE_DECISION_REQUIRED", `库存不够：${described || "部分明细"}。请先问客户：整单取消、有什么发什么（缺的取消），还是同意分批（缺的安排生产），选好再确认下单。`) };
+    }
+    const decision = {
+      choice: choice || "split_produce",
+      label: SHORTAGE_DECISION_LABELS[choice || "split_produce"],
+      note,
+      shortageDraftLineIds: shortageLineIds,
+      source: choice ? "office_customer_choice" : "legacy_default_production",
+    };
+    if (decision.choice === "split_produce") return { resolution, decision };
+    const cancelled = new Set(decision.choice === "cancel_whole" ? activeLines.map((line) => line.id) : shortageLineIds);
+    const lines = resolution.lines.map((line) => cancelled.has(line.id)
+      ? { ...line, cancellationStatus: `客户选择：${decision.label}`, excludedFromConfirmation: true }
+      : line);
+    return {
+      decision,
+      resolution: {
+        ...resolution,
+        lines,
+        activeLines: lines.filter((line) => !line.excludedFromConfirmation),
+        cancelledDraftLineIds: [...new Set([...resolution.cancelledDraftLineIds, ...cancelled])],
+      },
+    };
+  }
+
+  function shortageDecisionReason(decision) {
+    return `缺货按客户意见：${decision.label}${decision.note ? `（${decision.note}）` : ""}`;
+  }
+
   function buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId) {
     const customerId = confirmation.newLines[0]?.customerId ?? body.customerId ?? "";
     return {
@@ -1662,6 +1739,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
     };
   }
 }
+
+const SHORTAGE_DECISION_LABELS = Object.freeze({
+  cancel_whole: "整单取消",
+  ship_available: "有什么发什么，缺的取消",
+  split_produce: "同意分批，缺的安排生产",
+});
 
 function cleanCommandText(value) {
   return String(value ?? "").trim();
