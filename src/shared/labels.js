@@ -188,6 +188,8 @@ export function getRequirementTagValue(value) {
 
 export function getStructuredRequirementTagValues(record = {}) {
   const values = [];
+  // 外加工印刷 = 客户送来的布料（负责人 2026-11-03）：放在第一位，提醒丝印工不要用本厂卷料。
+  if (["external_print", "外加工印刷", "外加工", "同行加工印刷"].includes(String(record.orderType ?? "").trim())) values.push("supplied-material");
   if (record.handle === "加长提" || record.handleType === "加长提") values.push("extended-handle");
   if (record.hasSnap === true || record.snap === true || record.snapRequirement === "按扣") values.push("snap");
   if (["customer_supplied", "supplied", "来料", "来料加工"].includes(record.materialSource)) values.push("supplied-material");

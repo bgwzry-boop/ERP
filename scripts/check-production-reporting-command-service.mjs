@@ -371,6 +371,11 @@ assert.equal(externalInput.workshopReport.processType, "丝印");
 assert.deepEqual([externalInput.workshopReport.evidence.externalPrint, externalInput.workshopReport.evidence.actualPrintedQty, externalInput.workshopReport.evidence.orderedQty, externalInput.workshopReport.evidence.exceptionQty],
   [true, 4960, 5000, 40]);
 assert.equal(externalInput.operationLog.action, "complete_external_print_report");
+// Without a machine count (the printer already subtracted set-up prints) the report still goes through.
+workspace.productionTasks.push({ ...workspace.productionTasks.find((task) => task.productionTaskId === "PT-EXT"), id: "PT-EXT2", productionTaskId: "PT-EXT2" });
+const noMachineCount = await service.completeProductionReport({ workspace, productionTaskId: "PT-EXT2", operatorId: "U-WORKSHOP", body: { qualifiedQty: 4980 } });
+assert.equal(noMachineCount.response?.orderLineStatus, "待打包", JSON.stringify(noMachineCount));
+assert.equal(calls.report.at(-1).workshopReport.evidence.exceptionQty, 0);
 workspace.orderLines[0].qty = 100;
 workspace.orderLines[0].orderType = "定制印刷";
 

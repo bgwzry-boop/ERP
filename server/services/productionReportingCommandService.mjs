@@ -649,7 +649,9 @@ export function createProductionReportingCommandService({
         }));
       }
       if (beforeTask.taskType !== "制袋" && !externalPrint) return businessError(409, "PRODUCTION_PROCESS_COMPLETION_UNSUPPORTED", "该工序不能按制袋成品完成合同报工。");
-      if (externalPrint) {
+      // The printer enters the final count after subtracting set-up test prints (owner 2026-11-03);
+      // a machine count is optional evidence, but when given it cannot be below the good prints.
+      if (externalPrint && body.machineCount !== undefined && body.machineCount !== null && body.machineCount !== "") {
         const reportedMachineCount = Number(body.machineCount);
         if (!Number.isSafeInteger(reportedMachineCount) || reportedMachineCount < qualifiedQty) {
           return businessError(422, "PRODUCTION_MACHINE_COUNT_INVALID", "丝印机器动作数必须为整数且不小于实际印好的数量。");
@@ -741,7 +743,7 @@ export function createProductionReportingCommandService({
       } : null;
       workshopReport.evidence = { ...workshopReport.evidence, inventoryCreated: Boolean(inventoryItem), reservationCreated: Boolean(reservation), packingTaskCreated: Boolean(packingTask),
         ...(externalPrint ? { externalPrint: true, actualPrintedQty: qualifiedQty, orderedQty: Number(beforeOrderLine.qty ?? beforeOrderLine.originalQty ?? 0),
-          exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? (Number(body.machineCount) - qualifiedQty)))),
+          exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? (Number(body.machineCount) - qualifiedQty)) || 0)),
           billingBasis: "按实际印好、交付的数量计费；单价档位按下单数量" } : {}) };
       const inventoryLedgerEntries = inventoryItem ? [
         {

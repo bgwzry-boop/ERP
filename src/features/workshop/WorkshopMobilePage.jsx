@@ -456,6 +456,11 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
               size="standard"
               stateLabel={selectedTaskStatus}
             />
+            {isSuppliedMaterialLine(selectedLine) ? (
+              <p className="workshop-supplied-material-warning" role="note">
+                <strong>来料加工</strong>：用客户送来的布料印，不要领本厂卷料。印完填的数量要先减掉调机试印的。
+              </p>
+            ) : null}
             {detailView === "任务" ? (
               <section className="mobile-role-stage mobile-role-summary-stage">
                 <InfoGrid
@@ -481,7 +486,7 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
                   <h3>车间报工</h3>
                   <div className="detail-form">
                     <label>
-                      <span>合格数量</span>
+                      <span>{isSuppliedMaterialLine(selectedLine) ? "实际印好数量（已减调机试印）" : "合格数量"}</span>
                       <input type="number" min="1" value={reportQualifiedQty} onChange={(event) => updateReportInput("qualifiedQty", event.target.value)} />
                     </label>
                     <label>
@@ -766,6 +771,11 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
       />
     </section>
   );
+}
+
+// 外加工印刷 = 客户送来的布料（负责人 2026-11-03）。
+function isSuppliedMaterialLine(line) {
+  return ["external_print", "外加工印刷", "外加工", "同行加工印刷"].includes(String(line?.orderType ?? "").trim());
 }
 
 function WorkshopTaskTagGroup({ line, stateLabel, size = "compact", className = "" }) {
