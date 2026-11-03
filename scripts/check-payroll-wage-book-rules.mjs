@@ -162,6 +162,11 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
   assert.match(page, /month: slip\.payrollMonth, revision: slip\.revision, netWage: slip\.netWage/, "the phone confirms the payslip on screen, not the month picker");
   assert.match(page, /state\.data\?\.month === month/, "a response for another month is never shown");
   assert.match(page, /key=\{month\}/, "switching month resets the payslip section");
+  // Slow-network regression (release review 2026-11-03): a late September confirmation reply
+  // must not reload the October page with September parameters.
+  assert.match(page, /const \{ month, authState, userId \} = viewRef\.current;/, "refresh always reads the month and session on screen");
+  assert.match(page, /viewRef\.current\.month !== month \|\| viewRef\.current\.authState !== authState\) return;/, "a stale read never overwrites the page");
+  assert.match(page, /if \(current\.month !== slip\.payrollMonth \|\| current\.authState !== sent\.authState \|\| current\.userId !== sent\.userId\) return "";/, "a late confirmation reply for another month or session triggers nothing");
 }
 
 // Year-end settlement: held month + deposit from paid months; deposit forfeited by early leavers.
