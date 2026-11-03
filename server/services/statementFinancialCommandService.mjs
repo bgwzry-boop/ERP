@@ -1,5 +1,5 @@
 import {resolveStatementVarianceHandling} from "../../shared/statementVarianceCatalog.js";
-import { missingUnderpaymentAudiences, ROUNDING_HANDLING_RESULT, UNDERPAYMENT_EFFECTIVE_STATUS } from "../../shared/statementUnderpaymentNotice.js";
+import { CUSTOMER_ROUNDING_REASON_KINDS, missingUnderpaymentAudiences, ROUNDING_HANDLING_RESULT, roundingShareOfBill, UNDERPAYMENT_EFFECTIVE_STATUS } from "../../shared/statementUnderpaymentNotice.js";
 import { createHash, randomUUID } from "node:crypto";
 import { getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
@@ -84,12 +84,19 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const underpaymentReason = String(body.remark ?? "").trim();
     let readNotices = null;
     let varianceRecord = null;
+    let roundingNote = underpaymentReason;
     if (Array.isArray(result.readNoticeInputs) && result.readNoticeInputs.length) {
       if (!underpaymentReason) return businessError(422, "STATEMENT_UNDERPAYMENT_REASON_REQUIRED", "登记抹零必须填写原因，不能无人知晓。");
+      const roundingReasonKind = String(body.roundingReasonKind ?? "").trim();
+      if (!CUSTOMER_ROUNDING_REASON_KINDS.includes(roundingReasonKind)) {
+        return businessError(422, "STATEMENT_ROUNDING_REASON_KIND_REQUIRED", "登记抹零必须选择原因：抹零头、订单有问题或其他。");
+      }
+      const roundingShare = roundingShareOfBill(nextStatement.roundingAmount, nextStatement.receivable);
+      roundingNote = `${roundingReasonKind}：${underpaymentReason}（抹零占账单 ${roundingShare}%）`;
       readNotices = result.readNoticeInputs.map((input) => ({
         ...buildTodo(workspace, input),
         id: `T-PAY-${identity}-${input.audience}`,
-        summary: `待阅·${input.audience}：操作人 ${operatorId}，抹零 ${nextStatement.roundingAmount}，实收 ${nextStatement.received}，应收 ${nextStatement.receivable}，账期已结清，原因 ${underpaymentReason}，时间 ${recordedAt}。知晓不改变实收和抹零。`,
+        summary: `待阅·${input.audience}：操作人 ${operatorId}，抹零 ${nextStatement.roundingAmount}（占账单 ${roundingShareOfBill(nextStatement.roundingAmount, nextStatement.receivable)}%），实收 ${nextStatement.received}，应收 ${nextStatement.receivable}，账期已结清，原因 ${roundingNote}，时间 ${recordedAt}。知晓不改变实收和抹零。`,
         handled: false,
       }));
       if (missingUnderpaymentAudiences(readNotices, statementId).length) {
@@ -101,7 +108,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
         paymentRecordId: `PAY-${identity}`,
         amount: Number(nextStatement.roundingAmount),
         handlingResult: ROUNDING_HANDLING_RESULT,
-        reason: underpaymentReason,
+        reason: roundingNote,
         status: "已生效",
         createdAt: recordedAt,
         attachmentId: attachmentValidation.attachmentIds[0] ?? "",

@@ -283,7 +283,7 @@ export async function recordOfficeStatementCustomerConfirmation(input, options =
 }
 
 export async function recordOfficeStatementPayment(input, options = {}) {
-  const { authState, statement, amount, reason = "", operatorId, method = "other", attachmentIds = [] } = input;
+  const { authState, statement, amount, reason = "", operatorId, method = "other", attachmentIds = [], roundingReasonKind = "" } = input;
 
   try {
     const response = await requestStatementApi(`/statements/${encodeURIComponent(statement.id)}/payments`, {
@@ -299,6 +299,7 @@ export async function recordOfficeStatementPayment(input, options = {}) {
         operatorId,
         attachmentIds,
         remark: reason,
+        ...(roundingReasonKind ? { roundingReasonKind } : {}),
       },
     });
     const json = await readJson(response);

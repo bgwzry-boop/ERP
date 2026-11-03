@@ -54,13 +54,28 @@ const missingReason = await service.recordPayment({
   body: { amount: 10500, expectedRevision: 1, idempotencyKey: "underpay-no-reason" },
 });
 assert.equal(missingReason.code, "STATEMENT_UNDERPAYMENT_REASON_REQUIRED");
+// Owner 2026-10-29 (option A): any 抹零 settles directly, but a reason kind must be chosen.
+const missingKind = await service.recordPayment({
+  workspace: workspace(open),
+  statementId: open.id,
+  operatorId: "U-OFFICE-A",
+  body: { amount: 10500, expectedRevision: 1, idempotencyKey: "underpay-no-kind", remark: "客户少付 350" },
+});
+assert.equal(missingKind.code, "STATEMENT_ROUNDING_REASON_KIND_REQUIRED");
+const badKind = await service.recordPayment({
+  workspace: workspace(open),
+  statementId: open.id,
+  operatorId: "U-OFFICE-A",
+  body: { amount: 10500, expectedRevision: 1, idempotencyKey: "underpay-bad-kind", remark: "客户少付 350", roundingReasonKind: "随便" },
+});
+assert.equal(badKind.code, "STATEMENT_ROUNDING_REASON_KIND_REQUIRED");
 
 const current = workspace(open);
 const payment = await service.recordPayment({
   workspace: current,
   statementId: open.id,
   operatorId: "U-OFFICE-A",
-  body: { amount: 10500, expectedRevision: 1, idempotencyKey: "underpay-10500", remark: "客户少付 350，按抹零结清", paidAt: recordedAt },
+  body: { amount: 10500, expectedRevision: 1, idempotencyKey: "underpay-10500", remark: "客户少付 350，按抹零结清", roundingReasonKind: "抹零头", paidAt: recordedAt },
 });
 assert.equal(payment.response.statementStatus, "已结清");
 assert.equal(payment.response.receivableAmount, 10850);
@@ -79,6 +94,7 @@ assert.equal(current.varianceRecords.length, 1);
 assert.equal(current.varianceRecords[0].amount, 350);
 assert.equal(current.varianceRecords[0].status, "已生效");
 assert.equal(current.varianceRecords[0].handlingResult, ROUNDING_HANDLING_RESULT);
+assert.equal(current.varianceRecords[0].reason, "抹零头：客户少付 350，按抹零结清（抹零占账单 3.23%）");
 assert.equal(current.varianceRecords[0].operatorId, "U-OFFICE-A");
 assert.equal(current.varianceRecords[0].createdAt, recordedAt);
 assert.deepEqual(payment.response.readNoticeIds.length, 3);
@@ -92,7 +108,8 @@ for (const audience of UNDERPAYMENT_READ_AUDIENCES) {
   assert.match(notice.summary, /抹零 350/);
   assert.match(notice.summary, /实收 10500/);
   assert.match(notice.summary, /应收 10850/);
-  assert.match(notice.summary, /原因 客户少付 350，按抹零结清/);
+  assert.match(notice.summary, /原因 抹零头：客户少付 350，按抹零结清（抹零占账单 3\.23%）/);
+  assert.match(notice.summary, /抹零 350（占账单 3\.23%）/);
   assert.match(notice.summary, new RegExp(recordedAt));
   assert.match(notice.summary, /知晓不改变实收和抹零/);
 }
@@ -166,3 +183,12 @@ assert.equal(detail.currentUnpaid, 0);
 assert.deepEqual(detail.annualReceiptSummary, { year: 2026, receivedTotal: 10500, roundingTotal: 350 });
 
 console.log("Underpayment checks passed: 10850 receivable, 10500 received, 350 rounding, period settled, three to-read notices, acknowledgement and later writes do not erase the columns, annual totals stay split.");
+
+{
+  const { CUSTOMER_ROUNDING_REASON_KINDS, roundingShareOfBill } = await import("../shared/statementUnderpaymentNotice.js");
+  assert.deepEqual([...CUSTOMER_ROUNDING_REASON_KINDS], ["抹零头", "订单有问题", "其他"]);
+  assert.equal(roundingShareOfBill(1, 11), 9.09);
+  assert.equal(roundingShareOfBill(100, 10100), 0.99);
+  assert.equal(roundingShareOfBill(500, 10500), 4.76);
+  assert.equal(roundingShareOfBill(0, 100), 0);
+}

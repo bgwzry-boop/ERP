@@ -81,6 +81,12 @@ try {
   }
   await page.getByLabel("本期累计实收（元）").fill("500.25");
   await page.getByLabel("到账及调整依据").fill("核对两次到账合计，测试记录");
+  // Owner 2026-10-29: a shortfall settles as 抹零 directly, but only with a chosen reason.
+  await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").check();
+  await page.getByRole("button", { name: "核对本次登记" }).click();
+  await page.getByText("实收低于应收，差额记为抹零：请选择抹零原因。", { exact: true }).waitFor();
+  await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").uncheck();
+  await page.getByLabel("抹零原因（实收低于应收时必选）").selectOption("抹零头");
   assert.equal(await page.locator('input[type="file"]').getAttribute("accept"), "image/*");
   await page.locator('input[type="file"]').setInputFiles({ name: "新到账截图.png", mimeType: "image/png", buffer: Buffer.from("synthetic-upload-contract") });
   await page.getByRole("button", { name: "上传凭证", exact: true }).click();
@@ -88,6 +94,7 @@ try {
   await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").check();
   await page.getByRole("button", { name: "核对本次登记" }).click();
   assert.match(await page.locator(".finance-confirm").innerText(), /300\.25/);
+  assert.match(await page.locator(".finance-confirm").innerText(), /占账单 49\.98%/);
   await page.getByRole("button", { name: "确认保存", exact: true }).click();
   await page.locator(".finance-action-panel [role=alert]").waitFor();
   await page.getByRole("button", { name: "确认保存", exact: true }).click();
@@ -95,6 +102,7 @@ try {
   assert.equal(paymentAttempts.length, 2);
   assert.deepEqual(paymentAttempts[0], paymentAttempts[1], "transport retry retains exact amount, time, revision and idempotency key");
   assert.equal(paymentAttempts[1].body.amount, 500.25, "current contract is cumulative, not additive");
+  assert.equal(paymentAttempts[1].body.roundingReasonKind, "抹零头");
   assert.deepEqual(paymentAttempts[1].body.attachmentIds, ["ATT-UPLOADED"]);
   const fileDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: "下载对账文件", exact: true }).click();

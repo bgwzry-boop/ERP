@@ -2,6 +2,16 @@ export const UNDERPAYMENT_READ_AUDIENCES = Object.freeze(["老板", "财务", "�
 export const UNDERPAYMENT_READ_TODO_TYPE = "收款少付差额待阅";
 export const UNDERPAYMENT_EFFECTIVE_STATUS = "少付已登记";
 export const ROUNDING_HANDLING_RESULT = "抹零";
+// Owner decision 2026-10-29 (option A): no fixed threshold; the office settles any customer
+// 抹零 directly but must pick one of these reasons, and management is notified with the share.
+export const CUSTOMER_ROUNDING_REASON_KINDS = Object.freeze(["抹零头", "订单有问题", "其他"]);
+
+export function roundingShareOfBill(rounding, receivable) {
+  const bill = Number(receivable);
+  const amount = Number(rounding);
+  if (!(bill > 0) || !(amount > 0)) return 0;
+  return Math.round((amount / bill) * 10000) / 100;
+}
 export const UNDERPAYMENT_SETTLED_STATUS = "已核销";
 
 const CHINA_OFFSET_MS = 8 * 60 * 60 * 1000;
