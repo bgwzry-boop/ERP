@@ -1,4 +1,5 @@
 import { getStatementPaymentBlocker } from "../../../../shared/statementPaymentPolicy.js";
+import { CUSTOMER_ROUNDING_REASON_KINDS, roundingShareOfBill } from "../../../../shared/statementUnderpaymentNotice.js";
 import { useRef, useState } from "react";
 import { markOfficeStatementSentViaApi, recordOfficeStatementCustomerConfirmation, recordOfficeStatementPayment } from "../../../../src/services/officeStatementApiClient.js";
 import { getAttachmentPurposeRule, uploadOfficeAttachmentFile } from "../../../../src/services/officeAttachmentApiClient.js";
@@ -19,6 +20,7 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
   const [person, setPerson] = useState("");
   const [channel, setChannel] = useState("wechat");
   const [reason, setReason] = useState("");
+  const [roundingKind, setRoundingKind] = useState("");
   const [sendId, setSendId] = useState(detail.sendRecordId || "");
   const [verified, setVerified] = useState(false);
   const [snapshot, setSnapshot] = useState(null);
@@ -39,10 +41,13 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
       if (confirmation && !detail.sendRecords.some(row => row.sendRecordId === sendId)) throw new Error("请选择本张对账单的发送记录。");
       if (files.some(row => !row.attachment)) throw new Error("还有附件未上传成功，请完成上传或移除后再核对。");
       const totals = payment ? paymentReview(detail, amount) : null;
+      // Owner 2026-10-29: any 抹零 settles directly, but the office must pick why.
+      if (totals?.unpaid > 0 && !CUSTOMER_ROUNDING_REASON_KINDS.includes(roundingKind)) throw new Error("实收低于应收，差额记为抹零：请选择抹零原因。");
       setSnapshot({
         idempotencyKey: createOfficeIdempotencyKey(), statement: structuredClone(detail), totals,
         input: {
           amount: totals?.amount, method, reason: reason.trim(), remark: reason.trim(),
+          ...(totals?.unpaid > 0 ? { roundingReasonKind: roundingKind } : {}),
           channel, sentTo: person.trim(), confirmedByCustomer: person.trim(), content: reason.trim(),
           sendRecordId: sendId, attachmentIds: [...selected],
           sentAt: new Date().toISOString(), confirmedAt: new Date().toISOString(), paidAt: new Date().toISOString(),
@@ -83,6 +88,7 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
       <div className="finance-form-grid">
         {payment ? <><label>本期累计实收（元）<input inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} placeholder={`原累计 ${money(detail.received)}`} /></label><label>收款方式<select value={method} onChange={event => setMethod(event.target.value)}><option value="bank_transfer">银行转账</option><option value="wechat">微信</option><option value="alipay">支付宝</option><option value="cash">现金</option><option value="other">其他</option></select></label></> : <><label>{confirmation ? "客户回复人" : "实际接收人"}<input value={person} onChange={event => setPerson(event.target.value)} /></label><label>实际渠道<select value={channel} onChange={event => setChannel(event.target.value)}><option value="wechat">微信</option><option value="email">邮件</option><option value="other">其他</option></select></label></>}
         {confirmation ? <label className="finance-span">关联发送记录<select value={sendId} onChange={event => setSendId(event.target.value)}><option value="">请选择</option>{detail.sendRecords.map(row => <option key={row.sendRecordId} value={row.sendRecordId}>{row.sendRecordId} · {row.sentTo || "未记录接收人"}</option>)}</select></label> : null}
+        {payment ? <label>抹零原因（实收低于应收时必选）<select value={roundingKind} onChange={event => setRoundingKind(event.target.value)}><option value="">没有抹零 / 请选择</option>{CUSTOMER_ROUNDING_REASON_KINDS.map(kind => <option key={kind} value={kind}>{kind}</option>)}</select></label> : null}
         <label className="finance-span">{payment ? "到账及调整依据" : confirmation ? "客户回复原文或准确摘要" : "发送说明"}<textarea value={reason} rows={3} onChange={event => setReason(event.target.value)} /></label>
       </div>
       {payment || confirmation ? <div className="finance-evidence-picker"><p>凭证附件（可选）</p>
@@ -91,7 +97,7 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
       </div> : null}
       <label className="finance-check"><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />{payment ? "已核对累计到账，确认没有遗漏以前的收款。" : confirmation ? "以上为客户实际回复，我已核对。" : "已实际发送给上述接收人。"}</label>
     </fieldset>
-    {snapshot ? <div className="finance-confirm" role="status"><h4>保存前核对</h4><p>{detail.customerName || detail.customerId} · {detail.id} · {detail.period || "未提供账期"}</p>{payment ? <><dl><div><dt>原累计实收</dt><dd>{money(snapshot.totals.previous)}</dd></div><div><dt>保存后累计</dt><dd>{money(snapshot.totals.amount)}</dd></div><div><dt>本次变更</dt><dd>{money(snapshot.totals.difference)}</dd></div><div><dt>{snapshot.totals.unpaid > 0 ? "抹零" : "剩余未收"}</dt><dd>{money(snapshot.totals.unpaid)}</dd></div></dl>{snapshot.totals.unpaid > 0 ? <p>确认后这笔差额记为抹零，账期立即结清。应收仍是原账单金额。</p> : null}</> : <p>{snapshot.input.sentTo} · {snapshot.input.reason}</p>}{snapshot.totals?.difference < 0 ? <p className="finance-warning">累计实收将减少，请再次确认调整依据。</p> : null}{snapshot.totals?.overpaid > 0 ? <p className="finance-warning">累计实收超过本期应收 {money(snapshot.totals.overpaid)}，请核对是否含其他账期款项。</p> : null}<div className="finance-actions"><button disabled={action.busy} onClick={() => setSnapshot(null)} type="button">返回修改</button><button className="primary" disabled={action.busy || action.conflict} onClick={submit} type="button">{action.busy ? "保存中…" : "确认保存"}</button></div></div> : <button className="primary" disabled={action.busy || !verified} onClick={review} type="button">核对本次登记</button>}
+    {snapshot ? <div className="finance-confirm" role="status"><h4>保存前核对</h4><p>{detail.customerName || detail.customerId} · {detail.id} · {detail.period || "未提供账期"}</p>{payment ? <><dl><div><dt>原累计实收</dt><dd>{money(snapshot.totals.previous)}</dd></div><div><dt>保存后累计</dt><dd>{money(snapshot.totals.amount)}</dd></div><div><dt>本次变更</dt><dd>{money(snapshot.totals.difference)}</dd></div><div><dt>{snapshot.totals.unpaid > 0 ? "抹零" : "剩余未收"}</dt><dd>{money(snapshot.totals.unpaid)}{snapshot.totals.unpaid > 0 ? ` · 占账单 ${roundingShareOfBill(snapshot.totals.unpaid, snapshot.statement.receivable)}%` : ""}</dd></div></dl>{snapshot.totals.unpaid > 0 ? <p>确认后这笔差额记为抹零（{snapshot.input.roundingReasonKind}），账期立即结清，并通知老板、财务、管理查看。应收仍是原账单金额。</p> : null}</> : <p>{snapshot.input.sentTo} · {snapshot.input.reason}</p>}{snapshot.totals?.difference < 0 ? <p className="finance-warning">累计实收将减少，请再次确认调整依据。</p> : null}{snapshot.totals?.overpaid > 0 ? <p className="finance-warning">累计实收超过本期应收 {money(snapshot.totals.overpaid)}，请核对是否含其他账期款项。</p> : null}<div className="finance-actions"><button disabled={action.busy} onClick={() => setSnapshot(null)} type="button">返回修改</button><button className="primary" disabled={action.busy || action.conflict} onClick={submit} type="button">{action.busy ? "保存中…" : "确认保存"}</button></div></div> : <button className="primary" disabled={action.busy || !verified} onClick={review} type="button">核对本次登记</button>}
     {action.error ? <p role="alert" className="finance-error">{action.error}</p> : null}
     {action.conflict ? <button disabled={action.busy} onClick={onRefresh} type="button">刷新账单后重新核对</button> : null}
   </section>;

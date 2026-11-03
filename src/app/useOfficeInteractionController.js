@@ -301,6 +301,7 @@ export function createOfficeInteractionActions({
         reason: payload.reason,
         operatorId: currentUserId,
         attachmentIds,
+        roundingReasonKind: payload.roundingReasonKind,
       });
       if (apiResult.blocked) {
         notify(getOfficeActionFailureFeedback("登记实收", apiResult));
