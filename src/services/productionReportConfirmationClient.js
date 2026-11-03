@@ -34,7 +34,9 @@ function getProductionGoodsSummary(orderLine = {}, payload = {}) {
 export function buildProductionReportSummary({ kind = "complete", productionTask = {}, orderLine = {}, customerName = "", payload = {} } = {}) {
   const isDailyProgress = kind === "daily";
   const isSpecial = normalizeOrderType(orderLine.orderType) === "custom_special";
-  const isSilkScreen = (productionTask.taskType ?? orderLine.productionTask?.taskType) === "丝印";
+  // 外加工印刷（同行送布料来）印完就是最后一道：去打包、交付，按实际印好数量收费。
+  const isExternalPrint = normalizeOrderType(orderLine.orderType) === "external_print";
+  const isSilkScreen = (productionTask.taskType ?? orderLine.productionTask?.taskType) === "丝印" && !isExternalPrint;
   const plannedQty = toNonNegativeInteger(productionTask.plannedQty ?? productionTask.qty ?? orderLine.qty ?? orderLine.originalQty);
   const qualifiedQty = toNonNegativeInteger(payload.dailyQualifiedQty ?? payload.qualifiedQty, plannedQty);
   const exceptionQty = toNonNegativeInteger(payload.exceptionQty);
@@ -47,13 +49,14 @@ export function buildProductionReportSummary({ kind = "complete", productionTask
 
   return {
     isSilkScreenCompletion: isSilkScreen && !isDailyProgress,
-    title: isDailyProgress ? "确认提交当日报数" : isSilkScreen ? "这批印完了吗？" : "确认完成生产报工",
-    confirmLabel: isDailyProgress ? "确认提交当日报数" : isSilkScreen ? "确认印完，交给制袋" : "确认完成生产报工",
+    isExternalPrintCompletion: isExternalPrint && !isDailyProgress,
+    title: isDailyProgress ? "确认提交当日报数" : isSilkScreen || isExternalPrint ? "这批印完了吗？" : "确认完成生产报工",
+    confirmLabel: isDailyProgress ? "确认提交当日报数" : isSilkScreen ? "确认印完，交给制袋" : isExternalPrint ? "确认印完，去打包交付" : "确认完成生产报工",
     fields: [
       { label: "生产任务", value: getProductionTaskLabel(productionTask, orderLine, payload) },
       { label: "客户", value: cleanText(customerName) || cleanText(orderLine.customerName) || "客户待确认" },
       { label: "货品", value: getProductionGoodsSummary(orderLine, payload) },
-      { label: isDailyProgress ? "当日合格/计划" : isSilkScreen ? "交给制袋/订单计划" : "合格/计划", value: qualifiedQuantityText },
+      { label: isDailyProgress ? "当日合格/计划" : isSilkScreen ? "交给制袋/订单计划" : isExternalPrint ? "实际印好/下单数量" : "合格/计划", value: qualifiedQuantityText },
       { label: "异常/废品", value: `${exceptionQty} 个` },
       { label: "机器计数", value: machineCount === null ? "未填（仅作凭证）" : `${machineCount} 次（仅作凭证）` },
     ],
@@ -67,6 +70,10 @@ export function buildProductionReportSummary({ kind = "complete", productionTask
           `确认后结束丝印任务，将 ${qualifiedQty} 个交给制袋并等待排产。`,
           "与订单计划的数量差异交办公室跟进；异常/废品数量单独记录。",
           "不生成成品库存、占用或打包任务；保留报工和操作日志。",
+        ] : isExternalPrint ? [
+          `确认后结束外加工丝印，将实际印好的 ${qualifiedQty} 个转入打包和交付。`,
+          "按实际印好、交付的数量收费，单价档位按下单数量；印坏的不收费。",
+          "布料是客户的，不生成本厂成品库存；保留报工和操作日志。",
         ] : [
           "将完成生产任务，并写入合格数量和异常数量报工记录。",
           isSpecial ? `将把 ${qualifiedQty} 个合格品按订单转入打包，不建立通货库存。` : `将把 ${qualifiedQty} 个合格品入库并占用给当前订单，同时写入库存流水。`,

@@ -49,12 +49,9 @@ export function createProductionReportingCommandService({
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
-      if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
-        return businessError(
-          409,
-          "PRODUCTION_PROGRESS_EXTERNAL_PROCESSING_NOT_SUPPORTED",
-          "External-processing print service tasks do not use workshop daily progress.",
-        );
+      // 外加工印刷（同行送布料来，在本厂丝印车间印）只有丝印一道工序。
+      if (normalizeOrderType(beforeOrderLine.orderType) === "external_print" && beforeTask.taskType !== "丝印") {
+        return businessError(409, "PRODUCTION_EXTERNAL_PRINT_PROCESS_INVALID", "外加工印刷只有丝印工序，不能按其他工序报进度。");
       }
 
       const dailyQualifiedQty = Math.trunc(Number(body.dailyQualifiedQty ?? body.qualifiedQty ?? 0));
@@ -526,19 +523,22 @@ export function createProductionReportingCommandService({
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
-      if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
-        return businessError(
-          409,
-          "PRODUCTION_REPORT_EXTERNAL_PROCESSING_NOT_INVENTORY",
-          "External-processing print service reports do not create finished-goods inventory.",
-        );
+      // Owner 2026-11-03: peers' cloth is printed in our silk-screen workshop. Printing is the only
+      // process: no bag-making task and no finished-goods stock. The good pieces go to packing and
+      // delivery, and the customer is billed for what is delivered (unit price × actual good prints).
+      const externalPrint = normalizeOrderType(beforeOrderLine.orderType) === "external_print";
+      if (externalPrint && beforeTask.taskType !== "丝印") {
+        return businessError(409, "PRODUCTION_EXTERNAL_PRINT_PROCESS_INVALID", "外加工印刷只有丝印工序，不能按制袋完工，也不会生成成品库存。");
+      }
+      if (externalPrint && cleanText(body.inventoryItemId)) {
+        return businessError(409, "PRODUCTION_REPORT_EXTERNAL_PROCESSING_NOT_INVENTORY", "外加工印刷不建立本厂成品库存。");
       }
       const qualifiedQty = Number(body.qualifiedQty ?? 0);
       if (!Number.isSafeInteger(qualifiedQty) || qualifiedQty <= 0) {
         return businessError(422, "VALIDATION_ERROR", "qualifiedQty must be greater than 0.");
       }
       if (!cleanText(beforeTask.machineId)) return businessError(409, "PRODUCTION_MACHINE_ASSIGNMENT_REQUIRED", "任务尚未排定机台，不能确认工序完成。");
-      if (beforeTask.taskType === "丝印") {
+      if (beforeTask.taskType === "丝印" && !externalPrint) {
         const machineCount = Number(body.machineCount);
         if (!Number.isSafeInteger(machineCount) || machineCount < qualifiedQty) {
           return businessError(422, "PRODUCTION_MACHINE_COUNT_INVALID", "丝印机器动作数必须为整数且不小于预计合格数量。");
@@ -648,8 +648,14 @@ export function createProductionReportingCommandService({
           orderLineId
         }));
       }
-      if (beforeTask.taskType !== "制袋") return businessError(409, "PRODUCTION_PROCESS_COMPLETION_UNSUPPORTED", "该工序不能按制袋成品完成合同报工。");
-      const customSpecial = normalizeOrderType(beforeOrderLine.orderType) === "custom_special";
+      if (beforeTask.taskType !== "制袋" && !externalPrint) return businessError(409, "PRODUCTION_PROCESS_COMPLETION_UNSUPPORTED", "该工序不能按制袋成品完成合同报工。");
+      if (externalPrint) {
+        const reportedMachineCount = Number(body.machineCount);
+        if (!Number.isSafeInteger(reportedMachineCount) || reportedMachineCount < qualifiedQty) {
+          return businessError(422, "PRODUCTION_MACHINE_COUNT_INVALID", "丝印机器动作数必须为整数且不小于实际印好的数量。");
+        }
+      }
+      const customSpecial = normalizeOrderType(beforeOrderLine.orderType) === "custom_special" || externalPrint;
       if (customSpecial && cleanText(body.inventoryItemId)) return businessError(409, "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY", "特殊尺寸按订单生产，不建立通货库存。");
       const inventoryItem = customSpecial ? null : body.inventoryItemId
         ? findInventoryItem(workspace, body.inventoryItemId)
@@ -700,7 +706,7 @@ export function createProductionReportingCommandService({
         },
         createdAt: completedAt,
       };
-      const machineCapacityBaseline = buildProductionMachineCapacityBaseline({
+      const machineCapacityBaseline = externalPrint ? null : buildProductionMachineCapacityBaseline({
         productionTask,
         workshopReport,
         orderLine: beforeOrderLine,
@@ -733,7 +739,10 @@ export function createProductionReportingCommandService({
         createdBy: operatorId,
         createdAt: completedAt,
       } : null;
-      workshopReport.evidence = { ...workshopReport.evidence, inventoryCreated: Boolean(inventoryItem), reservationCreated: Boolean(reservation), packingTaskCreated: Boolean(packingTask) };
+      workshopReport.evidence = { ...workshopReport.evidence, inventoryCreated: Boolean(inventoryItem), reservationCreated: Boolean(reservation), packingTaskCreated: Boolean(packingTask),
+        ...(externalPrint ? { externalPrint: true, actualPrintedQty: qualifiedQty, orderedQty: Number(beforeOrderLine.qty ?? beforeOrderLine.originalQty ?? 0),
+          exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? (Number(body.machineCount) - qualifiedQty)))),
+          billingBasis: "按实际印好、交付的数量计费；单价档位按下单数量" } : {}) };
       const inventoryLedgerEntries = inventoryItem ? [
         {
           ledgerId: body.inboundLedgerId ?? nextPlainId("LEDGER", `${reportId}-IN`),
@@ -771,7 +780,7 @@ export function createProductionReportingCommandService({
       const operationLog = buildOperationLog(workspace, {
         targetType: "production_task",
         targetId: productionTaskId,
-        action: "complete_production_report",
+        action: externalPrint ? "complete_external_print_report" : "complete_production_report",
         operatorId,
         before: beforeTask,
         after: {

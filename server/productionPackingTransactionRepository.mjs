@@ -1,3 +1,4 @@
+import { normalizeOrderType } from "../shared/orderRouting.js";
 import { createPackageGroupRepository } from "./packageGroupRepository.mjs";
 import { getBlockingProductionExceptions } from "../shared/productionExceptionPolicy.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -1126,7 +1127,11 @@ function assertProductionStage(input) {
   if (existing && (["已完成","异常暂停","数量差异待处理","已作废"].includes(existing.taskStatus ?? existing.status) || existing.taskType !== task.taskType)) throw contractError("ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT");
   const lineId = task?.orderLineId;
   if (input.workshopReport?.processType !== task?.taskType || input.workshopReport?.orderLineId !== lineId || (input.orderLine && (input.orderLine.orderLineId ?? input.orderLine.id) !== lineId)) throw contractError("PRODUCTION_TASK_BINDING_MISMATCH");
-  if (task?.taskType === "丝印" && ((input.inventoryAdjustments ?? []).length || (input.inventoryReservations ?? []).length || (input.inventoryLedgerEntries ?? []).length || input.packingTask || !input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
+  // 外加工印刷: printing is the final process — packing next, no bag-making task, no stock.
+  const externalPrint = normalizeOrderType(input.orderLine?.orderType) === "external_print";
+  const noStockEffects = !(input.inventoryAdjustments ?? []).length && !(input.inventoryReservations ?? []).length && !(input.inventoryLedgerEntries ?? []).length;
+  if (task?.taskType === "丝印" && externalPrint && (!noStockEffects || !input.packingTask || input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
+  if (task?.taskType === "丝印" && !externalPrint && (!noStockEffects || input.packingTask || !input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
   const next = input.downstreamProductionTask;
   if (next && (task.taskType !== "丝印" || next.taskType !== "制袋" || next.orderLineId !== lineId || next.plannedQty !== input.workshopReport.qualifiedQty || (input.workspace?.productionTasks ?? []).some(t => (t.id ?? t.productionTaskId) === next.productionTaskId))) throw contractError("PRODUCTION_DOWNSTREAM_TASK_CONFLICT");
 }

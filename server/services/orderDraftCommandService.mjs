@@ -1434,11 +1434,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
   function buildProductionTasks(orderLines, operatorId) {
     return orderLines
       .filter((line) => requiresProductionOrderType(line.orderType, line.inventory) || /补印/.test(String(line.status ?? "")))
-      .filter((line) => normalizeOrderType(line.orderType) !== "external_print")
       .map((line) => {
         const productionTaskId = nextPlainId("PT", line.id);
         const orderType = normalizeOrderType(line.orderType);
-        const taskType = orderType === "stock_printed" || orderType === "custom_print" || line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
+        // 外加工印刷 only goes through the silk-screen workshop (no bag-making, no stock).
+        const taskType = orderType === "external_print" || orderType === "stock_printed" || orderType === "custom_print" || line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
         return {
           productionTaskId,
           bizNo: productionTaskId,

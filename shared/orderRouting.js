@@ -46,7 +46,8 @@ export function isStockOrderType(value) {
 
 export function requiresProductionOrderType(value, inventory = "") {
   const type = normalizeOrderType(value);
-  if (type === "custom_print" || type === "custom_special") return true;
+  // 外加工印刷 is printed in our own silk-screen workshop (owner 2026-11-03), so it is scheduled too.
+  if (type === "custom_print" || type === "custom_special" || type === "external_print") return true;
   return isStockOrderType(type) && String(inventory).startsWith("缺货");
 }
 

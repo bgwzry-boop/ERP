@@ -54,12 +54,9 @@ export function createProductionSchedulingCommandService({
       const orderLineId = cleanText(beforeTask.orderLineId ?? beforeTask.lineId);
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
       if (!beforeOrderLine) return notFound("ORDER_LINE_NOT_FOUND");
-      if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
-        return businessError(
-          409,
-          "PRODUCTION_SCHEDULE_EXTERNAL_PROCESSING_NOT_SUPPORTED",
-          "External-processing print service tasks are not published to the in-house workshop task pool.",
-        );
+      // Owner 2026-11-03: peers' cloth is printed on our own silk-screen machines; only printing applies.
+      if (String(beforeOrderLine.orderType ?? "").includes("外加工") && cleanText(body.processType ?? beforeTask.taskType) !== "丝印") {
+        return businessError(409, "PRODUCTION_EXTERNAL_PRINT_PROCESS_INVALID", "外加工印刷只排丝印机，不排制袋。");
       }
 
       const expectedRevision = requirePositiveExpectedRevision(body.expectedRevision);
