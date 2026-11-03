@@ -3,6 +3,7 @@
 // hire month, the next month held back, both settled at year end.
 import assert from "node:assert/strict";
 import { calculatePayrollEstimate, createAttendancePayrollService, resolveNewHireWithholding, validatePayrollPolicy } from "../server/services/attendancePayrollService.mjs";
+import { buildRecordPayslipAcknowledgementQuery, createLocalAttendancePayrollRepository } from "../server/attendancePayrollRepository.mjs";
 import { PAYROLL_NEW_HIRE_INSURANCE_DEPOSIT, PAYROLL_POSITION_CATALOG, payrollPositionPolicyRates } from "../shared/payrollPositionCatalog.js";
 
 const performance = Object.fromEntries(PAYROLL_POSITION_CATALOG.map((position) => [position.key, position.monthlyPerformance]));
@@ -122,6 +123,30 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
   assert.equal(november.payslip.payableNow, 0);
   assert.deepEqual(november.yearEndSettlement, { year: "2026", insuranceDeposit: 952, heldWage: 5000, total: 5952 });
   assert.deepEqual(november.availableMonths, ["2026-11", "2026-10"]);
+
+  // The employee confirms the revision they see (replaces 工资确认签名).
+  workspace.attendancePayrollRepository = createLocalAttendancePayrollRepository();
+  workspace.payslipAcknowledgements = [];
+  assert.equal(november.payslip.acknowledgedAt, "");
+  await assert.rejects(service.acknowledgeOwnPayslip({ workspace, authContext: auth, body: { month: "2026-11", revision: 2 } }),
+    (error) => error.code === "PAYSLIP_REVISION_CHANGED", "a draft or other revision cannot be confirmed");
+  await assert.rejects(service.acknowledgeOwnPayslip({ workspace, authContext: auth, body: { month: "2026-12", revision: 1 } }),
+    (error) => error.code === "PAYSLIP_NOT_AVAILABLE");
+  const confirmed = await service.acknowledgeOwnPayslip({ workspace, authContext: { user: { employeeId: "E9", userId: "U-E9" } }, body: { month: "2026-11", revision: 1 } });
+  assert.equal(confirmed.acknowledgement.payrollLineId, "L11");
+  assert.equal(confirmed.acknowledgement.netWage, 5000);
+  assert.equal(confirmed.acknowledgement.payableNow, 0);
+  assert.equal(confirmed.acknowledgement.acknowledgedBy, "U-E9");
+  const again = await service.acknowledgeOwnPayslip({ workspace, authContext: auth, body: { month: "2026-11", revision: 1 } });
+  assert.equal(again.replayed, true);
+  assert.equal(workspace.payslipAcknowledgements.length, 1, "confirming twice keeps one record");
+  assert.equal(service.buildOwnPayslip({ workspace, authContext: auth, month: "2026-11" }).payslip.acknowledgedAt, confirmed.acknowledgement.acknowledgedAt);
+  workspace.employees.push({ id: "E8", name: "其他员工" });
+  assert.equal(service.buildOwnPayslip({ workspace, authContext: { user: { employeeId: "E8" } }, month: "2026-11" }).payslip, null,
+    "another employee never sees or confirms E9's payslip");
+  const query = buildRecordPayslipAcknowledgementQuery({ acknowledgement: confirmed.acknowledgement });
+  assert.match(query.text, /payroll_runs\.status IN \('reviewed', 'locked', 'paid'\)/);
+  assert.match(query.text, /ON CONFLICT \(payroll_line_id\) DO NOTHING/);
 }
 
 console.log("Payroll wage-book rules passed: position 绩效 defaults, probation allowance, no overtime premium, driver days, new-hire deposit and held month.");

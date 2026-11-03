@@ -21,6 +21,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     buildEmployeeAttendance,
     buildOwnAttendance,
     buildOwnPayslip,
+    acknowledgeOwnPayslip,
     buildPayrollWorkbench,
     buildPayrollReadiness,
     precheckAttendanceSync,
@@ -52,12 +53,7 @@ export function createAttendancePayrollService(dependencies = {}) {
   // Online payslip (owner decision 2026-10-29): an employee sees only their own
   // line from the latest reviewed / locked / paid revision of the month. Drafts stay hidden.
   function buildOwnPayslip({ workspace, authContext, month } = {}) {
-    const employeeId = cleanText(
-      authContext?.user?.employeeId ?? authContext?.employeeId ?? authContext?.user?.employee_id,
-    );
-    if (!employeeId) {
-      throw businessError(403, "PAYSLIP_SELF_EMPLOYEE_ID_REQUIRED", "当前登录账号尚未绑定正式员工编号，无法查看本人工资条。");
-    }
+    const employeeId = requireOwnEmployeeId(authContext);
     const employee = findEmployee(workspace, employeeId);
     if (!employee) throw businessError(404, "ATTENDANCE_EMPLOYEE_NOT_FOUND", "员工档案不存在。");
     const safeMonth = normalizeMonth(month, now());
@@ -80,6 +76,10 @@ export function createAttendancePayrollService(dependencies = {}) {
         heldWage: round(sum.heldWage + nonNegativeNumber(item.line.calculation?.withholding?.heldWage), 2),
       }), { insuranceDeposit: 0, heldWage: 0 });
     const payslip = selected ? projectPayslip(selected, workspace) : null;
+    if (payslip) {
+      const acknowledgement = (workspace.payslipAcknowledgements ?? []).find((item) => item.payrollLineId === selected.line.id);
+      payslip.acknowledgedAt = cleanText(acknowledgement?.acknowledgedAt);
+    }
     return {
       month: safeMonth,
       employee: { employeeId, name: cleanText(employee.name), roleName: cleanText(employee.roleName) },
@@ -87,6 +87,37 @@ export function createAttendancePayrollService(dependencies = {}) {
       availableMonths: [...latestByMonth.keys()].sort().reverse(),
       yearEndSettlement: { year, ...yearEndSettlement, total: round(yearEndSettlement.insuranceDeposit + yearEndSettlement.heldWage, 2) },
     };
+  }
+
+  // Replaces the 工资确认签名 column of the wage book (owner 2026-11-03): the employee confirms
+  // exactly the revision they are looking at; a newer revision needs a new confirmation.
+  async function acknowledgeOwnPayslip({ workspace, authContext, body = {}, operatorId = "" } = {}) {
+    const employeeId = requireOwnEmployeeId(authContext);
+    const view = buildOwnPayslip({ workspace, authContext, month: body.month });
+    const slip = view.payslip;
+    if (!slip) throw businessError(409, "PAYSLIP_NOT_AVAILABLE", "本月工资还没有复核，暂时不能确认。");
+    if (Number(body.revision) !== slip.revision) {
+      throw businessError(409, "PAYSLIP_REVISION_CHANGED", "工资条已经更新，请刷新后看清楚再确认。");
+    }
+    if (slip.acknowledgedAt) return { acknowledgement: { acknowledgedAt: slip.acknowledgedAt }, replayed: true };
+    const run = (workspace.payrollRuns ?? []).find((item) => item.payrollMonth === slip.payrollMonth && Number(item.revision) === slip.revision);
+    const line = (workspace.payrollLines ?? []).find((item) => item.payrollRunId === run?.id && item.employeeId === employeeId);
+    if (!run || !line) throw businessError(409, "PAYSLIP_NOT_AVAILABLE", "本月工资还没有复核，暂时不能确认。");
+    return workspace.attendancePayrollRepository.recordPayslipAcknowledgement({
+      workspace,
+      acknowledgement: {
+        id: `PSA-${randomUUID()}`,
+        payrollLineId: line.id,
+        payrollRunId: run.id,
+        employeeId,
+        payrollMonth: slip.payrollMonth,
+        revision: slip.revision,
+        netWage: slip.netWage,
+        payableNow: slip.payableNow,
+        acknowledgedBy: cleanText(authContext?.user?.userId ?? authContext?.userId) || cleanText(operatorId),
+        acknowledgedAt: now().toISOString(),
+      },
+    });
   }
 
   function buildEmployeeAttendance({ workspace, employeeId, month, selfView = false } = {}) {
@@ -823,7 +854,7 @@ export function createAttendancePayrollService(dependencies = {}) {
       ["leaveDeduction", "请假/缺勤扣款"], ["otherDeduction", "其他扣款"],
       ["grossWage", "应发工资"], ["netWage", "实发工资"],
       ["insuranceDepositWithheld", "保险押金（年底结算）"], ["heldWage", "压月工资（年底结算）"],
-      ["payableNow", "本次发放"],
+      ["payableNow", "本次发放"], ["acknowledgedAt", "工资确认（员工手机）"],
     ].map(([key, label]) => ({ key, label }));
     const rows = (workspace.payrollLines ?? [])
       .filter((line) => line.payrollRunId === payrollRunId)
@@ -846,6 +877,8 @@ export function createAttendancePayrollService(dependencies = {}) {
           netWage: nonNegativeNumber(line.netWage),
           insuranceDepositWithheld: nonNegativeNumber(line.calculation?.withholding?.insuranceDepositWithheld),
           heldWage: nonNegativeNumber(line.calculation?.withholding?.heldWage),
+          acknowledgedAt: cleanText((workspace.payslipAcknowledgements ?? [])
+            .find((item) => item.payrollLineId === line.id)?.acknowledgedAt).slice(0, 10),
           payableNow: line.calculation?.withholding
             ? nonNegativeNumber(line.calculation.withholding.payableNow)
             : nonNegativeNumber(line.netWage),
@@ -1494,6 +1527,16 @@ function payrollMonthDateBounds(month) {
   const startDate = `${year}-${String(monthNumber).padStart(2, "0")}-01`;
   const endDate = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
   return { startDate, endDate };
+}
+
+function requireOwnEmployeeId(authContext) {
+  const employeeId = cleanText(
+    authContext?.user?.employeeId ?? authContext?.employeeId ?? authContext?.user?.employee_id,
+  );
+  if (!employeeId) {
+    throw businessError(403, "PAYSLIP_SELF_EMPLOYEE_ID_REQUIRED", "当前登录账号尚未绑定正式员工编号，无法查看本人工资条。");
+  }
+  return employeeId;
 }
 
 function projectPayslip({ line, run }, workspace) {

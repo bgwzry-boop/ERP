@@ -36,6 +36,16 @@ export function getMyOfficePayslip(input = {}, options = {}) {
   }, "本人工资条读取失败。");
 }
 
+export function acknowledgeMyOfficePayslip(input = {}, options = {}) {
+  return requestJson("/payroll/me/acknowledge", {
+    ...options,
+    authState: input.authState,
+    operatorId: input.operatorId,
+    method: "POST",
+    body: { month: input.month, revision: input.revision },
+  }, "工资条确认失败。");
+}
+
 export function syncOfficeAttendance(input = {}, options = {}) {
   return requestJson("/attendance/sync", {
     ...options,

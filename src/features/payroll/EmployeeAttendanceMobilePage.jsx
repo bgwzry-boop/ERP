@@ -1,7 +1,7 @@
 import { findAttendanceDay } from "./attendanceMobilePresentation.js";
 import { useEffect, useRef, useState } from "react";
 import { CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, FileDoneOutlined, ReloadOutlined, WarningOutlined } from "@ant-design/icons";
-import { getMyOfficeAttendance, getMyOfficePayslip } from "../../services/officeAttendancePayrollApiClient.js";
+import { acknowledgeMyOfficePayslip, getMyOfficeAttendance, getMyOfficePayslip } from "../../services/officeAttendancePayrollApiClient.js";
 
 export function EmployeeAttendanceMobilePage({ authState, currentUser }) {
   const requestVersion = useRef(0);
@@ -50,7 +50,16 @@ export function EmployeeAttendanceMobilePage({ authState, currentUser }) {
           <div className="attendance-mobile-pay"><span>所选月份暂估工资</span><strong>{data?.payrollEstimate ? formatMoney(data.payrollEstimate.netWage) : "待计薪规则"}</strong><small>{data?.payrollEstimate ? "仅按已确认工时计算，非最终工资" : "计薪规则发布后显示；系统不会使用演示金额"}</small></div>
           <dl><div><dt>考勤天数</dt><dd>{data?.summary?.attendanceDayCount || 0} 天</dd></div><div><dt>待复核</dt><dd>{data?.summary?.pendingExceptionCount || 0} 天</dd></div><div><dt>考勤身份</dt><dd>{data?.summary?.attendanceMapped ? "已关联" : "未关联"}</dd></div><div><dt>预计排除</dt><dd>{data?.summary?.estimatedExcludedDayCount || 0} 天</dd></div></dl>
         </section>
-        <PayslipSection month={month} state={payslip} />
+        <PayslipSection
+          month={month}
+          state={payslip}
+          onConfirm={async (slip) => {
+            const result = await acknowledgeMyOfficePayslip({ authState, operatorId: currentUser?.userId, month, revision: slip.revision });
+            if (result.blocked) return result.error?.message || "工资条确认失败。";
+            await refresh();
+            return "";
+          }}
+        />
         <section className="attendance-mobile-days"><header><h2>每日打卡与工时</h2><span>{data?.days?.length || 0} 天</span></header>{data?.days?.length ? data.days.map((day) => <article key={day.workDate}><div><strong>{day.workDate.slice(5)}</strong><small>{weekday(day.workDate)}</small></div><div className="attendance-day-times">{day.punchTimes.map((time, index) => <span key={`${day.workDate}-${time}-${index}`}>{time}</span>)}</div><div><strong>{formatHours(day.status === "pending_review" ? 0 : day.workMinutes)}</strong><small className={day.status === "pending_review" ? "is-warning" : ""}>{day.statusLabel}</small></div></article>) : <div className="attendance-mobile-empty">所选月份还没有已关联的正式打卡记录。</div>}</section>
         <section className="attendance-mobile-note"><WarningOutlined /><p>原始打卡记录不能由员工修改。漏卡、临时离厂或时间异常由管理人员保留说明后复核，工资只采用确认后的工时。</p></section>
       </>}
@@ -59,9 +68,21 @@ export function EmployeeAttendanceMobilePage({ authState, currentUser }) {
 }
 
 // Online payslip: only reviewed / paid wages appear; deposit and held month wait for year end.
-function PayslipSection({ month, state }) {
+function PayslipSection({ month, state, onConfirm }) {
   const slip = state.data?.payslip;
   const yearEnd = state.data?.yearEndSettlement;
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
+  async function confirm() {
+    if (!slip || confirming) return;
+    setConfirming(true);
+    setConfirmError("");
+    try {
+      setConfirmError(await onConfirm?.(slip) || "");
+    } finally {
+      setConfirming(false);
+    }
+  }
   return <section className="attendance-mobile-payslip" aria-label="本人工资条">
     <header><div><span>{formatMonth(month)} · 工资条</span><h2>{slip ? formatMoney(slip.payableNow) : "—"}</h2></div><FileDoneOutlined /></header>
     {state.loading ? <p role="status">正在读取工资条…</p> : state.error ? <p className="is-warning" role="alert">{state.error}</p> : !slip ? <p>本月工资还没有复核，复核后在这里显示工资条。</p> : <>
@@ -73,6 +94,13 @@ function PayslipSection({ month, state }) {
         {slip.heldWage ? <div><dt>压月工资（年底结算）</dt><dd className="is-negative">{formatMoney(-slip.heldWage)}</dd></div> : null}
       </dl>
       {slip.adjustmentReason ? <p className="attendance-payslip-reason">调整说明：{slip.adjustmentReason}</p> : null}
+      {slip.acknowledgedAt
+        ? <p className="attendance-payslip-confirmed"><CheckCircleOutlined /> 已于 {slip.acknowledgedAt.slice(0, 10)} 确认工资条无误</p>
+        : <>
+          <button className="attendance-payslip-confirm" disabled={confirming} onClick={confirm} type="button">{confirming ? "正在确认…" : "核对无误，确认工资条"}</button>
+          <p className="attendance-payslip-hint">有疑问请先找办公室核对，不要点确认。</p>
+        </>}
+      {confirmError ? <p className="is-warning" role="alert">{confirmError}</p> : null}
     </>}
     {yearEnd?.total ? <p className="attendance-payslip-yearend">{yearEnd.year} 年待年底结算 {formatMoney(yearEnd.total)}（保险押金 {formatMoney(yearEnd.insuranceDeposit)} + 压月工资 {formatMoney(yearEnd.heldWage)}）</p> : null}
   </section>;
