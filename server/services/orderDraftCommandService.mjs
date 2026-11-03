@@ -1684,8 +1684,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const activeLines = resolution.activeLines;
     if (!activeLines.length) return { resolution, decision: null };
     const holds = resolveTemporaryHoldConversions(workspace, activeLines);
-    if (holds.error) return { resolution, decision: null };
-    const preview = confirmDraftOrder({
+    // A hold problem is reported by the confirmation itself; a whole-order cancel does not need stock.
+    if (holds.error && cleanCommandText(rawDecision?.choice) !== "cancel_whole") return { resolution, decision: null };
+    const preview = holds.error ? { checkedRows: [] } : confirmDraftOrder({
       draftRows: activeLines,
       // Only the inventory verdict is used here; prices are resolved later for the kept lines.
       resolveAmount: () => 0,
@@ -1697,11 +1698,15 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const shortageLineIds = preview.checkedRows
       .filter((row) => isStockOrderType(row.orderType) && String(row.inventory ?? "").startsWith("缺货"))
       .map((row) => row.id);
-    if (!shortageLineIds.length) return { resolution, decision: null };
     const choice = cleanCommandText(rawDecision?.choice);
     const note = cleanCommandText(rawDecision?.note).slice(0, 500);
     if (choice && !Object.hasOwn(SHORTAGE_DECISION_LABELS, choice)) {
       return { error: businessError(422, "ORDER_SHORTAGE_DECISION_INVALID", "缺货处理只能选：整单取消 / 有什么发什么、缺的取消 / 同意分批、缺的安排生产。") };
+    }
+    if (!shortageLineIds.length) {
+      // A customer who said "cancel the whole order" has cancelled it, even if stock arrived
+      // before the office pressed confirm. The other two answers only concern short lines.
+      if (choice !== "cancel_whole") return { resolution, decision: null };
     }
     // The desktop entry page always sends an object, so it must record the customer's answer;
     // only an older client that sends nothing falls back to the previous default.
@@ -1718,6 +1723,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       note,
       shortageDraftLineIds: shortageLineIds,
       source: choice ? "office_customer_choice" : "legacy_default_production",
+      ...(shortageLineIds.length ? {} : { stockCoveredAtConfirm: true }),
     };
     if (decision.choice === "split_produce") return { resolution, decision };
     const cancelled = new Set(decision.choice === "cancel_whole" ? activeLines.map((line) => line.id) : shortageLineIds);

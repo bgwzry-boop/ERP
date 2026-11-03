@@ -686,6 +686,15 @@ async function checkCustomerShortageDecision() {
     shortageLineIds = new Set();
     const plain = await confirmWithShortage({ choice: "", note: "" }, "shortage-none");
     assert.ok(plain.result.response.orderId, "没有缺货时不用选");
+    // GPT regression 2026-11-03: the customer chose 整单取消, then stock arrived before confirm.
+    const restockedBefore = calls.confirmations.length;
+    const restocked = await confirmWithShortage({ choice: "cancel_whole", note: "客户说不要了" }, "shortage-restocked-cancel");
+    assert.equal(restocked.result.response?.closedWithoutOrder, true, JSON.stringify(restocked.result));
+    assert.equal(calls.confirmations.length, restockedBefore, "客户已整单取消，库存补足也不能生成订单");
+    assert.match(JSON.stringify(calls.draftSaves.at(-1)), /stockCoveredAtConfirm/);
+    const restockedShip = await confirmWithShortage({ choice: "ship_available" }, "shortage-restocked-ship");
+    assert.equal(calls.confirmations.at(-1).orderLines.length, 2, "库存已够时有什么发什么就是全发");
+    assert.ok(restockedShip.result.response.orderId);
     shortageLineIds = noShortage;
 
     const confirmationsBefore = calls.confirmations.length;

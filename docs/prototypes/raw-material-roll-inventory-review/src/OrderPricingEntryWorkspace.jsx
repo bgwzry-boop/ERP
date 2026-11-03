@@ -455,7 +455,7 @@ function OrderPricingEditor({
         sourceText: source,
         pricingQuoteId: quote?.quoteId,
         confirmedAffectedOrderLineIds: affected,
-        shortageDecision: { choice: shortageChoice, note: shortageNote.trim() },
+        shortageDecision: currentShortageDecision(),
         idempotencyKey: nextKey("confirm"),
       },
       (input) => formal.actions.confirmOrderDraft(input),
@@ -560,6 +560,10 @@ function OrderPricingEditor({
   // answers ORDER_SHORTAGE_DECISION_REQUIRED if the hold no longer covers them.
   const shortageVisible = shortageAsked || rows.some(isLocalShortage);
   const shortageMissing = shortageVisible && !shortageChoice;
+  // A choice left over from an earlier shortage must not travel once the block is hidden.
+  const currentShortageDecision = () => shortageVisible
+    ? { choice: shortageChoice, note: shortageNote.trim() }
+    : { choice: "", note: "" };
   const chooseShortage = (key, value) => {
     if (frozenRequest.current || complete) return;
     requests.current.confirm = null;
