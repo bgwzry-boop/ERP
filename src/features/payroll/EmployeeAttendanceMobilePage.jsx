@@ -8,16 +8,21 @@ export function EmployeeAttendanceMobilePage({ authState, currentUser }) {
   const [month, setMonth] = useState(() => currentMonth());
   const [state, setState] = useState({ loading: true, data: null, error: "" });
   const [payslip, setPayslip] = useState({ loading: true, data: null, error: "" });
+  // The latest month and session on screen. A late reply for another month or an earlier
+  // session must never reload this page with stale parameters (release review 2026-11-03).
+  const viewRef = useRef({ month, authState, userId: currentUser?.userId });
+  viewRef.current = { month, authState, userId: currentUser?.userId };
 
   async function refresh() {
+    const { month, authState, userId } = viewRef.current;
     const version = ++requestVersion.current;
     setState({ loading: true, data: null, error: "" });
     setPayslip({ loading: true, data: null, error: "" });
     const [result, payslipResult] = await Promise.all([
-      getMyOfficeAttendance({ authState, operatorId: currentUser?.userId, month }),
-      getMyOfficePayslip({ authState, operatorId: currentUser?.userId, month }),
+      getMyOfficeAttendance({ authState, operatorId: userId, month }),
+      getMyOfficePayslip({ authState, operatorId: userId, month }),
     ]);
-    if (version !== requestVersion.current) return;
+    if (version !== requestVersion.current || viewRef.current.month !== month || viewRef.current.authState !== authState) return;
     setPayslip(payslipResult.blocked
       ? { loading: false, data: null, error: payslipResult.error?.message || "本人工资条读取失败。" }
       : { loading: false, data: payslipResult.data, error: "" });
@@ -56,7 +61,11 @@ export function EmployeeAttendanceMobilePage({ authState, currentUser }) {
           state={payslip}
           onConfirm={async (slip) => {
             // Confirm exactly the payslip on screen: its own month, revision and amount, never the picker's month.
-            const result = await acknowledgeMyOfficePayslip({ authState, operatorId: currentUser?.userId, month: slip.payrollMonth, revision: slip.revision, netWage: slip.netWage });
+            const sent = viewRef.current;
+            const result = await acknowledgeMyOfficePayslip({ authState: sent.authState, operatorId: sent.userId, month: slip.payrollMonth, revision: slip.revision, netWage: slip.netWage });
+            // A late reply after switching month or account must not touch the page now on screen.
+            const current = viewRef.current;
+            if (current.month !== slip.payrollMonth || current.authState !== sent.authState || current.userId !== sent.userId) return "";
             if (result.blocked) return result.error?.message || "工资条确认失败。";
             await refresh();
             return "";
