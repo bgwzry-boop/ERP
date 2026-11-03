@@ -4454,6 +4454,7 @@ try {
       operatorId: "U-SPOOFED",
       attachmentIds: [paymentAttachment.attachmentId],
       remark: "API skeleton check",
+      roundingReasonKind: "抹零头",
     },
     { headers: { "x-erp-user-id": "U-FINANCE-A" } },
   );
