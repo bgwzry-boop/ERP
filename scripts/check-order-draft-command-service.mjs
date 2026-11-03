@@ -138,6 +138,7 @@ await checkPartialShortageCancellation();
 await checkFullyCancelledDraft();
 await checkUnresolvedShortageCancellation();
 await checkCustomerShortageDecision();
+await checkSplitCustomerShortageDecision();
 await checkBlockedConfirmation();
 await checkValidation();
 
@@ -711,6 +712,66 @@ async function checkCustomerShortageDecision() {
     const legacy = await confirmWithShortage(undefined, "shortage-legacy");
     assert.ok(legacy.result.response.orderId);
     assert.match(JSON.stringify(calls.confirmations.at(-1)), /legacy_default_production/);
+  } finally {
+    shortageLineIds = new Set();
+  }
+}
+
+async function confirmSplitWithShortage(shortageDecision, key) {
+  confirmationMode = "success";
+  const workspace = buildWorkspace();
+  const firstLine = { ...buildRequestLine(), recognitionEvidence: { originalOrderGroupId: "ODG-SERVICE-001" } };
+  const secondLine = {
+    ...buildSecondRequestLine(),
+    fulfillmentMethod: "送货",
+    latestNeededAt: "后天",
+    recognitionEvidence: { originalOrderGroupId: "ODG-SERVICE-001" },
+  };
+  const preview = await service.previewOrderDraftSplit({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { expectedRevision: 1, lines: [firstLine, secondLine] },
+  });
+  assert.equal(preview.response.splitPlan.groups.length, 2);
+  return service.confirmSplitOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      expectedRevision: 1,
+      lines: [firstLine, secondLine],
+      splitPlanHash: preview.response.splitPlan.planHash,
+      idempotencyKey: key,
+      ...(shortageDecision === undefined ? {} : { shortageDecision }),
+    },
+  });
+}
+
+// The same customer choice applies when the office confirms by customer/delivery groups.
+async function checkSplitCustomerShortageDecision() {
+  shortageLineIds = new Set(["DRAFT-SERVICE-001-02"]);
+  try {
+    const unanswered = await confirmSplitWithShortage({ choice: "", note: "" }, "split-shortage-unanswered");
+    assert.equal(unanswered.code, "ORDER_SHORTAGE_DECISION_REQUIRED");
+
+    const ship = await confirmSplitWithShortage({ choice: "ship_available", note: "先发有的" }, "split-shortage-ship");
+    assert.equal(ship.response.splitConfirmed, true, JSON.stringify(ship));
+    assert.equal(ship.response.orderIds.length, 1, "缺货那组取消后只剩一张订单");
+    const shipInput = calls.confirmations.at(-1);
+    assert.equal(shipInput.orderLines.length, 1);
+    assert.doesNotMatch(JSON.stringify(shipInput.orderLines), /白色/);
+    assert.equal(shipInput.orderDraft.recognitionContext.shortageDecision.choice, "ship_available");
+    assert.equal(shipInput.operationLog.reason, "缺货按客户意见：有什么发什么，缺的取消（先发有的）");
+
+    const confirmationsBefore = calls.confirmations.length;
+    const whole = await confirmSplitWithShortage({ choice: "cancel_whole" }, "split-shortage-whole");
+    assert.equal(whole.response.closedWithoutOrder, true, JSON.stringify(whole));
+    assert.equal(calls.confirmations.length, confirmationsBefore);
+
+    const split = await confirmSplitWithShortage({ choice: "split_produce" }, "split-shortage-produce");
+    assert.equal(split.response.orderIds.length, 2);
+    assert.equal(calls.confirmations.at(-1).orderDraft.recognitionContext.shortageDecision.choice, "split_produce");
   } finally {
     shortageLineIds = new Set();
   }

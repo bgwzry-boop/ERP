@@ -939,10 +939,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
       return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
     }
     const miniappPricing = await loadMiniappDraftLockedPricing(workspace.orderDraftRepository, previous, lines, workspace);
-    const cancellationResolution = resolveShortageCancellationApplications(workspace, draftId, lines);
-    if (cancellationResolution.error) return cancellationResolution.error;
+    const resolvedCancellations = resolveShortageCancellationApplications(workspace, draftId, lines);
+    if (resolvedCancellations.error) return resolvedCancellations.error;
+    // Owner decision 2026-10-29: the customer's shortage choice applies to split confirmation too.
+    const shortage = applyCustomerShortageDecision(workspace, resolvedCancellations, body.shortageDecision);
+    if (shortage.error) return shortage.error;
+    const cancellationResolution = shortage.resolution;
     if (!cancellationResolution.activeLines.length) {
       return closeFullyCancelledDraft({
+        reason: shortage.decision ? shortageDecisionReason(shortage.decision) : undefined,
+        shortageDecision: shortage.decision,
         workspace,
         previous,
         draftId,
@@ -953,12 +959,13 @@ export function createOrderDraftCommandService(dependencies = {}) {
         cancellationIntents: cancellationResolution.appliedIntents,
       });
     }
-    const reviewError = assertNoPendingFieldReviews(cancellationResolution.activeLines);
+    const reviewError = assertNoPendingFieldReviews(resolvedCancellations.activeLines);
     if (reviewError) return reviewError;
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
       try {
-        assertOfficeQuoteMatches(officePriceQuote, previous, cancellationResolution.activeLines, body, actionPermissions);
+        // The quote covers the lines as quoted, before the customer's shortage choice dropped any.
+        assertOfficeQuoteMatches(officePriceQuote, previous, resolvedCancellations.activeLines, body, actionPermissions);
         if (officePriceQuote.relatedRevisions.length) {
           await refreshPrintingConsumptionFacts(workspace);
           const related = officePriceQuote.relatedRevisions.map(row => {
@@ -982,13 +989,18 @@ export function createOrderDraftCommandService(dependencies = {}) {
         return { ...businessError(error.statusCode, error.code, error.message), details: { draftId } };
       }
     }
-    const splitPlan = buildOrderDraftSplitPlan({
+    // The office reviewed the plan before the shortage choice; check that plan, then run the
+    // plan for the lines the customer still wants.
+    const reviewedSplitPlan = buildOrderDraftSplitPlan({
       draftId,
       revision: expectedRevision,
-      lines: cancellationResolution.lines,
+      lines: resolvedCancellations.lines,
     });
-    const splitPlanError = assertOrderDraftSplitPlan(splitPlan, body.splitPlanHash);
+    const splitPlanError = assertOrderDraftSplitPlan(reviewedSplitPlan, body.splitPlanHash);
     if (splitPlanError) return splitPlanError;
+    const splitPlan = shortage.resolution === resolvedCancellations
+      ? reviewedSplitPlan
+      : { ...buildOrderDraftSplitPlan({ draftId, revision: expectedRevision, lines: cancellationResolution.lines }), planHash: reviewedSplitPlan.planHash };
     const holdResolution = resolveTemporaryHoldConversions(workspace, cancellationResolution.activeLines);
     if (holdResolution.error) return holdResolution.error;
 
@@ -1033,6 +1045,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       generatedOrderNos: orderNos,
       splitPlanHash: splitPlan.planHash,
       revision: expectedRevision,
+      ...(shortage.decision ? { recognitionContext: { ...(previous.recognitionContext ?? {}), shortageDecision: shortage.decision } } : {}),
       clientRevision: expectedRevision,
     });
     const operationLog = buildOperationLog(workspace, {
@@ -1048,7 +1061,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         groupCount: splitPlan.groups.length,
         lineCount: newLines.length,
         cancelledDraftLineIds: cancellationResolution.cancelledDraftLineIds,
+        shortageDecision: shortage.decision,
       },
+      ...(shortage.decision ? { reason: shortageDecisionReason(shortage.decision) } : {}),
     });
     const orders = confirmations.map(({ confirmation }) =>
       buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId));
