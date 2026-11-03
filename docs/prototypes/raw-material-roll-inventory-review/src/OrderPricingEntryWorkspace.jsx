@@ -520,7 +520,7 @@ function OrderPricingEditor({
     "拆单确认",
     { draftId, clientRevision: revision, rows, sourceText: source, splitPlanHash: splitPlan?.planHash,
       pricingQuoteId: quote?.quoteId, confirmedAffectedOrderLineIds: affected,
-      shortageDecision: { choice: shortageChoice, note: shortageNote.trim() }, idempotencyKey: nextKey("splitConfirm") },
+      shortageDecision: currentShortageDecision(), idempotencyKey: nextKey("splitConfirm") },
     (input) => formal.actions.confirmOrderDraftSplit(input),
     (result) => {
       const confirmation = result.confirmation;

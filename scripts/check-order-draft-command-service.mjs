@@ -778,6 +778,13 @@ async function checkSplitCustomerShortageDecision() {
     assert.equal(whole.response.closedWithoutOrder, true, JSON.stringify(whole));
     assert.equal(calls.confirmations.length, confirmationsBefore);
 
+    shortageLineIds = new Set();
+    const restockedBefore = calls.confirmations.length;
+    const restocked = await confirmSplitWithShortage({ choice: "cancel_whole" }, "split-shortage-restocked-cancel");
+    assert.equal(restocked.response?.closedWithoutOrder, true, "拆单时客户已整单取消，库存补足也不能出单");
+    assert.equal(calls.confirmations.length, restockedBefore);
+    shortageLineIds = new Set(["DRAFT-SERVICE-001-02"]);
+
     const split = await confirmSplitWithShortage({ choice: "split_produce" }, "split-shortage-produce");
     assert.equal(split.response.orderIds.length, 2);
     assert.equal(calls.confirmations.at(-1).orderDraft.recognitionContext.shortageDecision.choice, "split_produce");
