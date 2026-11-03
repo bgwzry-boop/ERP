@@ -271,6 +271,16 @@ try {
   assert.equal(quoteAttempts[0].key, quoteAttempts[1].key);
   assert.deepEqual(quoteAttempts[0].body, quoteAttempts[1].body);
   await page.getByText("¥4500.00", { exact: true }).first().waitFor();
+  // 5000 red bags is more than the stock: the customer's choice must be recorded first.
+  await page.getByRole("group", { name: "缺货怎么办（按客户说的选）" }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "确认下单", exact: true })
+      .isEnabled(),
+    false,
+  );
+  await page.getByRole("radio", { name: /同意分批，缺的安排生产/ }).check();
+  await page.getByLabel("客户怎么说的（可不填）").fill("客户同意先发有的");
   assert.equal(
     await page
       .getByRole("button", { name: "确认下单", exact: true })
@@ -367,6 +377,10 @@ try {
   assert.deepEqual(confirmAttempts[1].body, confirmAttempts[2].body);
   assert.equal(confirmAttempts[0].key, confirmAttempts[1].key);
   assert.deepEqual(confirmAttempts[0].body, confirmAttempts[1].body);
+  assert.deepEqual(confirmAttempts[0].body.shortageDecision, {
+    choice: "split_produce",
+    note: "客户同意先发有的",
+  });
   assert.equal(
     await page
       .getByRole("button", { name: "确认下单", exact: true })
