@@ -544,7 +544,9 @@ function OrderPricingEditor({
       !Number.isSafeInteger(Number(line.qty)) ||
       Number(line.qty) < 1,
   );
-  const shortageVisible = shortageAsked || rows.some((line) => String(line.inventory ?? "").startsWith("缺货"));
+  // Lines converted from a hold use the held stock; only the server can judge them, and it
+  // answers ORDER_SHORTAGE_DECISION_REQUIRED if the hold no longer covers them.
+  const shortageVisible = shortageAsked || rows.some(isLocalShortage);
   const shortageMissing = shortageVisible && !shortageChoice;
   const chooseShortage = (key, value) => {
     if (frozenRequest.current || complete) return;
@@ -860,7 +862,7 @@ function OrderPricingEditor({
                     onClick={() => splitLine(index)}>拆分明细行</button>
                   {line.sourceHoldId ? <span>留货转单明细须保持原留货数量，不能拆行。</span> : null}
                 </div>
-                {String(line.inventory ?? "").startsWith("缺货") ? (
+                {isLocalShortage(line) ? (
                   <p className="pricing-note">
                     库存不够，请在下面「缺货怎么办」里按客户意见选。
                   </p>
@@ -1163,6 +1165,10 @@ function splitLineBlockedReason(line) {
   if (line.excludedFromConfirmation || line.cancellationStatus === "库存不足取消") return "已取消明细保留原始关联，不能拆分。";
   if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 2) return "至少2个且数量为整数，才能拆分明细。";
   return "";
+}
+
+function isLocalShortage(line) {
+  return !line?.sourceHoldId && String(line?.inventory ?? "").startsWith("缺货");
 }
 
 const SHORTAGE_CHOICES = [
