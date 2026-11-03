@@ -1,4 +1,4 @@
-import { largeMachinePrintUnitPrice, resolvePrintColorCount } from "../../shared/largeMachinePrintPricing.js";
+import { printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 export {
   calculateSpecialBagPricing,
   getPublicSpecialQuoteRules,
@@ -137,7 +137,7 @@ export function getPrintUnitPrice(input = {}) {
 
   // Owner 2026-11-03: one printing price for every order (大机器丝印阶梯价, × colours, single = double).
   const qty = toFiniteNumber(input.qty ?? input.chargeableQty, 0);
-  return largeMachinePrintUnitPrice(qty, resolvePrintColorCount(input) || 1);
+  return printUnitPriceFor({ orderedQty: qty, colorCount: resolvePrintColorCount(input) || 1, method: resolvePrintMethod(input, qty), printSide: input.printSide });
 }
 
 export function normalizePriceStyle(value = "") {

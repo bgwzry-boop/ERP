@@ -96,13 +96,13 @@ async function checkPublishedPriceService() {
   assert.equal((await confirm(keyedSize)).response.priceSnapshots[0].finalAmount, 90, "Price size keys resolve through the same size-spec master as the Miniapp projection");
   const printed = pricedWorkspace();
   Object.assign(printed.orderDrafts[0].lines[0], { orderType: "custom_print", print: "是", printFlag: true, printSide: "单面", printColor: "黑色", artworkStatus: "已上传" });
-  assert.equal((await confirm(printed)).response.priceSnapshots[0].finalAmount, 105, "Printing uses the one 大机器丝印 ladder on top of the published bag price (100 × (0.90 + 0.15), owner 2026-11-03)");
+  assert.equal((await confirm(printed)).response.priceSnapshots[0].finalAmount, 99, "100 pieces default to 手工丝印 single sided on top of the published bag price (100 × (0.90 + 0.09); plate fee separate, owner 2026-11-03)");
   const printedCommon = pricedWorkspace();
   Object.assign(printedCommon.orderDrafts[0].lines[0], { orderType: "stock_printed", style: "福", product: "福字袋", print: "是", printFlag: true, printColor: "金色" });
   assert.equal((await confirm(printedCommon)).response.priceSnapshots[0].finalAmount, 90, "A printed common-goods pattern must not be charged an extra private-print fee");
   const privatePattern = pricedWorkspace();
   Object.assign(privatePattern.orderDrafts[0].lines[0], { orderType: "custom_print", style: "福", product: "客户定制图案", print: "是", printFlag: true, printSide: "单面", printColor: "金色", artworkStatus: "已上传" });
-  assert.equal((await confirm(privatePattern)).response.priceSnapshots[0].finalAmount, 105, "An explicit custom-print order cannot become printed common goods just from a pattern name");
+  assert.equal((await confirm(privatePattern)).response.priceSnapshots[0].finalAmount, 99, "An explicit custom-print order cannot become printed common goods just from a pattern name");
   const extended = pricedWorkspace();
   Object.assign(extended.orderDrafts[0].lines[0], { handle: "加长提", handleType: "加长提" });
   extended.priceTableItems = extended.priceTableItems.filter(item => item.handleType !== "加长提");

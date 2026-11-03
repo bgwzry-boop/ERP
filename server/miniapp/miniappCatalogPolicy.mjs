@@ -1,4 +1,4 @@
-import { LARGE_MACHINE_PRINT_TIERS } from "../../shared/largeMachinePrintPricing.js";
+import { LARGE_MACHINE_PRINT_TIERS, MANUAL_PRINT_UNIT_PRICES } from "../../shared/largeMachinePrintPricing.js";
 import { getPublicSpecialQuoteRules } from "../../shared/pricing/specialBagPricing.js";
 
 const PRODUCT_GROUPS = [
@@ -127,13 +127,17 @@ export function createMiniappCatalogPolicy(masterData = {}) {
       { id: "darkgreen", name: "墨绿", swatch: "#145642" },
     ],
     handles: [{ id: "regular", name: "普通提", lengthCm: 38, addon: 0 }, { id: "extended", name: "加长提", lengthCm: 50, addon: 0.03 }],
-    // Owner 2026-11-03: 大机器丝印阶梯价 for every order, × colours, single = double sided, plate included.
-    // printPriceTiers is the current rule; the old below3000*/from* keys are kept only so an older mini
-    // program build keeps loading, and now carry the nearest values of the new ladder.
+    // Owner 2026-11-03: one printing price for every order. Below 1000 pieces 手工丝印 by default
+    // (0.09 single / 0.13 double, plate fee extra); from 1000 the large machine (plate included):
+    // 0.15 / 0.09 from 2000 / 0.08 from 5000 / 0.06 from 10000. × colours. The mini program's quote
+    // service reads the machineFrom*/manual* keys; the older below3000*/from* keys stay for old builds.
     printPriceTiers: LARGE_MACHINE_PRINT_TIERS.map(({ minQty, unitPrice, label }) => ({ minQty, unitPrice, label })),
     printPricePerColor: true,
-    printPriceSameForDoubleSide: true,
-    printPriceRules: { below2000: 0.15, below3000Single: 0.09, below3000Double: 0.09, from2000: 0.09, from3000: 0.09, from5000: 0.08, from10000: 0.06 },
+    printPriceRules: {
+      manualSingle: MANUAL_PRINT_UNIT_PRICES.single, manualDouble: MANUAL_PRINT_UNIT_PRICES.double,
+      machineFrom1000: 0.15, machineFrom2000: 0.09, machineFrom5000: 0.08, machineFrom10000: 0.06,
+      below3000Single: MANUAL_PRINT_UNIT_PRICES.single, below3000Double: MANUAL_PRINT_UNIT_PRICES.double, from3000: 0.09, from5000: 0.08, from10000: 0.06,
+    },
     specialRequirementRules: { snapButtonAddon: 0.1 },
     deliveryOptions: ["到厂自提", "送货上门", "快递 / 快运到厂提货"],
     specialQuoteRules: getPublicSpecialQuoteRules(),

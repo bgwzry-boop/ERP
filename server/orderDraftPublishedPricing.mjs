@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { findMiniappPriceItem, quoteMiniappCatalogPrice } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
-import { quoteLargeMachinePrint, resolvePrintColorCount } from "../shared/largeMachinePrintPricing.js";
+import { quoteLargeMachinePrint, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
 
 const clean = value => String(value ?? "").trim();
 const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -146,11 +146,13 @@ export function externalPrintPriceError(message) {
 function resolveExternalPrintRow(source, row) {
   const colorCount = resolvePrintColorCount(row);
   if (!colorCount) throw externalPrintPriceError("外加工印刷要先填清楚印几种颜色（例如「红/蓝」或颜色数），才能按阶梯价计价；草稿已保留。");
-  const quote = quoteLargeMachinePrint({ orderedQty: Number(row.qty), colorCount });
+  const quote = quoteLargeMachinePrint({ orderedQty: Number(row.qty), colorCount, method: resolvePrintMethod(row, Number(row.qty)), printSide: row.printSide });
   if (!quote) throw externalPrintPriceError("外加工印刷数量须为大于零的整数，才能按阶梯价计价；草稿已保留。");
   return { bagPrice: 0, printPrice: quote.unitPrice, otherFee: 0, amount: quote.amount,
     priceVersion: quote.priceVersion, sourceEvidence: { kind: "external_print_ladder", priceTableId: source.priceTable.id,
       priceTableVersion: source.priceTable.versionNo, priceVersion: quote.priceVersion, orderedQty: quote.orderedQty,
       tierLabel: quote.tierLabel, tierUnitPrice: quote.tierUnitPrice, colorCount: quote.colorCount,
+      printMethod: quote.method, plateFeeIncluded: quote.plateFeeIncluded,
+      ...(quote.plateFeeIncluded ? {} : { plateFeeNote: "手工丝印版费另收，请在报价「其他费」中填写" }),
       billingBasis: "按实际印好数量结算；档位按下单数量" } };
 }

@@ -3,7 +3,7 @@ import {assertOrderDocumentsVoided} from "./orderMutationDocumentGuard.mjs";
 import { createHash } from "node:crypto";
 import { normalizeMiniappSize } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
-import { LARGE_MACHINE_PRINT_PRICE_VERSION, largeMachinePrintUnitPrice, resolvePrintColorCount } from "../shared/largeMachinePrintPricing.js";
+import { LARGE_MACHINE_PRINT_PRICE_VERSION, printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
 import { normalizeFactoryStandardColor } from "../shared/factoryStandardColors.js";
 
 const text = (value) => String(value ?? "").trim();
@@ -50,8 +50,8 @@ export function printingGroupIdentity(row) {
 }
 // Owner 2026-11-03: one printing price for every order — 大机器丝印阶梯价 by quantity,
 // × number of ink colours, single and double sided the same.
-export function sharedPrintingUnitPrice(quantity, _side, colorCount = 1) {
-  return largeMachinePrintUnitPrice(quantity, colorCount);
+export function sharedPrintingUnitPrice(quantity, side, colorCount = 1, method = resolvePrintMethod({}, quantity)) {
+  return printUnitPriceFor({ orderedQty: quantity, colorCount, method, printSide: side });
 }
 
 // Same size, exact content and standardized ink share one ladder. Bag colour does not.
@@ -95,6 +95,7 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
           422,
         );
       group.quantity += quantity;
+      if (!group.explicitPrintMethod && row.printMethod) group.explicitPrintMethod = text(row.printMethod);
       (kind === "draft" ? group.draftLineIds : group.relatedOrderLineIds).push(
         rowId,
       );
@@ -108,7 +109,9 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
         "关联补单必须与本次新单的客户、印刷内容、尺寸、印刷油墨色和印刷面一致。",
       );
     group.colorCount = resolvePrintColorCount({ printColor: group.inkColor }) || 1;
-    group.unitPrice = sharedPrintingUnitPrice(group.quantity, group.side, group.colorCount);
+    group.printMethod = resolvePrintMethod({ printMethod: group.explicitPrintMethod }, group.quantity);
+    delete group.explicitPrintMethod;
+    group.unitPrice = sharedPrintingUnitPrice(group.quantity, group.side, group.colorCount, group.printMethod);
     group.memberCount =
       group.draftLineIds.length + group.relatedOrderLineIds.length;
   }

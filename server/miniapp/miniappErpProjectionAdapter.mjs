@@ -1,4 +1,4 @@
-import { largeMachinePrintUnitPrice } from "../../shared/largeMachinePrintPricing.js";
+import { printUnitPriceFor, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 import { createPostgresPoolClient } from "../postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "../postgresSqlParameters.mjs";
 import { MiniappApiError } from "./miniappApiError.mjs";
@@ -91,7 +91,7 @@ export function quoteMiniappCatalogPrice(master, line, match, { preserveUnitPrec
   const bagUnitPrice = Number(match.item.bagPrice || 0) + (match.handleFallback ? 0.03 : 0);
   const colorCount = Math.min(4, Math.max(1, Number(line.printColorCount) || 1));
   const printing = isPrintingRequired(line);
-  const printingUnit = printing ? printUnitPrice(quantity) * colorCount : 0;
+  const printingUnit = printing ? printUnitPrice(quantity, line.printSideMode || line.printSide, resolvePrintMethod(line, quantity)) * colorCount : 0;
   const requirements = Array.isArray(line.specialRequirements) ? line.specialRequirements : [];
   const snapUnit = requirements.includes("snap_button") ? 0.1 : 0;
   const roundUnit = preserveUnitPrecision ? value => Math.round((Number(value) + Number.EPSILON) * 10_000) / 10_000 : roundMoney;
@@ -117,10 +117,10 @@ export function quoteMiniappCatalogPrice(master, line, match, { preserveUnitPrec
   };
 }
 
-// Owner 2026-11-03: one printing price for every order (大机器丝印阶梯价, single = double sided);
-// the colour multiplier is applied by the caller.
-function printUnitPrice(quantity) {
-  return largeMachinePrintUnitPrice(quantity, 1);
+// Owner 2026-11-03: one printing price for every order — 大机器丝印阶梯价 (single = double sided), or
+// 手工丝印 0.09 / 0.13 below 1000 pieces (plate fee extra); the colour multiplier is applied by the caller.
+function printUnitPrice(quantity, printSide, method) {
+  return printUnitPriceFor({ orderedQty: quantity, colorCount: 1, method, printSide });
 }
 
 function isPrintingRequired(line) {
@@ -271,7 +271,7 @@ export function previewSpecialBagQuote(input = {}, catalog = {}, materialPriceSn
   const requirements = [...new Set(Array.isArray(input.specialRequirements) ? input.specialRequirements : [])];
   const printing = input.printingMode === "screen";
   const specialColorCount = Math.min(8, Math.max(1, Number.parseInt(input.printColorCount, 10) || 1));
-  const printUnit = printing ? printUnitPrice(quantity) * specialColorCount : 0;
+  const printUnit = printing ? printUnitPrice(quantity, input.printSide, resolvePrintMethod(input, quantity)) * specialColorCount : 0;
   const snapUnit = requirements.includes("snap_button") ? Number(catalog.specialRequirementRules?.snapButtonAddon || 0.1) : 0;
   const bagAmount = roundMoney(cost.bagUnitPrice * quantity);
   const handleAmount = roundMoney(cost.handleUnitAddon * quantity);

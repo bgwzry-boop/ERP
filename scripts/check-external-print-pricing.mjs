@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { LARGE_MACHINE_PRINT_TIERS, largeMachinePrintTier, quoteLargeMachinePrint, resolvePrintColorCount } from "../shared/largeMachinePrintPricing.js";
+import { LARGE_MACHINE_PRINT_TIERS, largeMachinePrintTier, printUnitPriceFor, quoteLargeMachinePrint, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
 import { resolvePublishedRow } from "../server/orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups } from "../server/orderPrintingPriceGroups.mjs";
 import { getPrintUnitPrice } from "../src/domain/priceTable.js";
@@ -59,5 +59,20 @@ assert.deepEqual([miniQuote.printFee, miniQuote.amount], [0.18, 960], "mini prog
 const catalog = createMiniappCatalogPolicy();
 assert.deepEqual(catalog.printPriceTiers.map((tier) => [tier.minQty, tier.unitPrice]), [[10000, 0.06], [5000, 0.08], [2000, 0.09], [1, 0.15]]);
 assert.equal(catalog.printPricePerColor, true);
+assert.deepEqual(catalog.printPriceRules, { manualSingle: 0.09, manualDouble: 0.13, machineFrom1000: 0.15, machineFrom2000: 0.09, machineFrom5000: 0.08, machineFrom10000: 0.06,
+  below3000Single: 0.09, below3000Double: 0.13, from3000: 0.09, from5000: 0.08, from10000: 0.06 }, "the mini program quote service reads machineFrom*/manual*");
 
+// 手工丝印：1000 个以下默认手工，单面 0.09、双面 0.13，几色翻几倍，版费另收；可明确指定机器或手工。
+assert.equal(resolvePrintMethod({}, 999), "manual");
+assert.equal(resolvePrintMethod({}, 1000), "machine", "1000 defaults to the machine until the customer chooses");
+assert.equal(resolvePrintMethod({ printMethod: "manual" }, 1000), "manual", "the customer's choice wins");
+assert.equal(resolvePrintMethod({ printMethod: "machine" }, 500), "machine");
+assert.deepEqual([500, 999].map((qty) => printUnitPriceFor({ orderedQty: qty, method: "manual", printSide: "单面" })), [0.09, 0.09]);
+assert.equal(printUnitPriceFor({ orderedQty: 500, method: "manual", printSide: "双面" }), 0.13);
+assert.equal(printUnitPriceFor({ orderedQty: 500, method: "manual", printSide: "单面", colorCount: 2 }), 0.18);
+assert.equal(printUnitPriceFor({ orderedQty: 500, method: "machine" }), 0.15, "a small order printed by machine pays the machine price");
+const manualExternal = resolvePublishedRow(source, { orderType: "external_print", qty: 800, printColor: "白", printSide: "双面" });
+assert.deepEqual([manualExternal.printPrice, manualExternal.amount, manualExternal.sourceEvidence.printMethod, manualExternal.sourceEvidence.plateFeeIncluded], [0.13, 104, "manual", false]);
+assert.match(manualExternal.sourceEvidence.plateFeeNote, /其他费/);
+assert.equal(getPrintUnitPrice({ print: "是", style: "空白袋", printSide: "双面", printColor: "红", qty: 600 }), 0.13);
 console.log("External print pricing: large-machine ladder by ordered quantity (0.15/0.09/0.08/0.06), × colours, single = double, billed on actual good prints.");
