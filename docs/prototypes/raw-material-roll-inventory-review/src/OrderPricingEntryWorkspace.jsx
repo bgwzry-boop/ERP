@@ -313,8 +313,11 @@ function OrderPricingEditor({
         setPendingKind("");
         formal.actions.setOrderEntryWritePending?.(false, request.ownerKey);
         if (error.code === "ORDER_SHORTAGE_DECISION_REQUIRED") {
-          // The quote is still valid; only the customer's answer is missing.
+          // The quote is still valid; only the customer's answer is missing. The choice sits on
+          // the entry page, so close the split dialog for it.
           requests.current.confirm = null;
+          requests.current.splitConfirm = null;
+          setSplitPlan(null);
           setShortageAsked(true);
         } else if (["确认", "拆单确认"].includes(kind)) {
           setQuote(null);
@@ -516,17 +519,26 @@ function OrderPricingEditor({
   const confirmSplit = () => execute(
     "拆单确认",
     { draftId, clientRevision: revision, rows, sourceText: source, splitPlanHash: splitPlan?.planHash,
-      pricingQuoteId: quote?.quoteId, confirmedAffectedOrderLineIds: affected, idempotencyKey: nextKey("splitConfirm") },
+      pricingQuoteId: quote?.quoteId, confirmedAffectedOrderLineIds: affected,
+      shortageDecision: currentShortageDecision(), idempotencyKey: nextKey("splitConfirm") },
     (input) => formal.actions.confirmOrderDraftSplit(input),
     (result) => {
       const confirmation = result.confirmation;
+      if (confirmation?.closedWithoutOrder === true) {
+        setSplitPlan(null);
+        setComplete(true);
+        setNotice("已按客户意见整单取消，没有生成正式订单；草稿和取消原因已留存。");
+        void Promise.resolve(formal.actions.refreshAll()).catch(() => {});
+        return;
+      }
       if (!confirmation?.splitConfirmed || !Array.isArray(confirmation.orderIds) ||
-          confirmation.orderIds.length !== splitPlan?.groups.length || !confirmation.orderLines?.length) {
+          confirmation.orderIds.length > (splitPlan?.groups.length ?? 0) || !confirmation.orderIds.length || !confirmation.orderLines?.length) {
         throw new Error("没有取得完整拆单回执。");
       }
       setSplitPlan(null);
       setComplete(true);
-      setNotice(`已生成 ${confirmation.orderIds.length} 张正式订单：${confirmation.orderIds.join("、")}。办公室仍需安排出库或生产排单。`);
+      const cancelledShort = shortageVisible && shortageChoice === "ship_available";
+      setNotice(`已生成 ${confirmation.orderIds.length} 张正式订单：${confirmation.orderIds.join("、")}。${cancelledShort ? "缺货明细已按客户意见取消；" : ""}办公室仍需安排出库或生产排单。`);
       void Promise.resolve(formal.actions.refreshAll()).catch(() => setNotice("拆单已成功，请刷新订单池核对全部订单。"));
     },
   );
@@ -555,6 +567,7 @@ function OrderPricingEditor({
   const chooseShortage = (key, value) => {
     if (frozenRequest.current || complete) return;
     requests.current.confirm = null;
+    requests.current.splitConfirm = null;
     if (key === "choice") setShortageChoice(value);
     else setShortageNote(value);
   };
@@ -1009,7 +1022,8 @@ function OrderPricingEditor({
                     : "生成正式报价"}
               </button>
             ) : null}
-            <button type="button" ref={splitTrigger} disabled={editingLocked || !canConfirmOrder || !draftId || !rows.length}
+            <button type="button" ref={splitTrigger} disabled={editingLocked || !canConfirmOrder || !draftId || !rows.length || shortageMissing}
+              title={shortageMissing ? "库存不够，请先按客户意见选缺货怎么办" : undefined}
               onClick={() => void previewSplit()}>
               {busy === "拆单预览" ? "正在核对分组…" : "按客户/交付拆单"}
             </button>
