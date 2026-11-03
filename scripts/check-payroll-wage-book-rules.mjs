@@ -171,8 +171,8 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
 
 // Year-end settlement: held month + deposit from paid months; deposit forfeited by early leavers.
 {
-  // Factory year 2026 = 2026-03-15 … 2027-03-14; settlement is paid on 2027-03-14.
-  const service = createAttendancePayrollService({ now: () => new Date("2027-03-14T02:00:00Z") });
+  // 2026 settlement is paid before the 2027 Spring Festival break (here 2027-01-28).
+  const service = createAttendancePayrollService({ now: () => new Date("2027-01-28T02:00:00Z") });
   const withheld = (month, hireDate, netWage) => resolveNewHireWithholding({ employee: { hireDate }, month, netWage, policy });
   const line = (id, runId, employeeId, withholding) => ({ id, payrollRunId: runId, employeeId, netWage: 1, grossWage: 1, calculation: { withholding } });
   const workspace = {
@@ -202,7 +202,7 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
     { employeeId: "A", heldWage: 4800, insuranceDeposit: 952, depositForfeited: 0, payableAmount: 5752 },
     { employeeId: "B", heldWage: 4200, insuranceDeposit: 952, depositForfeited: 952, payableAmount: 4200 },
   ], "only paid months count; an unpaid newer revision is ignored; employees without withholding are skipped");
-  assert.equal(preview.rows[1].note, "未干到年底，保险押金由个人承担");
+  assert.equal(preview.rows[1].note, "未干到年底结算，保险押金由个人承担");
   assert.equal(preview.pendingTotal, 9952);
   await assert.rejects(service.confirmYearEndSettlement({ workspace, body: { year: "2026", previewDigest: preview.previewDigest } }),
     (error) => error.code === "PAYROLL_PAYMENT_REFERENCE_REQUIRED");
@@ -240,49 +240,52 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
     (error) => error.code === "PAYROLL_YEAR_END_SETTLEMENT_CONFLICT", "the same batch is never written twice");
 }
 
-// Owner 2026-11-03: the factory year ends on 03-14 and the year-end settlement is paid that day.
+// Owner 2026-11-03: deposit and held month are paid back before the Spring Festival break.
 {
   const november = createAttendancePayrollService({ now: () => new Date("2026-11-30T08:00:00Z") });
-  const dayBefore = createAttendancePayrollService({ now: () => new Date("2027-03-13T15:59:00Z") });
-  const payday = createAttendancePayrollService({ now: () => new Date("2027-03-13T16:00:00Z") });
+  const newYearsEve = createAttendancePayrollService({ now: () => new Date("2026-12-31T15:59:00Z") });
+  const beforeBreak = createAttendancePayrollService({ now: () => new Date("2027-01-28T02:00:00Z") });
   const withholding = (insuranceDepositWithheld, heldWage) => ({ calculation: { withholding: { insuranceDepositWithheld, heldWage } } });
   const workspace = {
     attendancePayrollRepository: createLocalAttendancePayrollRepository(),
     yearEndSettlements: [],
     employees: [
-      { id: "N", name: "十一月入职", hireDate: "2026-11-02" },
+      { id: "M", name: "五月进厂", hireDate: "2026-05-06" },
       { id: "L", name: "一月离职", hireDate: "2026-11-05", departureEffectiveDate: "2027-01-10" },
     ],
     payrollRuns: [
-      { id: "R2602", payrollMonth: "2026-02", revision: 1, status: "paid" },
+      { id: "R2512", payrollMonth: "2025-12", revision: 1, status: "paid" },
+      { id: "R2605", payrollMonth: "2026-05", revision: 1, status: "paid" },
+      { id: "R2606", payrollMonth: "2026-06", revision: 1, status: "paid" },
       { id: "R2611", payrollMonth: "2026-11", revision: 1, status: "paid" },
-      { id: "R2612", payrollMonth: "2026-12", revision: 1, status: "paid" },
-      { id: "R2702", payrollMonth: "2027-02", revision: 1, status: "paid" },
-      { id: "R2703", payrollMonth: "2027-03", revision: 1, status: "paid" },
+      { id: "R2701", payrollMonth: "2027-01", revision: 1, status: "paid" },
     ],
     payrollLines: [
-      { id: "N2602", payrollRunId: "R2602", employeeId: "N", ...withholding(0, 777) },
-      { id: "N2611", payrollRunId: "R2611", employeeId: "N", ...withholding(952, 0) },
-      { id: "N2612", payrollRunId: "R2612", employeeId: "N", ...withholding(0, 5000) },
-      { id: "N2702", payrollRunId: "R2702", employeeId: "N", ...withholding(0, 100) },
-      { id: "N2703", payrollRunId: "R2703", employeeId: "N", ...withholding(0, 888) },
+      { id: "M2512", payrollRunId: "R2512", employeeId: "M", ...withholding(0, 777) },
+      { id: "M2605", payrollRunId: "R2605", employeeId: "M", ...withholding(952, 0) },
+      { id: "M2606", payrollRunId: "R2606", employeeId: "M", ...withholding(0, 5000) },
+      { id: "M2701", payrollRunId: "R2701", employeeId: "M", ...withholding(0, 888) },
       { id: "L2611", payrollRunId: "R2611", employeeId: "L", ...withholding(952, 0) },
     ],
   };
   const early = november.buildYearEndSettlementPreview({ workspace, year: "2026" });
   assert.equal(early.confirmable, false);
-  assert.deepEqual([early.periodStart, early.periodEnd, early.confirmableFrom], ["2026-03-15", "2027-03-14", "2027-03-14"]);
-  assert.deepEqual(early.rows.map(({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount }) => ({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount })), [
-    { employeeId: "L", heldWage: 0, insuranceDeposit: 952, depositForfeited: 952, payableAmount: 0 },
-    { employeeId: "N", heldWage: 5100, insuranceDeposit: 952, depositForfeited: 0, payableAmount: 6052 },
-  ], "2026-03 … 2027-02 belong to factory year 2026; 2026-02 and 2027-03 do not; leaving in January forfeits the deposit");
+  assert.equal(early.confirmableFrom, "2027-01-01");
+  assert.equal(early.rows.find((row) => row.employeeId === "L").depositForfeited, 0, "still employed when previewed in November");
   await assert.rejects(november.confirmYearEndSettlement({ workspace, body: { year: "2026", previewDigest: early.previewDigest, paymentReference: "YE-EARLY" } }),
-    (error) => error.code === "PAYROLL_YEAR_END_NOT_OPEN" && /2026-03-15 至 2027-03-14/.test(error.message));
-  assert.equal(dayBefore.buildYearEndSettlementPreview({ workspace, year: "2026" }).confirmable, false);
-  assert.equal(payday.buildYearEndSettlementPreview({ workspace, year: "2026" }).confirmable, true, "Shanghai 2027-03-14 00:00 opens it");
-  assert.equal(payday.buildYearEndSettlementPreview({ workspace }).year, 2026, "on payday the default is the factory year being settled");
-  assert.equal(workspace.yearEndSettlements.length, 0);
-  assert.equal(november.buildOwnPayslip({ workspace: { ...workspace, payrollRuns: workspace.payrollRuns }, authContext: { user: { employeeId: "N" } }, month: "2027-02" }).yearEndSettlement.year, "2026");
+    (error) => error.code === "PAYROLL_YEAR_END_NOT_OPEN");
+  assert.equal(newYearsEve.buildYearEndSettlementPreview({ workspace, year: "2026" }).confirmable, false);
+  const due = beforeBreak.buildYearEndSettlementPreview({ workspace });
+  assert.equal(due.year, 2026, "in January the default is last year's settlement");
+  assert.equal(due.confirmable, true);
+  assert.deepEqual(due.rows.map(({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount }) => ({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount })), [
+    { employeeId: "L", heldWage: 0, insuranceDeposit: 952, depositForfeited: 952, payableAmount: 0 },
+    { employeeId: "M", heldWage: 5000, insuranceDeposit: 952, depositForfeited: 0, payableAmount: 5952 },
+  ], "May hire: first-month deposit + second-month wage; only 2026 months; left before the settlement day forfeits");
+  const result = await beforeBreak.confirmYearEndSettlement({ workspace, body: { year: "2026", previewDigest: due.previewDigest, paymentReference: "YE-2026" } });
+  assert.equal(result.settlements.length, 2);
+  assert.equal(beforeBreak.buildOwnPayslip({ workspace, authContext: { user: { employeeId: "M" } }, month: "2027-01" }).yearEndSettlement.year, "2027",
+    "January 2027 withholding waits for the next settlement");
 }
 
 console.log("Payroll wage-book rules passed: position 绩效 defaults, probation allowance, no overtime premium, driver days, new-hire deposit and held month.");

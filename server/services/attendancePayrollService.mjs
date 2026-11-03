@@ -6,25 +6,15 @@ import {
   REVIEWED_ATTENDANCE_MINUTE_VERSION,
 } from "./attendanceWorkMinutes.mjs";
 
-// Owner 2026-11-03: the factory year runs from 03-15 to 03-14 of the next year, and the
-// year-end settlement is paid on 03-14. Factory year Y therefore holds payroll months Y-03 to
-// (Y+1)-02 (the last ones paid before 03-14), opens for confirmation on (Y+1)-03-14 (Shanghai
-// time), and the deposit is forfeited by anyone who left before that day.
-const FACTORY_YEAR_END_MONTH_DAY = "03-14";
-const FACTORY_YEAR_FIRST_MONTH = 3;
+// Owner 2026-11-03: the deposit (hire month) and the held month (next month) are paid back at
+// the year-end settlement, just before the Spring Festival break, whose date changes every
+// year. Settlement year Y holds payroll months Y-01 … Y-12; it can be confirmed from
+// (Y+1)-01-01 (Shanghai time), when the office pays it before the break. Anyone who left before
+// the settlement day forfeits the deposit. Anything withheld later stays pending as a remainder.
+const YEAR_END_SETTLEMENT_OPENS_NEXT_YEAR = "01-01";
 
-export function factoryYearOfPayrollMonth(month) {
-  const [year, monthNumber] = String(month).split("-").map(Number);
-  return monthNumber >= FACTORY_YEAR_FIRST_MONTH ? year : year - 1;
-}
-
-function factoryYearOfDate(date) {
-  const year = Number(date.slice(0, 4));
-  return date.slice(5) > FACTORY_YEAR_END_MONTH_DAY ? year : year - 1;
-}
-
-function factoryYearEndDate(year) {
-  return `${Number(year) + 1}-${FACTORY_YEAR_END_MONTH_DAY}`;
+export function settlementYearOfPayrollMonth(month) {
+  return Number(String(month).slice(0, 4));
 }
 
 const payrollRunTransitions = Object.freeze({
@@ -91,9 +81,9 @@ export function createAttendancePayrollService(dependencies = {}) {
       if (!current || Number(item.run.revision) > Number(current.run.revision)) latestByMonth.set(item.run.payrollMonth, item);
     }
     const selected = latestByMonth.get(safeMonth) ?? null;
-    const year = String(factoryYearOfPayrollMonth(safeMonth));
+    const year = String(settlementYearOfPayrollMonth(safeMonth));
     const yearEndSettlement = [...latestByMonth.entries()]
-      .filter(([itemMonth]) => String(factoryYearOfPayrollMonth(itemMonth)) === year)
+      .filter(([itemMonth]) => String(settlementYearOfPayrollMonth(itemMonth)) === year)
       .reduce((sum, [, item]) => ({
         insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.line.calculation?.withholding?.insuranceDepositWithheld), 2),
         heldWage: round(sum.heldWage + nonNegativeNumber(item.line.calculation?.withholding?.heldWage), 2),
@@ -159,15 +149,16 @@ export function createAttendancePayrollService(dependencies = {}) {
   // from the settlement window, and anything withheld after an earlier settlement (e.g. a held
   // month paid later) stays pending as the remainder instead of being dropped.
   function buildYearEndSettlementPreview({ workspace, year } = {}) {
-    // Without a year, show the current factory year (on payday 03-14 that is the year being settled).
-    const settlementYear = Number.parseInt(cleanText(year) || String(factoryYearOfDate(shanghaiDate(now()))), 10);
+    // Without a year: in January / February the office is settling last year, otherwise this year.
+    const today = shanghaiDate(now());
+    const settlementYear = Number.parseInt(cleanText(year) || String(Number(today.slice(0, 4)) - (today.slice(5, 7) <= "02" ? 1 : 0)), 10);
     if (!Number.isInteger(settlementYear) || settlementYear < 2000 || settlementYear > 2100) {
       throw businessError(400, "PAYROLL_YEAR_END_YEAR_INVALID", "请选择正确的结算年份。");
     }
     const yearText = String(settlementYear);
     const paidRuns = new Map((workspace.payrollRuns ?? [])
       .filter((run) => run.status === "paid" && /^\d{4}-\d{2}$/.test(cleanText(run.payrollMonth))
-        && factoryYearOfPayrollMonth(cleanText(run.payrollMonth)) === settlementYear)
+        && settlementYearOfPayrollMonth(cleanText(run.payrollMonth)) === settlementYear)
       .map((run) => [run.id, run]));
     const latestByEmployeeMonth = new Map();
     for (const line of workspace.payrollLines ?? []) {
@@ -187,13 +178,15 @@ export function createAttendancePayrollService(dependencies = {}) {
       totals.set(line.employeeId, current);
     }
     const settled = summarizeYearEndSettlements(workspace, settlementYear);
-    const yearEnd = factoryYearEndDate(settlementYear);
+    const confirmableFrom = `${settlementYear + 1}-${YEAR_END_SETTLEMENT_OPENS_NEXT_YEAR}`;
+    const confirmable = today >= confirmableFrom;
     const rows = [...totals.entries()]
       .filter(([, amount]) => amount.heldWage > 0 || amount.insuranceDeposit > 0)
       .map(([employeeId, amount]) => {
         const employee = findEmployee(workspace, employeeId) ?? {};
         const departureDate = employeeDepartureDate(employee);
-        const leftBeforeYearEnd = Boolean(departureDate) && departureDate < yearEnd;
+        // Gone by the settlement day (or by year end, if already past it when previewing early).
+        const leftBeforeYearEnd = Boolean(departureDate) && departureDate < (confirmable ? today : `${yearText}-12-31`);
         const done = settled.get(employeeId) ?? { heldWage: 0, insuranceDeposit: 0, payableAmount: 0, count: 0, latest: null };
         const heldWage = Math.max(0, round(amount.heldWage - done.heldWage, 2));
         const insuranceDeposit = Math.max(0, round(amount.insuranceDeposit - done.insuranceDeposit, 2));
@@ -208,7 +201,7 @@ export function createAttendancePayrollService(dependencies = {}) {
           insuranceDeposit,
           depositForfeited,
           payableAmount: round(heldWage + insuranceDeposit - depositForfeited, 2),
-          note: leftBeforeYearEnd ? "未干到年底，保险押金由个人承担" : "",
+          note: leftBeforeYearEnd ? "未干到年底结算，保险押金由个人承担" : "",
           settledSeq: done.count,
           alreadySettledAmount: done.payableAmount,
           settledAt: pending ? "" : cleanText(done.latest?.settledAt),
@@ -218,13 +211,10 @@ export function createAttendancePayrollService(dependencies = {}) {
       .sort((left, right) => left.employeeId.localeCompare(right.employeeId));
     const pending = rows.filter((row) => !row.settledAt);
     const previewDigest = sha256(JSON.stringify({ year: settlementYear, pending: pending.map(({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount, settledSeq }) => ({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount, settledSeq })) }));
-    const confirmableFrom = yearEnd;
     return {
       year: settlementYear,
-      periodStart: `${yearText}-03-15`,
-      periodEnd: yearEnd,
       confirmableFrom,
-      confirmable: shanghaiDate(now()) >= confirmableFrom,
+      confirmable,
       rows,
       pendingCount: pending.length,
       pendingTotal: round(pending.reduce((sum, row) => sum + row.payableAmount, 0), 2),
@@ -237,7 +227,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     if (!paymentReference) throw businessError(400, "PAYROLL_PAYMENT_REFERENCE_REQUIRED", "确认年底结算必须填写付款凭证编号。");
     const preview = buildYearEndSettlementPreview({ workspace, year: body.year });
     if (!preview.confirmable) {
-      throw businessError(409, "PAYROLL_YEAR_END_NOT_OPEN", `${preview.year} 年度（${preview.periodStart} 至 ${preview.periodEnd}）的年底结算要到 ${preview.confirmableFrom} 才能确认发放。`);
+      throw businessError(409, "PAYROLL_YEAR_END_NOT_OPEN", `${preview.year} 年的年底结算要到 ${preview.confirmableFrom} 以后（春节放假前发放时）才能确认。`);
     }
     if (cleanText(body.previewDigest) !== preview.previewDigest) {
       throw businessError(409, "PAYROLL_YEAR_END_PREVIEW_CHANGED", "年底结算名单或金额已变化，请刷新后重新核对。");
