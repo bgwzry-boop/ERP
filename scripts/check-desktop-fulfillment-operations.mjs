@@ -20,7 +20,8 @@ const html=render();assert.match(html,/按实物登记包裹/);assert.match(html
 assert.match(html,/登记 \/ 更正实物包裹/,"stock mixing stays reachable from the summary action");
 assert.match(html,/<div hidden="">/,"the package workbench stays out of the default view");
 const customHtml=render({...fulfillment,id:'F-CUSTOM',lineId:'OL-CUSTOM'},{...formal,data:{...formal.data,orderLines:[{id:'OL-CUSTOM',orderType:'定制印刷'}],packingTasks:[{id:'PKT-CUSTOM',orderLineId:'OL-CUSTOM',status:'待打包'}]}});
-assert.match(customHtml,/定制单不混装/);assert.doesNotMatch(customHtml,/混装登记暂未接入|按实物登记包裹|同一订单可混装/);
+assert.match(customHtml,/定制单一般不混装/);assert.doesNotMatch(customHtml,/混装登记暂未接入|按实物登记包裹|同一订单可混装/,"the mixed workbench stays closed until the office opens 客户同意混装");
+assert.match(customHtml,/客户同意混装（同订单几项装一包）/,"owner 2026-10-29: custom mixing is reachable once the customer agrees");
 assert.match(customHtml,/登记本明细包裹/,"custom packing stays available from the summary action");
 assert.match(customHtml,/<div hidden="">/,"custom per-package entry stays collapsed until opened");
 assert.match(customHtml, /<legend>登记实际包裹<\/legend>/, "forbidding custom mixing must not hide the independent packing form");

@@ -39,11 +39,12 @@ export function getPackageGroupContext(workspace, { fulfillmentId, orderLineId }
   if (!anchor) fail("PACKING_GROUP_ANCHOR_MISSING", "包组主任务缺失，请办公室核对。");
   const anchorLine = lineFor(workspace, anchor), sourceOrderId = orderId(anchorLine);
   if (!sourceOrderId) fail("PACKING_ORDER_ID_REQUIRED", "缺少原始订单编号，不能推断混装范围。");
-  if (!isStockOrderType(anchorLine.orderType)) fail("PACKING_CUSTOM_MIXED_FORBIDDEN", "定制单不混装，请按明细单独登记包裹。", 422);
+  // Owner decision 2026-10-29: custom orders are normally packed alone, but may share a package
+  // with other lines of the same order when the customer agrees (see replacePackageGroup).
   const existing = Boolean(packageAnchorId(anchor));
   const candidates = workspace.fulfillments.filter(row => {
     const line = lineFor(workspace, row);
-    return line && isStockOrderType(line.orderType) && orderId(line) === sourceOrderId && row.customerId === anchor.customerId && method(row) === method(anchor)
+    return line && orderId(line) === sourceOrderId && row.customerId === anchor.customerId && method(row) === method(anchor)
       && (existing ? packageAnchorId(row) === anchorId : !packageAnchorId(row) && !hasPackageDownstream(row) && taskReady(workspace, row));
   });
   const allIds = new Set(candidates.map(fulfillmentIdOf));
@@ -54,7 +55,7 @@ export function getPackageGroupContext(workspace, { fulfillmentId, orderLineId }
     method: method(anchor), existing, locked: candidates.some(hasPackageDownstream), packingRevision: Number(anchor.packingGroupRevision ?? 0),
     snapshotToken: createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),
     lines: candidates.map(row => ({ fulfillmentId: fulfillmentIdOf(row), orderLineId: lineId(row), expectedQty: Number(row.expectedQty ?? row.qty),
-      actualQty: row.actualQty ?? null, ...goods(lineFor(workspace, row)), packingTaskId: text(taskFor(workspace,row)?.packingTaskId ?? taskFor(workspace,row)?.id), status: row.status })),
+      actualQty: row.actualQty ?? null, ...goods(lineFor(workspace, row)), custom: !isStockOrderType(lineFor(workspace, row)?.orderType), packingTaskId: text(taskFor(workspace,row)?.packingTaskId ?? taskFor(workspace,row)?.id), status: row.status })),
     packages: packages.map(row => ({ ...row, packageId: packageIdOf(row), contents: packageContents(row) })),
     _members: candidates, _snapshot: snapshot,
   };
@@ -73,7 +74,6 @@ export async function replacePackageGroup({ workspace, fulfillmentId, body, oper
   if (!Array.isArray(selectedIds) || !selectedIds.length || new Set(selectedIds).size !== selectedIds.length || !selectedIds.includes(context.anchorFulfillmentId)) fail("PACKING_GROUP_SELECTION_INVALID", "请选择本包组的订单明细，主任务不能移除。", 422);
   const members = context._members.filter(row => selectedIds.includes(fulfillmentIdOf(row)));
   if (members.length !== selectedIds.length || context.existing && selectedIds.length !== context.lines.length) fail("PACKING_GROUP_SELECTION_INVALID", "只能选择本订单可打包明细；更正时必须保留原包组全部明细。");
-  if (members.some(row => !isStockOrderType(lineFor(workspace, row)?.orderType))) fail("PACKING_CUSTOM_MIXED_FORBIDDEN", "定制单不混装，请按明细单独登记包裹。", 422);
   if (members.some(row=>["已作废","已取消","closed","voided","canceled"].includes(taskFor(workspace,row)?.status)||["已作废","已取消","已交付","已完成","closed","voided","canceled"].includes((lineFor(workspace,row)?.status??lineFor(workspace,row)?.lineStatus)))) fail("PACKING_GROUP_CLOSED","订单或打包任务已关闭，不能继续建包。");
   if (members.some(hasPackageDownstream)) fail("PACKING_GROUP_DOWNSTREAM_LOCKED", "包组已有实物出库、装车或交付事实，不能直接修改；请办公室处理异常。");
   if (new Set(members.map(lineId)).size !== members.length) fail("PACKING_GROUP_AMBIGUOUS_LINE", "同明细包含多个交付批次，请办公室先核对本次批次。");
@@ -81,6 +81,13 @@ export async function replacePackageGroup({ workspace, fulfillmentId, body, oper
   if (addresses.size > 1) fail("PACKING_GROUP_ADDRESS_MISMATCH", "收货地址不同，不能混装同一包。");
   if (body.physicalContentsConfirmed !== true || !text(body.reason)) fail("PACKING_PHYSICAL_CONFIRMATION_REQUIRED", "请逐包核对实物内容并填写登记或更正依据。", 422);
   if (!Array.isArray(body.packages) || !body.packages.length || body.packages.length > 1000) fail("PACKING_PACKAGES_INVALID", "请填写1至1000个实际包裹。", 422);
+  // A package that mixes a custom line with any other line needs the customer's agreement.
+  const customIds = new Set(members.filter(row => !isStockOrderType(lineFor(workspace, row)?.orderType)).map(fulfillmentIdOf));
+  const customMixed = body.packages.some(raw => Array.isArray(raw?.items) && raw.items.length > 1 && raw.items.some(item => customIds.has(item?.fulfillmentId)));
+  const consentNote = text(body.customerConsentNote);
+  if (customMixed && (body.customerMixedPackingConsent !== true || !consentNote)) {
+    fail("PACKING_CUSTOM_MIXED_CONSENT_REQUIRED", "定制单混装须客户同意：请勾选客户已同意，并写明同意方式（例如客户微信确认）。", 422);
+  }
   const totals = new Map(members.map(row => [fulfillmentIdOf(row),0])), now = new Date().toISOString(), packingRevision = context.packingRevision + 1;
   const packages = body.packages.map((raw,index) => {
     if (!Array.isArray(raw.items) || !raw.items.length || raw.items.length > members.length || raw.confirmed !== true) fail("PACKING_PHYSICAL_CONFIRMATION_REQUIRED", "每包都需逐项填写并确认实物。", 422);
@@ -102,7 +109,8 @@ export async function replacePackageGroup({ workspace, fulfillmentId, body, oper
   const oldPackages = context.packages.filter(row => packageContents(row).some(item => selectedIds.includes(item.fulfillmentId)));
   const snapshot = packageGroupSnapshot(workspace, members, oldPackages);
   const input = { workspace, payload, idempotencyKey: body.idempotencyKey, action: "replace", anchorId: context.anchorFulfillmentId, orderId: context.orderId,
-    snapshot, packages, packingRevision, totals: Object.fromEntries(totals), reason: text(body.reason), operatorId, occurredAt: now,
+    snapshot, packages, packingRevision, totals: Object.fromEntries(totals),
+    reason: customMixed ? `${text(body.reason)}；客户同意定制单混装：${consentNote}` : text(body.reason), operatorId, occurredAt: now,
     operationLogId: `LOG-PKG-${randomUUID()}` };
   return repository.writePackageGroup(input);
 }

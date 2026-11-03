@@ -65,6 +65,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const [actualHandoffLocal, setActualHandoffLocal] = useState("");
   const [stockPackagesOpen, setStockPackagesOpen] = useState(false);
   const [customPackagesOpen, setCustomPackagesOpen] = useState(false);
+  const [customMixedOpen, setCustomMixedOpen] = useState(false);
   const permissions = formal?.permissionContext?.actionPermissions ?? [];
   const can = key => permissions.includes(key);
   const common = { authState: formal?.authState, operatorId: formal?.operatorId, fulfillment };
@@ -153,7 +154,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
     {!terminal && showCustomPackages ? <div className="fulfillment-package-entry">
       <button type="button" className="primary" aria-expanded={customPackagesOpen} onClick={() => setCustomPackagesOpen(value => !value)}>{customPackagesOpen ? "收起本明细包裹" : "登记本明细包裹"}</button>
       <div hidden={!customPackagesOpen}>
-      <details className="fulfillment-note"><summary>打包说明</summary><p>本次应交 {expected.toLocaleString()} 个。先按实物核对，再登记每包数量。</p><p>定制单不混装，只登记本明细的独立包裹。</p></details>
+      <details className="fulfillment-note"><summary>打包说明</summary><p>本次应交 {expected.toLocaleString()} 个。先按实物核对，再登记每包数量。</p><p>定制单一般不混装，只登记本明细的独立包裹。客户同意时，用下面的「客户同意混装」把同一订单的几项装进一包。</p></details>
       <fieldset disabled={locked}>
         <legend>登记实际包裹</legend>
         <div className="fulfillment-operation-grid"><label>实际包数<input type="number" min="1" step="1" value={uniformCount} onChange={event => setUniformCount(event.target.value)} /></label><label>每包数量<input type="number" min="1" step="1" value={uniformQty} onChange={event => setUniformQty(event.target.value)} /></label></div>
@@ -163,6 +164,8 @@ function FulfillmentOperations({ fulfillment, formal }) {
         <label className="fulfillment-operation-check"><input type="checkbox" checked={checked} onChange={event => setChecked(event.target.checked)} />已按实物核对每包内容、数量及挂牌对应关系</label>
         <button type="button" className="primary" disabled={!packages || !checked} onClick={() => ask("登记实际包裹", completeOfficePackingTask, { packingTaskId: task?.packingTaskId ?? task?.id ?? `PKT-F-${fulfillment.id}`, orderLineId: lineId, fulfillmentId: fulfillment.id, actualPackedQty: packTotal, packageCount: packages.length, packages: packages.map(packedQty => ({ packedQty })) }, `${packages.length} 个独立包裹，合计 ${packTotal} 个；保存后按包裹码打印挂牌。`)}>核对并登记包裹</button>
       </fieldset>
+      <button type="button" aria-expanded={customMixedOpen} onClick={() => setCustomMixedOpen(value => !value)}>{customMixedOpen ? "收起客户同意混装" : "客户同意混装（同订单几项装一包）"}</button>
+      {customMixedOpen ? <MixedPackageWorkbench collapseIntro authState={formal?.authState} fulfillmentId={fulfillment.id ?? fulfillment.fulfillmentId} orderLineId={lineId} onSaved={() => formal?.actions?.refreshAll?.()} onBusyChange={setBusy} /> : null}
       </div>
     </div> : null}
     <h3>出库办理</h3>
