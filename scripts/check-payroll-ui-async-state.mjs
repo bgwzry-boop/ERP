@@ -8,7 +8,7 @@ import { join } from "node:path";
 // Exercise real React state/effect lifetimes with deliberately reordered API
 // promises. This checks data ownership; visual and device QA remains separate.
 const queue = [];
-const names = ["generateOfficePayrollDraft", "getOfficeEmployeeAttendance", "createOfficePayrollExport", "getOfficePayrollHistory", "getOfficePayrollRun", "getOfficePayrollWorkbench", "precheckOfficeAttendanceSync", "reviewOfficeAttendanceDay", "saveOfficePayrollPolicy", "syncOfficeAttendance", "transitionOfficePayrollRun", "updateOfficePayrollLineAdjustment", "uploadOfficeAttachmentFile"];
+const names = ["generateOfficePayrollDraft", "getOfficeEmployeeAttendance", "createOfficePayrollExport", "getOfficePayrollHistory", "getOfficePayrollRun", "getOfficePayrollWorkbench", "precheckOfficeAttendanceSync", "reviewOfficeAttendanceDay", "saveOfficePayrollPolicy", "syncOfficeAttendance", "transitionOfficePayrollRun", "updateOfficePayrollLineAdjustment", "uploadOfficeAttachmentFile", "getOfficeYearEndSettlement", "confirmOfficeYearEndSettlement"];
 globalThis.__payrollTestApi = Object.fromEntries(names.map((name) => [name, (input) => new Promise((resolve) => queue.push({ name, input, resolve }))]));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.window = { location: { search: "" }, confirm: () => true };
