@@ -1,3 +1,4 @@
+import { LARGE_MACHINE_PRINT_TIERS } from "../../shared/largeMachinePrintPricing.js";
 import { getPublicSpecialQuoteRules } from "../../shared/pricing/specialBagPricing.js";
 
 const PRODUCT_GROUPS = [
@@ -126,7 +127,13 @@ export function createMiniappCatalogPolicy(masterData = {}) {
       { id: "darkgreen", name: "墨绿", swatch: "#145642" },
     ],
     handles: [{ id: "regular", name: "普通提", lengthCm: 38, addon: 0 }, { id: "extended", name: "加长提", lengthCm: 50, addon: 0.03 }],
-    printPriceRules: { below3000Single: 0.09, below3000Double: 0.13, from3000: 0.09, from5000: 0.08, from10000: 0.06 },
+    // Owner 2026-11-03: 大机器丝印阶梯价 for every order, × colours, single = double sided, plate included.
+    // printPriceTiers is the current rule; the old below3000*/from* keys are kept only so an older mini
+    // program build keeps loading, and now carry the nearest values of the new ladder.
+    printPriceTiers: LARGE_MACHINE_PRINT_TIERS.map(({ minQty, unitPrice, label }) => ({ minQty, unitPrice, label })),
+    printPricePerColor: true,
+    printPriceSameForDoubleSide: true,
+    printPriceRules: { below2000: 0.15, below3000Single: 0.09, below3000Double: 0.09, from2000: 0.09, from3000: 0.09, from5000: 0.08, from10000: 0.06 },
     specialRequirementRules: { snapButtonAddon: 0.1 },
     deliveryOptions: ["到厂自提", "送货上门", "快递 / 快运到厂提货"],
     specialQuoteRules: getPublicSpecialQuoteRules(),

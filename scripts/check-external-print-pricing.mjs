@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { LARGE_MACHINE_PRINT_TIERS, largeMachinePrintTier, quoteLargeMachinePrint, resolvePrintColorCount } from "../shared/largeMachinePrintPricing.js";
 import { resolvePublishedRow } from "../server/orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups } from "../server/orderPrintingPriceGroups.mjs";
+import { getPrintUnitPrice } from "../src/domain/priceTable.js";
+import { quoteMiniappCatalogPrice } from "../server/miniapp/miniappErpProjectionAdapter.mjs";
+import { createMiniappCatalogPolicy } from "../server/miniapp/miniappCatalogPolicy.mjs";
 
 // 负责人 2026-11-03：外加工印刷（同行送布料来）只收印刷费，含制版费；大机器丝印阶梯价按下单数量定档，
 // 几色翻几倍，单双面同价；应收按实际印好的数量。
@@ -39,5 +42,22 @@ const groups = buildOrderPrintingPriceGroups([
   { id: "L2", orderType: "external_print", customerId: "C1", size: "40*32", printContent: "同行A标", printColor: "红", qty: 3000 },
 ]);
 assert.equal(groups.length, 0);
+
+// 负责人 2026-11-03：印刷费统一收费 —— 自己的网店、客户订单、外加工卷料都用同一套阶梯价。
+const ownGroups = buildOrderPrintingPriceGroups([
+  { id: "O1", orderType: "custom_print", customerId: "C2", size: "30*38*10", printContent: "店名", printColor: "红", printSide: "双面", qty: 1500 },
+  { id: "O2", orderType: "custom_print", customerId: "C2", size: "30*38*10", printContent: "店名", printColor: "红", printSide: "双面", qty: 1000 },
+  { id: "O3", orderType: "custom_print", customerId: "C2", size: "30*38*10", printContent: "LOGO", printColor: "红/蓝", printSide: "单面", qty: 6000 },
+]);
+assert.ok(ownGroups.some((group) => group.quantity === 2500 && group.unitPrice === 0.09), "own-factory double-sided group of 2500: 0.09, same as single sided");
+assert.ok(ownGroups.some((group) => group.quantity === 6000 && group.unitPrice === 0.16), "two colours × 0.08");
+assert.equal(getPrintUnitPrice({ print: "是", style: "空白袋", printSide: "双面", printColor: "红", qty: 1500 }), 0.15, "office estimate: under 2000 is 0.15 for double sided too");
+assert.equal(getPrintUnitPrice({ print: "是", style: "空白袋", printColor: "红/黑", qty: 3000 }), 0.18, "office estimate: two colours × 0.09");
+const master = { priceTable: { id: "PT", bizNo: "PT", versionNo: 1 } };
+const miniQuote = quoteMiniappCatalogPrice(master, { quantity: 2000, productType: "custom_print", printColor: "红", printColorCount: 2, printSide: "double" }, { item: { bagPrice: 0.3, printPrice: 0.5, otherFee: 0 } });
+assert.deepEqual([miniQuote.printFee, miniQuote.amount], [0.18, 960], "mini program: 2000 × (0.30 + 2 × 0.09); a stray table print price no longer overrides the ladder");
+const catalog = createMiniappCatalogPolicy();
+assert.deepEqual(catalog.printPriceTiers.map((tier) => [tier.minQty, tier.unitPrice]), [[10000, 0.06], [5000, 0.08], [2000, 0.09], [1, 0.15]]);
+assert.equal(catalog.printPricePerColor, true);
 
 console.log("External print pricing: large-machine ladder by ordered quantity (0.15/0.09/0.08/0.06), × colours, single = double, billed on actual good prints.");

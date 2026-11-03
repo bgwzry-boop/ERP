@@ -1,4 +1,5 @@
-// 大机器丝印价（负责人 2026-11-03 确认）。外加工印刷（同行送布料来、只收印刷费，已含制版费）按此计价：
+// 大机器丝印价（负责人 2026-11-03 确认）。印刷费统一收费：自己的网店、客户订单、同行送来的外加工卷料都按这一套。
+// 外加工印刷（同行送布料来）只收印刷费，已含制版费；本厂袋子另加袋子价。
 //   - 档位按「下单数量」定：2000 个以下 0.15 元；2000–4999 个 0.09 元；5000–9999 个 0.08 元；1 万个及以上 0.06 元。
 //     例如下单 5000 个、实际只印好 4960 个，单价仍按 5000 个那档。
 //   - 几色就翻几倍；单面、双面同价。
@@ -14,6 +15,13 @@ export const LARGE_MACHINE_PRINT_TIERS = Object.freeze([
 
 const PLACEHOLDERS = new Set(["", "待确认", "非印刷", "无印刷", "无", "不印刷", "未印刷"]);
 const MAX_COLORS = 8;
+
+// Per-piece printing price for one order quantity and colour count (single = double sided).
+export function largeMachinePrintUnitPrice(orderedQty, colorCount = 1) {
+  const tier = largeMachinePrintTier(orderedQty);
+  const colors = Number.isSafeInteger(Number(colorCount)) && Number(colorCount) >= 1 ? Number(colorCount) : 1;
+  return tier ? Math.round(tier.unitPrice * colors * 10_000) / 10_000 : 0;
+}
 
 export function largeMachinePrintTier(orderedQty) {
   const qty = Number(orderedQty);
