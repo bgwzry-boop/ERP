@@ -46,6 +46,24 @@ export function acknowledgeMyOfficePayslip(input = {}, options = {}) {
   }, "工资条确认失败。");
 }
 
+export function getOfficeYearEndSettlement(input = {}, options = {}) {
+  return requestJson(`/payroll/year-end-settlements?year=${encodeURIComponent(input.year || "")}`, {
+    ...options,
+    authState: input.authState,
+    operatorId: input.operatorId,
+  }, "年底结算读取失败。");
+}
+
+export function confirmOfficeYearEndSettlement(input = {}, options = {}) {
+  return requestJson("/payroll/year-end-settlements", {
+    ...options,
+    authState: input.authState,
+    operatorId: input.operatorId,
+    method: "POST",
+    body: { year: input.year, previewDigest: input.previewDigest, paymentReference: input.paymentReference },
+  }, "年底结算确认失败。");
+}
+
 export function syncOfficeAttendance(input = {}, options = {}) {
   return requestJson("/attendance/sync", {
     ...options,

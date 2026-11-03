@@ -6618,6 +6618,39 @@ paths:
         "403": { $ref: "#/components/responses/PermissionDenied" }
         "409": { $ref: "#/components/responses/BusinessError" }
 
+  /payroll/year-end-settlements:
+    get:
+      tags: [AttendancePayroll]
+      summary: 年底结算预览（压月工资与保险押金）
+      description: 只统计该年已确认发薪月份中暂扣的保险押金和压下的一个月工资；年底前离职员工的押金由个人承担。返回待结算名单与摘要。
+      operationId: previewPayrollYearEndSettlement
+      parameters:
+        - { name: year, in: query, schema: { type: string, pattern: "^\\d{4}$" } }
+      responses:
+        "200": { description: 年底结算预览, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+    post:
+      tags: [AttendancePayroll]
+      summary: 确认已发放年底结算
+      description: 按预览摘要一次记录全部待结算员工；名单或金额变化时拒绝；每人每年只能结算一次。
+      operationId: confirmPayrollYearEndSettlement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [year, previewDigest, paymentReference]
+              properties:
+                year: { type: string }
+                previewDigest: { type: string }
+                paymentReference: { type: string }
+      responses:
+        "200": { description: 结算记录, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409": { $ref: "#/components/responses/BusinessError" }
+
   /attendance/employees/{employeeId}:
     get:
       tags: [AttendancePayroll]
