@@ -266,11 +266,11 @@ SELECT json_build_object(
   ), '[]'::json),
   'yearEndSettlements', COALESCE((
     SELECT json_agg(json_build_object(
-      'id', id, 'settlementYear', settlement_year, 'employeeId', employee_id,
+      'id', id, 'settlementYear', settlement_year, 'employeeId', employee_id, 'settlementSeq', settlement_seq,
       'heldWage', held_wage, 'insuranceDeposit', insurance_deposit, 'depositForfeited', deposit_forfeited,
       'payableAmount', payable_amount, 'previewDigest', preview_digest, 'paymentReference', payment_reference,
       'settledBy', COALESCE(settled_by, ''), 'settledAt', settled_at::TEXT
-    ) ORDER BY settlement_year DESC, employee_id) FROM payroll_year_end_settlements
+    ) ORDER BY settlement_year DESC, employee_id, settlement_seq) FROM payroll_year_end_settlements
   ), '[]'::json)
 ) AS result;`;
 }
@@ -1139,13 +1139,15 @@ LIMIT 1;`,
   };
 }
 
-// All-or-nothing: if any employee was already settled for the year, nothing is written.
+// All-or-nothing: each employee's settlement carries the next sequence number for the year; if
+// that (year, employee, sequence) or a later one already exists, someone settled meanwhile and
+// nothing is written.
 export function buildRecordYearEndSettlementsQuery(input = {}) {
   const settlements = (input.settlements ?? []).map(normalizeYearEndSettlement).filter(Boolean);
   if (!settlements.length) throw new Error("Year-end settlements are required.");
   const parameters = createPostgresParameterBinder();
   const rows = settlements.map((row) => `(
-    ${parameters.text(row.id)}, ${parameters.integer(row.settlementYear)}, ${parameters.text(row.employeeId)},
+    ${parameters.text(row.id)}, ${parameters.integer(row.settlementYear)}, ${parameters.text(row.employeeId)}, ${parameters.integer(row.settlementSeq)},
     ${parameters.number(row.heldWage)}, ${parameters.number(row.insuranceDeposit)}, ${parameters.number(row.depositForfeited)},
     ${parameters.number(row.payableAmount)}, ${parameters.text(row.previewDigest)}, ${parameters.text(row.paymentReference)},
     ${parameters.nullableText(row.settledBy)}, ${parameters.timestamp(row.settledAt)}
@@ -1153,26 +1155,27 @@ export function buildRecordYearEndSettlementsQuery(input = {}) {
   return {
     text: `
 WITH incoming (
-  id, settlement_year, employee_id, held_wage, insurance_deposit, deposit_forfeited,
+  id, settlement_year, employee_id, settlement_seq, held_wage, insurance_deposit, deposit_forfeited,
   payable_amount, preview_digest, payment_reference, settled_by, settled_at
 ) AS (VALUES ${rows.join(",\n")}),
 blocked AS (
   SELECT 1 FROM payroll_year_end_settlements existing
   JOIN incoming ON incoming.settlement_year = existing.settlement_year AND incoming.employee_id = existing.employee_id
+    AND existing.settlement_seq >= incoming.settlement_seq
 ),
 inserted AS (
   INSERT INTO payroll_year_end_settlements (
-    id, settlement_year, employee_id, held_wage, insurance_deposit, deposit_forfeited,
+    id, settlement_year, employee_id, settlement_seq, held_wage, insurance_deposit, deposit_forfeited,
     payable_amount, preview_digest, payment_reference, settled_by, settled_at
   )
-  SELECT id, settlement_year::INTEGER, employee_id, held_wage::NUMERIC, insurance_deposit::NUMERIC, deposit_forfeited::NUMERIC,
+  SELECT id, settlement_year::INTEGER, employee_id, settlement_seq::INTEGER, held_wage::NUMERIC, insurance_deposit::NUMERIC, deposit_forfeited::NUMERIC,
     payable_amount::NUMERIC, preview_digest, payment_reference, settled_by, settled_at::TIMESTAMPTZ
   FROM incoming
   WHERE NOT EXISTS (SELECT 1 FROM blocked)
   RETURNING *
 )
 SELECT COALESCE(json_agg(json_build_object(
-  'id', id, 'settlementYear', settlement_year, 'employeeId', employee_id,
+  'id', id, 'settlementYear', settlement_year, 'employeeId', employee_id, 'settlementSeq', settlement_seq,
   'heldWage', held_wage, 'insuranceDeposit', insurance_deposit, 'depositForfeited', deposit_forfeited,
   'payableAmount', payable_amount, 'previewDigest', preview_digest, 'paymentReference', payment_reference,
   'settledBy', COALESCE(settled_by, ''), 'settledAt', settled_at::TEXT
@@ -1186,7 +1189,8 @@ function applyYearEndSettlementsToWorkspace({ workspace, settlements } = {}) {
   const safe = (settlements ?? []).map(normalizeYearEndSettlement).filter(Boolean);
   if (!workspace || !safe.length) throw new Error("Year-end settlement requires a workspace and records.");
   const existing = workspace.yearEndSettlements ?? [];
-  if (safe.some((row) => existing.some((item) => item.settlementYear === row.settlementYear && item.employeeId === row.employeeId))) {
+  if (safe.some((row) => existing.some((item) => item.settlementYear === row.settlementYear && item.employeeId === row.employeeId
+    && item.settlementSeq >= row.settlementSeq))) {
     throw payrollRunConflict("年底结算名单已变化或已有人结算，请刷新后重新核对。", "PAYROLL_YEAR_END_SETTLEMENT_CONFLICT");
   }
   workspace.yearEndSettlements = [...safe, ...existing];
@@ -1200,6 +1204,7 @@ function normalizeYearEndSettlement(value = {}) {
     id: cleanText(source.id),
     settlementYear: integer(source.settlementYear),
     employeeId: cleanText(source.employeeId),
+    settlementSeq: Math.max(1, integer(source.settlementSeq) || 1),
     heldWage: money(source.heldWage),
     insuranceDeposit: money(source.insuranceDeposit),
     depositForfeited: money(source.depositForfeited),

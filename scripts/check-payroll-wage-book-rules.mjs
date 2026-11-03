@@ -217,6 +217,46 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
   assert.equal(service.buildOwnPayslip({ workspace, authContext: { user: { employeeId: "A" } }, month: "2026-04" }).yearEndSettlement.settledAt, result.settlements[0].settledAt);
   const query = buildRecordYearEndSettlementsQuery({ settlements: result.settlements });
   assert.match(query.text, /WHERE NOT EXISTS \(SELECT 1 FROM blocked\)/, "the database write is all-or-nothing");
+  assert.match(query.text, /existing\.settlement_seq >= incoming\.settlement_seq/, "a concurrent settlement of the same batch writes nothing");
+
+  // Release review 2026-11-03: something withheld after a settlement (here a held month paid in
+  // a later payroll run) stays pending as the remainder instead of disappearing.
+  workspace.payrollRuns.push({ id: "R12", payrollMonth: "2026-12", revision: 1, status: "paid" });
+  workspace.payrollLines.push(line("A12", "R12", "A", { heldWage: 5000, insuranceDepositWithheld: 0 }));
+  const later = service.buildYearEndSettlementPreview({ workspace, year: "2026" });
+  assert.equal(later.pendingCount, 1);
+  const rowA = later.rows.find((row) => row.employeeId === "A");
+  assert.deepEqual({ heldWage: rowA.heldWage, insuranceDeposit: rowA.insuranceDeposit, payableAmount: rowA.payableAmount, settledAt: rowA.settledAt, alreadySettledAmount: rowA.alreadySettledAmount },
+    { heldWage: 5000, insuranceDeposit: 0, payableAmount: 5000, settledAt: "", alreadySettledAmount: 5752 });
+  assert.equal(later.rows.find((row) => row.employeeId === "B").settledAt, result.settlements[0].settledAt);
+  assert.ok(service.buildOwnPayslip({ workspace, authContext: { user: { employeeId: "A" } }, month: "2026-12" }).yearEndSettlement.remainingAfterSettlement >= 5000,
+    "the payslip shows the 5000 still withheld after the first settlement");
+  const second = await service.confirmYearEndSettlement({ workspace, body: { year: "2026", previewDigest: later.previewDigest, paymentReference: "YE-2026-02" }, operatorId: "U-BOSS" });
+  assert.deepEqual(second.settlements.map(({ employeeId, settlementSeq, payableAmount }) => ({ employeeId, settlementSeq, payableAmount })),
+    [{ employeeId: "A", settlementSeq: 2, payableAmount: 5000 }]);
+  assert.equal(service.buildYearEndSettlementPreview({ workspace, year: "2026" }).pendingCount, 0);
+  assert.throws(() => createLocalAttendancePayrollRepository().recordYearEndSettlements({ workspace, settlements: second.settlements }),
+    (error) => error.code === "PAYROLL_YEAR_END_SETTLEMENT_CONFLICT", "the same batch is never written twice");
+}
+
+// Release review 2026-11-03: year-end settlement is not confirmable in November.
+{
+  const november = createAttendancePayrollService({ now: () => new Date("2026-11-30T15:59:00Z") });
+  const december = createAttendancePayrollService({ now: () => new Date("2026-11-30T16:00:00Z") });
+  const workspace = {
+    attendancePayrollRepository: createLocalAttendancePayrollRepository(),
+    yearEndSettlements: [],
+    employees: [{ id: "N", name: "新员工", hireDate: "2026-11-02" }],
+    payrollRuns: [{ id: "R11", payrollMonth: "2026-11", revision: 1, status: "paid" }],
+    payrollLines: [{ id: "N11", payrollRunId: "R11", employeeId: "N", netWage: 1, grossWage: 1, calculation: { withholding: { insuranceDepositWithheld: 952, heldWage: 0 } } }],
+  };
+  const early = november.buildYearEndSettlementPreview({ workspace, year: "2026" });
+  assert.equal(early.confirmable, false);
+  assert.equal(early.confirmableFrom, "2026-12-01");
+  await assert.rejects(november.confirmYearEndSettlement({ workspace, body: { year: "2026", previewDigest: early.previewDigest, paymentReference: "YE-EARLY" } }),
+    (error) => error.code === "PAYROLL_YEAR_END_NOT_OPEN");
+  assert.equal(workspace.yearEndSettlements.length, 0);
+  assert.equal(december.buildYearEndSettlementPreview({ workspace, year: "2026" }).confirmable, true, "Shanghai 2026-12-01 00:00 opens it");
 }
 
 console.log("Payroll wage-book rules passed: position 绩效 defaults, probation allowance, no overtime premium, driver days, new-hire deposit and held month.");

@@ -39,7 +39,7 @@ export function YearEndSettlementDialog({ authState, operatorId, canConfirm, onC
         <div className="payroll-year-end-list" role="table" aria-label="年底结算名单">
           <div role="row" className="is-head"><span role="columnheader">员工</span><span role="columnheader">压月工资</span><span role="columnheader">保险押金</span><span role="columnheader">应发</span><span role="columnheader">状态</span></div>
           {data.rows.map((row) => <div role="row" key={row.employeeId}>
-            <span role="cell">{row.name || row.employeeId}<small>{row.note}</small></span>
+            <span role="cell">{row.name || row.employeeId}<small>{[row.note, row.alreadySettledAmount && !row.settledAt ? `之前已结 ${money(row.alreadySettledAmount)}，这里是之后新增的` : ""].filter(Boolean).join("；")}</small></span>
             <span role="cell">{money(row.heldWage)}</span>
             <span role="cell">{row.depositForfeited ? <s>{money(row.insuranceDeposit)}</s> : money(row.insuranceDeposit)}</span>
             <span role="cell"><strong>{money(row.payableAmount)}</strong></span>
@@ -47,7 +47,8 @@ export function YearEndSettlementDialog({ authState, operatorId, canConfirm, onC
           </div>)}
         </div>
         <p>待结算 {data.pendingCount} 人，合计 <strong>{money(data.pendingTotal)}</strong>。</p>
-        {canConfirm && data.pendingCount ? <>
+        {data.pendingCount && data.confirmable === false ? <p role="note">年底结算要到 {data.confirmableFrom} 才能确认发放，现在只能先核对名单。</p> : null}
+        {canConfirm && data.pendingCount && data.confirmable !== false ? <>
           <label><span>付款凭证编号</span><input aria-label="年底结算付款凭证编号" onChange={(event) => setPaymentReference(event.target.value)} placeholder="实际转账后填写" value={paymentReference} /></label>
           <footer><button onClick={onClose} type="button">取消</button><button className="primary" disabled={saving || !paymentReference.trim()} onClick={confirm} type="button">{saving ? "正在记录…" : "确认已发放年底结算"}</button></footer>
         </> : !canConfirm ? <p>确认发放需要发薪权限。</p> : null}

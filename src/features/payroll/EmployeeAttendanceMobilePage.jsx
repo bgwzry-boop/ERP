@@ -115,7 +115,11 @@ function PayslipSection({ month, state, onConfirm }) {
         </>}
       {confirmError ? <p className="is-warning" role="alert">{confirmError}</p> : null}
     </>}
-    {yearEnd?.total ? <p className="attendance-payslip-yearend">{yearEnd.year} 年待年底结算 {formatMoney(yearEnd.total)}（保险押金 {formatMoney(yearEnd.insuranceDeposit)} + 压月工资 {formatMoney(yearEnd.heldWage)}）</p> : null}
+    {yearEnd?.total ? <p className="attendance-payslip-yearend">{yearEnd.settledAt
+      ? yearEnd.remainingAfterSettlement > 0
+        ? `${yearEnd.year} 年已年底结算 ${formatMoney(yearEnd.settledAmount)}，还有 ${formatMoney(yearEnd.remainingAfterSettlement)} 待结算`
+        : `${yearEnd.year} 年年底结算已发放 ${formatMoney(yearEnd.settledAmount)}`
+      : `${yearEnd.year} 年待年底结算 ${formatMoney(yearEnd.total)}（保险押金 ${formatMoney(yearEnd.insuranceDeposit)} + 压月工资 ${formatMoney(yearEnd.heldWage)}）`}</p> : null}
   </section>;
 }
 
