@@ -145,6 +145,7 @@ export async function hydratePersistentWorkspaceState({
   workspace.payrollLineAdjustments = toArray(attendancePayrollState.payrollLineAdjustments);
   workspace.payrollExportEvents = toArray(attendancePayrollState.payrollExportEvents);
   workspace.payslipAcknowledgements = toArray(attendancePayrollState.payslipAcknowledgements);
+  workspace.yearEndSettlements = toArray(attendancePayrollState.yearEndSettlements);
 
   mergeRuntimeIdentityStateIntoWorkspace(
     workspace,

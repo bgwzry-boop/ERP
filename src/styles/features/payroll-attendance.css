@@ -270,3 +270,9 @@ button.payroll-position-row.selected { background: var(--blue-soft); box-shadow:
 @media (max-width: 767px) {
   .attendance-self-page { width: 100%; height: 100%; }
 }
+.payroll-year-end-dialog { width: min(680px, calc(100vw - 28px)); }
+.payroll-year-end-list { display: grid; border-top: 1px solid var(--line); }
+.payroll-year-end-list > div { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)) minmax(0, 1.1fr); gap: 8px; align-items: center; min-height: 40px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.payroll-year-end-list > div.is-head { color: var(--ink-soft); font-size: 11px; }
+.payroll-year-end-list small { display: block; color: var(--erp-warning); font-size: 11px; }
+.payroll-year-end-dialog footer { display: flex; justify-content: flex-end; gap: 8px; }

@@ -22,6 +22,8 @@ export function createAttendancePayrollService(dependencies = {}) {
     buildOwnAttendance,
     buildOwnPayslip,
     acknowledgeOwnPayslip,
+    buildYearEndSettlementPreview,
+    confirmYearEndSettlement,
     buildPayrollWorkbench,
     buildPayrollReadiness,
     precheckAttendanceSync,
@@ -85,7 +87,13 @@ export function createAttendancePayrollService(dependencies = {}) {
       employee: { employeeId, name: cleanText(employee.name), roleName: cleanText(employee.roleName) },
       payslip,
       availableMonths: [...latestByMonth.keys()].sort().reverse(),
-      yearEndSettlement: { year, ...yearEndSettlement, total: round(yearEndSettlement.insuranceDeposit + yearEndSettlement.heldWage, 2) },
+      yearEndSettlement: {
+        year,
+        ...yearEndSettlement,
+        total: round(yearEndSettlement.insuranceDeposit + yearEndSettlement.heldWage, 2),
+        settledAt: cleanText((workspace.yearEndSettlements ?? [])
+          .find((item) => item.employeeId === employeeId && String(item.settlementYear) === year)?.settledAt),
+      },
     };
   }
 
@@ -122,6 +130,101 @@ export function createAttendancePayrollService(dependencies = {}) {
         acknowledgedBy: cleanText(authContext?.user?.userId ?? authContext?.userId) || cleanText(operatorId),
         acknowledgedAt: now().toISOString(),
       },
+    });
+  }
+
+  // Year-end wage settlement (owner 2026-11-02): pay out the held month and the insurance
+  // deposit withheld from paid payroll months of the year; the deposit is forfeited by an
+  // employee who left before year end. Each employee is settled once per year.
+  function buildYearEndSettlementPreview({ workspace, year } = {}) {
+    const settlementYear = Number.parseInt(cleanText(year) || String(now().getUTCFullYear()), 10);
+    if (!Number.isInteger(settlementYear) || settlementYear < 2000 || settlementYear > 2100) {
+      throw businessError(400, "PAYROLL_YEAR_END_YEAR_INVALID", "请选择正确的结算年份。");
+    }
+    const yearText = String(settlementYear);
+    const paidRuns = new Map((workspace.payrollRuns ?? [])
+      .filter((run) => run.status === "paid" && cleanText(run.payrollMonth).startsWith(yearText))
+      .map((run) => [run.id, run]));
+    const latestByEmployeeMonth = new Map();
+    for (const line of workspace.payrollLines ?? []) {
+      const run = paidRuns.get(line.payrollRunId);
+      if (!run) continue;
+      const key = `${line.employeeId}|${run.payrollMonth}`;
+      const current = latestByEmployeeMonth.get(key);
+      if (!current || Number(run.revision) > Number(current.run.revision)) latestByEmployeeMonth.set(key, { line, run });
+    }
+    const totals = new Map();
+    for (const { line } of latestByEmployeeMonth.values()) {
+      const withholding = line.calculation?.withholding;
+      if (!withholding) continue;
+      const current = totals.get(line.employeeId) ?? { heldWage: 0, insuranceDeposit: 0 };
+      current.heldWage = round(current.heldWage + nonNegativeNumber(withholding.heldWage), 2);
+      current.insuranceDeposit = round(current.insuranceDeposit + nonNegativeNumber(withholding.insuranceDepositWithheld), 2);
+      totals.set(line.employeeId, current);
+    }
+    const settled = new Map((workspace.yearEndSettlements ?? [])
+      .filter((item) => Number(item.settlementYear) === settlementYear)
+      .map((item) => [item.employeeId, item]));
+    const yearEnd = `${yearText}-12-31`;
+    const rows = [...totals.entries()]
+      .filter(([, amount]) => amount.heldWage > 0 || amount.insuranceDeposit > 0)
+      .map(([employeeId, amount]) => {
+        const employee = findEmployee(workspace, employeeId) ?? {};
+        const departureDate = employeeDepartureDate(employee);
+        const leftBeforeYearEnd = Boolean(departureDate) && departureDate < yearEnd;
+        const depositForfeited = leftBeforeYearEnd ? amount.insuranceDeposit : 0;
+        const record = settled.get(employeeId) ?? null;
+        return {
+          employeeId,
+          name: cleanText(employee.name),
+          roleName: cleanText(employee.roleName),
+          departureDate,
+          heldWage: amount.heldWage,
+          insuranceDeposit: amount.insuranceDeposit,
+          depositForfeited,
+          payableAmount: round(amount.heldWage + amount.insuranceDeposit - depositForfeited, 2),
+          note: leftBeforeYearEnd ? "未干到年底，保险押金由个人承担" : "",
+          settledAt: cleanText(record?.settledAt),
+          paymentReference: cleanText(record?.paymentReference),
+        };
+      })
+      .sort((left, right) => left.employeeId.localeCompare(right.employeeId));
+    const pending = rows.filter((row) => !row.settledAt);
+    const previewDigest = sha256(JSON.stringify({ year: settlementYear, pending: pending.map(({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount }) => ({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount })) }));
+    return {
+      year: settlementYear,
+      rows,
+      pendingCount: pending.length,
+      pendingTotal: round(pending.reduce((sum, row) => sum + row.payableAmount, 0), 2),
+      previewDigest,
+    };
+  }
+
+  async function confirmYearEndSettlement({ workspace, body = {}, operatorId } = {}) {
+    const paymentReference = cleanText(body.paymentReference);
+    if (!paymentReference) throw businessError(400, "PAYROLL_PAYMENT_REFERENCE_REQUIRED", "确认年底结算必须填写付款凭证编号。");
+    const preview = buildYearEndSettlementPreview({ workspace, year: body.year });
+    if (cleanText(body.previewDigest) !== preview.previewDigest) {
+      throw businessError(409, "PAYROLL_YEAR_END_PREVIEW_CHANGED", "年底结算名单或金额已变化，请刷新后重新核对。");
+    }
+    const pending = preview.rows.filter((row) => !row.settledAt);
+    if (!pending.length) throw businessError(409, "PAYROLL_YEAR_END_NOTHING_PENDING", "今年没有待年底结算的押金或压月工资。");
+    const settledAt = now().toISOString();
+    return workspace.attendancePayrollRepository.recordYearEndSettlements({
+      workspace,
+      settlements: pending.map((row) => ({
+        id: `PYE-${preview.year}-${randomUUID()}`,
+        settlementYear: preview.year,
+        employeeId: row.employeeId,
+        heldWage: row.heldWage,
+        insuranceDeposit: row.insuranceDeposit,
+        depositForfeited: row.depositForfeited,
+        payableAmount: row.payableAmount,
+        previewDigest: preview.previewDigest,
+        paymentReference,
+        settledBy: cleanText(operatorId),
+        settledAt,
+      })),
     });
   }
 

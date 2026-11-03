@@ -33,6 +33,7 @@ import {
   payrollPositionPolicyRates,
 } from "../../../shared/payrollPositionCatalog.js";
 import { confirmInApp } from "../../shared/ui/confirmDialog.js";
+import { YearEndSettlementDialog } from "./YearEndSettlementDialog.jsx";
 
 const runStatusLabels = Object.freeze({ draft: "工资草稿", reviewed: "会计已复核", locked: "已锁定", paid: "已发薪" });
 
@@ -92,6 +93,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [policyOpen, setPolicyOpen] = useState(false);
+  const [yearEndOpen, setYearEndOpen] = useState(false);
   const [policyForm, setPolicyForm] = useState({
     versionLabel: "",
     effectiveFrom: "",
@@ -116,6 +118,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   const canReviewPayroll = permissions.has("payroll.review");
   const canLockPayroll = permissions.has("payroll.lock");
   const canConfirmPayment = permissions.has("payroll.payment.confirm");
+  const canPreviewPayroll = permissions.has("payroll.preview");
   const reviewDays = (employeeAttendance?.days ?? []).filter((day) =>
     day.status === "pending_review" || day.minuteCalculation?.legacyReviewedMinutesPreserved ||
     day.minuteCalculation?.breakRule === "actual_rest_review",
@@ -455,6 +458,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
           <input aria-label="工资月份" className="payroll-month-input" onChange={(event) => setMonth(event.target.value)} type="month" value={month} />
           {canSync ? <button disabled={loading || Boolean(actionLoading) || actionLoading === "sync" || actionLoading === "sync-precheck" || !workbench?.sourceStatus?.configured} onClick={handleSync} title={workbench?.sourceStatus?.configured ? "先只读预检，再同步真实打卡机数据" : "真实考勤来源尚未配置"} type="button"><ReloadOutlined />同步考勤</button> : null}
           {canManagePolicy ? <button onClick={() => setPolicyOpen(true)} type="button"><SettingOutlined />计薪规则</button> : null}
+          {canPreviewPayroll ? <button onClick={() => setYearEndOpen(true)} type="button">年底结算</button> : null}
           {latestRun && latestRun.status !== "draft" && canExportPayroll ? <button disabled={loading || Boolean(actionLoading)} onClick={handleExport} type="button"><DownloadOutlined />导出工资表</button> : null}
           {canReviewPayroll ? <button className="primary" disabled={loading || Boolean(actionLoading) || actionLoading === "draft" || workbench?.summary?.draftReady !== true} onClick={() => perform("draft", () => generateOfficePayrollDraft({ authState, operatorId, month }), "工资草稿已生成。") } title={payrollDraftActionTitle(workbench)} type="button">生成工资草稿</button> : null}
         </div> : <div className="payroll-position-summary"><strong>{workbookPositionRates.length} 个岗位</strong><span>原表岗位目录 · 非当前员工人数</span></div>}
@@ -549,6 +553,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
       </> : <div className="payroll-review-empty"><strong>请选择员工</strong><span>查看考勤和工资准备情况。</span></div>}
     </aside>
 
+    {yearEndOpen ? <YearEndSettlementDialog authState={authState} canConfirm={canConfirmPayment} onClose={() => setYearEndOpen(false)} operatorId={operatorId} /> : null}
     {policyOpen ? <div className="payroll-policy-overlay" role="presentation"><form aria-modal="true" className="payroll-policy-dialog" onSubmit={handlePolicyPublish} role="dialog"><header><div><h2>发布计薪规则</h2><p>岗位薪资来源已读取；这里维护标准日工时、加班倍率和工龄奖，发布后生成不可变版本。</p></div><button aria-label="关闭" onClick={() => setPolicyOpen(false)} type="button">×</button></header><label><span>规则版本名称</span><input onChange={(event) => setPolicyForm((current) => ({ ...current, versionLabel: event.target.value }))} required value={policyForm.versionLabel} /></label><label><span>生效日期</span><input onChange={(event) => setPolicyForm((current) => ({ ...current, effectiveFrom: event.target.value }))} required type="date" value={policyForm.effectiveFrom} /></label><label><span>标准日工时（小时）</span><input min="0.01" onChange={(event) => setPolicyForm((current) => ({ ...current, regularHours: event.target.value }))} required step="0.01" type="number" value={policyForm.regularHours} /></label><label><span>加班倍率</span><input min="1" max="5" onChange={(event) => setPolicyForm((current) => ({ ...current, overtimeMultiplier: event.target.value }))} required step="0.01" type="number" value={policyForm.overtimeMultiplier} /></label><label><span>工龄奖（每行：年数:月奖金额）</span><textarea onChange={(event) => setPolicyForm((current) => ({ ...current, seniorityAwards: event.target.value }))} placeholder={"1:30\n2:45"} value={policyForm.seniorityAwards} /></label><footer><button onClick={() => setPolicyOpen(false)} type="button">取消</button><button className="primary" disabled={actionLoading === "policy"} type="submit">确认发布</button></footer></form></div> : null}
   </div>;
 }

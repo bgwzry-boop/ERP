@@ -32,6 +32,15 @@ export async function handleAttendancePayrollReadRoutes({
     return true;
   }
 
+  if (url.pathname === "/api/payroll/year-end-settlements") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.previewPayroll)) return true;
+    sendJson(response, 200, attendancePayrollService.buildYearEndSettlementPreview({
+      workspace,
+      year: url.searchParams.get("year"),
+    }));
+    return true;
+  }
+
   if (url.pathname === "/api/payroll/workbench") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.previewPayroll)) return true;
     sendJson(response, 200, attendancePayrollService.buildPayrollWorkbench({
@@ -125,6 +134,13 @@ export async function handleAttendancePayrollWriteRoutes({
       body,
       operatorId,
     }));
+    return true;
+  }
+
+  if (url.pathname === "/api/payroll/year-end-settlements") {
+    // Paying out held wages and deposits is a payment, so it needs the payment-confirm right.
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmPayrollPayment)) return true;
+    sendJson(response, 200, await attendancePayrollService.confirmYearEndSettlement({ workspace, body, operatorId }));
     return true;
   }
 
