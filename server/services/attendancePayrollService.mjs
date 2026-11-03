@@ -6,9 +6,26 @@ import {
   REVIEWED_ATTENDANCE_MINUTE_VERSION,
 } from "./attendanceWorkMinutes.mjs";
 
-// Year-end settlement can be confirmed from this date of the settlement year (Shanghai time).
-// Release review 2026-11-03: it must not be confirmable in November.
-const YEAR_END_SETTLEMENT_OPENS = "12-01";
+// Owner 2026-11-03: the factory year runs from 03-15 to 03-14 of the next year, and the
+// year-end settlement is paid on 03-14. Factory year Y therefore holds payroll months Y-03 to
+// (Y+1)-02 (the last ones paid before 03-14), opens for confirmation on (Y+1)-03-14 (Shanghai
+// time), and the deposit is forfeited by anyone who left before that day.
+const FACTORY_YEAR_END_MONTH_DAY = "03-14";
+const FACTORY_YEAR_FIRST_MONTH = 3;
+
+export function factoryYearOfPayrollMonth(month) {
+  const [year, monthNumber] = String(month).split("-").map(Number);
+  return monthNumber >= FACTORY_YEAR_FIRST_MONTH ? year : year - 1;
+}
+
+function factoryYearOfDate(date) {
+  const year = Number(date.slice(0, 4));
+  return date.slice(5) > FACTORY_YEAR_END_MONTH_DAY ? year : year - 1;
+}
+
+function factoryYearEndDate(year) {
+  return `${Number(year) + 1}-${FACTORY_YEAR_END_MONTH_DAY}`;
+}
 
 const payrollRunTransitions = Object.freeze({
   draft: new Set(["reviewed"]),
@@ -74,9 +91,9 @@ export function createAttendancePayrollService(dependencies = {}) {
       if (!current || Number(item.run.revision) > Number(current.run.revision)) latestByMonth.set(item.run.payrollMonth, item);
     }
     const selected = latestByMonth.get(safeMonth) ?? null;
-    const year = safeMonth.slice(0, 4);
+    const year = String(factoryYearOfPayrollMonth(safeMonth));
     const yearEndSettlement = [...latestByMonth.entries()]
-      .filter(([itemMonth]) => itemMonth.startsWith(year))
+      .filter(([itemMonth]) => String(factoryYearOfPayrollMonth(itemMonth)) === year)
       .reduce((sum, [, item]) => ({
         insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.line.calculation?.withholding?.insuranceDepositWithheld), 2),
         heldWage: round(sum.heldWage + nonNegativeNumber(item.line.calculation?.withholding?.heldWage), 2),
@@ -142,13 +159,15 @@ export function createAttendancePayrollService(dependencies = {}) {
   // from the settlement window, and anything withheld after an earlier settlement (e.g. a held
   // month paid later) stays pending as the remainder instead of being dropped.
   function buildYearEndSettlementPreview({ workspace, year } = {}) {
-    const settlementYear = Number.parseInt(cleanText(year) || String(now().getUTCFullYear()), 10);
+    // Without a year, show the current factory year (on payday 03-14 that is the year being settled).
+    const settlementYear = Number.parseInt(cleanText(year) || String(factoryYearOfDate(shanghaiDate(now()))), 10);
     if (!Number.isInteger(settlementYear) || settlementYear < 2000 || settlementYear > 2100) {
       throw businessError(400, "PAYROLL_YEAR_END_YEAR_INVALID", "请选择正确的结算年份。");
     }
     const yearText = String(settlementYear);
     const paidRuns = new Map((workspace.payrollRuns ?? [])
-      .filter((run) => run.status === "paid" && cleanText(run.payrollMonth).startsWith(yearText))
+      .filter((run) => run.status === "paid" && /^\d{4}-\d{2}$/.test(cleanText(run.payrollMonth))
+        && factoryYearOfPayrollMonth(cleanText(run.payrollMonth)) === settlementYear)
       .map((run) => [run.id, run]));
     const latestByEmployeeMonth = new Map();
     for (const line of workspace.payrollLines ?? []) {
@@ -168,7 +187,7 @@ export function createAttendancePayrollService(dependencies = {}) {
       totals.set(line.employeeId, current);
     }
     const settled = summarizeYearEndSettlements(workspace, settlementYear);
-    const yearEnd = `${yearText}-12-31`;
+    const yearEnd = factoryYearEndDate(settlementYear);
     const rows = [...totals.entries()]
       .filter(([, amount]) => amount.heldWage > 0 || amount.insuranceDeposit > 0)
       .map(([employeeId, amount]) => {
@@ -199,9 +218,11 @@ export function createAttendancePayrollService(dependencies = {}) {
       .sort((left, right) => left.employeeId.localeCompare(right.employeeId));
     const pending = rows.filter((row) => !row.settledAt);
     const previewDigest = sha256(JSON.stringify({ year: settlementYear, pending: pending.map(({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount, settledSeq }) => ({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount, settledSeq })) }));
-    const confirmableFrom = `${yearText}-${YEAR_END_SETTLEMENT_OPENS}`;
+    const confirmableFrom = yearEnd;
     return {
       year: settlementYear,
+      periodStart: `${yearText}-03-15`,
+      periodEnd: yearEnd,
       confirmableFrom,
       confirmable: shanghaiDate(now()) >= confirmableFrom,
       rows,
@@ -216,7 +237,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     if (!paymentReference) throw businessError(400, "PAYROLL_PAYMENT_REFERENCE_REQUIRED", "确认年底结算必须填写付款凭证编号。");
     const preview = buildYearEndSettlementPreview({ workspace, year: body.year });
     if (!preview.confirmable) {
-      throw businessError(409, "PAYROLL_YEAR_END_NOT_OPEN", `${preview.year} 年的年底结算要到 ${preview.confirmableFrom} 才能确认发放。`);
+      throw businessError(409, "PAYROLL_YEAR_END_NOT_OPEN", `${preview.year} 年度（${preview.periodStart} 至 ${preview.periodEnd}）的年底结算要到 ${preview.confirmableFrom} 才能确认发放。`);
     }
     if (cleanText(body.previewDigest) !== preview.previewDigest) {
       throw businessError(409, "PAYROLL_YEAR_END_PREVIEW_CHANGED", "年底结算名单或金额已变化，请刷新后重新核对。");
@@ -980,6 +1001,12 @@ export function createAttendancePayrollService(dependencies = {}) {
       insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.payrollLine.calculation?.withholding?.insuranceDepositWithheld), 2),
       heldWage: round(sum.heldWage + nonNegativeNumber(item.payrollLine.calculation?.withholding?.heldWage), 2),
     }), { insuranceDeposit: 0, heldWage: 0 });
+    // What was already paid out at year-end settlements is no longer waiting.
+    for (const item of workspace.yearEndSettlements ?? []) {
+      if (item.employeeId !== employeeId) continue;
+      yearEndSettlement.insuranceDeposit = Math.max(0, round(yearEndSettlement.insuranceDeposit - nonNegativeNumber(item.insuranceDeposit), 2));
+      yearEndSettlement.heldWage = Math.max(0, round(yearEndSettlement.heldWage - nonNegativeNumber(item.heldWage), 2));
+    }
     return {
       employee: employeeProjection(employee, now()),
       items: allItems.slice(0, safeLimit),

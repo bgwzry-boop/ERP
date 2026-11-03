@@ -4,7 +4,7 @@ import { confirmOfficeYearEndSettlement, getOfficeYearEndSettlement } from "../.
 // Year-end wage settlement (owner 2026-11-02): pay out each employee's held month and the
 // insurance deposit; the deposit is forfeited by anyone who left before year end.
 export function YearEndSettlementDialog({ authState, operatorId, canConfirm, onClose }) {
-  const [year, setYear] = useState(() => String(new Date().getFullYear()));
+  const [year, setYear] = useState(() => String(currentFactoryYear(new Date())));
   const [state, setState] = useState({ loading: true, data: null, error: "" });
   const [paymentReference, setPaymentReference] = useState("");
   const [saving, setSaving] = useState(false);
@@ -25,7 +25,7 @@ export function YearEndSettlementDialog({ authState, operatorId, canConfirm, onC
     const result = await confirmOfficeYearEndSettlement({ authState, operatorId, year: data.year, previewDigest: data.previewDigest, paymentReference: paymentReference.trim() });
     setSaving(false);
     if (result.blocked) { setNotice(result.error?.message || "年底结算确认失败。"); return; }
-    setNotice(`已记录 ${data.year} 年年底结算，共 ${data.pendingCount} 人。`);
+    setNotice(`已记录 ${data.year} 年度年底结算，共 ${data.pendingCount} 人。`);
     setPaymentReference("");
     await load();
   }
@@ -33,9 +33,10 @@ export function YearEndSettlementDialog({ authState, operatorId, canConfirm, onC
   const data = state.data;
   return <div className="payroll-policy-overlay" role="presentation">
     <section aria-modal="true" aria-labelledby="year-end-settlement-title" className="payroll-policy-dialog payroll-year-end-dialog" role="dialog">
-      <header><div><h2 id="year-end-settlement-title">年底结算</h2><p>发放入职时暂扣的保险押金和压下的一个月工资。只统计已确认发薪的月份；年底前离职的，押金由个人承担。</p></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header>
-      <label><span>结算年份</span><input inputMode="numeric" onChange={(event) => setYear(event.target.value)} value={year} /></label>
-      {state.loading ? <p role="status">正在读取…</p> : state.error ? <p role="alert">{state.error}</p> : !data?.rows?.length ? <p>{data?.year} 年没有暂扣的押金或压月工资。</p> : <>
+      <header><div><h2 id="year-end-settlement-title">年底结算</h2><p>发放入职时暂扣的保险押金和压下的一个月工资。工厂年度从 3 月 15 日到次年 3 月 14 日，3 月 14 日发放；只统计已确认发薪的月份，3 月 14 日前离职的，押金由个人承担。</p></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header>
+      <label><span>结算年度</span><input inputMode="numeric" onChange={(event) => setYear(event.target.value)} value={year} /></label>
+      {state.loading ? <p role="status">正在读取…</p> : state.error ? <p role="alert">{state.error}</p> : !data?.rows?.length ? <p>{data?.year} 年度没有暂扣的押金或压月工资。</p> : <>
+        {data.periodStart ? <p>{data.year} 年度：{data.periodStart} 至 {data.periodEnd}，含 {data.year}-03 到 {Number(data.year) + 1}-02 的工资月。</p> : null}
         <div className="payroll-year-end-list" role="table" aria-label="年底结算名单">
           <div role="row" className="is-head"><span role="columnheader">员工</span><span role="columnheader">压月工资</span><span role="columnheader">保险押金</span><span role="columnheader">应发</span><span role="columnheader">状态</span></div>
           {data.rows.map((row) => <div role="row" key={row.employeeId}>
@@ -56,6 +57,13 @@ export function YearEndSettlementDialog({ authState, operatorId, canConfirm, onC
       {notice ? <p role="status">{notice}</p> : null}
     </section>
   </div>;
+}
+
+// Factory year Y runs 03-15 … next year's 03-14 (owner 2026-11-03).
+function currentFactoryYear(date) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.month}-${parts.day}` > "03-14" ? Number(parts.year) : Number(parts.year) - 1;
 }
 
 function money(value) { return `¥${Number(value || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
