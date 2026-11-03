@@ -51,10 +51,12 @@ export function EmployeeAttendanceMobilePage({ authState, currentUser }) {
           <dl><div><dt>考勤天数</dt><dd>{data?.summary?.attendanceDayCount || 0} 天</dd></div><div><dt>待复核</dt><dd>{data?.summary?.pendingExceptionCount || 0} 天</dd></div><div><dt>考勤身份</dt><dd>{data?.summary?.attendanceMapped ? "已关联" : "未关联"}</dd></div><div><dt>预计排除</dt><dd>{data?.summary?.estimatedExcludedDayCount || 0} 天</dd></div></dl>
         </section>
         <PayslipSection
+          key={month}
           month={month}
           state={payslip}
           onConfirm={async (slip) => {
-            const result = await acknowledgeMyOfficePayslip({ authState, operatorId: currentUser?.userId, month, revision: slip.revision });
+            // Confirm exactly the payslip on screen: its own month, revision and amount, never the picker's month.
+            const result = await acknowledgeMyOfficePayslip({ authState, operatorId: currentUser?.userId, month: slip.payrollMonth, revision: slip.revision, netWage: slip.netWage });
             if (result.blocked) return result.error?.message || "工资条确认失败。";
             await refresh();
             return "";
@@ -69,8 +71,10 @@ export function EmployeeAttendanceMobilePage({ authState, currentUser }) {
 
 // Online payslip: only reviewed / paid wages appear; deposit and held month wait for year end.
 function PayslipSection({ month, state, onConfirm }) {
-  const slip = state.data?.payslip;
-  const yearEnd = state.data?.yearEndSettlement;
+  // A response for another month (slow request, month just switched) is never shown or confirmed.
+  const forThisMonth = state.data?.month === month;
+  const slip = forThisMonth && state.data?.payslip?.payrollMonth === month ? state.data.payslip : null;
+  const yearEnd = forThisMonth ? state.data?.yearEndSettlement : null;
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState("");
   async function confirm() {
@@ -85,7 +89,7 @@ function PayslipSection({ month, state, onConfirm }) {
   }
   return <section className="attendance-mobile-payslip" aria-label="本人工资条">
     <header><div><span>{formatMonth(month)} · 工资条</span><h2>{slip ? formatMoney(slip.payableNow) : "—"}</h2></div><FileDoneOutlined /></header>
-    {state.loading ? <p role="status">正在读取工资条…</p> : state.error ? <p className="is-warning" role="alert">{state.error}</p> : !slip ? <p>本月工资还没有复核，复核后在这里显示工资条。</p> : <>
+    {state.loading || (state.data && !forThisMonth) ? <p role="status">正在读取工资条…</p> : state.error ? <p className="is-warning" role="alert">{state.error}</p> : !slip ? <p>本月工资还没有复核，复核后在这里显示工资条。</p> : <>
       <p className="attendance-payslip-status">{slip.statusLabel}{slip.paidAt ? ` · ${slip.paidAt.slice(0, 10)}` : ""} · 本次发放</p>
       <dl>
         {slip.items.map((item) => <div key={item.label}><dt>{item.label}</dt><dd className={item.amount < 0 ? "is-negative" : undefined}>{formatMoney(item.amount)}</dd></div>)}

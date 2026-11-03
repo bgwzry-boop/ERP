@@ -42,7 +42,7 @@ export function acknowledgeMyOfficePayslip(input = {}, options = {}) {
     authState: input.authState,
     operatorId: input.operatorId,
     method: "POST",
-    body: { month: input.month, revision: input.revision },
+    body: { month: input.month, revision: input.revision, netWage: input.netWage },
   }, "工资条确认失败。");
 }
 

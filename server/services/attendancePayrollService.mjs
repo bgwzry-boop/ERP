@@ -93,10 +93,15 @@ export function createAttendancePayrollService(dependencies = {}) {
   // exactly the revision they are looking at; a newer revision needs a new confirmation.
   async function acknowledgeOwnPayslip({ workspace, authContext, body = {}, operatorId = "" } = {}) {
     const employeeId = requireOwnEmployeeId(authContext);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(cleanText(body.month))) {
+      throw businessError(400, "PAYSLIP_MONTH_REQUIRED", "请先选择要确认的工资月份。");
+    }
     const view = buildOwnPayslip({ workspace, authContext, month: body.month });
     const slip = view.payslip;
     if (!slip) throw businessError(409, "PAYSLIP_NOT_AVAILABLE", "本月工资还没有复核，暂时不能确认。");
-    if (Number(body.revision) !== slip.revision) {
+    // The client sends the amount it showed; a mismatch means the screen was stale (e.g. another month).
+    if (Number(body.revision) !== slip.revision
+      || (body.netWage !== undefined && round(Number(body.netWage), 2) !== slip.netWage)) {
       throw businessError(409, "PAYSLIP_REVISION_CHANGED", "工资条已经更新，请刷新后看清楚再确认。");
     }
     if (slip.acknowledgedAt) return { acknowledgement: { acknowledgedAt: slip.acknowledgedAt }, replayed: true };

@@ -132,7 +132,14 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
     (error) => error.code === "PAYSLIP_REVISION_CHANGED", "a draft or other revision cannot be confirmed");
   await assert.rejects(service.acknowledgeOwnPayslip({ workspace, authContext: auth, body: { month: "2026-12", revision: 1 } }),
     (error) => error.code === "PAYSLIP_NOT_AVAILABLE");
-  const confirmed = await service.acknowledgeOwnPayslip({ workspace, authContext: { user: { employeeId: "E9", userId: "U-E9" } }, body: { month: "2026-11", revision: 1 } });
+  // Cross-month regression (release review 2026-11-03): both months are revision 1, so the
+  // month and the shown amount must match the payslip actually being confirmed.
+  await assert.rejects(service.acknowledgeOwnPayslip({ workspace, authContext: auth, body: { revision: 1, netWage: 5000 } }),
+    (error) => error.code === "PAYSLIP_MONTH_REQUIRED", "no silent default to the current month");
+  await assert.rejects(service.acknowledgeOwnPayslip({ workspace, authContext: auth, body: { month: "2026-11", revision: 1, netWage: 2300 } }),
+    (error) => error.code === "PAYSLIP_REVISION_CHANGED", "October's amount cannot confirm November");
+  assert.equal(workspace.payslipAcknowledgements.length, 0);
+  const confirmed = await service.acknowledgeOwnPayslip({ workspace, authContext: { user: { employeeId: "E9", userId: "U-E9" } }, body: { month: "2026-11", revision: 1, netWage: 5000 } });
   assert.equal(confirmed.acknowledgement.payrollLineId, "L11");
   assert.equal(confirmed.acknowledgement.netWage, 5000);
   assert.equal(confirmed.acknowledgement.payableNow, 0);
@@ -147,6 +154,14 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
   const query = buildRecordPayslipAcknowledgementQuery({ acknowledgement: confirmed.acknowledgement });
   assert.match(query.text, /payroll_runs\.status IN \('reviewed', 'locked', 'paid'\)/);
   assert.match(query.text, /ON CONFLICT \(payroll_line_id\) DO NOTHING/);
+}
+
+{
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../src/features/payroll/EmployeeAttendanceMobilePage.jsx", import.meta.url), "utf8");
+  assert.match(page, /month: slip\.payrollMonth, revision: slip\.revision, netWage: slip\.netWage/, "the phone confirms the payslip on screen, not the month picker");
+  assert.match(page, /state\.data\?\.month === month/, "a response for another month is never shown");
+  assert.match(page, /key=\{month\}/, "switching month resets the payslip section");
 }
 
 console.log("Payroll wage-book rules passed: position 绩效 defaults, probation allowance, no overtime premium, driver days, new-hire deposit and held month.");
