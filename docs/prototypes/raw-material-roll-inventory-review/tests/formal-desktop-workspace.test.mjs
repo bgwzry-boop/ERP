@@ -259,7 +259,10 @@ test("desktop topbar gives its leading space to global search", async () => {
 
   assert.doesNotMatch(appSource, /<strong>虎门工厂<\/strong>/, "topbar should not repeat a fixed factory label before global search");
   assert.doesNotMatch(stylesSource, /\.topbar\s*>\s*strong/, "removed factory-label styling should not remain as dead CSS");
-  assert.match(appSource, /<header className="topbar">\s*<GlobalSearch\b/, "global search should be the first topbar content control");
+  // P2-06: the 菜单 drawer button sits first but is hidden above 760px, so search still leads on desktop.
+  assert.match(appSource, /<header className="topbar">\s*(?:<button[^\n]*className="nav-drawer-toggle"[^\n]*<\/button>\s*)?<GlobalSearch\b/, "global search should be the first visible topbar content control");
+  const narrowSource = await readSource("../src/narrow-desktop.css");
+  assert.match(narrowSource, /^\.nav-drawer-toggle \{ display: none; \}/m, "the drawer button is hidden on ordinary desktop widths");
   assert.match(searchSource, /<label className="global-search"/, "the search control keeps the global-search field");
 });
 
@@ -284,4 +287,21 @@ test("4174 phone bootstrap includes the formal employee attendance styles", asyn
 
   assert.match(mobileEntrySource, /import "\.\.\/\.\.\/\.\.\/\.\.\/src\/styles\/features\/payroll-attendance\.css"/, "the 4174 mobile bootstrap must load the same formal attendance styles as the main application");
   assert.match(mobileEntrySource, /return <App signedPreviewUserId="U-MANAGER-A" \/>/, "the 4174 phone entry must reuse the formal application with the signed review identity instead of mounting a prototype phone page");
+});
+
+test("narrow desktop (P2-06): no 1180px floor, stacked workbenches and a closable menu drawer", async () => {
+  const [appSource, stylesSource, narrowSource, entrySource] = await Promise.all([
+    readSource("../src/App.jsx"),
+    readSource("../src/styles.css"),
+    readSource("../src/narrow-desktop.css"),
+    readSource("../src/complete-review-entry.jsx"),
+  ]);
+  assert.doesNotMatch(stylesSource, /min-width:\s*1180px/, "the shell no longer cuts off narrow windows");
+  assert.match(entrySource, /await import\("\.\/App\.jsx"\);\s*\/\/[^\n]*\n\s*await import\("\.\/narrow-desktop\.css"\);/, "narrow rules load after every page stylesheet");
+  assert.match(narrowSource, /@media \(max-width: 1180px\)[\s\S]*business-workbench[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(narrowSource, /@media \(max-width: 760px\)[\s\S]*\.sidebar\.open/);
+  assert.match(appSource, /aria-controls="erp-main-sidebar" aria-expanded=\{navOpen\}/);
+  assert.match(appSource, /event\.key === "Escape"\) setNavOpen\(false\)/, "Escape closes the drawer");
+  assert.match(appSource, /if \(formal\.orderEntryWritePending\) return;\s*setNavOpen\(false\);/, "choosing a page closes the drawer");
+  assert.match(appSource, /className="nav-drawer-backdrop" onClick=\{\(\) => setNavOpen\(false\)\}/, "clicking outside closes the drawer");
 });
