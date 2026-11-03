@@ -354,6 +354,7 @@ export async function confirmOfficeDraftViaApi(input, options = {}) {
         expectedRevision: clientRevision,
         pricingQuoteId: input.pricingQuoteId,
         confirmedAffectedOrderLineIds: input.confirmedAffectedOrderLineIds,
+        shortageDecision: input.shortageDecision,
         lines: mapDraftRowsToApiLines(draftRows, sourceText),
       },
     });
@@ -429,6 +430,7 @@ async function requestOfficeDraftSplit(action, input, options, unavailableCode) 
         splitPlanHash: splitPlanHash || undefined,
         pricingQuoteId: input.pricingQuoteId,
         confirmedAffectedOrderLineIds: input.confirmedAffectedOrderLineIds,
+        shortageDecision: input.shortageDecision,
         lines: mapDraftRowsToApiLines(draftRows, sourceText),
       },
     });

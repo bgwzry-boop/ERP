@@ -83,6 +83,8 @@ if (identityGuard) {
       // 品牌橙改版层必须在上面两份样式之后加载（它覆盖其中的外观）。
       await import("./brand-refresh.css");
       const { App } = await import("./App.jsx");
+      // 窄电脑布局（P2-06）放在所有页面样式之后，保证 1024/1180px 以下的规则生效。
+      await import("./narrow-desktop.css");
       root.render(
         <React.StrictMode>
           <App />

@@ -844,7 +844,7 @@ assert.equal(ownPayslip.payslip.items.find((item) => item.label === "请假/缺�
 assert.equal(ownPayslip.payslip.adjustmentReason, "本月绩效确认；请假与其他扣款凭会计附件核定。");
 assert.equal(JSON.stringify(ownPayslip).includes("ATT-PAYROLL-ADJUSTMENT-1"), false, "evidence files stay with the office");
 assert.deepEqual(ownPayslip.availableMonths, ["2026-08"]);
-assert.deepEqual(ownPayslip.yearEndSettlement, { year: "2026", insuranceDeposit: 0, heldWage: 0, total: 0 });
+assert.deepEqual(ownPayslip.yearEndSettlement, { year: "2026", insuranceDeposit: 0, heldWage: 0, total: 0, settledAt: "" });
 const formalExport = await service.createPayrollExport({
   workspace,
   payrollRunId: draft.payrollRun.id,

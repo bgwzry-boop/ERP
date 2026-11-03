@@ -6,6 +6,17 @@ import {
   REVIEWED_ATTENDANCE_MINUTE_VERSION,
 } from "./attendanceWorkMinutes.mjs";
 
+// Owner 2026-11-03: the deposit (hire month) and the held month (next month) are paid back at
+// the year-end settlement, just before the Spring Festival break, whose date changes every
+// year. Settlement year Y holds payroll months Y-01 … Y-12; it can be confirmed from
+// (Y+1)-01-01 (Shanghai time), when the office pays it before the break. Anyone who left before
+// the settlement day forfeits the deposit. Anything withheld later stays pending as a remainder.
+const YEAR_END_SETTLEMENT_OPENS_NEXT_YEAR = "01-01";
+
+export function settlementYearOfPayrollMonth(month) {
+  return Number(String(month).slice(0, 4));
+}
+
 const payrollRunTransitions = Object.freeze({
   draft: new Set(["reviewed"]),
   reviewed: new Set(["locked"]),
@@ -22,6 +33,8 @@ export function createAttendancePayrollService(dependencies = {}) {
     buildOwnAttendance,
     buildOwnPayslip,
     acknowledgeOwnPayslip,
+    buildYearEndSettlementPreview,
+    confirmYearEndSettlement,
     buildPayrollWorkbench,
     buildPayrollReadiness,
     precheckAttendanceSync,
@@ -68,9 +81,9 @@ export function createAttendancePayrollService(dependencies = {}) {
       if (!current || Number(item.run.revision) > Number(current.run.revision)) latestByMonth.set(item.run.payrollMonth, item);
     }
     const selected = latestByMonth.get(safeMonth) ?? null;
-    const year = safeMonth.slice(0, 4);
+    const year = String(settlementYearOfPayrollMonth(safeMonth));
     const yearEndSettlement = [...latestByMonth.entries()]
-      .filter(([itemMonth]) => itemMonth.startsWith(year))
+      .filter(([itemMonth]) => String(settlementYearOfPayrollMonth(itemMonth)) === year)
       .reduce((sum, [, item]) => ({
         insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.line.calculation?.withholding?.insuranceDepositWithheld), 2),
         heldWage: round(sum.heldWage + nonNegativeNumber(item.line.calculation?.withholding?.heldWage), 2),
@@ -85,7 +98,12 @@ export function createAttendancePayrollService(dependencies = {}) {
       employee: { employeeId, name: cleanText(employee.name), roleName: cleanText(employee.roleName) },
       payslip,
       availableMonths: [...latestByMonth.keys()].sort().reverse(),
-      yearEndSettlement: { year, ...yearEndSettlement, total: round(yearEndSettlement.insuranceDeposit + yearEndSettlement.heldWage, 2) },
+      yearEndSettlement: {
+        year,
+        ...yearEndSettlement,
+        total: round(yearEndSettlement.insuranceDeposit + yearEndSettlement.heldWage, 2),
+        ...ownYearEndSettledState(workspace, employeeId, year, yearEndSettlement),
+      },
     };
   }
 
@@ -123,6 +141,140 @@ export function createAttendancePayrollService(dependencies = {}) {
         acknowledgedAt: now().toISOString(),
       },
     });
+  }
+
+  // Year-end wage settlement (owner 2026-11-02): pay out the held month and the insurance
+  // deposit withheld from paid payroll months of the year; the deposit is forfeited by an
+  // employee who left before year end. Release review 2026-11-03: it can only be confirmed
+  // from the settlement window, and anything withheld after an earlier settlement (e.g. a held
+  // month paid later) stays pending as the remainder instead of being dropped.
+  function buildYearEndSettlementPreview({ workspace, year } = {}) {
+    // Without a year: in January / February the office is settling last year, otherwise this year.
+    const today = shanghaiDate(now());
+    const settlementYear = Number.parseInt(cleanText(year) || String(Number(today.slice(0, 4)) - (today.slice(5, 7) <= "02" ? 1 : 0)), 10);
+    if (!Number.isInteger(settlementYear) || settlementYear < 2000 || settlementYear > 2100) {
+      throw businessError(400, "PAYROLL_YEAR_END_YEAR_INVALID", "请选择正确的结算年份。");
+    }
+    const yearText = String(settlementYear);
+    const paidRuns = new Map((workspace.payrollRuns ?? [])
+      .filter((run) => run.status === "paid" && /^\d{4}-\d{2}$/.test(cleanText(run.payrollMonth))
+        && settlementYearOfPayrollMonth(cleanText(run.payrollMonth)) === settlementYear)
+      .map((run) => [run.id, run]));
+    const latestByEmployeeMonth = new Map();
+    for (const line of workspace.payrollLines ?? []) {
+      const run = paidRuns.get(line.payrollRunId);
+      if (!run) continue;
+      const key = `${line.employeeId}|${run.payrollMonth}`;
+      const current = latestByEmployeeMonth.get(key);
+      if (!current || Number(run.revision) > Number(current.run.revision)) latestByEmployeeMonth.set(key, { line, run });
+    }
+    const totals = new Map();
+    for (const { line } of latestByEmployeeMonth.values()) {
+      const withholding = line.calculation?.withholding;
+      if (!withholding) continue;
+      const current = totals.get(line.employeeId) ?? { heldWage: 0, insuranceDeposit: 0 };
+      current.heldWage = round(current.heldWage + nonNegativeNumber(withholding.heldWage), 2);
+      current.insuranceDeposit = round(current.insuranceDeposit + nonNegativeNumber(withholding.insuranceDepositWithheld), 2);
+      totals.set(line.employeeId, current);
+    }
+    const settled = summarizeYearEndSettlements(workspace, settlementYear);
+    const confirmableFrom = `${settlementYear + 1}-${YEAR_END_SETTLEMENT_OPENS_NEXT_YEAR}`;
+    const confirmable = today >= confirmableFrom;
+    const rows = [...totals.entries()]
+      .filter(([, amount]) => amount.heldWage > 0 || amount.insuranceDeposit > 0)
+      .map(([employeeId, amount]) => {
+        const employee = findEmployee(workspace, employeeId) ?? {};
+        const departureDate = employeeDepartureDate(employee);
+        // Gone by the settlement day (or by year end, if already past it when previewing early).
+        const leftBeforeYearEnd = Boolean(departureDate) && departureDate < (confirmable ? today : `${yearText}-12-31`);
+        const done = settled.get(employeeId) ?? { heldWage: 0, insuranceDeposit: 0, payableAmount: 0, count: 0, latest: null };
+        const heldWage = Math.max(0, round(amount.heldWage - done.heldWage, 2));
+        const insuranceDeposit = Math.max(0, round(amount.insuranceDeposit - done.insuranceDeposit, 2));
+        const depositForfeited = leftBeforeYearEnd ? insuranceDeposit : 0;
+        const pending = heldWage > 0 || insuranceDeposit > 0;
+        return {
+          employeeId,
+          name: cleanText(employee.name),
+          roleName: cleanText(employee.roleName),
+          departureDate,
+          heldWage,
+          insuranceDeposit,
+          depositForfeited,
+          payableAmount: round(heldWage + insuranceDeposit - depositForfeited, 2),
+          note: leftBeforeYearEnd ? "未干到年底结算，保险押金由个人承担" : "",
+          settledSeq: done.count,
+          alreadySettledAmount: done.payableAmount,
+          settledAt: pending ? "" : cleanText(done.latest?.settledAt),
+          paymentReference: pending ? "" : cleanText(done.latest?.paymentReference),
+        };
+      })
+      .sort((left, right) => left.employeeId.localeCompare(right.employeeId));
+    const pending = rows.filter((row) => !row.settledAt);
+    const previewDigest = sha256(JSON.stringify({ year: settlementYear, pending: pending.map(({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount, settledSeq }) => ({ employeeId, heldWage, insuranceDeposit, depositForfeited, payableAmount, settledSeq })) }));
+    return {
+      year: settlementYear,
+      confirmableFrom,
+      confirmable,
+      rows,
+      pendingCount: pending.length,
+      pendingTotal: round(pending.reduce((sum, row) => sum + row.payableAmount, 0), 2),
+      previewDigest,
+    };
+  }
+
+  async function confirmYearEndSettlement({ workspace, body = {}, operatorId } = {}) {
+    const paymentReference = cleanText(body.paymentReference);
+    if (!paymentReference) throw businessError(400, "PAYROLL_PAYMENT_REFERENCE_REQUIRED", "确认年底结算必须填写付款凭证编号。");
+    const preview = buildYearEndSettlementPreview({ workspace, year: body.year });
+    if (!preview.confirmable) {
+      throw businessError(409, "PAYROLL_YEAR_END_NOT_OPEN", `${preview.year} 年的年底结算要到 ${preview.confirmableFrom} 以后（春节放假前发放时）才能确认。`);
+    }
+    if (cleanText(body.previewDigest) !== preview.previewDigest) {
+      throw businessError(409, "PAYROLL_YEAR_END_PREVIEW_CHANGED", "年底结算名单或金额已变化，请刷新后重新核对。");
+    }
+    const pending = preview.rows.filter((row) => !row.settledAt);
+    if (!pending.length) throw businessError(409, "PAYROLL_YEAR_END_NOTHING_PENDING", "今年没有待年底结算的押金或压月工资。");
+    const settledAt = now().toISOString();
+    return workspace.attendancePayrollRepository.recordYearEndSettlements({
+      workspace,
+      settlements: pending.map((row) => ({
+        id: `PYE-${preview.year}-${randomUUID()}`,
+        settlementYear: preview.year,
+        employeeId: row.employeeId,
+        settlementSeq: row.settledSeq + 1,
+        heldWage: row.heldWage,
+        insuranceDeposit: row.insuranceDeposit,
+        depositForfeited: row.depositForfeited,
+        payableAmount: row.payableAmount,
+        previewDigest: preview.previewDigest,
+        paymentReference,
+        settledBy: cleanText(operatorId),
+        settledAt,
+      })),
+    });
+  }
+
+  function summarizeYearEndSettlements(workspace, settlementYear) {
+    const byEmployee = new Map();
+    for (const item of workspace.yearEndSettlements ?? []) {
+      if (Number(item.settlementYear) !== Number(settlementYear)) continue;
+      const current = byEmployee.get(item.employeeId) ?? { heldWage: 0, insuranceDeposit: 0, payableAmount: 0, count: 0, latest: null };
+      current.heldWage = round(current.heldWage + nonNegativeNumber(item.heldWage), 2);
+      current.insuranceDeposit = round(current.insuranceDeposit + nonNegativeNumber(item.insuranceDeposit), 2);
+      current.payableAmount = round(current.payableAmount + nonNegativeNumber(item.payableAmount), 2);
+      current.count = Math.max(current.count + 1, Number(item.settlementSeq) || 0);
+      if (!current.latest || cleanText(item.settledAt) > cleanText(current.latest.settledAt)) current.latest = item;
+      byEmployee.set(item.employeeId, current);
+    }
+    return byEmployee;
+  }
+
+  // The payslip shows the latest settlement and what is still withheld after it.
+  function ownYearEndSettledState(workspace, employeeId, year, totals) {
+    const done = summarizeYearEndSettlements(workspace, year).get(employeeId);
+    if (!done) return { settledAt: "" };
+    const remaining = round(Math.max(0, totals.heldWage - done.heldWage) + Math.max(0, totals.insuranceDeposit - done.insuranceDeposit), 2);
+    return { settledAt: cleanText(done.latest?.settledAt), settledAmount: done.payableAmount, remainingAfterSettlement: remaining };
   }
 
   function buildEmployeeAttendance({ workspace, employeeId, month, selfView = false } = {}) {
@@ -839,6 +991,12 @@ export function createAttendancePayrollService(dependencies = {}) {
       insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.payrollLine.calculation?.withholding?.insuranceDepositWithheld), 2),
       heldWage: round(sum.heldWage + nonNegativeNumber(item.payrollLine.calculation?.withholding?.heldWage), 2),
     }), { insuranceDeposit: 0, heldWage: 0 });
+    // What was already paid out at year-end settlements is no longer waiting.
+    for (const item of workspace.yearEndSettlements ?? []) {
+      if (item.employeeId !== employeeId) continue;
+      yearEndSettlement.insuranceDeposit = Math.max(0, round(yearEndSettlement.insuranceDeposit - nonNegativeNumber(item.insuranceDeposit), 2));
+      yearEndSettlement.heldWage = Math.max(0, round(yearEndSettlement.heldWage - nonNegativeNumber(item.heldWage), 2));
+    }
     return {
       employee: employeeProjection(employee, now()),
       items: allItems.slice(0, safeLimit),
@@ -1705,6 +1863,10 @@ function normalizeSourceLocalDate(value, punchedAt) {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(punchedAt));
+}
+
+function shanghaiDate(value) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
 }
 
 function formatLocalTime(value) {

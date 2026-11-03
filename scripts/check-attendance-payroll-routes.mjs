@@ -22,6 +22,8 @@ const writeActionPermissions = {
 };
 const service = {
   buildOwnAttendance(input) { calls.push({ kind: "self", ...input }); return { view: "self" }; },
+  buildYearEndSettlementPreview(input) { calls.push({ kind: "year-end", ...input }); return { view: "year-end" }; },
+  async confirmYearEndSettlement(input) { calls.push({ kind: "year-end-confirm", ...input }); return { settled: true }; },
   buildOwnPayslip(input) { calls.push({ kind: "payslip", ...input }); return { view: "payslip" }; },
   buildEmployeeAttendance(input) { calls.push({ kind: "employee", ...input }); return { view: "employee" }; },
   buildPayrollWorkbench(input) { calls.push({ kind: "workbench", ...input }); return { view: "workbench" }; },
@@ -56,6 +58,8 @@ await expectRead("/api/payroll/me?month=2026-08", "attendance.self.read", "paysl
 assert.equal(calls.find((call) => call.kind === "payslip").authContext.user.employeeId, "ERP-0001", "the payslip is always the signed-in employee's own");
 await expectRead("/api/attendance/employees/ERP-0001?month=2026-08", "payroll.preview", "employee");
 await expectRead("/api/payroll/workbench?month=2026-08", "payroll.preview", "workbench");
+await expectRead("/api/payroll/year-end-settlements?year=2026", "payroll.preview", "year-end");
+assert.equal(calls.find((call) => call.kind === "year-end").year, "2026");
 await expectRead("/api/payroll/readiness?month=2026-08", "payroll.preview", "readiness");
 await expectRead("/api/payroll/policy-versions", "payroll.preview", "response");
 await expectRead("/api/payroll/employees/ERP-0001/history?limit=12", "payroll.preview", "history");
@@ -64,6 +68,7 @@ await expectRead("/api/payroll/runs/PAY-1", "payroll.preview", "response");
 
 await expectWrite("/api/payroll/me/acknowledge", "attendance.self.read", "payslip-ack", {});
 assert.equal(calls.find((call) => call.kind === "payslip-ack").authContext.user.employeeId, "ERP-0001", "confirmation is always for the signed-in employee");
+await expectWrite("/api/payroll/year-end-settlements", "payroll.payment.confirm", "year-end-confirm", {});
 await expectWrite("/api/attendance/sync-precheck", "attendance.sync", "sync-precheck", {});
 await expectWrite("/api/attendance/sync", "attendance.sync", "sync", {});
 await expectWrite("/api/attendance/employees/ERP-0001/days/2026-08-10/review", "attendance.review", "day-review", { employeeId: "ERP-0001", workDate: "2026-08-10" });

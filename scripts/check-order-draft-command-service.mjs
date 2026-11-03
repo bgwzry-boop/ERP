@@ -4,6 +4,7 @@ import { createOrderDraftCommandService } from "../server/services/orderDraftCom
 import { recognizeOrderConversation } from "../src/lib/orderConversationRecognition.js";
 
 let confirmationMode = "success";
+let shortageLineIds = new Set();
 const calls = { draftSaves: [], confirmations: [] };
 const service = createOrderDraftCommandService({
   buildCustomerSnapshot(_workspace, customerId) {
@@ -29,7 +30,11 @@ const service = createOrderDraftCommandService({
       blocked: false,
       draftStatus: "已生成正式订单",
       orderNo,
-      checkedRows: draftRows.map((row) => ({ ...row, inventory: "可用", amount: resolveAmount(row) })),
+      checkedRows: draftRows.map((row) => ({
+        ...row,
+        inventory: shortageLineIds.has(row.id) ? "缺货：同规格合计 10 个，可用 0 个，转生产排产" : "可用",
+        amount: resolveAmount(row),
+      })),
       newLines: draftRows.map((row, index) => ({
           ...row,
           id: `${orderNo}-${String(index + 1).padStart(2, "0")}`,
@@ -132,6 +137,8 @@ await checkShortageCancellationRestore();
 await checkPartialShortageCancellation();
 await checkFullyCancelledDraft();
 await checkUnresolvedShortageCancellation();
+await checkCustomerShortageDecision();
+await checkSplitCustomerShortageDecision();
 await checkBlockedConfirmation();
 await checkValidation();
 
@@ -640,6 +647,150 @@ async function checkValidation() {
     body: { expectedRevision: 1, lines: [buildRequestLine()] },
   });
   assert.equal(missing.code, "ORDER_DRAFT_NOT_FOUND");
+}
+
+function buildSecondRequestLine() {
+  return { ...buildRequestLine(), draftLineId: "DRAFT-SERVICE-001-02", bagColor: "白色", qty: 20 };
+}
+
+async function confirmWithShortage(shortageDecision, key) {
+  const workspace = buildWorkspace();
+  const result = await service.confirmOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      expectedRevision: 1,
+      idempotencyKey: key,
+      lines: [buildRequestLine(), buildSecondRequestLine()],
+      ...(shortageDecision === undefined ? {} : { shortageDecision }),
+    },
+  });
+  return { workspace, result };
+}
+
+// Owner decision 2026-10-29: on a shortage the office records the customer's choice.
+async function checkCustomerShortageDecision() {
+  shortageLineIds = new Set(["DRAFT-SERVICE-001-02"]);
+  try {
+    const invalid = await confirmWithShortage({ choice: "whatever" }, "shortage-invalid");
+    assert.equal(invalid.result.statusCode, 422);
+    assert.equal(invalid.result.code, "ORDER_SHORTAGE_DECISION_INVALID");
+
+    const unanswered = await confirmWithShortage({ choice: "", note: "" }, "shortage-unanswered");
+    assert.equal(unanswered.result.statusCode, 409);
+    assert.equal(unanswered.result.code, "ORDER_SHORTAGE_DECISION_REQUIRED");
+    assert.match(unanswered.result.message, /白色 20个/);
+
+    const noShortage = new Set(shortageLineIds);
+    shortageLineIds = new Set();
+    const plain = await confirmWithShortage({ choice: "", note: "" }, "shortage-none");
+    assert.ok(plain.result.response.orderId, "没有缺货时不用选");
+    // GPT regression 2026-11-03: the customer chose 整单取消, then stock arrived before confirm.
+    const restockedBefore = calls.confirmations.length;
+    const restocked = await confirmWithShortage({ choice: "cancel_whole", note: "客户说不要了" }, "shortage-restocked-cancel");
+    assert.equal(restocked.result.response?.closedWithoutOrder, true, JSON.stringify(restocked.result));
+    assert.equal(calls.confirmations.length, restockedBefore, "客户已整单取消，库存补足也不能生成订单");
+    assert.match(JSON.stringify(calls.draftSaves.at(-1)), /stockCoveredAtConfirm/);
+    const restockedShip = await confirmWithShortage({ choice: "ship_available" }, "shortage-restocked-ship");
+    assert.equal(calls.confirmations.at(-1).orderLines.length, 2, "库存已够时有什么发什么就是全发");
+    assert.ok(restockedShip.result.response.orderId);
+    shortageLineIds = noShortage;
+
+    const confirmationsBefore = calls.confirmations.length;
+    const whole = await confirmWithShortage({ choice: "cancel_whole", note: "客户说不要了" }, "shortage-cancel-whole");
+    assert.equal(whole.result.response.closedWithoutOrder, true, JSON.stringify(whole.result));
+    assert.equal(calls.confirmations.length, confirmationsBefore, "整单取消不能生成正式订单");
+    const closedSave = calls.draftSaves.at(-1);
+    assert.equal(closedSave.draft.status, "库存不足取消");
+    assert.match(JSON.stringify(closedSave), /缺货按客户意见：整单取消（客户说不要了）/);
+
+    const ship = await confirmWithShortage({ choice: "ship_available" }, "shortage-ship-available");
+    assert.ok(ship.result.response.orderId, JSON.stringify(ship.result));
+    const shipConfirmation = calls.confirmations.at(-1);
+    const shipText = JSON.stringify(shipConfirmation);
+    assert.match(shipText, /DRAFT-SERVICE-001-01/);
+    assert.doesNotMatch(JSON.stringify(shipConfirmation.orderLines ?? shipConfirmation.newLines ?? []), /白色/, "缺货行不能进正式订单");
+    assert.match(shipText, /ship_available/);
+
+    const split = await confirmWithShortage({ choice: "split_produce", note: "客户同意先发有的" }, "shortage-split");
+    assert.ok(split.result.response.orderId);
+    assert.match(JSON.stringify(calls.confirmations.at(-1)), /split_produce/);
+    assert.match(JSON.stringify(calls.confirmations.at(-1).orderLines ?? calls.confirmations.at(-1).newLines ?? []), /白色/);
+
+    const legacy = await confirmWithShortage(undefined, "shortage-legacy");
+    assert.ok(legacy.result.response.orderId);
+    assert.match(JSON.stringify(calls.confirmations.at(-1)), /legacy_default_production/);
+  } finally {
+    shortageLineIds = new Set();
+  }
+}
+
+async function confirmSplitWithShortage(shortageDecision, key) {
+  confirmationMode = "success";
+  const workspace = buildWorkspace();
+  const firstLine = { ...buildRequestLine(), recognitionEvidence: { originalOrderGroupId: "ODG-SERVICE-001" } };
+  const secondLine = {
+    ...buildSecondRequestLine(),
+    fulfillmentMethod: "送货",
+    latestNeededAt: "后天",
+    recognitionEvidence: { originalOrderGroupId: "ODG-SERVICE-001" },
+  };
+  const preview = await service.previewOrderDraftSplit({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { expectedRevision: 1, lines: [firstLine, secondLine] },
+  });
+  assert.equal(preview.response.splitPlan.groups.length, 2);
+  return service.confirmSplitOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      expectedRevision: 1,
+      lines: [firstLine, secondLine],
+      splitPlanHash: preview.response.splitPlan.planHash,
+      idempotencyKey: key,
+      ...(shortageDecision === undefined ? {} : { shortageDecision }),
+    },
+  });
+}
+
+// The same customer choice applies when the office confirms by customer/delivery groups.
+async function checkSplitCustomerShortageDecision() {
+  shortageLineIds = new Set(["DRAFT-SERVICE-001-02"]);
+  try {
+    const unanswered = await confirmSplitWithShortage({ choice: "", note: "" }, "split-shortage-unanswered");
+    assert.equal(unanswered.code, "ORDER_SHORTAGE_DECISION_REQUIRED");
+
+    const ship = await confirmSplitWithShortage({ choice: "ship_available", note: "先发有的" }, "split-shortage-ship");
+    assert.equal(ship.response.splitConfirmed, true, JSON.stringify(ship));
+    assert.equal(ship.response.orderIds.length, 1, "缺货那组取消后只剩一张订单");
+    const shipInput = calls.confirmations.at(-1);
+    assert.equal(shipInput.orderLines.length, 1);
+    assert.doesNotMatch(JSON.stringify(shipInput.orderLines), /白色/);
+    assert.equal(shipInput.orderDraft.recognitionContext.shortageDecision.choice, "ship_available");
+    assert.equal(shipInput.operationLog.reason, "缺货按客户意见：有什么发什么，缺的取消（先发有的）");
+
+    const confirmationsBefore = calls.confirmations.length;
+    const whole = await confirmSplitWithShortage({ choice: "cancel_whole" }, "split-shortage-whole");
+    assert.equal(whole.response.closedWithoutOrder, true, JSON.stringify(whole));
+    assert.equal(calls.confirmations.length, confirmationsBefore);
+
+    shortageLineIds = new Set();
+    const restockedBefore = calls.confirmations.length;
+    const restocked = await confirmSplitWithShortage({ choice: "cancel_whole" }, "split-shortage-restocked-cancel");
+    assert.equal(restocked.response?.closedWithoutOrder, true, "拆单时客户已整单取消，库存补足也不能出单");
+    assert.equal(calls.confirmations.length, restockedBefore);
+    shortageLineIds = new Set(["DRAFT-SERVICE-001-02"]);
+
+    const split = await confirmSplitWithShortage({ choice: "split_produce" }, "split-shortage-produce");
+    assert.equal(split.response.orderIds.length, 2);
+    assert.equal(calls.confirmations.at(-1).orderDraft.recognitionContext.shortageDecision.choice, "split_produce");
+  } finally {
+    shortageLineIds = new Set();
+  }
 }
 
 function buildWorkspace() {

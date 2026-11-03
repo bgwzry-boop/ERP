@@ -7,7 +7,7 @@ import { chromium } from "@playwright/test";
 
 // Real component and incumbent CSS, synthetic read-only API. No shared preview
 // server or business endpoint is used by this focused rendering check.
-const apiNames = ["generateOfficePayrollDraft", "getOfficeEmployeeAttendance", "createOfficePayrollExport", "getOfficePayrollHistory", "getOfficePayrollRun", "getOfficePayrollWorkbench", "precheckOfficeAttendanceSync", "reviewOfficeAttendanceDay", "saveOfficePayrollPolicy", "syncOfficeAttendance", "transitionOfficePayrollRun", "updateOfficePayrollLineAdjustment"];
+const apiNames = ["generateOfficePayrollDraft", "getOfficeEmployeeAttendance", "createOfficePayrollExport", "getOfficePayrollHistory", "getOfficePayrollRun", "getOfficePayrollWorkbench", "precheckOfficeAttendanceSync", "reviewOfficeAttendanceDay", "saveOfficePayrollPolicy", "syncOfficeAttendance", "transitionOfficePayrollRun", "updateOfficePayrollLineAdjustment", "getOfficeYearEndSettlement", "confirmOfficeYearEndSettlement"];
 const fixture = {
   employees: [{ employeeId: "EMP-LUNCH-UI", name: "合成普通员工", roleName: "普工", totalWorkMinutes: 540, pendingExceptionCount: 0, readyForDraft: false, blockers: ["正式工资条件未验收"] },
     { employeeId: "EMP-SILK-UI", name: "合成丝印员工", roleName: "丝印", totalWorkMinutes: 600, pendingExceptionCount: 0, readyForDraft: false, blockers: ["正式工资条件未验收"] }],
