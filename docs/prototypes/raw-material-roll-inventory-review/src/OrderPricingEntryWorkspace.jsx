@@ -178,6 +178,10 @@ function OrderPricingEditor({
     [sameBatch, setSameBatch] = useState(initial?.sameBatch ?? false),
     [affected, setAffected] = useState(initial?.affected ?? []);
   const [splitPlan, setSplitPlan] = useState(initial?.splitPlan ?? null);
+  // Owner decision 2026-10-29: when stock is short the office records what this customer wants.
+  const [shortageChoice, setShortageChoice] = useState(initial?.shortageChoice ?? ""),
+    [shortageNote, setShortageNote] = useState(initial?.shortageNote ?? ""),
+    [shortageAsked, setShortageAsked] = useState(initial?.shortageAsked ?? false);
   const [busy, setBusy] = useState(""),
     [notice, setNotice] = useState(
       recovered ? `${recovered.kind}结果待核对，请按原内容重试。` : "",
@@ -269,6 +273,9 @@ function OrderPricingEditor({
         sameBatch,
         affected,
         splitPlan,
+        shortageChoice,
+        shortageNote,
+        shortageAsked,
       }),
     };
     frozenRequest.current = request;
@@ -288,7 +295,7 @@ function OrderPricingEditor({
           new Error(
             result.error?.message || `${kind}未取得完整回执，请按原内容重试。`,
           ),
-          { status: result.error?.status },
+          { status: result.error?.status, code: result.error?.code },
         );
       accept(result);
       frozenRequest.current = null;
@@ -305,7 +312,11 @@ function OrderPricingEditor({
         unresolvedWrites.delete(recoveryKey);
         setPendingKind("");
         formal.actions.setOrderEntryWritePending?.(false, request.ownerKey);
-        if (["确认", "拆单确认"].includes(kind)) {
+        if (error.code === "ORDER_SHORTAGE_DECISION_REQUIRED") {
+          // The quote is still valid; only the customer's answer is missing.
+          requests.current.confirm = null;
+          setShortageAsked(true);
+        } else if (["确认", "拆单确认"].includes(kind)) {
           setQuote(null);
           setSplitPlan(null);
         }
@@ -441,17 +452,26 @@ function OrderPricingEditor({
         sourceText: source,
         pricingQuoteId: quote?.quoteId,
         confirmedAffectedOrderLineIds: affected,
+        shortageDecision: currentShortageDecision(),
         idempotencyKey: nextKey("confirm"),
       },
       (input) => formal.actions.confirmOrderDraft(input),
       (result) => {
+        if (result.confirmation?.closedWithoutOrder === true) {
+          setComplete(true);
+          setNotice("已按客户意见整单取消，没有生成正式订单；草稿和取消原因已留存。");
+          void Promise.resolve(formal.actions.refreshAll()).catch(() => {});
+          return;
+        }
         if (
           !result.confirmation?.orderLines?.length ||
           !result.confirmation.orderId
         )
           throw new Error("没有取得完整订单回执。");
         setComplete(true);
-        setNotice("正式订单已生成，办公室仍需安排出库或生产排单。");
+        setNotice(shortageChoice === "ship_available" && shortageVisible
+          ? "正式订单已生成：有货的照常下单，缺货的明细已按客户意见取消。"
+          : "正式订单已生成，办公室仍需安排出库或生产排单。");
         void Promise.resolve(formal.actions.refreshAll()).catch(() =>
           setNotice("正式订单已生成，请刷新订单池核对。"),
         );
@@ -524,6 +544,20 @@ function OrderPricingEditor({
       !Number.isSafeInteger(Number(line.qty)) ||
       Number(line.qty) < 1,
   );
+  // Lines converted from a hold use the held stock; only the server can judge them, and it
+  // answers ORDER_SHORTAGE_DECISION_REQUIRED if the hold no longer covers them.
+  const shortageVisible = shortageAsked || rows.some(isLocalShortage);
+  const shortageMissing = shortageVisible && !shortageChoice;
+  // A choice left over from an earlier shortage must not travel once the block is hidden.
+  const currentShortageDecision = () => shortageVisible
+    ? { choice: shortageChoice, note: shortageNote.trim() }
+    : { choice: "", note: "" };
+  const chooseShortage = (key, value) => {
+    if (frozenRequest.current || complete) return;
+    requests.current.confirm = null;
+    if (key === "choice") setShortageChoice(value);
+    else setShortageNote(value);
+  };
   const acknowledge = quote?.affectedOrders.every((line) =>
     affected.includes(line.orderLineId),
   );
@@ -832,9 +866,9 @@ function OrderPricingEditor({
                     onClick={() => splitLine(index)}>拆分明细行</button>
                   {line.sourceHoldId ? <span>留货转单明细须保持原留货数量，不能拆行。</span> : null}
                 </div>
-                {line.inventory === "缺货" ? (
+                {isLocalShortage(line) ? (
                   <p className="pricing-note">
-                    库存不足，确认后仍须安排生产或核对补货。
+                    库存不够，请在下面「缺货怎么办」里按客户意见选。
                   </p>
                 ) : null}
               </fieldset>
@@ -907,6 +941,33 @@ function OrderPricingEditor({
             </label>
           </details>
         ) : null}
+        {shortageVisible && !complete ? (
+          <fieldset className="pricing-shortage-decision" disabled={!!busy || (!!pendingKind && pendingKind !== "确认")}>
+            <legend>缺货怎么办（按客户说的选）</legend>
+            <p>有明细库存不够。先问客户，再选一项；系统会记下这次客户的选择。</p>
+            {SHORTAGE_CHOICES.map(([value, label, hint]) => (
+              <label className="pricing-check" key={value}>
+                <input
+                  type="radio"
+                  name="shortage-decision"
+                  value={value}
+                  checked={shortageChoice === value}
+                  onChange={() => chooseShortage("choice", value)}
+                />
+                <span><b>{label}</b> {hint}</span>
+              </label>
+            ))}
+            <label>
+              客户怎么说的（可不填）
+              <input
+                value={shortageNote}
+                maxLength={500}
+                onChange={(e) => chooseShortage("note", e.target.value)}
+                placeholder="如：客户微信回复先发有的，缺的不要了"
+              />
+            </label>
+          </fieldset>
+        ) : null}
         <footer className="pricing-actions">
           <p role="status" aria-live="polite">
             {notice || "草稿不占用库存；确认下单后由办公室安排出库或生产。"}
@@ -962,8 +1023,10 @@ function OrderPricingEditor({
                 missing ||
                 !rows.length ||
                 (!locked && (!quote || !acknowledge)) ||
+                shortageMissing ||
                 (!!pendingKind && pendingKind !== "确认")
               }
+              title={shortageMissing ? "库存不够，请先按客户意见选缺货怎么办" : undefined}
               onClick={() => void confirm()}
             >
               {busy === "确认"
@@ -1107,6 +1170,16 @@ function splitLineBlockedReason(line) {
   if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 2) return "至少2个且数量为整数，才能拆分明细。";
   return "";
 }
+
+function isLocalShortage(line) {
+  return !line?.sourceHoldId && String(line?.inventory ?? "").startsWith("缺货");
+}
+
+const SHORTAGE_CHOICES = [
+  ["cancel_whole", "整单取消", "这单不做了，不生成正式订单。"],
+  ["ship_available", "有什么发什么，缺的取消", "有货的照常下单，缺货的明细取消。"],
+  ["split_produce", "同意分批，缺的安排生产", "有货的先发，缺的转生产，做好再发。"],
+];
 
 // 与「确认下单」前的缺字段判断保持一致（客户、规格、袋身颜色、数量）。
 function missingQuoteFields(line) {
