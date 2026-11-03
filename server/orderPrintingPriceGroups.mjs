@@ -64,6 +64,8 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
   ]) {
     for (const row of rows) {
       if (!isPrivatePrinting(row)) continue;
+      // 外加工印刷按大机器丝印阶梯价逐行计价（shared/largeMachinePrintPricing.js），不进本厂印刷合组。
+      if (normalizeOrderType(row.orderType) === "external_print") continue;
       const identity = printingGroupIdentity(row);
       const rowId = text(row.id ?? row.orderLineId);
       const key = identity

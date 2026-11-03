@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { findMiniappPriceItem, quoteMiniappCatalogPrice } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
+import { quoteLargeMachinePrint, resolvePrintColorCount } from "../shared/largeMachinePrintPricing.js";
 
 const clean = value => String(value ?? "").trim();
 const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -55,6 +56,8 @@ export function resolvePublishedRow(source, row) {
   // An arbitrary custom size cannot become a common-goods quote merely by
   // matching a dimension; its formal quotation remains a separate workflow.
   if (type === "custom_special") throw publishedOrderPriceError();
+  // 外加工印刷只收印刷费（含制版），不套袋子价格表：按大机器丝印阶梯价，几色翻几倍。
+  if (type === "external_print") return resolveExternalPrintRow(source, row);
   const printedCommon = type === "stock_printed" || (!type && /小熊|小狗|喜|福/.test(clean(row.style)));
   const laminated = /覆膜/.test(`${row.style} ${row.product}`);
   const printing = !printedCommon && (row.print === "是" || row.printFlag === true || ["custom_print", "external_print"].includes(type));
@@ -134,4 +137,20 @@ export function buildPublishedOrderPriceSourceGuard(source, parameters) {
       WHERE item.price_table_id = ${parameters.text(source.priceTable.id)} AND item.enabled = true
     ) = ${parameters.json(source.priceItems)}
   )`;
+}
+
+export function externalPrintPriceError(message) {
+  return Object.assign(new Error(message), { code: "ORDER_PRICE_SOURCE_REQUIRED", statusCode: 409 });
+}
+
+function resolveExternalPrintRow(source, row) {
+  const colorCount = resolvePrintColorCount(row);
+  if (!colorCount) throw externalPrintPriceError("外加工印刷要先填清楚印几种颜色（例如「红/蓝」或颜色数），才能按阶梯价计价；草稿已保留。");
+  const quote = quoteLargeMachinePrint({ orderedQty: Number(row.qty), colorCount });
+  if (!quote) throw externalPrintPriceError("外加工印刷数量须为大于零的整数，才能按阶梯价计价；草稿已保留。");
+  return { bagPrice: 0, printPrice: quote.unitPrice, otherFee: 0, amount: quote.amount,
+    priceVersion: quote.priceVersion, sourceEvidence: { kind: "external_print_ladder", priceTableId: source.priceTable.id,
+      priceTableVersion: source.priceTable.versionNo, priceVersion: quote.priceVersion, orderedQty: quote.orderedQty,
+      tierLabel: quote.tierLabel, tierUnitPrice: quote.tierUnitPrice, colorCount: quote.colorCount,
+      billingBasis: "按实际印好数量结算；档位按下单数量" } };
 }
