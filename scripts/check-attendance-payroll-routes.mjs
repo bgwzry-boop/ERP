@@ -34,6 +34,7 @@ const service = {
   async savePayrollPolicyVersion(input) { calls.push({ kind: "policy", ...input }); return { saved: true }; },
   async generatePayrollDraft(input) { calls.push({ kind: "draft", ...input }); return { generated: true }; },
   async updatePayrollLineAdjustment(input) { calls.push({ kind: "adjustment", ...input }); return { adjusted: true }; },
+  async acknowledgeOwnPayslip(input) { calls.push({ kind: "payslip-ack", ...input }); return { acknowledged: true }; },
   async transitionPayrollRun(input) { calls.push({ kind: `transition-${input.action}`, ...input }); return { transitioned: true }; },
 };
 const common = {
@@ -61,6 +62,8 @@ await expectRead("/api/payroll/employees/ERP-0001/history?limit=12", "payroll.pr
 assert.equal(calls.find((call) => call.kind === "history").limit, "12");
 await expectRead("/api/payroll/runs/PAY-1", "payroll.preview", "response");
 
+await expectWrite("/api/payroll/me/acknowledge", "attendance.self.read", "payslip-ack", {});
+assert.equal(calls.find((call) => call.kind === "payslip-ack").authContext.user.employeeId, "ERP-0001", "confirmation is always for the signed-in employee");
 await expectWrite("/api/attendance/sync-precheck", "attendance.sync", "sync-precheck", {});
 await expectWrite("/api/attendance/sync", "attendance.sync", "sync", {});
 await expectWrite("/api/attendance/employees/ERP-0001/days/2026-08-10/review", "attendance.review", "day-review", { employeeId: "ERP-0001", workDate: "2026-08-10" });

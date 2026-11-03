@@ -115,6 +115,19 @@ export async function handleAttendancePayrollWriteRoutes({
   if (!["POST", "PATCH"].includes(method)) return false;
   const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A");
 
+  if (url.pathname === "/api/payroll/me/acknowledge") {
+    // Employees confirm only their own payslip; the self-read permission scopes it.
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewOwnAttendance)) return true;
+    const runtimeUser = findRuntimeUser(workspace, authContext?.userId);
+    sendJson(response, 200, await attendancePayrollService.acknowledgeOwnPayslip({
+      workspace,
+      authContext: { ...authContext, user: runtimeUser },
+      body,
+      operatorId,
+    }));
+    return true;
+  }
+
   if (url.pathname === "/api/attendance/sync-precheck") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.syncAttendance)) return true;
     sendJson(response, 200, await attendancePayrollService.precheckAttendanceSync({ workspace, body, operatorId }));

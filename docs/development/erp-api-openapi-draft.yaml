@@ -6597,6 +6597,27 @@ paths:
         "403": { $ref: "#/components/responses/PermissionDenied" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /payroll/me/acknowledge:
+    post:
+      tags: [AttendancePayroll]
+      summary: 员工确认本人工资条无误
+      description: 替代纸质工资表的「工资确认签名」。只能确认当前登录员工在该月最新一版已复核、已锁定或已发放的工资条；版本已变化时拒绝，重复确认返回原记录。
+      operationId: acknowledgeOwnPayslip
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [month, revision]
+              properties:
+                month: { type: string, pattern: "^\\d{4}-(0[1-9]|1[0-2])$" }
+                revision: { type: integer, minimum: 1 }
+      responses:
+        "200": { description: 确认记录, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409": { $ref: "#/components/responses/BusinessError" }
+
   /attendance/employees/{employeeId}:
     get:
       tags: [AttendancePayroll]

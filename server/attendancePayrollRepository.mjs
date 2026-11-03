@@ -42,6 +42,9 @@ export function createLocalAttendancePayrollRepository() {
     recordPayrollExport(input = {}) {
       return recordLocalPayrollExport(input);
     },
+    recordPayslipAcknowledgement(input = {}) {
+      return applyPayslipAcknowledgementToWorkspace(input);
+    },
   });
 }
 
@@ -146,6 +149,14 @@ export function createPostgresAttendancePayrollRepository(options = {}) {
       applyPayrollExportEventToWorkspace({ workspace: input.workspace, exportEvent });
       return { exportEvent };
     },
+    async recordPayslipAcknowledgement(input = {}) {
+      const query = buildRecordPayslipAcknowledgementQuery(input);
+      const acknowledgement = normalizePayslipAcknowledgement(await transactionJson(query.text, query.values));
+      if (!acknowledgement) {
+        throw payrollRunConflict("工资条已更新，请刷新后再确认。", "PAYSLIP_ACKNOWLEDGEMENT_CONFLICT");
+      }
+      return applyPayslipAcknowledgementToWorkspace({ workspace: input.workspace, acknowledgement });
+    },
   });
 }
 
@@ -233,6 +244,14 @@ SELECT json_build_object(
       'contentDigest', content_digest, 'rowCount', row_count,
       'exportedBy', COALESCE(exported_by, ''), 'exportedAt', exported_at::TEXT
     ) ORDER BY exported_at DESC) FROM payroll_export_events
+  ), '[]'::json),
+  'payslipAcknowledgements', COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', id, 'payrollLineId', payroll_line_id, 'payrollRunId', payroll_run_id,
+      'employeeId', employee_id, 'payrollMonth', payroll_month, 'revision', revision,
+      'netWage', net_wage, 'payableNow', payable_now,
+      'acknowledgedBy', COALESCE(acknowledged_by, ''), 'acknowledgedAt', acknowledged_at::TEXT
+    ) ORDER BY acknowledged_at DESC) FROM payroll_payslip_acknowledgements
   ), '[]'::json)
 ) AS result;`;
 }
@@ -812,6 +831,7 @@ function emptyState() {
     payrollLines: [],
     payrollLineAdjustments: [],
     payrollExportEvents: [],
+    payslipAcknowledgements: [],
   };
 }
 
@@ -825,6 +845,8 @@ function normalizeState(value = {}) {
     payrollLines: normalizePayrollLines(value.payrollLines),
     payrollLineAdjustments: normalizePayrollLineAdjustments(value.payrollLineAdjustments),
     payrollExportEvents: normalizePayrollExportEvents(value.payrollExportEvents),
+    payslipAcknowledgements: (Array.isArray(value.payslipAcknowledgements) ? value.payslipAcknowledgements : [])
+      .map(normalizePayslipAcknowledgement).filter(Boolean),
   };
 }
 
@@ -1044,6 +1066,82 @@ function normalizePayrollLineAdjustment(value = {}) {
 
 function uniqueTextList(value) {
   return [...new Set((Array.isArray(value) ? value : []).map(cleanText).filter(Boolean))];
+}
+
+// Only an official (reviewed / locked / paid) line can be acknowledged, once.
+export function buildRecordPayslipAcknowledgementQuery(input = {}) {
+  const acknowledgement = normalizePayslipAcknowledgement(input.acknowledgement);
+  if (!acknowledgement) throw new Error("Payslip acknowledgement is required.");
+  const parameters = createPostgresParameterBinder();
+  return {
+    text: `
+WITH matched_line AS (
+  SELECT payroll_lines.id FROM payroll_lines
+  JOIN payroll_runs ON payroll_runs.id = payroll_lines.payroll_run_id
+  WHERE payroll_lines.id = ${parameters.text(acknowledgement.payrollLineId)}
+    AND payroll_lines.employee_id = ${parameters.text(acknowledgement.employeeId)}
+    AND payroll_runs.id = ${parameters.text(acknowledgement.payrollRunId)}
+    AND payroll_runs.revision = ${parameters.integer(acknowledgement.revision)}
+    AND payroll_runs.status IN ('reviewed', 'locked', 'paid')
+),
+inserted AS (
+  INSERT INTO payroll_payslip_acknowledgements (
+    id, payroll_line_id, payroll_run_id, employee_id, payroll_month, revision,
+    net_wage, payable_now, acknowledged_by, acknowledged_at
+  ) SELECT
+    ${parameters.text(acknowledgement.id)}, ${parameters.text(acknowledgement.payrollLineId)},
+    ${parameters.text(acknowledgement.payrollRunId)}, ${parameters.text(acknowledgement.employeeId)},
+    ${parameters.text(acknowledgement.payrollMonth)}, ${parameters.integer(acknowledgement.revision)},
+    ${parameters.number(acknowledgement.netWage)}, ${parameters.number(acknowledgement.payableNow)},
+    ${parameters.nullableText(acknowledgement.acknowledgedBy)}, ${parameters.timestamp(acknowledgement.acknowledgedAt)}
+  FROM matched_line
+  ON CONFLICT (payroll_line_id) DO NOTHING
+  RETURNING *
+),
+chosen AS (
+  SELECT * FROM inserted
+  UNION ALL
+  SELECT * FROM payroll_payslip_acknowledgements
+  WHERE payroll_line_id = ${parameters.text(acknowledgement.payrollLineId)}
+    AND NOT EXISTS (SELECT 1 FROM inserted)
+)
+SELECT json_build_object(
+  'id', id, 'payrollLineId', payroll_line_id, 'payrollRunId', payroll_run_id,
+  'employeeId', employee_id, 'payrollMonth', payroll_month, 'revision', revision,
+  'netWage', net_wage, 'payableNow', payable_now,
+  'acknowledgedBy', COALESCE(acknowledged_by, ''), 'acknowledgedAt', acknowledged_at::TEXT
+) AS result
+FROM chosen
+LIMIT 1;`,
+    values: parameters.values,
+  };
+}
+
+function applyPayslipAcknowledgementToWorkspace({ workspace, acknowledgement } = {}) {
+  const safe = normalizePayslipAcknowledgement(acknowledgement);
+  if (!workspace || !safe) throw new Error("Payslip acknowledgement requires a workspace and record.");
+  const existing = (workspace.payslipAcknowledgements ?? []).find((item) => item.payrollLineId === safe.payrollLineId);
+  if (existing) return { acknowledgement: existing, replayed: true };
+  workspace.payslipAcknowledgements = [safe, ...(workspace.payslipAcknowledgements ?? [])];
+  return { acknowledgement: safe, replayed: false };
+}
+
+function normalizePayslipAcknowledgement(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const record = {
+    id: cleanText(source.id),
+    payrollLineId: cleanText(source.payrollLineId),
+    payrollRunId: cleanText(source.payrollRunId),
+    employeeId: cleanText(source.employeeId),
+    payrollMonth: cleanText(source.payrollMonth),
+    revision: Math.max(1, integer(source.revision) || 1),
+    netWage: Math.round((Number(source.netWage) || 0) * 100) / 100,
+    payableNow: Math.round((Number(source.payableNow) || 0) * 100) / 100,
+    acknowledgedBy: cleanText(source.acknowledgedBy),
+    acknowledgedAt: cleanText(source.acknowledgedAt),
+  };
+  if (!record.id || !record.payrollLineId || !record.payrollRunId || !record.employeeId || !/^\d{4}-\d{2}$/.test(record.payrollMonth) || !record.acknowledgedAt) return null;
+  return record;
 }
 
 function normalizePayrollExportEvents(values = []) {

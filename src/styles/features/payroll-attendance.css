@@ -239,6 +239,10 @@ button.payroll-position-row.selected { background: var(--blue-soft); box-shadow:
 .attendance-mobile-payslip dd { margin: 0; font-size: 13px; font-weight: 650; }
 .attendance-mobile-payslip dd.is-negative, .attendance-mobile-payslip .is-warning { color: var(--erp-mobile-field-warning); }
 .attendance-mobile-payslip dl > div.is-total dt { color: var(--erp-mobile-field-ink); font-weight: 650; }
+.attendance-payslip-confirm { width: 100%; min-height: 44px; margin-top: 12px; border: 0; border-radius: 10px; background: var(--erp-mobile-field-accent); color: var(--erp-mobile-field-accent-ink); font: inherit; font-weight: 650; }
+.attendance-payslip-confirm:disabled { background: var(--erp-mobile-field-disabled); }
+.attendance-payslip-confirmed { display: flex; align-items: center; gap: 6px; color: var(--erp-mobile-field-accent-strong); font-weight: 650; }
+.attendance-payslip-hint { color: var(--erp-mobile-field-muted); }
 .attendance-payslip-reason, .attendance-payslip-yearend { padding: 8px 10px; border-radius: 8px; background: var(--erp-mobile-field-surface-muted); }
 .attendance-mobile-days { margin-top: 10px; padding: 0 17px 8px; }
 .attendance-mobile-days > header { min-height: 54px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--erp-mobile-field-border); }

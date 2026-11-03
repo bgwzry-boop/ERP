@@ -381,6 +381,7 @@ export function createApiServer(options = {}) {
   workspace.payrollLines = [];
   workspace.payrollLineAdjustments = [];
   workspace.payrollExportEvents = [];
+  workspace.payslipAcknowledgements = [];
   workspace.fulfillmentQuantityVarianceResolutions = [];
   workspace.statementWriteOffRecords = [];
   workspace.fulfillmentExceptions = [];
