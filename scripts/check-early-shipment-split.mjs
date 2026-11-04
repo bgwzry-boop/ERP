@@ -143,7 +143,7 @@ for (const pattern of [/FOR UPDATE/, /evidence_json->>'reportKind' = 'daily_prog
 
   // ---- The customer and the delivery note see one order shipped in batches.
   const firstFulfillment = ws.fulfillments.find((row) => row.fulfillmentId === "F-OL-1");
-  assert.equal(describeBatchProgress(buildDeliveryBatchFamily(ws, "OL-1"), { fulfillmentId: "F-OL-1" }), "分批发货 第1批（共2批）：本次 6230 个 / 整单 10000 个 / 已发 0 个 / 待发 3770 个");
+  assert.equal(describeBatchProgress(buildDeliveryBatchFamily(ws, "OL-1"), { fulfillmentId: "F-OL-1" }), "下单 10000 个，已发 6230 个，剩余待发 3770 个");
   Object.assign(firstFulfillment, { status: "已交付", actualQty: 6230, physicalOutboundAt: "2026-11-04T11:00:00.000Z" });
   ws.packages = [1, 2, 3].map((n) => ({ packageId: `PKG-${n}`, fulfillmentId: "F-OL-1", status: "已打印" }));
   // Next day the rest is split once more (2000 made), then the last 1770.
@@ -154,7 +154,7 @@ for (const pattern of [/FOR UPDATE/, /evidence_json->>'reportKind' = 'daily_prog
   assert.deepEqual(family.batches.map((batch) => [batch.batchNo, batch.orderLineId, batch.qty, batch.shipped, batch.packageCount]),
     [[1, "OL-1", 6230, true, 3], [2, "OL-1-R1", 2000, false, 0], [3, "OL-1-R1-R1", 1770, false, 0]]);
   assert.deepEqual([family.orderedQty, family.shippedQty, family.pendingQty], [10000, 6230, 3770]);
-  assert.equal(describeBatchProgress(family, { fulfillmentId: "F-OL-1-R1" }), "分批发货 第2批（共3批）：本次 2000 个 / 整单 10000 个 / 已发 6230 个 / 待发 1770 个");
+  assert.equal(describeBatchProgress(family, { fulfillmentId: "F-OL-1-R1" }), "下单 10000 个，已发 8230 个，剩余待发 1770 个");
   const deliveries = projectBagwinDeliveries({
     deliveryLines: ws.orderLines.map((line) => ({ orderLineId: line.id, splitFromOrderLineId: line.splitFromOrderLineId ?? null, qty: line.qty, lineStatus: line.lineStatus, productName: line.productName, size: "30*40", bagColor: "白", createdAt: line.createdAt ?? "2026-11-01T00:00:00.000Z" })),
     deliveryFulfillments: ws.fulfillments.map((row) => ({ fulfillmentId: row.fulfillmentId, orderLineId: row.orderLineId, status: row.status, expectedQty: row.expectedQty, actualQty: row.actualQty, physicalOutboundAt: row.physicalOutboundAt ?? null })),

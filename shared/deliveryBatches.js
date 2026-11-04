@@ -77,14 +77,15 @@ export function buildDeliveryBatchFamily({ orderLines = [], fulfillments = [], p
   };
 }
 
-/** One line for a delivery note: "分批发货 第1批（共2批）：本次 6230 个 / 整单 10000 个 / 已发 0 个 / 待发 3770 个". */
+/** One line for a delivery note (owner wording): "下单 10000 个，已发 6230 个，剩余待发 3770 个".
+ *  已发 includes this delivery; 剩余待发 is what the other, not yet shipped batches still carry. */
 export function describeBatchProgress(family, { fulfillmentId, orderLineId, quantity } = {}) {
   if (!family) return "";
   const batch = family.batches.find((row) => (fulfillmentId && row.fulfillmentIds.includes(clean(fulfillmentId))) || row.orderLineId === clean(orderLineId));
   if (!batch) return "";
   const thisQty = Number(quantity ?? batch.qty) || 0;
-  const shippedBefore = family.batches.filter((row) => row !== batch && row.shipped).reduce((sum, row) => sum + row.qty, 0);
-  const shippedBeforePlanned = family.batches.filter((row) => row !== batch && row.shipped).reduce((sum, row) => sum + row.plannedQty, 0);
-  const pending = Math.max(0, family.orderedQty - shippedBeforePlanned - batch.plannedQty);
-  return `分批发货 第${batch.batchNo}批（共${family.batchCount}批）：本次 ${thisQty} 个 / 整单 ${family.orderedQty} 个 / 已发 ${shippedBefore} 个 / 待发 ${pending} 个`;
+  const others = family.batches.filter((row) => row !== batch);
+  const shipped = others.filter((row) => row.shipped).reduce((sum, row) => sum + row.qty, 0) + thisQty;
+  const pending = others.filter((row) => !row.shipped).reduce((sum, row) => sum + row.plannedQty, 0);
+  return `下单 ${family.orderedQty} 个，已发 ${shipped} 个，剩余待发 ${pending} 个`;
 }
