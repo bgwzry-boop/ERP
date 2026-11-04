@@ -10,6 +10,7 @@ import {
   UnorderedListOutlined,
 } from "@ant-design/icons";
 import { SilkScreenClaimPool, useSilkScreenClaimPool } from "./SilkScreenClaimPool.jsx";
+import { EarlyShipmentPackingPanel } from "../packing/EarlyShipmentPackingPanel.jsx";
 import {
   DataState,
   DetailPane,
@@ -416,6 +417,9 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
             <LockOutlined aria-hidden="true" /> 领丝印任务<small>{claimableSilkCount} 个可领</small>
           </button>
         ) : null}
+        {mode === "打包任务" && canUsePackingMode && authState?.session?.accessToken ? (
+          <EarlyShipmentPackingPanel authState={authState} onChanged={onPackagesSaved} />
+        ) : null}
         <div className="mobile-task-list">
           {mode === "生产报工" ? (
             productionLines.length ? productionLines.map((line) => {
@@ -470,6 +474,12 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
               size="standard"
               stateLabel={selectedTaskStatus}
             />
+            {mode === "生产报工" && selectedProductionLine?.productionTask?.earlyShipRequestedAt ? (
+              <p className="workshop-early-ship-notice" role="note">
+                <strong>客户要今天先发一部分</strong>：照常生产、照常「报当日数量」；打包工按整包装好就先发，剩下的明天接着做。
+                {selectedProductionLine.productionTask.earlyShipNote ? `（${selectedProductionLine.productionTask.earlyShipNote}）` : ""}
+              </p>
+            ) : null}
             {isSuppliedMaterialLine(selectedLine) ? (
               <p className="workshop-supplied-material-warning" role="note">
                 <strong>来料加工</strong>：用客户送来的布料印，不要领本厂卷料。印完填的数量要先减掉调机试印的。

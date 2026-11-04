@@ -102,6 +102,34 @@ export async function handleProductionReadRoutes({
     return true;
   }
 
+  // P2-03: orders the customer wants partly shipped today — packers pack whole packages for them.
+  if (url.pathname === "/api/packing-tasks/early-shipments") {
+    const result = await workspace.productionPackingReadRepository.listProductionTasks({
+      workspace,
+      query: new URLSearchParams({ visibility: "early_shipment", pageSize: "200" }),
+    });
+    const items = result.items.map((item) => {
+      const customer = (workspace.customers ?? []).find((row) => String(row.id ?? row.customerId ?? "") === String(item.orderLine?.customerId ?? ""));
+      return {
+        productionTaskId: item.productionTaskId,
+        orderLineId: item.orderLineId,
+        customerName: String(customer?.name ?? customer?.shortName ?? ""),
+        orderLine: item.orderLine,
+        productionTask: {
+          taskType: item.productionTask?.taskType,
+          taskStatus: item.productionTask?.taskStatus,
+          plannedQty: item.productionTask?.plannedQty,
+          revision: item.productionTask?.revision,
+          earlyShipNote: item.productionTask?.earlyShipNote,
+          earlyShipMaxQty: item.productionTask?.earlyShipMaxQty,
+        },
+        reportedQty: Number(item.dailyProgress?.cumulativeQualifiedQty ?? 0),
+      };
+    });
+    sendJson(response, 200, { items, total: items.length });
+    return true;
+  }
+
   const packingTaskDetailMatch = url.pathname.match(/^\/api\/packing-tasks\/([^/]+)$/);
   if (!packingTaskDetailMatch) return false;
 

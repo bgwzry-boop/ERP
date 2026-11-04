@@ -161,7 +161,7 @@ function buildFulfillmentDocumentFields({
     unitPriceText: unitPrice !== null && unitPrice !== undefined ? formatUnitPrice(unitPrice) : "待核价",
     amountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
     otherFeeText: "待核对费用明细",
-    note: buildDocumentLineNote({ orderLine, fulfillment }),
+    note: [input.batchProgress, buildDocumentLineNote({ orderLine, fulfillment })].filter(Boolean).join("；"),
   };
   if (printEnabled) {
     lineItem.printSide = orderLine?.printSide ?? "";
@@ -175,6 +175,7 @@ function buildFulfillmentDocumentFields({
     operatorSignatureLabel: "经办人",
     lineItems: [lineItem],
     totalQuantityText: `${quantity}个`,
+    batchProgressText: input.batchProgress || "",
     totalPackageText: packageText,
     totalAmountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
     unitPriceLabel: "折合单价",

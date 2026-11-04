@@ -840,6 +840,9 @@ function buildProductionTaskListWhereSql(filters, parameters) {
     conditions.push("task.task_status <> '已完成'");
     conditions.push(buildWorkshopMobileProductionTaskVisibilitySql());
   }
+  if (cleanText(filters.visibility) === "early_shipment") {
+    conditions.push(`task.early_ship_requested_at IS NOT NULL AND task.task_status <> ALL(ARRAY['已完成', '已作废', '已取消'])`);
+  }
   if (isSilkScreenPoolVisibility(filters.visibility)) {
     conditions.push(`task.task_type = '丝印'
       AND task.task_status <> ALL(ARRAY['已完成', '已作废', '已取消'])
@@ -935,6 +938,7 @@ function matchesProductionTaskListFilters(item, filters) {
   if (filters.machineId && cleanText(task.machineId) !== filters.machineId) return false;
   if (isWorkshopMobileVisibility(filters.visibility) && !matchesWorkshopMobileProductionTaskVisibility(item)) return false;
   if (isSilkScreenPoolVisibility(filters.visibility) && !matchesSilkScreenPoolVisibility(item)) return false;
+  if (cleanText(filters.visibility) === "early_shipment" && !(cleanText(task.earlyShipRequestedAt) && !["已完成", "已作废", "已取消"].includes(cleanText(task.taskStatus ?? task.status)))) return false;
   return matchesListKeyword(item, filters.keyword);
 }
 
@@ -1055,6 +1059,10 @@ function normalizeProductionTaskSummary(task, orderLine = {}) {
     claimedByUserId: cleanText(task.claimedByUserId ?? task.claimed_by_user_id),
     claimedByName: cleanText(task.claimedByName ?? task.claimed_by_name),
     claimedAt: cleanText(task.claimedAt ?? task.claimed_at),
+    earlyShipRequestedAt: cleanText(task.earlyShipRequestedAt ?? task.early_ship_requested_at),
+    earlyShipRequestedBy: cleanText(task.earlyShipRequestedBy ?? task.early_ship_requested_by),
+    earlyShipNote: cleanText(task.earlyShipNote ?? task.early_ship_note),
+    earlyShipMaxQty: toFiniteInteger(task.earlyShipMaxQty ?? task.early_ship_max_qty) || null,
     finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(task, orderLine),
     createdBy: cleanText(task.createdBy ?? task.created_by),
     createdAt: cleanText(task.createdAt ?? task.created_at),
@@ -1298,6 +1306,7 @@ function normalizeOrderLineSummary(orderLine) {
     printColor: cleanText(orderLine.printColor ?? orderLine.print_color),
     printSide: cleanText(orderLine.printSide ?? orderLine.print_side),
     latestNeededAt: cleanText(orderLine.latestNeededAt ?? orderLine.latest_needed_at ?? orderLine.latest),
+    splitFromOrderLineId: cleanText(orderLine.splitFromOrderLineId ?? orderLine.split_from_order_line_id),
     lineStatus: cleanText(orderLine.lineStatus ?? orderLine.line_status ?? orderLine.status),
     fulfillmentMethod: cleanText(orderLine.fulfillmentMethod ?? orderLine.fulfillment_method ?? orderLine.fulfillment),
     exceptionTags: normalizeTextArray(orderLine.exceptionTags ?? orderLine.exception_tags ?? orderLine.exceptions),
@@ -1442,6 +1451,10 @@ function productionTaskJsonExpression(alias) {
     'claimedByUserId', ${alias}.claimed_by_user_id,
     'claimedByName', ${alias}.claimed_by_name,
     'claimedAt', ${alias}.claimed_at,
+    'earlyShipRequestedAt', ${alias}.early_ship_requested_at,
+    'earlyShipRequestedBy', ${alias}.early_ship_requested_by,
+    'earlyShipNote', ${alias}.early_ship_note,
+    'earlyShipMaxQty', ${alias}.early_ship_max_qty,
     'finishedGoodsPhoto', ${alias}.finished_goods_photo,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at,
@@ -1553,6 +1566,7 @@ function orderLineJsonExpression(alias) {
     'printColor', ${alias}.print_color,
     'printSide', ${alias}.print_side,
     'latestNeededAt', ${alias}.latest_needed_at,
+    'splitFromOrderLineId', ${alias}.split_from_order_line_id,
     'lineStatus', ${alias}.line_status,
     'fulfillmentMethod', ${alias}.fulfillment_method,
     'exceptionTags', ${alias}.exception_tags,

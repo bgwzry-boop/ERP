@@ -74,6 +74,7 @@ import { createProductionMachineQueueReadService } from "./services/productionMa
 import { createProductionReportingCommandService } from "./services/productionReportingCommandService.mjs";
 import { createProductionSchedulingCommandService } from "./services/productionSchedulingCommandService.mjs";
 import { createSilkScreenTaskClaimService } from "./services/silkScreenTaskClaimService.mjs";
+import { createEarlyShipmentSplitService } from "./services/earlyShipmentSplitService.mjs";
 import { createProductionTaskProjectionService } from "./services/productionTaskProjectionService.mjs";
 import { createRawMaterialCommandService } from "./services/rawMaterialCommandService.mjs";
 import { createRawMaterialPurchaseCommandService } from "./services/rawMaterialPurchaseCommandService.mjs";
@@ -340,6 +341,11 @@ export function createApiSharedServiceRegistry() {
     resolvePersistableCreatedBy,
     summarizeOrderLineForChange,
   });
+  // P2-03: the ready part of an early shipment is confirmed complete through the normal completion.
+  const earlyShipmentSplitService = createEarlyShipmentSplitService({
+    buildOperationLog,
+    completeProductionReport: (input) => productionReportingCommandService.completeProductionReport(input),
+  });
   const packingCommandService = createPackingCommandService({
     buildOperationLog,
     buildTodo,
@@ -526,6 +532,7 @@ export function createApiSharedServiceRegistry() {
     productionReportingCommandService,
     productionSchedulingCommandService,
     silkScreenTaskClaimService,
+    earlyShipmentSplitService,
     rawMaterialCommandService,
     rawMaterialPurchaseCommandService,
     rawMaterialOcrParserService,

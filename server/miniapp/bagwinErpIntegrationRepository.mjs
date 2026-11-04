@@ -137,7 +137,29 @@ WITH target AS (
       FROM fulfillment_records AS fulfillment
       JOIN formal_lines AS line ON line.id = fulfillment.order_line_id
     ), '[]'::jsonb) AS fulfillment_statuses,
-    (SELECT min(line.latest_needed_at) FROM formal_lines AS line) AS expected_at
+    (SELECT min(line.latest_needed_at) FROM formal_lines AS line) AS expected_at,
+    -- P2-03: every batch of an order item, so the customer sees how the order was shipped.
+    COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'orderLineId', line.id, 'splitFromOrderLineId', line.split_from_order_line_id, 'qty', line.original_qty,
+        'lineStatus', line.line_status, 'productName', line.product_name, 'size', line.size, 'bagColor', line.bag_color,
+        'createdAt', line.created_at) ORDER BY line.created_at, line.id)
+      FROM formal_lines AS line
+    ), '[]'::jsonb) AS delivery_lines,
+    COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'fulfillmentId', fulfillment.id, 'orderLineId', fulfillment.order_line_id, 'status', fulfillment.status,
+        'expectedQty', fulfillment.expected_qty, 'actualQty', fulfillment.actual_qty,
+        'physicalOutboundAt', fulfillment.physical_outbound_at, 'loadedAt', fulfillment.loaded_at,
+        'deliveredAt', fulfillment.delivered_at, 'finalDeliveryAt', fulfillment.final_delivery_at) ORDER BY fulfillment.id)
+      FROM fulfillment_records AS fulfillment
+      JOIN formal_lines AS line ON line.id = fulfillment.order_line_id
+    ), '[]'::jsonb) AS delivery_fulfillments,
+    COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('fulfillmentId', pkg.fulfillment_id, 'status', pkg.status))
+      FROM packages AS pkg
+      JOIN formal_lines AS line ON line.id = pkg.order_line_id
+    ), '[]'::jsonb) AS delivery_packages
 )
 SELECT CASE WHEN target.id IS NULL THEN NULL ELSE jsonb_build_object(
   'sourceOrderNo', target.biz_no,
@@ -151,6 +173,9 @@ SELECT CASE WHEN target.id IS NULL THEN NULL ELSE jsonb_build_object(
   'productionStatuses', status_facts.production_statuses,
   'fulfillmentStatuses', status_facts.fulfillment_statuses,
   'expectedAt', status_facts.expected_at,
+  'deliveryLines', status_facts.delivery_lines,
+  'deliveryFulfillments', status_facts.delivery_fulfillments,
+  'deliveryPackages', status_facts.delivery_packages,
   'observedAt', greatest(target.updated_at, COALESCE(draft.updated_at, target.updated_at), now())
 ) END AS result
 FROM target

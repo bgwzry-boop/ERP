@@ -1576,6 +1576,10 @@ function normalizeProductionTaskDetail(task, fallback = {}) {
     claimedByUserId: cleanText(task?.claimedByUserId),
     claimedByName: cleanText(task?.claimedByName),
     claimedAt: cleanText(task?.claimedAt),
+    // P2-03: the customer's request to ship part today, recorded by the office (packers pack whole packages).
+    earlyShipRequestedAt: cleanText(task?.earlyShipRequestedAt),
+    earlyShipNote: cleanText(task?.earlyShipNote),
+    earlyShipMaxQty: Number.isSafeInteger(Number(task?.earlyShipMaxQty)) && Number(task.earlyShipMaxQty) > 0 ? Number(task.earlyShipMaxQty) : null,
     createdBy: cleanText(task?.createdBy),
     createdAt: cleanText(task?.createdAt),
     updatedAt: cleanText(task?.updatedAt),

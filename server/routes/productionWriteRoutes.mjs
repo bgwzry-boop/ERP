@@ -12,6 +12,7 @@ export async function handleProductionWriteRoutes({
   getPermissionOperatorId,
   productionSchedulingCommandService,
   silkScreenTaskClaimService,
+  earlyShipmentSplitService,
   productionReportingCommandService,
   productionFinishedGoodsPhotoCommandService,
   packingCommandService,
@@ -28,7 +29,7 @@ export async function handleProductionWriteRoutes({
   if (method !== "POST") return false;
 
   const productionActionMatch = url.pathname.match(
-    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|claim|release|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
+    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|claim|release|early-shipment|early-shipment-request|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
   );
   if (productionActionMatch) {
     const productionTaskId = decodeURIComponent(productionActionMatch[1]);
@@ -55,6 +56,25 @@ export async function handleProductionWriteRoutes({
           : writeActionPermissions.reportProduction,
         includeErrorDetails: true,
         run: (operatorId) => silkScreenTaskClaimService.releaseTask({ workspace, productionTaskId, body, operatorId, permissionContext }),
+      },
+      // P2-03: ship today's whole packages the customer asked for; the rest becomes a follow-up line.
+      // The office may split directly; packers only on a task the office marked with the customer's request.
+      "early-shipment": {
+        permission: permissionContext?.actionPermissions?.includes(writeActionPermissions.publishProductionSchedule)
+          ? writeActionPermissions.publishProductionSchedule
+          : writeActionPermissions.completePacking,
+        includeErrorDetails: true,
+        run: (operatorId) => earlyShipmentSplitService.splitForEarlyShipment({
+          workspace,
+          productionTaskId,
+          body: { ...body, officeAuthorized: Boolean(permissionContext?.actionPermissions?.includes(writeActionPermissions.publishProductionSchedule)) },
+          operatorId,
+        }),
+      },
+      "early-shipment-request": {
+        permission: writeActionPermissions.publishProductionSchedule,
+        includeErrorDetails: true,
+        run: (operatorId) => earlyShipmentSplitService.setEarlyShipmentRequest({ workspace, productionTaskId, body, operatorId }),
       },
       "report-complete": {
         permission: writeActionPermissions.reportProduction,

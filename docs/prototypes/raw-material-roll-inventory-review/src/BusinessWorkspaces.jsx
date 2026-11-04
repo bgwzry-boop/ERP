@@ -12,7 +12,8 @@ import {resolveTodoWorkspaceLink} from "./todo-workspace-link.js";
 import { TodoReminderForm } from "../../../../src/features/todos/TodoReminderForm.jsx";
 import { ProductionPhotoReview } from "./ProductionPhotoReview.jsx";
 import { DriverExceptionResolutionPanel } from "../../../../src/features/fulfillment/DriverExceptionResolutionPanel.jsx";
-import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
+import { EarlyShipmentPanel, ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
+import { buildDeliveryBatchFamily, describeBatchProgress } from "../../../../shared/deliveryBatches.js";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
 import { DesktopFulfillmentOperations, operationsOwnStockPackingEntry } from "./DesktopFulfillmentOperations.jsx";
@@ -161,7 +162,8 @@ function buildProductionRows(tasks = [], orderLines = [], customerNames = new Ma
     const line = {
       ...taskLine,
       id: task.orderLineId || taskLine.orderLineId,
-      product: taskLine.productName || taskLine.product || "货品待确认",
+      // P2-03: a follow-up line split off for early shipment is marked 续做.
+      product: `${taskLine.productName || taskLine.product || "货品待确认"}${taskLine.splitFromOrderLineId ? "（续做）" : ""}`,
       qty: taskFacts.plannedQty || taskLine.originalQty || taskLine.qty || 0,
       status: taskFacts.status || taskFacts.taskStatus || taskLine.lineStatus || "待确认",
       machineId: taskFacts.machineId,
@@ -186,6 +188,7 @@ function buildProductionRows(tasks = [], orderLines = [], customerNames = new Ma
   details: [
     ["生产任务", task.productionTaskId],
     ["订单明细", line.id],
+    ...(line.splitFromOrderLineId ? [["续做自", `${line.splitFromOrderLineId}（先发后剩下的部分）`]] : []),
     ["客户", customerName(line, customerNames)],
     ["货品", line.product],
     ["规格", line.size],
@@ -354,6 +357,8 @@ function buildFulfillmentRows(items = [], orderLines = []) {
       currentQty,
       remainingQty,
       currentQtyLabel,
+      // P2-03: a batch of a split order item keeps the whole order in view.
+      batchProgress: describeBatchProgress(buildDeliveryBatchFamily({ orderLines, fulfillments: items }, orderLineId), { fulfillmentId: id, orderLineId }),
       searchValues: [id, orderLineId, item.orderNo, customerId],
     };
   });
@@ -689,7 +694,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
     <aside className="business-detail-panel fulfillment-detail">
       <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.productTitle || "暂无交付任务"}</h2>{selected && selected.goods !== selected.productTitle ? <p className="business-detail-subtitle">{selected.goods}</p> : null}{selected ? <StateText>{selected.status}</StateText> : null}</header>
       <div className="business-detail-scroll">{selected ? <>
-        <section className="fulfillment-summary-qty" aria-label="交付数量"><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
+        <section className="fulfillment-summary-qty" aria-label="交付数量"><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl>{selected.batchProgress ? <p className="fulfillment-batch-progress">{selected.batchProgress}</p> : null}</section>
         <div className="fulfillment-primary-actions">{canOpenStatement ? <button className="primary" type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</div>
         {selected.status === "送货异常" ? <DriverExceptionResolutionPanel authState={{...formal.authState,permissions:formal.permissionContext}} fulfillmentId={selected.id} onResolved={()=>void formal.actions.refreshAll()} /> : null}
         <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
@@ -1052,7 +1057,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;
   return <GenericWorkspace key={focus?.token || navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} focus={focus} onNavigate={onNavigate}
-    detailExtra={navId === "customer-records" ? selected => selected?.id ? <><CustomerProfilePanel key={`profile:${selected.id}:${formal.authState?.session?.accessToken || ""}`} authState={formal.authState} customerId={selected.id} onSaved={formal.actions.refreshAll} /><CustomerAddressPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} authState={formal.authState} customerId={selected.id} /></> : null : navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
+    detailExtra={navId === "customer-records" ? selected => selected?.id ? <><CustomerProfilePanel key={`profile:${selected.id}:${formal.authState?.session?.accessToken || ""}`} authState={formal.authState} customerId={selected.id} onSaved={formal.actions.refreshAll} /><CustomerAddressPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} authState={formal.authState} customerId={selected.id} /></> : null : navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} /><EarlyShipmentPanel key={`early:${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
 }
 
 export { completedBusinessWorkspaceIds };

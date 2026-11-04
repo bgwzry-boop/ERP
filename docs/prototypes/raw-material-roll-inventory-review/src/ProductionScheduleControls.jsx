@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listOfficeProductionMachineQueue, publishOfficeProductionSchedule, resequenceOfficeProductionMachineQueue } from "../../../../src/services/officeProductionPackingLazyApi.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { releaseSilkScreenTask } from "../../../../src/services/silkScreenClaimApiClient.js";
+import { setEarlyShipmentRequest, splitForEarlyShipment } from "../../../../src/services/earlyShipmentApiClient.js";
 import { DelegatedBusinessDecisionFields, isDelegatedBusinessDecisionComplete } from "../../../../src/components/DelegatedBusinessDecisionFields.jsx";
 import { eligibleProductionMachines, isSelectedProductionMachineAllowed } from "./production-machine-options.js";
 
@@ -138,6 +139,80 @@ function SilkScreenClaimNotice({ task, authState, canRelease, onSaved }) {
       <label>释放原因<textarea value={reason} maxLength={200} disabled={busy} onChange={event => setReason(event.target.value)} placeholder="例如：师傅请假，先放回任务池" /></label>
       <button type="button" disabled={busy || !reason.trim()} onClick={() => void release()}>{busy ? "释放中…" : "释放这个领取"}</button>
     </> : <p>只有办公室或领取人本人可以释放。</p>}
+    {message ? <p role="status">{message}</p> : null}
+  </section>;
+}
+
+// P2-03 边做边发：发不发、发多少由客户定（客户叫快递来厂取件）。办公室看车间已做好多少、告诉客户；
+// 客户要今天发，就在这里记下（有多少发多少，或只发 N 个）。快递来之前打包工按整包装，在手机上填包数，
+// 系统按装好的数量拆出来先发，剩下的拆成续做明细明天接着发。单价按整单下单数量不变。
+// 打包工不方便时，办公室也可以直接按某个数量先发（不超过车间已报做好的数量）。
+const EARLY_SHIP_CLOSED = new Set(["已完成", "已作废", "已取消", "异常暂停", "数量差异待处理", "待完工确认"]);
+export function EarlyShipmentPanel({ selected, formal, onSaved }) {
+  const raw = selected?.sourceTask || {};
+  const task = raw.productionTask || {};
+  const line = raw.orderLine || selected?.sourceOrderLine || {};
+  const permissions = formal.permissionContext?.actionPermissions || [];
+  const [note, setNote] = useState("");
+  const [capMode, setCapMode] = useState("all");
+  const [capQty, setCapQty] = useState("");
+  const [shipQty, setShipQty] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [message, setMessage] = useState("");
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const externalPrint = ["external_print", "外加工印刷", "外加工", "同行加工印刷"].includes(String(line.orderType || ""));
+  const finalStage = task.taskType === "制袋" || (task.taskType === "丝印" && externalPrint);
+  const planned = Number(task.plannedQty || 0);
+  const ready = Number(raw.dailyProgress?.cumulativeQualifiedQty || 0);
+  const status = String(task.taskStatus || task.status || "");
+  const requested = Boolean(task.earlyShipRequestedAt);
+  if (!permissions.includes("production.schedule.publish") || !finalStage || EARLY_SHIP_CLOSED.has(status) || !(planned > 0) || ready >= planned) return null;
+  const productionTaskId = task.productionTaskId || selected.id;
+  const shipNow = shipQty === "" ? ready : Number(shipQty);
+  const shipValid = Number.isSafeInteger(shipNow) && shipNow > 0 && shipNow <= ready;
+  const capValid = capMode === "all" || (/^\d+$/.test(capQty) && Number(capQty) > 0 && Number(capQty) < planned);
+  async function finish(result, okText) {
+    if (!live.current) return;
+    setBusy(false); setConfirming(false);
+    if (result.ok) { setNote(""); setShipQty(""); setMessage(okText(result.data)); }
+    else setMessage(result.error?.message || "没有成功，请刷新后再试。");
+    if (result.ok || result.uncertain) await onSaved?.();
+  }
+  async function mark(next) {
+    if (busy || (next && !capValid)) return;
+    setBusy(true); setMessage("");
+    const result = await setEarlyShipmentRequest({ authState: formal.authState, productionTaskId, expectedRevision: Number(task.revision ?? 1), requested: next, note: note.trim(), maxQty: next && capMode === "cap" ? Number(capQty) : null });
+    await finish(result, () => next ? "已记下：客户要今天发。打包工手机上会看到这单，按整包装好后填包数就先发。" : "已取消：客户今天不发。");
+  }
+  async function splitNow() {
+    if (busy || !shipValid) return;
+    setBusy(true); setMessage("");
+    const result = await splitForEarlyShipment({ authState: formal.authState, productionTaskId, expectedRevision: Number(task.revision ?? 1), reason: note.trim(), shipQty: shipNow });
+    await finish(result, (data) => `已先发 ${data.shippedNowQty} 个${data.completion?.status === "completed" ? "，已进打包" : `（${data.completion?.message || "请车间点「报工完成」后进打包"}）`}；剩下 ${data.remainderQty} 个在续做明细 ${data.remainderOrderLineId} 里，明天接着发。`);
+  }
+  return <section className="business-detail-section production-schedule-controls" aria-label="边做边发">
+    <h3>边做边发</h3>
+    <p>整单 {planned} 个，车间已报做好 <strong>{ready}</strong> 个。发不发、发多少由客户定，可以把已做好的数量告诉客户。</p>
+    {requested
+      ? <p><strong>客户要今天发</strong>{task.earlyShipMaxQty ? ` ${task.earlyShipMaxQty} 个` : "（有多少发多少）"}{task.earlyShipNote ? `，${task.earlyShipNote}` : ""}。打包工按整包装好、在手机上填包数后就先发，剩下的明天接着发。</p>
+      : <fieldset className="early-ship-cap"><legend>客户要今天发</legend>
+          <label><input type="radio" name={`cap-${productionTaskId}`} checked={capMode === "all"} disabled={busy} onChange={() => setCapMode("all")} /> 有多少发多少</label>
+          <label><input type="radio" name={`cap-${productionTaskId}`} checked={capMode === "cap"} disabled={busy} onChange={() => setCapMode("cap")} /> 只发 <input type="number" min="1" value={capQty} disabled={busy || capMode !== "cap"} onChange={event => setCapQty(event.target.value)} aria-label="客户要发的数量" /> 个</label>
+        </fieldset>}
+    <label>备注（可不填）<textarea value={note} maxLength={200} disabled={busy} onChange={event => setNote(event.target.value)} placeholder="例如：客户的快递晚上 7 点来取" /></label>
+    <div className="production-queue-actions">
+      {requested
+        ? <button type="button" disabled={busy} onClick={() => void mark(false)}>客户今天不发了</button>
+        : <button type="button" className="primary" disabled={busy || !capValid} onClick={() => void mark(true)}>记下：客户要今天发</button>}
+    </div>
+    {ready > 0 ? <details className="early-ship-direct"><summary>办公室直接先发（打包工不方便时）</summary>
+      <label>先发数量（不超过已做好的 {ready} 个）<input type="number" min="1" max={ready} value={shipQty} placeholder={String(ready)} disabled={busy} onChange={event => { setShipQty(event.target.value); setConfirming(false); }} /></label>
+      {!confirming
+        ? <button type="button" disabled={busy || !shipValid} onClick={() => setConfirming(true)}>先发 {shipValid ? shipNow : "—"} 个</button>
+        : <div className="production-queue-actions"><button type="button" disabled={busy} onClick={() => setConfirming(false)}>先不拆</button><button type="button" className="primary" disabled={busy} onClick={() => void splitNow()}>{busy ? "处理中…" : `确认：先发 ${shipNow} 个，续做 ${planned - shipNow} 个`}</button></div>}
+    </details> : null}
     {message ? <p role="status">{message}</p> : null}
   </section>;
 }
