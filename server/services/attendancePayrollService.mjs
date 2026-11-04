@@ -406,46 +406,50 @@ export function createAttendancePayrollService(dependencies = {}) {
       (employee) => cleanText(employee.attendanceProvider) && cleanText(employee.attendanceExternalId),
     ).length;
     const repositoryKind = cleanText(workspace?.attendancePayrollRepository?.kind);
+    const policyPublished = Boolean(workbench.policyVersion);
+    const ratesCoverEmployees = policyRateCompleteCount === employees.length;
     const criteria = [
       readinessCriterion("postgres_repository", "工资考勤使用 PostgreSQL", repositoryKind === "postgres", {
         repositoryKind: repositoryKind || "未配置",
-      }),
+      }, "工资考勤尚未使用 PostgreSQL"),
       readinessCriterion("attendance_source", "真实考勤来源已配置", workbench.sourceStatus.configured, {
         provider: workbench.sourceStatus.provider || "未配置",
-      }),
+        configured: workbench.sourceStatus.configured,
+      }, "真实考勤来源未配置"),
       readinessCriterion("employee_profiles", "本月计薪员工出生和入职资料完整", hasPayrollEmployees && profileCompleteCount === employees.length, {
         readyCount: profileCompleteCount,
         totalCount: employees.length,
-      }),
+      }, hasPayrollEmployees ? "本月计薪员工出生或入职资料未补齐" : "本月没有可计薪员工"),
       readinessCriterion("payroll_positions", "本月计薪员工工资岗位映射完整", hasPayrollEmployees && payrollPositionCompleteCount === employees.length, {
         readyCount: payrollPositionCompleteCount,
         totalCount: employees.length,
-      }),
+      }, hasPayrollEmployees ? "本月计薪员工工资岗位尚未映射完整" : "本月没有可计薪员工"),
       readinessCriterion("attendance_mappings", "本月计薪员工考勤身份映射完整", hasPayrollEmployees && attendanceMappedCount === employees.length, {
         readyCount: attendanceMappedCount,
         totalCount: employees.length,
-      }),
-      readinessCriterion("payroll_policy", "本月岗位费率规则已发布且覆盖全部计薪岗位", Boolean(workbench.policyVersion) && hasPayrollEmployees && policyRateCompleteCount === employees.length, {
+      }, hasPayrollEmployees ? "本月计薪员工考勤身份尚未映射完整" : "本月没有可计薪员工"),
+      readinessCriterion("payroll_policy", "本月岗位费率规则已发布", policyPublished && ratesCoverEmployees, {
         versionId: workbench.policyVersion?.id || "",
+        published: policyPublished,
         readyCount: policyRateCompleteCount,
         totalCount: employees.length,
-      }),
+      }, policyPublished ? "本月岗位费率未覆盖全部计薪岗位" : "本月计薪规则未发布"),
       readinessCriterion("attendance_import", "本月自然月考勤已整月同步且无未匹配身份", attendanceImportCoverage.complete, {
         verifiedBatchCount: attendanceImportCoverage.verifiedImports.length,
         periodClosed: attendanceImportCoverage.periodClosed,
         coverageGapCount: attendanceImportCoverage.gapCount,
-      }),
+      }, attendanceImportCoverage.periodClosed ? "本月自然月考勤尚未整月同步" : "计薪月份尚未结束，考勤尚未整月同步"),
       readinessCriterion("attendance_reviews", "本月考勤异常已全部复核", workbench.summary.pendingAttendanceReviewCount === 0, {
         pendingCount: workbench.summary.pendingAttendanceReviewCount,
-      }),
+      }, "本月仍有考勤异常待复核"),
       readinessCriterion("payroll_inputs", "本月全部员工计薪输入和任职边界已核对", workbench.summary.draftReady, {
         readyCount: workbench.summary.readyCount,
         totalCount: employees.length,
-      }),
+      }, "本月员工计薪输入或任职边界尚未核对"),
       readinessCriterion("employee_self_accounts", "当前在职员工本人账号已完成启用和改密", activeEmployees.length > 0 && readyAccountEmployeeIds.size === activeEmployees.length, {
         readyCount: readyAccountEmployeeIds.size,
         totalCount: activeEmployees.length,
-      }),
+      }, activeEmployees.length ? "当前在职员工本人账号尚未完成启用和改密" : "当前没有在职员工账号可核对"),
     ];
     const blockingCriteria = criteria.filter((item) => item.status !== "passed");
     return {
@@ -1542,12 +1546,14 @@ function employeeProjection(employee = {}, asOf = new Date()) {
 }
 
 function policyProjection(policy = {}) {
+  const rates = Array.isArray(policy.policy?.positionRates) ? policy.policy.positionRates : [];
   return {
     id: policy.id,
     versionLabel: policy.versionLabel,
     effectiveFrom: policy.effectiveFrom,
     effectiveTo: policy.effectiveTo,
     integrityDigest: policy.integrityDigest,
+    positionRateKeys: rates.map((rate) => cleanText(rate?.payrollPositionKey)).filter(Boolean),
   };
 }
 
@@ -1566,10 +1572,10 @@ function isPayrollSelfAccountReady(user = {}) {
   return enabled && passwordStatus === "active" && user.mustChangePassword !== true;
 }
 
-function readinessCriterion(key, label, passed, evidence = {}) {
+function readinessCriterion(key, passedLabel, passed, evidence = {}, pendingLabel = passedLabel) {
   return {
     key,
-    label,
+    label: passed ? passedLabel : pendingLabel,
     status: passed ? "passed" : "pending",
     blocking: !passed,
     evidence,

@@ -677,7 +677,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
     return statusMatch && queryMatch;
   }), [query, records, status]);
   const selected = rows.find((record) => record.id === selectedId) || rows[0] || null;
-  const gridTemplateColumns = "minmax(150px, 1.22fr) minmax(180px, 1.45fr) minmax(74px, .66fr) minmax(138px, 1fr) minmax(86px, .72fr)";
+  const gridTemplateColumns = "minmax(112px, 1.15fr) minmax(128px, 1.35fr) minmax(64px, .55fr) minmax(112px, .95fr) minmax(76px, .72fr)";
   const reset = () => { setQuery(""); setStatus("全部状态"); setSelectedId(records[0]?.id || ""); setNotice(""); };
   const deliveryFacts = selected ? [["交付方式", selected.method], ["包装", selected.packageLabel], ["要求时间", selected.latestNeededAt], ["出库库位", selected.zone]] : [];
   const pendingFactCount = deliveryFacts.filter(([, value]) => /待确认|待打包|待核实/.test(String(value || ""))).length;
