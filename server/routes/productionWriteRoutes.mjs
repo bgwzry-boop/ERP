@@ -11,6 +11,7 @@ export async function handleProductionWriteRoutes({
   requireActionPermission,
   getPermissionOperatorId,
   productionSchedulingCommandService,
+  silkScreenTaskClaimService,
   productionReportingCommandService,
   productionFinishedGoodsPhotoCommandService,
   packingCommandService,
@@ -27,7 +28,7 @@ export async function handleProductionWriteRoutes({
   if (method !== "POST") return false;
 
   const productionActionMatch = url.pathname.match(
-    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
+    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|claim|release|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
   );
   if (productionActionMatch) {
     const productionTaskId = decodeURIComponent(productionActionMatch[1]);
@@ -41,6 +42,19 @@ export async function handleProductionWriteRoutes({
           operatorId,
           actionPermissions: permissionContext?.actionPermissions ?? [],
         }),
+      },
+      // P2-02: silk-screen printers claim their own tasks; the claimer or the office (with a reason) releases.
+      claim: {
+        permission: writeActionPermissions.reportProduction,
+        includeErrorDetails: true,
+        run: (operatorId) => silkScreenTaskClaimService.claimTask({ workspace, productionTaskId, body, operatorId, permissionContext }),
+      },
+      release: {
+        permission: permissionContext?.actionPermissions?.includes(writeActionPermissions.publishProductionSchedule)
+          ? writeActionPermissions.publishProductionSchedule
+          : writeActionPermissions.reportProduction,
+        includeErrorDetails: true,
+        run: (operatorId) => silkScreenTaskClaimService.releaseTask({ workspace, productionTaskId, body, operatorId, permissionContext }),
       },
       "report-complete": {
         permission: writeActionPermissions.reportProduction,
@@ -110,6 +124,7 @@ export async function handleProductionWriteRoutes({
     const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A");
     const result = await route.run(operatorId);
     if (route.photoMode) sendPhotoResult(result, context.productionTaskId, route.photoMode);
+    else if (route.includeErrorDetails) sendCommandResponse(response, result, { includeErrorDetails: true });
     else sendCommandResponse(response, result);
     return true;
   }

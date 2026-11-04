@@ -840,6 +840,15 @@ function buildProductionTaskListWhereSql(filters, parameters) {
     conditions.push("task.task_status <> '已完成'");
     conditions.push(buildWorkshopMobileProductionTaskVisibilitySql());
   }
+  if (isSilkScreenPoolVisibility(filters.visibility)) {
+    conditions.push(`task.task_type = '丝印'
+      AND task.task_status <> ALL(ARRAY['已完成', '已作废', '已取消'])
+      AND COALESCE(line.line_status, '') <> ALL(ARRAY['已作废', '已取消', '已关闭'])
+      AND (
+        task.claimed_by_user_id IS NOT NULL
+        OR (NULLIF(task.published_schedule_id, '') IS NULL AND NULLIF(task.machine_id, '') IS NULL AND task.task_status LIKE '%待排产%')
+      )`);
+  }
   const keywordSql = buildKeywordWhereSql(
     [
       "task.id",
@@ -925,6 +934,7 @@ function matchesProductionTaskListFilters(item, filters) {
   if (filters.taskType && task.taskType !== filters.taskType) return false;
   if (filters.machineId && cleanText(task.machineId) !== filters.machineId) return false;
   if (isWorkshopMobileVisibility(filters.visibility) && !matchesWorkshopMobileProductionTaskVisibility(item)) return false;
+  if (isSilkScreenPoolVisibility(filters.visibility) && !matchesSilkScreenPoolVisibility(item)) return false;
   return matchesListKeyword(item, filters.keyword);
 }
 
@@ -963,6 +973,21 @@ function isCompletedTaskStatus(status) {
 function isWorkshopMobileVisibility(visibility) {
   const text = cleanText(visibility).toLowerCase();
   return text === "workshop_mobile" || text === "workshop" || text === "车间手机端";
+}
+
+// P2-02: silk-screen printers pick from unassigned 丝印 tasks; claimed ones stay listed with the claimer.
+function isSilkScreenPoolVisibility(visibility) {
+  return cleanText(visibility) === "silk_screen_pool";
+}
+
+function matchesSilkScreenPoolVisibility(item) {
+  const task = item?.productionTask ?? {};
+  const status = cleanText(task.taskStatus ?? task.status);
+  const lineStatus = cleanText(item?.orderLine?.lineStatus ?? item?.orderLine?.status);
+  if (task.taskType !== "丝印" || isCompletedTaskStatus(status) || ["已作废", "已取消"].includes(status)) return false;
+  if (["已作废", "已取消", "已关闭"].includes(lineStatus)) return false;
+  if (cleanText(task.claimedByUserId)) return true;
+  return !hasPublishedSchedule(task) && !cleanText(task.machineId) && status.includes("待排产");
 }
 
 function matchesWorkshopMobileProductionTaskVisibility(item) {
@@ -1027,6 +1052,9 @@ function normalizeProductionTaskSummary(task, orderLine = {}) {
     taskStatus: cleanText(task.taskStatus ?? task.task_status ?? task.status),
     status: cleanText(task.status ?? task.taskStatus ?? task.task_status),
     revision: Math.max(1, toFiniteInteger(task.revision, 1)),
+    claimedByUserId: cleanText(task.claimedByUserId ?? task.claimed_by_user_id),
+    claimedByName: cleanText(task.claimedByName ?? task.claimed_by_name),
+    claimedAt: cleanText(task.claimedAt ?? task.claimed_at),
     finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(task, orderLine),
     createdBy: cleanText(task.createdBy ?? task.created_by),
     createdAt: cleanText(task.createdAt ?? task.created_at),
@@ -1265,6 +1293,11 @@ function normalizeOrderLineSummary(orderLine) {
     originalQty: toFiniteInteger(orderLine.originalQty ?? orderLine.original_qty ?? orderLine.qty),
     qtyBasis: cleanText(orderLine.qtyBasis ?? orderLine.qty_basis) || "pieces",
     incomingRollCount: orderLine.incomingRollCount ?? orderLine.incoming_roll_count ?? null,
+    // P2-02: the silk-screen pool groups by ink colour and shows the due date.
+    orderType: cleanText(orderLine.orderType ?? orderLine.order_type),
+    printColor: cleanText(orderLine.printColor ?? orderLine.print_color),
+    printSide: cleanText(orderLine.printSide ?? orderLine.print_side),
+    latestNeededAt: cleanText(orderLine.latestNeededAt ?? orderLine.latest_needed_at ?? orderLine.latest),
     lineStatus: cleanText(orderLine.lineStatus ?? orderLine.line_status ?? orderLine.status),
     fulfillmentMethod: cleanText(orderLine.fulfillmentMethod ?? orderLine.fulfillment_method ?? orderLine.fulfillment),
     exceptionTags: normalizeTextArray(orderLine.exceptionTags ?? orderLine.exception_tags ?? orderLine.exceptions),
@@ -1406,6 +1439,9 @@ function productionTaskJsonExpression(alias) {
     'taskStatus', ${alias}.task_status,
     'status', ${alias}.task_status,
     'revision', ${alias}.revision,
+    'claimedByUserId', ${alias}.claimed_by_user_id,
+    'claimedByName', ${alias}.claimed_by_name,
+    'claimedAt', ${alias}.claimed_at,
     'finishedGoodsPhoto', ${alias}.finished_goods_photo,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at,
@@ -1513,6 +1549,10 @@ function orderLineJsonExpression(alias) {
     'originalQty', ${alias}.original_qty,
     'qtyBasis', ${alias}.qty_basis,
     'incomingRollCount', ${alias}.incoming_roll_count,
+    'orderType', ${alias}.order_type,
+    'printColor', ${alias}.print_color,
+    'printSide', ${alias}.print_side,
+    'latestNeededAt', ${alias}.latest_needed_at,
     'lineStatus', ${alias}.line_status,
     'fulfillmentMethod', ${alias}.fulfillment_method,
     'exceptionTags', ${alias}.exception_tags,

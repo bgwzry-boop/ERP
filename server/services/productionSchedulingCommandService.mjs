@@ -50,6 +50,10 @@ export function createProductionSchedulingCommandService({
         );
       }
 
+      // P2-02: a printer's own claim must be released (by them or the office) before the office re-schedules it.
+      if (cleanText(beforeTask.claimedByUserId)) {
+        return businessError(409, "SILK_SCREEN_TASK_CLAIMED", `这个任务已被${cleanText(beforeTask.claimedByName) || "丝印工"}领取，请先释放再排产。`);
+      }
       if ((body.orderLineId && body.orderLineId !== (beforeTask.orderLineId ?? beforeTask.lineId)) || (body.processType && body.processType !== beforeTask.taskType)) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "排产不能改变生产任务的订单或工序。");
       const orderLineId = cleanText(beforeTask.orderLineId ?? beforeTask.lineId);
       const beforeOrderLine = findOrderLine(workspace, orderLineId);
@@ -374,6 +378,9 @@ export function createProductionSchedulingCommandService({
       const machineError = validateSchedulingMachine(workspace, targetMachineId, task?.taskType);
       if (machineError) return machineError;
       const sourceMachineId = cleanText(movingItem.machineId);
+      if (cleanText(task?.claimedByUserId) && sourceMachineId !== targetMachineId) {
+        return businessError(409, "SILK_SCREEN_TASK_CLAIMED", `这个任务已被${cleanText(task.claimedByName) || "丝印工"}领取，不能换机台；请先释放。`);
+      }
       const targetQueueBase = beforeQueue.items.filter(
         (item) => item.machineId === targetMachineId && item.productionTaskId !== productionTaskId,
       );
