@@ -5,6 +5,7 @@ import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared
 import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
+import { readCompanyPrintProfile } from "./companyPrintProfileService.mjs";
 
 export function createFulfillmentPrintCommandService({
   buildFulfillmentActionRecord,
@@ -112,6 +113,8 @@ export function createFulfillmentPrintCommandService({
       action: printableBody.printAction,
       paperNo: printableBody.paperNo,
       pricing: pricingResult?.pricing,
+      // P2-07: the sheet header the office keeps under 打印与设备 → 单据抬头.
+      companyProfile: pricingResult ? await readCompanyPrintProfile(workspace) : undefined,
       packageLabelRows: packageLabelRows((workspace.packages??[]).filter(row=>row.fulfillmentId===fulfillmentId)),
       // P2-03: a batch of a split order item says which batch it is and what is still to come.
       batchProgress: describeBatchProgress(

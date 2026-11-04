@@ -1,5 +1,6 @@
 import { autoQuantityDifference } from "../../shared/quantityTolerance.js";
 import { resolveFulfillmentBillingQuantity } from "./fulfillmentBillingQuantityService.mjs";
+import { splitLegacyUnitPrices } from "../../shared/deliveryNoteLayout.js";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 import { captureFulfillmentBillingSnapshot, selectFulfillmentPriceSnapshot } from "./fulfillmentBillingSnapshotService.mjs";
 
@@ -9,6 +10,14 @@ const validNumber = value => ["number", "string"].includes(typeof value) && text
 
 export function captureLegacyPrintOrderPrice(orderLine) {
   return { id: text(orderLine?.id ?? orderLine?.orderLineId), qty: orderLine?.qty ?? orderLine?.originalQty ?? null, amount: orderLine?.amount ?? orderLine?.finalAmount ?? null };
+}
+
+// P2-07: the old sheet prints 袋子单价 / 印刷单价 / 长提单价 from the price snapshot in force.
+function legacyUnitPrices(workspace, price) {
+  if (!price?.id) return {};
+  const full = (workspace.priceSnapshots ?? []).find(row => text(row.id ?? row.priceSnapshotId) === price.id);
+  const unitPrices = splitLegacyUnitPrices(full);
+  return unitPrices ? { unitPrices } : {};
 }
 
 // P2-05: before the statement line exists, the paper note already follows the same rule as billing.
@@ -44,7 +53,8 @@ export function resolveFulfillmentPrintPricing({ workspace, fulfillment, orderLi
     const originalQty = Number(line.deliveredQty ?? line.delivered_qty);
     const amount = line.finalAmount ?? line.final_amount;
     if (text(line.orderLineId ?? line.order_line_id) !== orderLineId || originalQty !== deliveredQty || !Number.isSafeInteger(chargeableQty) || !Number.isSafeInteger(freeQty) || chargeableQty < 0 || freeQty < 0 || chargeableQty + freeQty !== deliveredQty || !validNumber(amount)) throw invalid("本次交付数量与原入账凭据不一致，请先核对。");
-    return { billingSnapshot, pricing: { deliveredQty, chargeableQty, freeQty, amount: Number(amount), unitPrice: null, phase: "recorded", source: "recorded_statement", statementLineId: text(line.id ?? line.statementLineId) } };
+    const recordedPrice = selectFulfillmentPriceSnapshot(billingSnapshot);
+    return { billingSnapshot, pricing: { deliveredQty, chargeableQty, freeQty, amount: Number(amount), unitPrice: null, phase: "recorded", source: "recorded_statement", statementLineId: text(line.id ?? line.statementLineId), ...legacyUnitPrices(workspace, recordedPrice) } };
   }
   if (!billingSnapshot.lines.length && (workspace.statements ?? []).some(statement => (statement.lineIds ?? []).includes(orderLineId))) throw invalid("历史账单缺少分批入账明细，不能确定本次纸单金额。");
   const price = selectFulfillmentPriceSnapshot(billingSnapshot);
@@ -55,5 +65,5 @@ export function resolveFulfillmentPrintPricing({ workspace, fulfillment, orderLi
   const totalQty = price ? price.chargeableQty : legacyOrderPrice.qty;
   const billing = plannedBillingQuantity({ workspace, fulfillment, orderLine, deliveredQty });
   const allocation = allocateFulfillmentAmount({ totalAmount, totalChargeableQty: totalQty, chargeableQty: billing.chargeableQty, priorLines: billingSnapshot.lines });
-  return { billingSnapshot, legacyOrderPrice, pricing: { deliveredQty, chargeableQty: billing.chargeableQty, freeQty: billing.freeQty, quantityNote: billing.note, amount: allocation.amount, unitPrice: Number(totalAmount) / Number(totalQty), phase: "planned", source: price ? "price_snapshot" : "local_order_reference", priceSnapshotId: price?.id || "", priorChargeableQty: allocation.priorChargeableQty, priorAmount: allocation.priorAmount } };
+  return { billingSnapshot, legacyOrderPrice, pricing: { deliveredQty, chargeableQty: billing.chargeableQty, freeQty: billing.freeQty, quantityNote: billing.note, amount: allocation.amount, unitPrice: Number(totalAmount) / Number(totalQty), phase: "planned", source: price ? "price_snapshot" : "local_order_reference", priceSnapshotId: price?.id || "", priorChargeableQty: allocation.priorChargeableQty, priorAmount: allocation.priorAmount, ...legacyUnitPrices(workspace, price) } };
 }

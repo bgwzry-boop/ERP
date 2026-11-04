@@ -1,0 +1,108 @@
+// P2-07 出库单打印样式：照旧 ERP「三个单价」版式 + 办公室自己改的单据抬头。
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { DELIVERY_NOTE_COLUMNS, amountInChineseUppercase, splitLegacyUnitPrices, validateCompanyPrintProfileInput } from "../shared/deliveryNoteLayout.js";
+import { buildFulfillmentPrintTemplate } from "../src/domain/printTemplates.js";
+import { buildFulfillmentNotePdf, isFulfillmentNoteTemplate } from "./fulfillment-note-pdf.mjs";
+import { resolveFulfillmentPrintPricing } from "../server/services/fulfillmentPrintPricingService.mjs";
+import { createLocalPrintDeviceRepository } from "../server/printDeviceRepository.mjs";
+import { readCompanyPrintProfile, saveCompanyPrintProfile } from "../server/services/companyPrintProfileService.mjs";
+
+// Columns in the order of the old printed sheet.
+assert.deepEqual(DELIVERY_NOTE_COLUMNS.map(column => column.label),
+  ["序号", "产品名称", "规格", "颜色", "仓库", "单位", "数量", "袋子单价", "印刷单价", "长提单价", "金额", "备注"]);
+
+// 大写金额 as on the old 合计 row.
+for (const [amount, expected] of [[1043, "壹仟零肆拾叁元整"], [145.8, "壹佰肆拾伍元捌角"], [20.07, "贰拾元零柒分"], [100010000, "壹亿零壹万元整"], [0, "零元整"], [0.5, "伍角"]]) {
+  assert.equal(amountInChineseUppercase(amount), expected, String(amount));
+}
+
+// Three unit prices: the handle surcharge is separate only where the quote kept it apart.
+assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.36, printPrice: 0.09 }), { bag: 0.36, print: 0.09, handle: 0 });
+assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.5, printPrice: 0.1, sourceEvidence: { specialQuote: { handleUnitAddon: 0.05 } } }), { bag: 0.45, print: 0.1, handle: 0.05 });
+assert.equal(splitLegacyUnitPrices(null), null);
+
+// The print pricing carries them from the price snapshot in force.
+const workspace = {
+  orderLines: [{ id: "OL-1", orderType: "custom_print", qty: 1000 }],
+  priceSnapshots: [{ id: "PS-1", orderLineId: "OL-1", snapshotType: "order_confirm", versionNo: 1, bagPrice: 0.34, printPrice: 0.09, otherFee: 30, chargeableQty: 1000, finalAmount: 460, createdAt: "2026-11-01T00:00:00Z" }],
+  statementLines: [], statements: [],
+};
+const { pricing } = resolveFulfillmentPrintPricing({ workspace, fulfillment: { id: "F-1", lineId: "OL-1", expectedQty: 1000, actualQty: 1000 }, orderLine: workspace.orderLines[0] });
+assert.deepEqual(pricing.unitPrices, { bag: 0.34, print: 0.09, handle: 0 });
+
+// Template: header from the office's setting, three copies, three price columns, uppercase total.
+const companyProfile = { companyName: "合成包装厂", address: "合成路 1 号", phone: "0319-0000000", footerNote: "请当面点清数量。" };
+const template = buildFulfillmentPrintTemplate({
+  fulfillment: { id: "F-1", lineId: "OL-1", customerId: "C1", method: "送货", qty: 1000, zone: "南屋", customerSnapshot: { name: "合成客户", contactName: "王经理", contactPhone: "13800001234", address: "合成镇" } },
+  orderLine: { id: "OL-1", product: "印刷袋", size: "30*40*10", color: "白色", orderType: "custom_print", qty: 1000, print: "是" },
+  printRecord: { printRecordId: "PR-F-1-1", createdAt: "2026-11-04T03:00:00Z" },
+  documentType: "delivery_note",
+  pricing,
+  companyProfile,
+});
+assert.equal(template.title, "送货单");
+assert.deepEqual(template.paper.copyNames, ["①白存根联", "②红客户联", "③黄回单联"]);
+assert.equal(template.fields.companyName, "合成包装厂");
+assert.equal(template.fields.footerNote, "请当面点清数量。");
+assert.equal(template.fields.documentDateText, "2026-11-04");
+assert.equal(template.fields.totalAmountUppercase, "肆佰陆拾元整");
+const [item] = template.fields.lineItems;
+assert.deepEqual([item.bagUnitPriceText, item.printingUnitPriceText, item.handleUnitPriceText, item.warehouse, item.unit, item.amount], ["0.34", "0.09", "", "南屋", "个", 460]);
+assert.equal(isFulfillmentNoteTemplate(template), true);
+assert.equal(isFulfillmentNoteTemplate({ ...template, priceHidden: true }), false);
+
+async function pdfText(bytes) {
+  const document = await getDocument({ data: new Uint8Array(bytes), useSystemFonts: false }).promise;
+  const pages = [];
+  for (let index = 1; index <= document.numPages; index += 1) {
+    pages.push((await (await document.getPage(index)).getTextContent()).items.map(row => row.str).join(""));
+  }
+  await document.destroy();
+  return pages;
+}
+
+const [page] = await pdfText(await buildFulfillmentNotePdf(template));
+for (const value of ["合成包装厂", "地址：合成路 1 号", "电话：0319-0000000", "No. PR-F-1-1", "日期：2026-11-04", "客户名称：合成客户", "联系人：王经理", "客户地址：合成镇",
+  "序号", "产品名称", "袋子单价", "印刷单价", "长提单价", "印刷袋", "30*40*10", "白色", "南屋", "1000", "0.34", "0.09", "460.00",
+  "合计：肆佰陆拾元整", "¥460.00", "注：请当面点清数量。", "送货单位及经手人(签章)：", "收货单位及经手人(签章)：", "白", "存", "根", "黄", "回"]) {
+  assert.ok(page.includes(value), `missing ${value}: ${page}`);
+}
+assert.doesNotMatch(page, /13800001234/, "the customer's full phone stays off the paper (tail only, as today)");
+
+// Many lines continue on further pages; the total stays on the last.
+const many = { ...template, fields: { ...template.fields, lineItems: Array.from({ length: 25 }, (_, index) => ({ ...item, productName: `货品${index + 1}`, amount: 10 })) } };
+const pages = await pdfText(await buildFulfillmentNotePdf(many));
+assert.ok(pages.length >= 2);
+assert.match(pages[0], /续下页/);
+assert.match(pages.at(-1), /合计：贰佰伍拾元整/);
+assert.ok(pages.join("").includes("货品25"));
+
+// Characters the embedded font cannot draw fail closed instead of printing blanks.
+await assert.rejects(() => buildFulfillmentNotePdf({ ...template, fields: { ...template.fields, customerName: "\u{2A6D6}客户" } }), /字体不支持/);
+await assert.rejects(() => buildFulfillmentNotePdf({ ...template, fields: { ...template.fields, lineItems: [] } }));
+
+// 单据抬头: the office edits it; stale edits are refused.
+assert.equal(validateCompanyPrintProfileInput({ companyName: "" }), "请填写公司名称。");
+const storageRoot = mkdtempSync(join(tmpdir(), "erp-company-profile-"));
+try {
+  const local = { printDeviceRepository: createLocalPrintDeviceRepository({ storageRoot }) };
+  const before = await readCompanyPrintProfile(local);
+  assert.equal(before.companyName, "河北禄兴包装制品有限公司");
+  assert.equal(before.revision, 1);
+  const saved = await saveCompanyPrintProfile({ workspace: local, operatorId: "U-OFFICE-A", body: { ...companyProfile, expectedRevision: 1, idempotencyKey: "company-profile-1" } });
+  assert.equal(saved.companyPrintProfile.companyName, "合成包装厂");
+  assert.equal(saved.companyPrintProfile.revision, 2);
+  assert.equal((await readCompanyPrintProfile(local)).phone, "0319-0000000");
+  const stale = await saveCompanyPrintProfile({ workspace: local, operatorId: "U-OFFICE-A", body: { ...companyProfile, companyName: "旧页面", expectedRevision: 1, idempotencyKey: "company-profile-2" } });
+  assert.equal(stale.code, "COMPANY_PRINT_PROFILE_CHANGED");
+  const invalid = await saveCompanyPrintProfile({ workspace: local, operatorId: "U-OFFICE-A", body: { companyName: " ", expectedRevision: 2, idempotencyKey: "company-profile-3" } });
+  assert.equal(invalid.code, "COMPANY_PRINT_PROFILE_INVALID");
+} finally {
+  rmSync(storageRoot, { recursive: true, force: true });
+}
+
+console.log("delivery note layout ok");

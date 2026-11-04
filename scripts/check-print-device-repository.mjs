@@ -31,7 +31,7 @@ function checkLocalPrintDeviceRepository() {
     assert.equal(dotMatrixDevice?.settings?.printHeadPins, 24);
     assert.equal(dotMatrixDevice?.settings?.columnsAt10Cpi, 82);
     assert.equal(dotMatrixDevice?.settings?.recommendedCupsQueueName, "epson_lq_615kii_notes");
-    assert.equal(dotMatrixDevice?.paperName, "二联二等分连续针式纸");
+    assert.equal(dotMatrixDevice?.paperName, "三联二等分连续针式纸");
     assert.equal(dotMatrixDevice?.settings?.hostOperatingSystem, "Windows 11");
     assert.equal(dotMatrixDevice?.settings?.sampleDocumentType, "delivery_note");
     assert.equal(dotMatrixDevice?.settings?.systemPrinterNameKnown, false);

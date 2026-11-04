@@ -1,3 +1,4 @@
+import { readCompanyPrintProfile } from "../services/companyPrintProfileService.mjs";
 export async function handlePrintReadRoutes({
   url,
   response,
@@ -35,6 +36,13 @@ export async function handlePrintReadRoutes({
         operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
       }),
     );
+    return true;
+  }
+
+  // P2-07 单据抬头
+  if (url.pathname === "/api/print-settings/company-profile") {
+    if (!requireActionPermission(response, permissionContext, "print.read")) return true;
+    sendJson(response, 200, { companyPrintProfile: await readCompanyPrintProfile(workspace) });
     return true;
   }
 

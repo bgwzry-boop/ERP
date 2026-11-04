@@ -1,6 +1,7 @@
 import { getFulfillmentGoodsDisplay } from "./officeRules.js";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 import { fulfillmentDocumentTypeFor } from "../../shared/fulfillmentDocumentType.js";
+import { DEFAULT_COMPANY_PRINT_PROFILE, DELIVERY_NOTE_PAPER, DELIVERY_NOTE_SIGNATURES, amountInChineseUppercase, formatLegacyUnitPrice, normalizeCompanyPrintProfile } from "../../shared/deliveryNoteLayout.js";
 
 export const expressLtlLabelTemplateId = "tpl-p0-express-ltl-label";
 export const deliveryNoteTemplateId = "tpl-p0-delivery-note";
@@ -60,17 +61,17 @@ export function buildFulfillmentPrintTemplate(input = {}) {
 
   return {
     templateId: printRecord.templateId ?? getTemplateId(documentType),
-    templateVersion: isExpressLtl ? "p0-express-ltl-label-v1" : `p0-${documentType}-dot-matrix-v2`,
+    templateVersion: isExpressLtl ? "p0-express-ltl-label-v1" : `p2-${documentType}-legacy-three-price-v1`,
     documentType,
     title: isExpressLtl ? "快递快运包裹标签" : getFulfillmentDocumentTitle(documentType, method),
     priceHidden: isExpressLtl,
     paper: {
-      name: isExpressLtl ? "80mm x 50mm 标签纸" : "241mm 针式连续二联纸",
-      widthMm: isExpressLtl ? 80 : 241,
-      heightMm: isExpressLtl ? 50 : 140,
-      copies: isExpressLtl ? Math.max(packageCount, 1) : 2,
+      name: isExpressLtl ? "80mm x 50mm 标签纸" : DELIVERY_NOTE_PAPER.name,
+      widthMm: isExpressLtl ? 80 : DELIVERY_NOTE_PAPER.widthMm,
+      heightMm: isExpressLtl ? 50 : DELIVERY_NOTE_PAPER.heightMm,
+      copies: isExpressLtl ? Math.max(packageCount, 1) : DELIVERY_NOTE_PAPER.copyNames.length,
       isContinuous: isFulfillmentNote,
-      copyNames: isFulfillmentNote ? ["客户联", "工厂留底联"] : [],
+      copyNames: isFulfillmentNote ? [...DELIVERY_NOTE_PAPER.copyNames] : [],
     },
     fields: {
       printBatchNo: batchNo,
@@ -95,7 +96,7 @@ export function buildFulfillmentPrintTemplate(input = {}) {
     },
     safeguards: isExpressLtl
       ? ["标签不显示价格", "打印后等待快递/快运拉走确认才扣库存", "包裹数量变化时作废旧标签后重打"]
-      : ["针式连续纸二联", "正式单据显示价格", "数量、价格、客户或交付方式变化后需要作废并重打"],
+      : ["针式连续纸三联", "正式单据显示价格", "数量、价格、客户或交付方式变化后需要作废并重打"],
   };
 }
 
@@ -146,6 +147,7 @@ function buildFulfillmentDocumentFields({
   const amount = pricing.amount;
   const unitPrice = pricing.unitPrice;
   // P2-05: 多出来的写明赠送（下单 5000 出 5010 → 按 5000 计价，10 个赠送）。
+  const company = normalizeCompanyPrintProfile(input.companyProfile ?? DEFAULT_COMPANY_PRINT_PROFILE);
   const quantityNote = String(pricing.quantityNote ?? "").trim() || (Number(pricing.freeQty) > 0 ? `多出 ${Number(pricing.freeQty)} 个赠送，不收费` : "");
   const printEnabled = orderLine?.print === "是" || String(orderLine?.orderType ?? "").includes("印刷");
   const lineItem = {
@@ -153,7 +155,7 @@ function buildFulfillmentDocumentFields({
     orderLineNo,
     productName: orderLine?.product ?? fulfillment?.goods ?? "",
     size: orderLine?.size ?? "",
-    color: orderLine?.color ?? "",
+    color: orderLine?.color ?? orderLine?.bagColor ?? "",
     handle: orderLine?.handle ?? "",
     style: orderLine?.style ?? "",
     goodsSummary,
@@ -162,7 +164,15 @@ function buildFulfillmentDocumentFields({
     packageText,
     unitPriceText: unitPrice !== null && unitPrice !== undefined ? formatUnitPrice(unitPrice) : "待核价",
     amountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
+    amount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
     otherFeeText: "待核对费用明细",
+    // P2-07 照旧 ERP 的列：产品名称、规格、颜色、仓库、单位、数量、三个单价、金额、备注。
+    warehouse: String(fulfillment?.zone ?? orderLine?.zone ?? "").trim(),
+    unit: "个",
+    bagUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.bag),
+    printingUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.print),
+    handleUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.handle),
+    remark: [quantityNote, sourceRemark({ orderLine, fulfillment })].filter(Boolean).join("；"),
     note: [input.batchProgress, quantityNote, buildDocumentLineNote({ orderLine, fulfillment })].filter(Boolean).join("；"),
   };
   if (printEnabled) {
@@ -172,7 +182,17 @@ function buildFulfillmentDocumentFields({
   return {
     documentNo: printRecord.printRecordId ?? "",
     paperNo: input.paperNo ?? printRecord.paperNo ?? "",
-    copyText: "客户联 / 工厂留底联",
+    copyText: DELIVERY_NOTE_PAPER.copyNames.join(" / "),
+    companyName: company.companyName,
+    companyAddress: company.address,
+    companyPhone: company.phone,
+    footerNote: company.footerNote,
+    senderSignatureText: DELIVERY_NOTE_SIGNATURES.sender,
+    receiverSignatureText: DELIVERY_NOTE_SIGNATURES.receiver,
+    documentDateText: documentDate(printRecord, input),
+    totalAmount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
+    totalQuantity: quantity,
+    totalAmountUppercase: amount !== null && amount !== undefined ? amountInChineseUppercase(amount) : "",
     receiverSignatureLabel: method === "送货" ? "客户签收" : "提货人签收",
     operatorSignatureLabel: "经办人",
     lineItems: [lineItem],
@@ -193,6 +213,24 @@ function buildFulfillmentDocumentFields({
       : !input.pricing || pricing.source === "local_order_reference" ? "金额仅供核对；正式纸单由服务器按价格快照与分批计费记录生成"
       : "按价格快照与当前分批记录计算；折合单价包含分摊费用，最终入账以实际交付为准",
   };
+}
+
+// 旧单子备注一栏写来源：现货写「现货」，定制写订单备注。
+function sourceRemark({ orderLine, fulfillment }) {
+  const type = String(orderLine?.orderType ?? "");
+  const parts = [];
+  if (/现货|stock/.test(type)) parts.push("现货");
+  if (orderLine?.note) parts.push(orderLine.note);
+  if (fulfillment?.note) parts.push(fulfillment.note);
+  return [...new Set(parts.map(item => String(item).trim()).filter(Boolean))].join("、");
+}
+
+function documentDate(printRecord, input) {
+  const raw = input.documentDate ?? printRecord?.printedAt ?? printRecord?.createdAt ?? "";
+  const time = Date.parse(raw);
+  if (!Number.isFinite(time)) return "";
+  // 单据日期按北京时间
+  return new Date(time + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
 function buildReferencePricing(orderLine, quantity) {

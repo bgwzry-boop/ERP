@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { buildPhysicalPackageLabelPdf } from "./physical-package-label-pdf.mjs";
+import { buildFulfillmentNotePdf, isFulfillmentNoteTemplate } from "./fulfillment-note-pdf.mjs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -324,14 +325,17 @@ async function submitCupsLpBridgeJob({ bridgeJob, normalized, options, spoolRoot
 
   let printable;
   const packageLabel=normalized.documentType === "package_label";
-  try { printable=packageLabel ? await buildPhysicalPackageLabelPdf(normalized.payloadSnapshot?.printTemplate) : buildPrintableText({normalized}); }
+  // P2-07: 送货单/自提单按旧 ERP「三个单价」版式出 PDF（表格线、三联、大写金额），不再是纯文字。
+  const fulfillmentNote=!packageLabel&&isFulfillmentNoteTemplate(normalized.payloadSnapshot?.printTemplate);
+  try { printable=packageLabel ? await buildPhysicalPackageLabelPdf(normalized.payloadSnapshot?.printTemplate) : fulfillmentNote ? await buildFulfillmentNotePdf(normalized.payloadSnapshot?.printTemplate) : buildPrintableText({normalized}); }
   catch(error) {
-    const failedJob=buildFailedBridgeJob({bridgeJob,errorCode:"PRINT_BRIDGE_PACKAGE_LABEL_RENDER_FAILED",message:error?.message||"Package label rendering failed."});
+    const code=fulfillmentNote?"PRINT_BRIDGE_FULFILLMENT_NOTE_RENDER_FAILED":"PRINT_BRIDGE_PACKAGE_LABEL_RENDER_FAILED";
+    const failedJob=buildFailedBridgeJob({bridgeJob,errorCode:code,message:error?.message||"Document rendering failed."});
     writeBridgeJob({spoolRoot,bridgeJob:failedJob,statusDirectory:"failed"});
-    fail("PRINT_BRIDGE_PACKAGE_LABEL_RENDER_FAILED",failedJob.message,6);
+    fail(code,failedJob.message,6);
   }
   const queuedFile = writeBridgeJob({ spoolRoot, bridgeJob, statusDirectory: "queued" });
-  const printFile = writeCupsPrintFile({ spoolRoot, bridgeJob, printable,extension:packageLabel?"pdf":"txt" });
+  const printFile = writeCupsPrintFile({ spoolRoot, bridgeJob, printable,extension:packageLabel||fulfillmentNote?"pdf":"txt" });
   const command = String(options.cupsCommand ?? process.env.ERP_PRINT_COMMAND_BRIDGE_CUPS_COMMAND ?? "lp").trim();
   const commandArgs = renderCupsCommandArgs({
     template: options.cupsCommandArgsJson ?? process.env.ERP_PRINT_COMMAND_BRIDGE_CUPS_ARGS_JSON,

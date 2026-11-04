@@ -2697,7 +2697,7 @@ try {
     deliveryPrintPreview.printTemplate?.documentType !== "delivery_note" ||
     deliveryPrintPreview.printTemplate?.title !== "送货单" ||
     deliveryPrintPreview.printTemplate?.priceHidden !== false ||
-    deliveryPrintPreview.printTemplate?.paper?.copies !== 2 ||
+    deliveryPrintPreview.printTemplate?.paper?.copies !== 3 ||
     !deliveryPrintPreview.printTemplate?.fields?.lineItems?.[0]?.amountText?.startsWith("¥") ||
     deliveryPrintPreview.printJob?.documentType !== "delivery_note"
   ) {

@@ -11,7 +11,7 @@ export const businessReadPolicies = Object.freeze([
   [/^\/api\/raw-material-inbounds(?:\/|$)/, ["raw_material.inbound.read"]],
   [/^\/api\/raw-material-supplier-statement-reviews(?:\/|$)/, ["raw_material.accounting.read"]],
   [/^\/api\/raw-material-purchase-requests(?:\/|$)/, ["raw_material.purchase.direct", "raw_material.purchase.record_delegated"]],
-  [/^\/api\/(?:print-batches|print-devices|print-jobs)(?:\/|$)/, ["print.read"]],
+  [/^\/api\/(?:print-batches|print-devices|print-jobs|print-settings)(?:\/|$)/, ["print.read"]],
   [/^\/api\/print-driver(?:\/|$)/, ["fulfillment.print"]],
   [/^\/api\/operation-logs$/, ["audit.read"]],
   [/^\/api\/office\/workspace$/, ["office.workspace.read"]],
