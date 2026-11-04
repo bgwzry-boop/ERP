@@ -26,6 +26,8 @@ export function makeOrderLine(input) {
   return {
     ...orderLine,
     ...(input.qtyBasis === "incoming_rolls" ? { qtyBasis: "incoming_rolls", incomingRollCount: input.incomingRollCount } : {}),
+    ...(input.deliveryAddressId ? { deliveryAddressId: input.deliveryAddressId } : {}),
+    ...(input.deliveryAddress ? { deliveryAddress: input.deliveryAddress } : {}),
     ...(input.artworkStatus ? { artworkStatus: input.artworkStatus } : {}),
     ...(input.artworkAttachment ? { artworkAttachment: input.artworkAttachment } : {}),
   };

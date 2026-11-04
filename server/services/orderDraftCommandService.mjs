@@ -8,6 +8,7 @@ import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { INCOMING_ROLLS_QTY_BASIS, incomingRollCountOf, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
+import { resolveDeliveryAddress } from "../../shared/deliveryAddress.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
@@ -673,6 +674,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(cancellationResolution.activeLines);
     if (reviewError) return reviewError;
+    const deliveryAddressError = findDeliveryAddressError(workspace, cancellationResolution.activeLines);
+    if (deliveryAddressError) return deliveryAddressError;
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
       try {
@@ -851,7 +854,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         ...fulfillment,
         expectedQty: fulfillment.qty,
         createdBy: operatorId,
-        customerSnapshot: buildCustomerSnapshot(workspace, fulfillment.customerId),
+        customerSnapshot: buildFulfillmentCustomerSnapshot(workspace, fulfillment, confirmation.newLines),
       })),
       inventoryReservations,
       inventoryLedgerEntries,
@@ -962,6 +965,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(resolvedCancellations.activeLines);
     if (reviewError) return reviewError;
+    const deliveryAddressError = findDeliveryAddressError(workspace, cancellationResolution.activeLines);
+    if (deliveryAddressError) return deliveryAddressError;
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
       try {
@@ -1138,7 +1143,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         ...fulfillment,
         expectedQty: fulfillment.qty,
         createdBy: operatorId,
-        customerSnapshot: buildCustomerSnapshot(workspace, fulfillment.customerId),
+        customerSnapshot: buildFulfillmentCustomerSnapshot(workspace, fulfillment, newLines),
       })),
       inventoryReservations,
       inventoryLedgerEntries: buildInventoryLedgerEntries(workspace, inventoryReservations, operatorId),
@@ -1269,6 +1274,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
         qty: ["number", "string"].includes(typeof line.qty) ? Number(line.qty) : 0,
         ...normalizeDraftQtyBasis(line),
         ...(line.printMethod ? { printMethod: String(line.printMethod) } : {}),
+        ...(String(line.deliveryAddressId ?? "").trim() ? { deliveryAddressId: String(line.deliveryAddressId).trim() } : {}),
+        ...(String(line.deliveryAddress ?? "").trim() ? { deliveryAddress: String(line.deliveryAddress).replace(/\s+/gu, " ").trim() } : {}),
         ...(Number.isSafeInteger(Number(line.printColorCount)) && Number(line.printColorCount) >= 1 ? { printColorCount: Number(line.printColorCount) } : {}),
         fulfillment: line.fulfillmentMethod ?? line.fulfillment ?? "待确认",
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
@@ -1325,6 +1332,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
       qty: row.qty,
       ...(row.qtyBasis ? { qtyBasis: row.qtyBasis, incomingRollCount: row.incomingRollCount } : {}),
       ...(row.printMethod ? { printMethod: row.printMethod } : {}),
+      ...(row.deliveryAddressId ? { deliveryAddressId: row.deliveryAddressId } : {}),
+      ...(row.deliveryAddress ? { deliveryAddress: row.deliveryAddress } : {}),
       ...(row.printColorCount ? { printColorCount: row.printColorCount } : {}),
       fulfillmentMethod: row.fulfillment,
       latestNeededAt: row.latest,
@@ -1750,6 +1759,35 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   function shortageDecisionReason(decision) {
     return `缺货按客户意见：${decision.label}${decision.note ? `（${decision.note}）` : ""}`;
+  }
+
+  // The address and contact this delivery goes to are frozen on the fulfillment (the driver
+  // task reads them from here); a line may pick one of the customer's addresses or a one-off one.
+  function buildFulfillmentCustomerSnapshot(workspace, fulfillment, newLines) {
+    const base = buildCustomerSnapshot(workspace, fulfillment.customerId);
+    const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === fulfillment.customerId) ?? {};
+    const line = newLines.find((item) => item.id === fulfillment.lineId) ?? {};
+    const delivery = resolveDeliveryAddress(customer, line);
+    if (delivery.error || !delivery.address) return base;
+    return {
+      ...base,
+      address: delivery.address,
+      deliveryAddressId: delivery.addressId,
+      deliveryAddressSource: delivery.source,
+      contactName: String(customer.contact ?? "").trim(),
+      contactPhone: String(customer.phone ?? "").trim(),
+    };
+  }
+
+  // Reject a chosen address that does not belong to the line's customer before anything is written.
+  function findDeliveryAddressError(workspace, lines) {
+    for (const line of lines) {
+      if (!line.deliveryAddressId && !line.deliveryAddress) continue;
+      const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === line.customerId) ?? {};
+      const delivery = resolveDeliveryAddress(customer, line);
+      if (delivery.error) return businessError(422, "ORDER_DELIVERY_ADDRESS_INVALID", delivery.error);
+    }
+    return null;
   }
 
   function buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId) {

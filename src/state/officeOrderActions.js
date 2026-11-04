@@ -88,6 +88,8 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
       handleColor: getOptionalColor(row.handleColor),
       qtyBasis: row.qtyBasis,
       incomingRollCount: row.incomingRollCount,
+      deliveryAddressId: row.deliveryAddressId,
+      deliveryAddress: row.deliveryAddress,
     }),
   );
 

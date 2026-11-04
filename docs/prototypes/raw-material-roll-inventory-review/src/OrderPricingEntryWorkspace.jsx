@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js";
+import { getOfficeCustomerDeliveryAddresses, getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { normalizeOrderType } from "../../../../shared/orderRouting.js";
@@ -768,6 +768,15 @@ function OrderPricingEditor({
                     />
                   </label>
                 </div>
+                {line.fulfillment === "送货" ? (
+                  <DeliveryAddressField
+                    authState={formal.authState}
+                    disabled={editingLocked || locked}
+                    index={index}
+                    line={line}
+                    onChange={(key, value) => update(index, key, value)}
+                  />
+                ) : null}
                 {privatePrint(line) ? (
                   <div className="pricing-print-fields">
                     <label>
@@ -1231,6 +1240,63 @@ function missingQuoteFields(line) {
     if (!Number.isSafeInteger(rolls) || rolls < 1 || rolls > 9999) lacks.push("来料卷数");
   } else if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 1) lacks.push("数量");
   return lacks;
+}
+
+// 负责人 2026-11-04：一个客户可能有多个收货地址。送货时选客户已有地址，或本单另填；不选用默认地址。
+function DeliveryAddressField({ authState, disabled, index, line, onChange }) {
+  const [book, setBook] = useState({ customerId: "", loading: false, addresses: [], error: "" });
+  const [oneOff, setOneOff] = useState(Boolean(line.deliveryAddress));
+  useEffect(() => {
+    if (!line.customerId) return undefined;
+    let live = true;
+    setBook({ customerId: line.customerId, loading: true, addresses: [], error: "" });
+    void getOfficeCustomerDeliveryAddresses({ customerId: line.customerId, authState }, { serverRequired: true }).then((result) => {
+      if (!live) return;
+      setBook({ customerId: line.customerId, loading: false, addresses: result.addresses ?? [],
+        error: result.blocked ? result.error?.message || "客户收货地址读取失败。" : "" });
+    });
+    return () => { live = false; };
+  }, [line.customerId, authState]);
+  const defaultAddress = book.addresses.find((item) => item.isDefault) ?? book.addresses[0];
+  const value = oneOff ? "__one_off__" : line.deliveryAddressId || "";
+  return (
+    <div className="pricing-delivery-address">
+      <label>
+        送货地址
+        <select
+          aria-label={`第${index + 1}行送货地址`}
+          disabled={disabled || book.loading}
+          value={value}
+          onChange={(e) => {
+            const next = e.target.value;
+            setOneOff(next === "__one_off__");
+            onChange("deliveryAddressId", next === "__one_off__" ? "" : next);
+            if (next !== "__one_off__") onChange("deliveryAddress", "");
+          }}
+        >
+          <option value="">{defaultAddress ? `客户默认地址：${defaultAddress.address}` : book.loading ? "正在读取客户地址…" : "客户档案里还没有地址"}</option>
+          {book.addresses.filter((item) => item !== defaultAddress).map((item) => (
+            <option key={item.addressId} value={item.addressId}>{item.address}{item.remark ? `（${item.remark}）` : ""}</option>
+          ))}
+          <option value="__one_off__">本单另填地址…</option>
+        </select>
+      </label>
+      {oneOff ? (
+        <label>
+          本单送到哪里
+          <input
+            aria-label={`第${index + 1}行本单送货地址`}
+            disabled={disabled}
+            maxLength={200}
+            placeholder="如：某某镇某某村 XX 制袋厂（只用于这一单）"
+            value={line.deliveryAddress || ""}
+            onChange={(e) => onChange("deliveryAddress", e.target.value)}
+          />
+        </label>
+      ) : null}
+      {book.error ? <p className="pricing-note" role="alert">{book.error}</p> : null}
+    </div>
+  );
 }
 
 // 外加工按来料卷数下单：数量印完才有。

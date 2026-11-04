@@ -336,3 +336,13 @@
   display: grid;
   gap: 5px;
 }
+
+/* 送货地址：客户可能有多个收货地址（负责人 2026-11-04）。 */
+.pricing-delivery-address {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+.pricing-delivery-address > label { display: grid; gap: 5px; }
+.pricing-delivery-address > .pricing-note { grid-column: 1 / -1; margin: 0; }

@@ -491,6 +491,8 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
         qty: Number(line.qty ?? 0),
         ...(line.qtyBasis === "incoming_rolls" ? { qtyBasis: "incoming_rolls", incomingRollCount: Number(line.incomingRollCount ?? 0) } : {}),
         ...(line.printMethod ? { printMethod: line.printMethod } : {}),
+        ...(line.deliveryAddressId ? { deliveryAddressId: line.deliveryAddressId } : {}),
+        ...(line.deliveryAddress ? { deliveryAddress: line.deliveryAddress } : {}),
         ...(Number(line.printColorCount) >= 1 ? { printColorCount: Number(line.printColorCount) } : {}),
         fulfillment: line.fulfillmentMethod ?? "待确认",
         latest: line.latestNeededAt ?? "待确认",
@@ -635,6 +637,8 @@ export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
       qtyBasis: byIncomingRolls ? "incoming_rolls" : undefined,
       incomingRollCount: byIncomingRolls ? Number(row.incomingRollCount ?? 0) : undefined,
       printMethod: row.printMethod || undefined,
+      deliveryAddressId: row.deliveryAddressId || undefined,
+      deliveryAddress: row.deliveryAddress || undefined,
       printColorCount: Number(row.printColorCount) >= 1 ? Number(row.printColorCount) : undefined,
       estimatedAmount: Number(row.amount ?? 0),
       fulfillmentMethod: row.fulfillment || "待确认",
@@ -734,4 +738,29 @@ function removeUndefinedFields(value) {
 
 function uniqueText(values) {
   return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
+}
+
+// 负责人 2026-11-04：一个客户可能有多个收货地址；开送货单时列出来让办公室选。
+export async function getOfficeCustomerDeliveryAddresses(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先确认客户。" }, addresses: [] };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/delivery-addresses`, {
+      ...options,
+      authState: input.authState,
+      operatorId: input.operatorId,
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "客户收货地址读取失败。"), addresses: [] };
+    }
+    return {
+      source: "api",
+      customerId,
+      addresses: Array.isArray(json.addresses) ? json.addresses : [],
+      defaultAddressId: String(json.defaultAddressId ?? ""),
+    };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) }, addresses: [] };
+  }
 }
