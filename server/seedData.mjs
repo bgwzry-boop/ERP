@@ -1,4 +1,4 @@
-import {getStatementFinancialSummary} from "../src/domain/officeRules.js";
+import {getStatementFinancialSummary, presentedStatementVariance} from "../src/domain/officeRules.js";
 import { loadOfficeSeedWorkspace } from "./seeds/officeSeedLoader.mjs";
 import { getEffectivePermissionsForRuntimeUser, getEffectivePermissionsForUser } from "./authSeed.mjs";
 
@@ -27,7 +27,7 @@ export function getStatementCustomers(workspace) {
       ...getStatementFinancialSummary(statement,workspace.customers),
       currentReceivable: statement.receivable,
       debtAmount: customer ? customer.debtAmountSnapshot ?? customer.debt : null,
-      varianceAmount: statement.variance ?? null,
+      varianceAmount: presentedStatementVariance(statement),
       paymentPending: statement.status.includes("收款"),
       lastStatementAt: customer?.lastStatement || "",
       status: mapStatementCustomerStatus(statement),
