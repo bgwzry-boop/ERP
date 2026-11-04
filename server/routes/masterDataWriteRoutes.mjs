@@ -119,6 +119,19 @@ export async function handleMasterDataWriteRoutes({
     return true;
   }
 
+  const profileMatch = method === "PATCH" && url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/profile$/);
+  if (profileMatch && customerAddressCommandService) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    const result = await customerAddressCommandService.updateCustomerProfile({
+      workspace,
+      customerId: decodeURIComponent(profileMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    sendCommandResponse(response, result, { notFoundCode: "CUSTOMER_NOT_FOUND", useResultStatusCode: true });
+    return true;
+  }
+
   const addressEditMatch = method === "PATCH" && url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/delivery-addresses\/([^/]+)$/);
   if (addressEditMatch && customerAddressCommandService) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;

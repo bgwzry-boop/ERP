@@ -15,6 +15,7 @@ export async function handleMasterDataReadRoutes({
   masterDataImportCommandService,
   masterDataSubaccountCommandService,
   rawMaterialSupplierColorMappingService,
+  customerAddressCommandService,
   phoneIdentityCommandService,
   sendNotFound,
   sendBusinessError,
@@ -23,6 +24,20 @@ export async function handleMasterDataReadRoutes({
   if (url.pathname === "/api/master-data/permission-catalog") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageSubaccounts)) return true;
     sendJson(response, 200, masterDataSubaccountCommandService.getPermissionCatalog());
+    return true;
+  }
+
+  const profileMatch = url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/profile$/);
+  if (profileMatch && customerAddressCommandService) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    let source = workspace;
+    if (workspace.coreWorkspaceReadRepository?.loadState) {
+      const state = await workspace.coreWorkspaceReadRepository.loadState();
+      if (Array.isArray(state?.customers)) source = { ...workspace, customers: state.customers, customerContacts: state.customerContacts ?? [] };
+    }
+    const result = customerAddressCommandService.readCustomerProfile({ workspace: source, customerId: decodeURIComponent(profileMatch[1]) });
+    if (result.notFound) sendNotFound(response, result.code);
+    else sendJson(response, 200, result.response);
     return true;
   }
 

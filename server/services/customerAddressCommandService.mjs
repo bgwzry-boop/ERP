@@ -3,11 +3,72 @@ import { DELIVERY_ADDRESS_MAX_LENGTH, customerDeliveryAddresses, customerWithAdd
 
 // 负责人 2026-11-04：客户资料不指望一步填齐。办公室开单时另填的地址、办公室事后补的地址、
 // 以后小程序客户自己填的地址，都追加成这个客户的收货地址；不改已经开出的送货单。
+export const SETTLEMENT_CYCLE_OPTIONS = Object.freeze(["每单结清", "7天一结", "15天一结", "月结"]);
+
+function projectProfile(workspace, customer) {
+  const customerId = clean(customer.id ?? customer.customerId);
+  const contact = (workspace.customerContacts ?? []).filter((row) => clean(row.customerId ?? row.customer_id) === customerId)
+    .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true))[0];
+  return {
+    customerId,
+    name: clean(customer.name),
+    shortName: clean(customer.shortName) || clean(customer.name),
+    settlementCycle: clean(customer.settlementCycle ?? customer.cycle) || "未设置",
+    contactName: clean(contact?.contactName ?? contact?.name ?? customer.contact),
+    phone: clean(contact?.phone ?? customer.phone),
+  };
+}
+
 const ADDRESS_SOURCES = new Set(["order_entry", "office", "driver_delivery", "miniapp"]);
 
 export function createCustomerAddressCommandService({ buildOperationLog, now = () => new Date() } = {}) {
   if (typeof buildOperationLog !== "function") throw new TypeError("buildOperationLog must be a function");
-  return { addDeliveryAddress, learnLocationFromDelivery, updateDeliveryAddress };
+  return { addDeliveryAddress, learnLocationFromDelivery, updateDeliveryAddress, readCustomerProfile, updateCustomerProfile };
+
+  function readCustomerProfile({ workspace, customerId }) {
+    const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === clean(customerId));
+    if (!customer) return { notFound: true, code: "CUSTOMER_NOT_FOUND" };
+    return { statusCode: 200, response: { profile: projectProfile(workspace, customer), settlementCycleOptions: SETTLEMENT_CYCLE_OPTIONS } };
+  }
+
+  // 负责人 2026-11-04：客户资料可以编辑——名称、简称、结算周期、默认联系人和电话。
+  // 价格表、欠款、风险等级不在这里改；已开出的订单和送货单保留开单时的客户快照。
+  async function updateCustomerProfile({ workspace, customerId, body = {}, operatorId }) {
+    const id = clean(customerId);
+    const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === id);
+    if (!customer) return { notFound: true, code: "CUSTOMER_NOT_FOUND" };
+    const current = projectProfile(workspace, customer);
+    const expected = body.expected ?? {};
+    if (["name", "shortName", "settlementCycle", "contactName", "phone"].some((key) => clean(expected[key]) !== current[key])) {
+      return businessError(409, "CUSTOMER_PROFILE_CHANGED", "客户资料刚被别人改过，请刷新后再改。");
+    }
+    const next = {};
+    for (const key of ["name", "shortName", "settlementCycle", "contactName", "phone"]) {
+      if (body[key] === undefined) continue;
+      const value = clean(body[key]).replace(/\s+/gu, " ");
+      if (value !== current[key]) next[key] = value;
+    }
+    if (next.name !== undefined && (next.name.length < 1 || next.name.length > 40)) return businessError(422, "CUSTOMER_NAME_INVALID", "客户名称要填 1–40 个字。");
+    if (next.shortName !== undefined && next.shortName.length > 20) return businessError(422, "CUSTOMER_SHORT_NAME_INVALID", "简称最多 20 个字。");
+    if (next.settlementCycle !== undefined && (next.settlementCycle.length < 1 || next.settlementCycle.length > 20)) return businessError(422, "CUSTOMER_SETTLEMENT_CYCLE_INVALID", "请选择或填写结算周期（最多 20 个字）。");
+    if (next.contactName !== undefined && next.contactName.length > 20) return businessError(422, "CUSTOMER_CONTACT_INVALID", "联系人最多 20 个字。");
+    if (next.phone !== undefined && next.phone && !/^[0-9+\-\s()]{5,20}$/u.test(next.phone)) return businessError(422, "CUSTOMER_PHONE_INVALID", "电话只能填数字（可带 - 或 +），5–20 位。");
+    if (!Object.keys(next).length) return { statusCode: 200, response: { profile: current, changed: false } };
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "customer", targetId: id, action: "update_customer_profile", operatorId,
+      before: current, after: next, reason: "修改客户资料", pageKey: "customer",
+    });
+    try {
+      const saved = await workspace.masterDataImportTransactionRepository.updateCustomerProfile({
+        workspace, customerId: id, ...next, newContactId: `CC-${randomUUID()}`, expected: current, operationLog,
+      });
+      return { statusCode: 200, response: { profile: saved.profile, changed: true } };
+    } catch (error) {
+      if (String(error?.message) === "CUSTOMER_PROFILE_CHANGED") return businessError(409, "CUSTOMER_PROFILE_CHANGED", "客户资料刚被别人改过，请刷新后再改。");
+      if (String(error?.message) === "CUSTOMER_NOT_FOUND") return { notFound: true, code: "CUSTOMER_NOT_FOUND" };
+      return businessError(409, "CUSTOMER_PROFILE_WRITE_FAILED", clean(error?.message) || "客户资料保存失败，请稍后重试。");
+    }
+  }
 
   // 负责人 2026-11-04：客户资料可以编辑。改地址文字（改了就清掉旧定位，下次送到重新记）、
   // 设为默认、单独清除定位。已开出的送货单地址不变。

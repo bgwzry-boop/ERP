@@ -800,6 +800,7 @@ async function routeGet(context) {
       masterDataImportCommandService,
       masterDataSubaccountCommandService,
       rawMaterialSupplierColorMappingService,
+      customerAddressCommandService,
       phoneIdentityCommandService,
       sendNotFound,
       sendBusinessError,

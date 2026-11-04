@@ -805,3 +805,33 @@ export async function updateOfficeCustomerDeliveryAddress(input = {}, options = 
     return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) } };
   }
 }
+
+// 客户资料可编辑：名称、简称、结算周期、默认联系人和电话（负责人 2026-11-04）。
+export async function getOfficeCustomerProfile(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先选择客户。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/profile`, { ...options, authState: input.authState, operatorId: input.operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "客户资料读取失败。") };
+    return { source: "api", profile: json.profile ?? null, settlementCycleOptions: Array.isArray(json.settlementCycleOptions) ? json.settlementCycleOptions : [] };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_PROFILE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+export async function updateOfficeCustomerProfile(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先选择客户。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/profile`, {
+      ...options, method: "PATCH", authState: input.authState, operatorId: input.operatorId,
+      body: { name: input.name, shortName: input.shortName, settlementCycle: input.settlementCycle, contactName: input.contactName, phone: input.phone, expected: input.expected },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "客户资料保存失败。") };
+    return { source: "api", profile: json.profile ?? null, changed: json.changed === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_PROFILE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}

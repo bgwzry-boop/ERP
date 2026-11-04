@@ -105,3 +105,35 @@ console.log("Customer addresses can be added later (order entry, office, deliver
   assert.match(query.text, /SET is_default = false[\s\S]*id <> \$1/, "setting a default clears the others");
 }
 console.log("Customer addresses can be edited: change text (old location cleared), set default, clear location; stale edits are refused.");
+
+// 负责人 2026-11-04：客户资料可编辑——名称、简称、结算周期、默认联系人和电话。
+{
+  const { createCustomerAddressCommandService, SETTLEMENT_CYCLE_OPTIONS } = await import("../server/services/customerAddressCommandService.mjs");
+  const { createLocalMasterDataImportTransactionRepository, buildUpdateCustomerProfileQuery } = await import("../server/masterDataImportTransactionRepository.mjs");
+  const service = createCustomerAddressCommandService({ buildOperationLog: (_workspace, input) => ({ id: `LOG-${Math.random()}`, ...input }) });
+  const workspace = { customers: [{ id: "C8", name: "赵记制袋", shortName: "", settlementCycle: "", addresses: [] }], customerContacts: [], operationLogs: [],
+    masterDataImportTransactionRepository: createLocalMasterDataImportTransactionRepository() };
+  const read = service.readCustomerProfile({ workspace, customerId: "C8" });
+  assert.deepEqual(read.response.profile, { customerId: "C8", name: "赵记制袋", shortName: "赵记制袋", settlementCycle: "未设置", contactName: "", phone: "" });
+  assert.deepEqual(read.response.settlementCycleOptions, SETTLEMENT_CYCLE_OPTIONS);
+  const expected = read.response.profile;
+  assert.equal((await service.updateCustomerProfile({ workspace, customerId: "C8", body: { phone: "abc", expected } })).code, "CUSTOMER_PHONE_INVALID");
+  assert.equal((await service.updateCustomerProfile({ workspace, customerId: "C8", body: { name: "", expected } })).code, "CUSTOMER_NAME_INVALID");
+  const saved = await service.updateCustomerProfile({ workspace, customerId: "C8", operatorId: "U-OFFICE-A",
+    body: { shortName: "赵记", settlementCycle: "月结", contactName: "赵老板", phone: "139 0000 0002", expected } });
+  assert.equal(saved.statusCode, 200, JSON.stringify(saved));
+  assert.deepEqual(saved.response.profile, { customerId: "C8", name: "赵记制袋", shortName: "赵记", settlementCycle: "月结", contactName: "赵老板", phone: "139 0000 0002" });
+  assert.equal(workspace.customerContacts.length, 1, "a customer without a contact gets one as the default");
+  const stale = await service.updateCustomerProfile({ workspace, customerId: "C8", body: { name: "新名字", expected } });
+  assert.equal(stale.code, "CUSTOMER_PROFILE_CHANGED", "an edit from a stale screen is refused");
+  const again = service.readCustomerProfile({ workspace, customerId: "C8" }).response.profile;
+  const renamed = await service.updateCustomerProfile({ workspace, customerId: "C8", body: { phone: "13900000003", expected: again } });
+  assert.equal(renamed.response.profile.phone, "13900000003");
+  assert.equal(workspace.customerContacts.length, 1, "the default contact is updated, not duplicated");
+  assert.equal((await service.updateCustomerProfile({ workspace, customerId: "C8", body: { phone: "13900000003", expected: { ...again, phone: "13900000003" } } })).response.changed, false);
+  const query = buildUpdateCustomerProfileQuery({ customerId: "C8", name: null, shortName: "赵", settlementCycle: null, contactName: null, phone: null, newContactId: "CC-1",
+    expected: { name: "赵记制袋", shortName: "赵记", settlementCycle: "月结", contactName: "赵老板", phone: "13900000003" } }, { id: "LOG" });
+  assert.match(query.text, /'CUSTOMER_PROFILE_CHANGED'/);
+  assert.match(query.text, /NOT EXISTS \(SELECT 1 FROM contact\)/, "Postgres creates the first contact only when there is none");
+}
+console.log("Customer profile can be edited: name, short name, settlement cycle, default contact and phone; stale edits are refused.");

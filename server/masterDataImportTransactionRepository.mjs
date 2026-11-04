@@ -105,6 +105,35 @@ export function createLocalMasterDataImportTransactionRepository(options = {}) {
       return { recorded: true, addressId: pick.id ?? pick.addressId };
     },
 
+    // 负责人 2026-11-04：客户资料可编辑——名称、简称、结算周期、默认联系人和电话。
+    async updateCustomerProfile(input = {}) {
+      const change = normalizeProfileChange(input);
+      const customer = (input.workspace.customers ?? []).find((row) => (row.id ?? row.customerId) === change.customerId);
+      if (!customer) throw new Error("CUSTOMER_NOT_FOUND");
+      const contacts = (input.workspace.customerContacts ??= []);
+      const contact = contacts.filter((row) => (row.customerId ?? row.customer_id) === change.customerId)
+        .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true))[0] ?? null;
+      const current = { name: customer.name ?? "", shortName: customer.shortName || customer.name || "", settlementCycle: customer.settlementCycle || customer.cycle || "未设置",
+        contactName: contact?.contactName ?? contact?.name ?? customer.contact ?? "", phone: contact?.phone ?? customer.phone ?? "" };
+      if (Object.keys(change.expected).some((key) => String(current[key] ?? "").trim() !== change.expected[key])) throw new Error("CUSTOMER_PROFILE_CHANGED");
+      if (change.name !== null) customer.name = change.name;
+      if (change.shortName !== null) customer.shortName = change.shortName;
+      if (change.settlementCycle !== null) { customer.settlementCycle = change.settlementCycle; customer.cycle = change.settlementCycle; }
+      if (change.contactName !== null || change.phone !== null) {
+        if (contact) {
+          if (change.contactName !== null) { contact.contactName = change.contactName; contact.name = change.contactName; }
+          if (change.phone !== null) contact.phone = change.phone;
+        } else {
+          contacts.push({ id: change.newContactId, customerId: change.customerId, contactName: change.contactName ?? "", name: change.contactName ?? "", phone: change.phone ?? "", isDefault: true });
+        }
+        if (change.contactName !== null) customer.contact = change.contactName;
+        if (change.phone !== null) customer.phone = change.phone;
+      }
+      if (input.operationLog) (input.workspace.operationLogs ??= []).push(input.operationLog);
+      return { profile: { customerId: change.customerId, name: customer.name, shortName: customer.shortName ?? "", settlementCycle: customer.settlementCycle ?? "",
+        contactName: customer.contact ?? "", phone: customer.phone ?? "" } };
+    },
+
     // 负责人 2026-11-04：客户资料可编辑。改地址文字、设默认、清除定位；按编辑前快照防并发覆盖。
     async updateCustomerAddress(input = {}) {
       const change = normalizeAddressChange(input);
@@ -227,6 +256,21 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
 
   return {
     kind: "postgres",
+
+    async updateCustomerProfile(input = {}) {
+      const change = normalizeProfileChange(input);
+      const builtQuery = buildUpdateCustomerProfileQuery(change, input.operationLog);
+      let result;
+      try {
+        result = await queryJson(builtQuery.text, builtQuery.values);
+      } catch (error) {
+        if (String(error?.message).includes("CUSTOMER_PROFILE_CHANGED")) throw new Error("CUSTOMER_PROFILE_CHANGED");
+        throw error;
+      }
+      const row = Array.isArray(result) ? result[0] : result;
+      if (!row?.profile) throw new Error("CUSTOMER_NOT_FOUND");
+      return { profile: row.profile };
+    },
 
     async updateCustomerAddress(input = {}) {
       const change = normalizeAddressChange(input);
@@ -1424,6 +1468,78 @@ logged AS (
 SELECT json_build_object('address', (SELECT json_build_object('addressId', id, 'address', address, 'area', COALESCE(area, ''),
   'isDefault', is_default, 'remark', COALESCE(remark, ''), 'located', latitude IS NOT NULL AND longitude IS NOT NULL) FROM updated),
   'clearedDefaults', (SELECT count(*) FROM other_defaults), 'operationLogId', (SELECT id FROM logged)) AS result;`.trim(),
+    values,
+  };
+}
+
+function normalizeProfileChange(input = {}) {
+  const text = (value) => value === undefined || value === null ? null : String(value).replace(/\s+/gu, " ").trim();
+  const expected = input.expected ?? {};
+  return {
+    customerId: String(input.customerId ?? "").trim(),
+    name: text(input.name),
+    shortName: text(input.shortName),
+    settlementCycle: text(input.settlementCycle),
+    contactName: text(input.contactName),
+    phone: text(input.phone),
+    newContactId: String(input.newContactId ?? "").trim(),
+    expected: Object.fromEntries(["name", "shortName", "settlementCycle", "contactName", "phone"].map((key) => [key, String(expected[key] ?? "").trim()])),
+  };
+}
+
+export function buildUpdateCustomerProfileQuery(change, operationLog = {}) {
+  const values = [change.customerId, change.name, change.shortName, change.settlementCycle, change.contactName, change.phone,
+    change.expected.name, change.expected.shortName, change.expected.settlementCycle, change.expected.contactName, change.expected.phone,
+    change.newContactId, operationLog.id ?? "", JSON.stringify(operationLog.before ?? null), JSON.stringify(operationLog.after ?? null),
+    String(operationLog.reason ?? ""), operationLog.operatorId ?? null];
+  return {
+    text: `
+WITH target AS MATERIALIZED (
+  SELECT id, name, short_name, settlement_cycle FROM customers WHERE id = $1 FOR UPDATE
+),
+contact AS MATERIALIZED (
+  SELECT id, contact_name, phone FROM customer_contacts WHERE customer_id = $1
+  ORDER BY is_default DESC, created_at ASC, id ASC LIMIT 1 FOR UPDATE
+),
+guard AS MATERIALIZED (
+  SELECT erp_require(EXISTS (SELECT 1 FROM target WHERE BTRIM(name) = $7 AND BTRIM(COALESCE(short_name, name)) = $8 AND BTRIM(settlement_cycle) = $9)
+    AND BTRIM(COALESCE((SELECT contact_name FROM contact), '')) = $10 AND BTRIM(COALESCE((SELECT phone FROM contact), '')) = $11,
+    'CUSTOMER_PROFILE_CHANGED') AS ok
+),
+updated_customer AS (
+  UPDATE customers AS customer SET
+    name = COALESCE($2::text, customer.name),
+    short_name = COALESCE($3::text, customer.short_name),
+    settlement_cycle = COALESCE($4::text, customer.settlement_cycle),
+    updated_at = now()
+  FROM guard WHERE customer.id = $1 AND guard.ok
+  RETURNING customer.id, customer.name, customer.short_name, customer.settlement_cycle
+),
+updated_contact AS (
+  UPDATE customer_contacts AS item SET
+    contact_name = COALESCE($5::text, item.contact_name),
+    phone = COALESCE($6::text, item.phone),
+    updated_at = now()
+  FROM guard WHERE item.id = (SELECT id FROM contact) AND guard.ok AND ($5::text IS NOT NULL OR $6::text IS NOT NULL)
+  RETURNING item.contact_name, item.phone
+),
+inserted_contact AS (
+  INSERT INTO customer_contacts (id, customer_id, contact_name, phone, is_default)
+  SELECT $12, $1, $5::text, $6::text, true FROM guard
+  WHERE guard.ok AND $12 <> '' AND NOT EXISTS (SELECT 1 FROM contact) AND ($5::text IS NOT NULL OR $6::text IS NOT NULL)
+  RETURNING contact_name, phone
+),
+logged AS (
+  INSERT INTO operation_logs (id, target_type, target_id, action, before_json, after_json, reason, operator_id, page_key, occurred_at, created_at)
+  SELECT $13, 'customer', $1, 'update_customer_profile', $14::jsonb, $15::jsonb, $16, $17, 'customer', now(), now()
+  WHERE $13 <> '' AND EXISTS (SELECT 1 FROM updated_customer)
+  RETURNING id
+)
+SELECT json_build_object('profile', (SELECT json_build_object('customerId', id, 'name', name, 'shortName', COALESCE(short_name, name),
+  'settlementCycle', settlement_cycle,
+  'contactName', COALESCE((SELECT contact_name FROM updated_contact), (SELECT contact_name FROM inserted_contact), (SELECT contact_name FROM contact), ''),
+  'phone', COALESCE((SELECT phone FROM updated_contact), (SELECT phone FROM inserted_contact), (SELECT phone FROM contact), '')) FROM updated_customer),
+  'operationLogId', (SELECT id FROM logged)) AS result;`.trim(),
     values,
   };
 }
