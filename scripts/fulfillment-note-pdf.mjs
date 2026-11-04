@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import { DELIVERY_NOTE_COLUMNS, amountInChineseUppercase } from "../shared/deliveryNoteLayout.js";
+import { amountInChineseUppercase, deliveryNoteColumns } from "../shared/deliveryNoteLayout.js";
 
 const fontUrl = new URL("./print-assets/ERPLabelSansSC-Regular.ttf", import.meta.url);
 const sourceUrl = new URL("./print-assets/source.json", import.meta.url);
@@ -59,8 +59,10 @@ export async function buildFulfillmentNotePdf(template) {
   // Tractor-feed strips with the holes take ~12.7mm each side; print inside them.
   const left = mm(14), right = pageWidth - mm(20), copyColumnX = pageWidth - mm(17);
   const tableWidth = right - left;
-  const totalWeight = DELIVERY_NOTE_COLUMNS.reduce((sum, column) => sum + column.width, 0);
-  const columns = DELIVERY_NOTE_COLUMNS.map(column => ({ ...column, w: (column.width / totalWeight) * tableWidth }));
+  // 袋子单价 always; 印刷 / 长提 / 加扣 only when a line on this sheet uses them.
+  const sheetColumns = deliveryNoteColumns(items);
+  const totalWeight = sheetColumns.reduce((sum, column) => sum + column.width, 0);
+  const columns = sheetColumns.map(column => ({ ...column, w: (column.width / totalWeight) * tableWidth }));
   let x = left;
   for (const column of columns) { column.x = x; x += column.w; }
   const rowHeight = mm(6);
@@ -117,7 +119,9 @@ export async function buildFulfillmentNotePdf(template) {
     pair("日期：", fields.documentDateText, right - mm(45), infoY1, mm(45));
     pair("客户地址：", fields.address, left, infoY2, mm(95));
     pair("客户电话：", fields.phoneTail ? `尾号${text(fields.phoneTail)}` : "", left + mm(100), infoY2, mm(55));
-    if (pages > 1) pair("页码：", `${pageIndex + 1}/${pages}`, right - mm(45), infoY2, mm(45));
+    // 负责人 2026-11-04：实际来拿货/收货的人单独一项，不再写在备注里。
+    if (text(fields.pickerName)) pair(`${text(fields.pickerLabel) || "提货人"}：`, fields.pickerName, right - mm(45), infoY2, mm(45));
+    if (pages > 1) { const pageText = `第 ${pageIndex + 1}/${pages} 页`; draw(page, pageText, right - width(n.value, n.size) - mm(5) - width(pageText, 8), headerTop - mm(11), 8); }
 
     // Table header.
     let y = tableTop - rowHeight;
@@ -139,6 +143,7 @@ export async function buildFulfillmentNotePdf(template) {
         bagUnitPriceText: item.bagUnitPriceText,
         printingUnitPriceText: item.printingUnitPriceText,
         handleUnitPriceText: item.handleUnitPriceText,
+        snapUnitPriceText: item.snapUnitPriceText,
         amountText: Number.isFinite(amounts[pageIndex * rowsPerPage + rowIndex]) ? money(amounts[pageIndex * rowsPerPage + rowIndex]) : "待核价",
         remark: item.remark,
       };

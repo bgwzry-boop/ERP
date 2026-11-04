@@ -4,25 +4,33 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { DELIVERY_NOTE_COLUMNS, amountInChineseUppercase, splitLegacyUnitPrices, validateCompanyPrintProfileInput } from "../shared/deliveryNoteLayout.js";
+import { DELIVERY_NOTE_COLUMNS, amountInChineseUppercase, deliveryNoteColumns, splitLegacyUnitPrices, validateCompanyPrintProfileInput } from "../shared/deliveryNoteLayout.js";
+import { listFulfillmentPickerSuggestions } from "../server/services/fulfillmentPickerSuggestionService.mjs";
 import { buildFulfillmentPrintTemplate } from "../src/domain/printTemplates.js";
 import { buildFulfillmentNotePdf, isFulfillmentNoteTemplate } from "./fulfillment-note-pdf.mjs";
 import { resolveFulfillmentPrintPricing } from "../server/services/fulfillmentPrintPricingService.mjs";
 import { createLocalPrintDeviceRepository } from "../server/printDeviceRepository.mjs";
 import { readCompanyPrintProfile, saveCompanyPrintProfile } from "../server/services/companyPrintProfileService.mjs";
 
-// Columns in the order of the old printed sheet.
+// Columns in the order of the old printed sheet, plus 加扣单价.
 assert.deepEqual(DELIVERY_NOTE_COLUMNS.map(column => column.label),
-  ["序号", "产品名称", "规格", "颜色", "仓库", "单位", "数量", "袋子单价", "印刷单价", "长提单价", "金额", "备注"]);
+  ["序号", "产品名称", "规格", "颜色", "仓库", "单位", "数量", "袋子单价", "印刷单价", "长提单价", "加扣单价", "金额", "备注"]);
+// 袋子单价 always; the other prices only when a line on this sheet uses them.
+const labelsFor = items => deliveryNoteColumns(items).map(column => column.label).filter(label => label.endsWith("单价"));
+assert.deepEqual(labelsFor([{ bagUnitPriceText: "0.47" }]), ["袋子单价"]);
+assert.deepEqual(labelsFor([{ bagUnitPriceText: "0.47", snapUnitPriceText: "0.1" }, { bagUnitPriceText: "0.48" }]), ["袋子单价", "加扣单价"]);
+assert.deepEqual(labelsFor([{ printingUnitPriceText: "0.2(双色)", handleUnitPriceText: "0.03" }]), ["袋子单价", "印刷单价", "长提单价"]);
 
 // 大写金额 as on the old 合计 row.
 for (const [amount, expected] of [[1043, "壹仟零肆拾叁元整"], [145.8, "壹佰肆拾伍元捌角"], [20.07, "贰拾元零柒分"], [100010000, "壹亿零壹万元整"], [0, "零元整"], [0.5, "伍角"]]) {
   assert.equal(amountInChineseUppercase(amount), expected, String(amount));
 }
 
-// Three unit prices: the handle surcharge is separate only where the quote kept it apart.
-assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.36, printPrice: 0.09 }), { bag: 0.36, print: 0.09, handle: 0 });
-assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.5, printPrice: 0.1, sourceEvidence: { specialQuote: { handleUnitAddon: 0.05 } } }), { bag: 0.45, print: 0.1, handle: 0.05 });
+// Unit prices: the snapshot keeps handle / snap inside the bag price; the quote evidence splits them.
+assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.36, printPrice: 0.09 }), { bag: 0.36, print: 0.09, handle: 0, snap: 0 }, "manual price: no split");
+assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.6, printPrice: 0.1, sourceEvidence: { specialQuote: { handleUnitAddon: 0.05, snapButtonUnitAddon: 0.1 } } }), { bag: 0.45, print: 0.1, handle: 0.05, snap: 0.1 }, "special-size quote");
+assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.6, printPrice: 0, sourceEvidence: { quote: { basePrice: 0.47, handleAddon: 0.03, specialRequirementAddon: 0.1 } } }), { bag: 0.47, print: 0, handle: 0.03, snap: 0.1 }, "mini-program locked quote");
+assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.37, printPrice: 0, sourceEvidence: { kind: "erp_published_price", handleFallback: true } }), { bag: 0.34, print: 0, handle: 0.03, snap: 0 }, "published price with the extended-handle surcharge");
 assert.equal(splitLegacyUnitPrices(null), null);
 
 // The print pricing carries them from the price snapshot in force.
@@ -32,13 +40,13 @@ const workspace = {
   statementLines: [], statements: [],
 };
 const { pricing } = resolveFulfillmentPrintPricing({ workspace, fulfillment: { id: "F-1", lineId: "OL-1", expectedQty: 1000, actualQty: 1000 }, orderLine: workspace.orderLines[0] });
-assert.deepEqual(pricing.unitPrices, { bag: 0.34, print: 0.09, handle: 0 });
+assert.deepEqual(pricing.unitPrices, { bag: 0.34, print: 0.09, handle: 0, snap: 0 });
 
 // Template: header from the office's setting, three copies, three price columns, uppercase total.
 const companyProfile = { companyName: "合成包装厂", address: "合成路 1 号", phone: "0319-0000000", footerNote: "请当面点清数量。" };
 const template = buildFulfillmentPrintTemplate({
   fulfillment: { id: "F-1", lineId: "OL-1", customerId: "C1", method: "送货", qty: 1000, zone: "南屋", customerSnapshot: { name: "合成客户", contactName: "王经理", contactPhone: "13800001234", address: "合成镇" } },
-  orderLine: { id: "OL-1", product: "印刷袋", size: "30*40*10", color: "白色", orderType: "custom_print", qty: 1000, print: "是" },
+  orderLine: { id: "OL-1", product: "印刷袋", size: "30*40*10", color: "白色", orderType: "custom_print", qty: 1000, print: "是", printColor: "红/蓝", printSide: "双面" },
   printRecord: { printRecordId: "PR-F-1-1", createdAt: "2026-11-04T03:00:00Z" },
   documentType: "delivery_note",
   pricing,
@@ -51,7 +59,10 @@ assert.equal(template.fields.footerNote, "请当面点清数量。");
 assert.equal(template.fields.documentDateText, "2026-11-04");
 assert.equal(template.fields.totalAmountUppercase, "肆佰陆拾元整");
 const [item] = template.fields.lineItems;
-assert.deepEqual([item.bagUnitPriceText, item.printingUnitPriceText, item.handleUnitPriceText, item.warehouse, item.unit, item.amount], ["0.34", "0.09", "", "南屋", "个", 460]);
+// 几色写在印刷单价后面（单面双面机印同价，不写）；备注里不再重复。
+assert.deepEqual([item.bagUnitPriceText, item.printingUnitPriceText, item.handleUnitPriceText, item.snapUnitPriceText, item.warehouse, item.unit, item.amount, item.remark], ["0.34", "0.09(双色)", "", "", "南屋", "个", 460, ""]);
+assert.equal(template.fields.pickerName, "", "a delivery note printed before delivery has no receiver yet");
+assert.equal(template.fields.pickerLabel, "收货人");
 assert.equal(isFulfillmentNoteTemplate(template), true);
 assert.equal(isFulfillmentNoteTemplate({ ...template, priceHidden: true }), false);
 
@@ -66,12 +77,44 @@ async function pdfText(bytes) {
 }
 
 const [page] = await pdfText(await buildFulfillmentNotePdf(template));
-for (const value of ["合成包装厂", "地址：合成路 1 号", "电话：0319-0000000", "No. PR-F-1-1", "日期：2026-11-04", "客户名称：合成客户", "联系人：王经理", "客户地址：合成镇",
-  "序号", "产品名称", "袋子单价", "印刷单价", "长提单价", "印刷袋", "30*40*10", "白色", "南屋", "1000", "0.34", "0.09", "460.00",
+assert.doesNotMatch(page, /长提单价|加扣单价/, "unused price columns are left out");
+for (const value of ["0.09(双色)", "合成包装厂", "地址：合成路 1 号", "电话：0319-0000000", "No. PR-F-1-1", "日期：2026-11-04", "客户名称：合成客户", "联系人：王经理", "客户地址：合成镇",
+  "序号", "产品名称", "袋子单价", "印刷单价", "印刷袋", "30*40*10", "白色", "南屋", "1000", "0.34", "460.00",
   "合计：肆佰陆拾元整", "¥460.00", "注：请当面点清数量。", "送货单位及经手人(签章)：", "收货单位及经手人(签章)：", "白", "存", "根", "黄", "回"]) {
   assert.ok(page.includes(value), `missing ${value}: ${page}`);
 }
 assert.doesNotMatch(page, /13800001234/, "the customer's full phone stays off the paper (tail only, as today)");
+
+// Older orders whose price kept the handle / snap inside the bag price say so in 备注.
+const remarkOf = (orderLine, unitPrices = { bag: 0.5, print: 0, handle: 0, snap: 0 }) => buildFulfillmentPrintTemplate({
+  fulfillment: { id: "F-R", lineId: "OL-R", method: "自提", qty: 100 }, orderLine: { id: "OL-R", qty: 100, ...orderLine },
+  printRecord: { printRecordId: "PR-R" }, documentType: "pickup_note", pricing: { ...pricing, unitPrices },
+}).fields.lineItems[0].remark;
+assert.equal(remarkOf({ orderType: "现货有货", handle: "加长提", specialRequirements: ["snap_button"] }), "加长提、加扣、现货");
+assert.equal(remarkOf({ orderType: "现货有货", handle: "加长提" }, { bag: 0.47, print: 0, handle: 0.03, snap: 0 }), "现货", "a separate 长提单价 needs no remark");
+assert.equal(remarkOf({ orderType: "custom_print", print: "是", printColor: "红+黑+白" }), "三色", "no separate print price: colours go to 备注");
+
+// 提货人: customer A's goods picked up by B; printed on its own, not in 备注.
+const pickupTemplate = buildFulfillmentPrintTemplate({
+  fulfillment: { id: "F-P", lineId: "OL-1", method: "自提", qty: 1000, customerSnapshot: { name: "客户甲" } },
+  orderLine: { id: "OL-1", product: "印刷袋", orderType: "custom_print", qty: 1000 },
+  printRecord: { printRecordId: "PR-F-P-1", documentType: "pickup_note" }, documentType: "pickup_note", pricing, companyProfile, pickerName: "印刷工乙",
+});
+assert.deepEqual([pickupTemplate.title, pickupTemplate.fields.pickerLabel, pickupTemplate.fields.pickerName], ["自提单", "提货人", "印刷工乙"]);
+const [pickupPage] = await pdfText(await buildFulfillmentNotePdf(pickupTemplate));
+assert.ok(pickupPage.includes("客户名称：客户甲") && pickupPage.includes("提货人：印刷工乙"), pickupPage);
+// The office picks from the people who picked up for this customer before (latest first), plus contacts marked 拿货人.
+const suggestions = listFulfillmentPickerSuggestions({ customerId: "A", workspace: {
+  fulfillments: [
+    { customerId: "A", method: "自提", receiverName: "印刷工乙", updatedAt: "2026-11-01T08:00:00Z" },
+    { customerId: "A", method: "自提", receiverName: "印刷工丙", updatedAt: "2026-11-03T08:00:00Z" },
+    { customerId: "A", method: "自提", receiverName: "印刷工乙", updatedAt: "2026-10-01T08:00:00Z" },
+    { customerId: "A", method: "送货", receiverName: "签收的店员" },
+    { customerId: "B", method: "自提", receiverName: "别的客户的人" },
+  ],
+  customers: [{ id: "A", contacts: [{ contactName: "老张", role: "拿货人" }, { contactName: "老板", role: "老板" }] }],
+} });
+assert.deepEqual(suggestions.items.map(row => row.name), ["印刷工丙", "印刷工乙", "老张"]);
 
 // P2-05 gift shows in the 备注 column and as a 说明 line under the table.
 const giftTemplate = buildFulfillmentPrintTemplate({

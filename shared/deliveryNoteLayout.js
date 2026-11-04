@@ -13,21 +13,38 @@ export const DELIVERY_NOTE_PAPER = Object.freeze({
 });
 
 // Column order follows the printed sheet; relative widths come from the old sale-bill grid
-// (产品名称 156、规格 107、仓库 48、颜色 53、数量 61、三个单价 64/65/64、单位 52、金额 87、备注 156).
-export const DELIVERY_NOTE_COLUMNS = Object.freeze([
-  Object.freeze({ key: "lineNo", label: "序号", width: 30, align: "center" }),
-  Object.freeze({ key: "productName", label: "产品名称", width: 120, align: "left" }),
-  Object.freeze({ key: "size", label: "规格", width: 95, align: "left" }),
-  Object.freeze({ key: "color", label: "颜色", width: 53, align: "center" }),
-  Object.freeze({ key: "warehouse", label: "仓库", width: 48, align: "center" }),
-  Object.freeze({ key: "unit", label: "单位", width: 36, align: "center" }),
-  Object.freeze({ key: "quantityText", label: "数量", width: 61, align: "right" }),
-  Object.freeze({ key: "bagUnitPriceText", label: "袋子单价", width: 64, align: "right" }),
-  Object.freeze({ key: "printingUnitPriceText", label: "印刷单价", width: 64, align: "right" }),
-  Object.freeze({ key: "handleUnitPriceText", label: "长提单价", width: 64, align: "right" }),
-  Object.freeze({ key: "amountText", label: "金额", width: 80, align: "right" }),
-  Object.freeze({ key: "remark", label: "备注", width: 110, align: "left" }),
+// (产品名称 156、规格 107、仓库 48、颜色 53、数量 61、单价各 64、单位 52、金额 87、备注 156).
+// 负责人 2026-11-04：单价有袋子、印刷、长提、加扣几种；袋子单价每张都有，其余只在这张单子用到时才出现，
+// 用不到的列不占位置，免得字被挤小。
+const column = (key, label, width, align) => Object.freeze({ key, label, width, align });
+export const DELIVERY_NOTE_PRICE_COLUMNS = Object.freeze([
+  column("bagUnitPriceText", "袋子单价", 64, "right"),
+  column("printingUnitPriceText", "印刷单价", 80, "right"),
+  column("handleUnitPriceText", "长提单价", 64, "right"),
+  column("snapUnitPriceText", "加扣单价", 64, "right"),
 ]);
+const LEADING_COLUMNS = Object.freeze([
+  column("lineNo", "序号", 30, "center"),
+  column("productName", "产品名称", 120, "left"),
+  column("size", "规格", 95, "left"),
+  column("color", "颜色", 53, "center"),
+  column("warehouse", "仓库", 48, "center"),
+  column("unit", "单位", 36, "center"),
+  column("quantityText", "数量", 61, "right"),
+]);
+const TRAILING_COLUMNS = Object.freeze([
+  column("amountText", "金额", 80, "right"),
+  column("remark", "备注", 110, "left"),
+]);
+/** Every column the sheet can carry, in printed order. */
+export const DELIVERY_NOTE_COLUMNS = Object.freeze([...LEADING_COLUMNS, ...DELIVERY_NOTE_PRICE_COLUMNS, ...TRAILING_COLUMNS]);
+
+/** The columns this sheet prints: 袋子单价 always, the other prices only when a line uses them. */
+export function deliveryNoteColumns(lineItems = []) {
+  const used = DELIVERY_NOTE_PRICE_COLUMNS.filter((priceColumn, index) => index === 0
+    || lineItems.some(item => String(item?.[priceColumn.key] ?? "").trim() !== ""));
+  return [...LEADING_COLUMNS, ...used, ...TRAILING_COLUMNS];
+}
 
 export const DEFAULT_COMPANY_PRINT_PROFILE = Object.freeze({
   companyName: "河北禄兴包装制品有限公司",
@@ -68,8 +85,11 @@ export function validateCompanyPrintProfileInput(value = {}) {
 }
 
 /**
- * The three unit prices of the old sheet from a price snapshot. The extended-handle surcharge is
- * folded into the bag price today; it is shown separately only where the quote kept it apart.
+ * 袋子 / 印刷 / 长提 / 加扣 unit prices from a price snapshot. The snapshot keeps the handle and
+ * snap surcharges inside the bag price; the quote evidence says how much of it they were:
+ * office published prices (handleFallback → 0.03), mini-program locked quotes (handleAddon,
+ * specialRequirementAddon) and special-size quotes (handleUnitAddon, snapButtonUnitAddon).
+ * Manually entered prices carry no split and print as one bag price.
  */
 export function splitLegacyUnitPrices(priceSnapshot) {
   if (!priceSnapshot) return null;
@@ -77,10 +97,21 @@ export function splitLegacyUnitPrices(priceSnapshot) {
   const printPrice = Number(priceSnapshot.printPrice ?? priceSnapshot.print_price);
   if (!Number.isFinite(bagPrice) || !Number.isFinite(printPrice)) return null;
   const evidence = priceSnapshot.sourceEvidence ?? priceSnapshot.source_evidence_json ?? {};
-  const handleAddon = Number(evidence?.specialQuote?.handleUnitAddon);
-  const handle = Number.isFinite(handleAddon) && handleAddon > 0 && handleAddon <= bagPrice ? handleAddon : 0;
+  const positive = value => (Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : 0);
+  let handle = 0;
+  let snap = 0;
+  if (evidence?.specialQuote) {
+    handle = positive(evidence.specialQuote.handleUnitAddon);
+    snap = positive(evidence.specialQuote.snapButtonUnitAddon);
+  } else if (evidence?.quote && Object.hasOwn(evidence.quote, "basePrice")) {
+    handle = positive(evidence.quote.handleAddon);
+    snap = positive(evidence.quote.specialRequirementAddon);
+  } else if (evidence?.kind === "erp_published_price" && evidence.handleFallback === true) {
+    handle = 0.03;
+  }
   const round = value => Math.round((value + Number.EPSILON) * 10000) / 10000;
-  return { bag: round(bagPrice - handle), print: round(printPrice), handle: round(handle) };
+  if (handle + snap > bagPrice) { handle = 0; snap = 0; }
+  return { bag: round(bagPrice - handle - snap), print: round(printPrice), handle: round(handle), snap: round(snap) };
 }
 
 export function formatLegacyUnitPrice(value) {

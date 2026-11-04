@@ -1,6 +1,7 @@
 import { getFulfillmentGoodsDisplay } from "./officeRules.js";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 import { fulfillmentDocumentTypeFor } from "../../shared/fulfillmentDocumentType.js";
+import { resolvePrintColorCount } from "../../shared/largeMachinePrintPricing.js";
 import { DEFAULT_COMPANY_PRINT_PROFILE, DELIVERY_NOTE_PAPER, DELIVERY_NOTE_SIGNATURES, amountInChineseUppercase, formatLegacyUnitPrice, normalizeCompanyPrintProfile } from "../../shared/deliveryNoteLayout.js";
 
 export const expressLtlLabelTemplateId = "tpl-p0-express-ltl-label";
@@ -170,9 +171,11 @@ function buildFulfillmentDocumentFields({
     warehouse: String(fulfillment?.zone ?? orderLine?.zone ?? "").trim(),
     unit: "个",
     bagUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.bag),
-    printingUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.print),
+    // 负责人 2026-11-04：印刷单价客户默认是单色，双色、三色直接写在单价后面：0.2(双色)。
+    printingUnitPriceText: printingPriceText(orderLine, pricing.unitPrices?.print),
     handleUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.handle),
-    remark: [Number(pricing.freeQty) > 0 ? `赠送${Number(pricing.freeQty)}个` : "", sourceRemark({ orderLine, fulfillment })].filter(Boolean).join("、"),
+    snapUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.snap),
+    remark: buildSheetRemark({ orderLine, fulfillment, pricing }),
     note: [input.batchProgress, quantityNote, buildDocumentLineNote({ orderLine, fulfillment })].filter(Boolean).join("；"),
   };
   if (printEnabled) {
@@ -190,6 +193,9 @@ function buildFulfillmentDocumentFields({
     senderSignatureText: DELIVERY_NOTE_SIGNATURES.sender,
     receiverSignatureText: DELIVERY_NOTE_SIGNATURES.receiver,
     documentDateText: documentDate(printRecord, input),
+    // 负责人 2026-11-04：客户是 A、实际来拿货的是 B 时，单子上单独印「提货人：B」（送货单印收货人）。
+    pickerName: String(input.pickerName ?? fulfillment?.receiverName ?? "").trim().slice(0, 20),
+    pickerLabel: printRecord?.documentType === "delivery_note" || input.documentType === "delivery_note" ? "收货人" : "提货人",
     totalAmount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
     totalQuantity: quantity,
     totalAmountUppercase: amount !== null && amount !== undefined ? amountInChineseUppercase(amount) : "",
@@ -215,14 +221,42 @@ function buildFulfillmentDocumentFields({
   };
 }
 
-// 旧单子备注一栏写来源：现货写「现货」，定制写订单备注。
-function sourceRemark({ orderLine, fulfillment }) {
-  const type = String(orderLine?.orderType ?? "");
+// 负责人 2026-11-04：备注一栏系统自动写。几色写在印刷单价后面（没有单独印刷单价时才写进备注）；
+// 长提、加扣没有单独单价的（以前的订单），写「加长提」「加扣」；多出赠送写「赠送N个」；现货写「现货」。
+const CHINESE_COUNTS = ["", "单", "双", "三", "四", "五", "六", "七", "八"];
+function buildSheetRemark({ orderLine, fulfillment, pricing }) {
   const parts = [];
-  if (/现货|stock/.test(type)) parts.push("现货");
-  if (orderLine?.note) parts.push(orderLine.note);
-  if (fulfillment?.note) parts.push(fulfillment.note);
-  return [...new Set(parts.map(item => String(item).trim()).filter(Boolean))].join("、");
+  if (Number(pricing.freeQty) > 0) parts.push(`赠送${Number(pricing.freeQty)}个`);
+  const printing = orderLine?.print === "是" || orderLine?.printFlag === true || /印刷/.test(String(orderLine?.orderType ?? "")) || /print/.test(String(orderLine?.orderType ?? ""));
+  // 印刷有单独单价时，几色已经写在印刷单价后面；没有单独印刷单价时才写进备注。
+  if (printing && !(Number(pricing.unitPrices?.print) > 0)) {
+    const detail = printDetail(orderLine);
+    if (detail) parts.push(detail);
+  }
+  if (/加长|长提/.test(String(orderLine?.handle ?? orderLine?.handleType ?? "")) && !(Number(pricing.unitPrices?.handle) > 0)) parts.push("加长提");
+  if (hasSnapButton(orderLine) && !(Number(pricing.unitPrices?.snap) > 0)) parts.push("加扣");
+  if (/现货|stock/.test(String(orderLine?.orderType ?? ""))) parts.push("现货");
+  for (const extra of [orderLine?.note, fulfillment?.note]) if (String(extra ?? "").trim()) parts.push(String(extra).trim());
+  return [...new Set(parts)].join("、");
+}
+
+function printDetail(orderLine) {
+  const colors = resolvePrintColorCount(orderLine ?? {});
+  // 负责人 2026-11-04：单面双面机印同价，不写；只写几色。
+  return colors >= 2 ? `${CHINESE_COUNTS[colors] ?? colors}色` : "";
+}
+
+function printingPriceText(orderLine, printPrice) {
+  const text = formatLegacyUnitPrice(printPrice);
+  const detail = text ? printDetail(orderLine) : "";
+  return detail ? `${text}(${detail})` : text;
+}
+
+function hasSnapButton(orderLine) {
+  if (!orderLine) return false;
+  const requirements = [orderLine.specialRequirements, orderLine.specification?.specialRequirements].flat().filter(Boolean);
+  return requirements.includes("snap_button") || orderLine.hasSnap === true || orderLine.snap === true
+    || /按扣|加扣/.test([orderLine.snapRequirement, orderLine.style, orderLine.requirements].filter(Boolean).join(" "));
 }
 
 function documentDate(printRecord, input) {

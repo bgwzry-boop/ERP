@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
 import { completeOfficePackingTask } from "../../../../src/services/officeProductionPackingApiClient.js";
-import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
+import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, getOfficeFulfillmentPickerSuggestions, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { normalizeInventoryHoldTimestamp } from "../../../../shared/inventoryHoldTime.js";
@@ -89,6 +89,18 @@ function FulfillmentOperations({ fulfillment, formal }) {
   }, [canReadCandidates, formal?.authState, formal?.operatorId]);
   const expected = Number(fulfillment.qty ?? fulfillment.expectedQty ?? 0);
   const method = fulfillment.method ?? fulfillment.fulfillmentMethod;
+  // 负责人 2026-11-04：自提单上单独印「提货人」（客户 A 的单子常由 B、C 来拿）；列出以前来拿过货的人供选择。
+  const pickupNote = ["自提", "pickup"].includes(String(method ?? "").trim());
+  const [pickerName, setPickerName] = useState(fulfillment.receiverName ?? "");
+  const [pickerSuggestions, setPickerSuggestions] = useState([]);
+  useEffect(() => {
+    if (!pickupNote || !can("fulfillment.print") || !fulfillment.customerId) return undefined;
+    let active = true;
+    const controller = new AbortController();
+    getOfficeFulfillmentPickerSuggestions({ authState: formal?.authState, operatorId: formal?.operatorId, customerId: fulfillment.customerId }, { signal: controller.signal })
+      .then(result => { if (active) setPickerSuggestions(result.items ?? []); });
+    return () => { active = false; controller.abort(); };
+  }, [pickupNote, fulfillment.customerId, formal?.authState, formal?.operatorId]);
   const packages = parseActualPackageQuantities(packageText);
   const packTotal = packages?.reduce((sum, qty) => sum + qty, 0) ?? 0;
   const orderType = fulfillment.orderType ?? line?.orderType;
@@ -171,7 +183,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
     <h3>出库办理</h3>
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
-      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p><details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details><button type="button" onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print" }, "创建待实际打印的出库单任务；打印完成后才能交库房。")}>创建打印任务</button></fieldset>}
+      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p><details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details>{pickupNote ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}<button type="button" onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button></fieldset>}
       {can("fulfillment.paper.handoff") && ["已打印", "已重打"].includes(paper?.status) && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
       {can("fulfillment.warehouse.execute") && (fulfillment.warehouseTaskVisible || paper?.status === "已交库房") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
         <legend>库房实际执行</legend>

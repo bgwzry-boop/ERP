@@ -1,3 +1,4 @@
+import { listFulfillmentPickerSuggestions } from "../services/fulfillmentPickerSuggestionService.mjs";
 import { fulfillmentOperatorCandidatePermissions, listFulfillmentOperatorCandidates } from "../services/fulfillmentOperatorCandidatesService.mjs";
 export async function handleFulfillmentReadRoutes({
   url,
@@ -18,6 +19,11 @@ export async function handleFulfillmentReadRoutes({
     sendJson(response, 200, listFulfillmentOperatorCandidates({ workspace, actionPermissions }));
     return true;
   }
+  if (url.pathname === "/api/fulfillments/picker-suggestions") {
+    sendJson(response, 200, listFulfillmentPickerSuggestions({ workspace, customerId: url.searchParams.get("customerId") }));
+    return true;
+  }
+
   if (url.pathname === "/api/fulfillments") {
     const projection = fulfillmentReadProjectionService.listFulfillments({
       workspace,
