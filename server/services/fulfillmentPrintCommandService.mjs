@@ -6,6 +6,7 @@ import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
 import { readCompanyPrintProfile } from "./companyPrintProfileService.mjs";
+import { findActiveDriverDeliveryDispatch } from "./driverDeliveryTaskProjectionService.mjs";
 
 export function createFulfillmentPrintCommandService({
   buildFulfillmentActionRecord,
@@ -119,6 +120,8 @@ export function createFulfillmentPrintCommandService({
       paperNo: printableBody.paperNo,
       pricing: pricingResult?.pricing,
       pickerName,
+      // 负责人 2026-11-04：送货单「送货单位及经手人」预填已安排的司机；还没安排司机就留空手写。
+      driverName: documentType === "delivery_note" ? deliveryDriverName(workspace, fulfillmentId) : "",
       // P2-07: the sheet header the office keeps under 打印与设备 → 单据抬头.
       companyProfile: pricingResult ? await readCompanyPrintProfile(workspace) : undefined,
       packageLabelRows: packageLabelRows((workspace.packages??[]).filter(row=>row.fulfillmentId===fulfillmentId)),
@@ -750,6 +753,15 @@ function businessError(statusCode, code, message) {
 
 function notFound() {
   return { notFound: true };
+}
+
+function deliveryDriverName(workspace, fulfillmentId) {
+  const dispatch = findActiveDriverDeliveryDispatch(workspace, fulfillmentId);
+  const driverId = normalizeText(dispatch?.driverId ?? dispatch?.driver_id);
+  if (!driverId) return "";
+  const user = (workspace.users ?? []).find(row => (row.userId ?? row.id) === driverId);
+  const employee = (workspace.employees ?? []).find(row => (row.userId && row.userId === driverId) || (user?.employeeId && row.id === user.employeeId));
+  return normalizeText(employee?.name ?? user?.displayName ?? user?.name).slice(0, 20);
 }
 
 function normalizeText(value) {
