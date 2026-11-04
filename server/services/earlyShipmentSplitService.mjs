@@ -1,78 +1,175 @@
-// P2-03 边做边发（负责人 2026-11-04）：一个定制单（比如 1 万个）当天没做完，做好的一部分先打包发走，
-// 剩下的第二天做完再发。办公室在生产任务上点「先发已做好的部分」：
-// - 原明细改成已做好的数量（车间已报的累计合格数），生产任务变成「待完工确认」，车间确认后照常入库/打包/出库；
-// - 剩下的数量拆成一条「续做」明细，带自己的生产任务（同一机台，继续做）和交付记录；
-// - 单价不变（仍按整单下单数量定的档），原明细和续做明细的金额加起来等于原来的金额。
-// 每次发货单独一张送货单、按实际发的数量入账，这些都沿用现有流程。
+// P2-03 边做边发（负责人 2026-11-04）：一个定制单（比如 1 万个）当天没做完，到下班出多少发多少，
+// 剩下的第二天做完再发。客户那边要能看到这一单是分几批发的。
+// 流程：
+// 1. 办公室和客户说好后，在生产任务上点「今天先发（出多少发多少）」做标记；
+// 2. 车间照常生产，下班照常「报当日数量」。有标记的任务报完数，系统自动：
+//    - 原明细改成车间累计报的数量，并按这个数直接确认完工 → 照常入库、生成打包任务；
+//    - 剩下的数量拆成一条「续做」明细（指回原明细），带自己的生产任务（同一机台接着做）和交付记录；
+//    - 单价不变（仍按整单下单数量定的档），两条金额加起来等于原来的金额；
+// 3. 打包工照常装包、一包一个标签，按包发货；送货单写清「本次 / 整单 / 已发 / 待发」。
+// 办公室也可以不等报数，直接点「现在就按已报数量先发」。
 const CLOSED_LINE_STATUSES = new Set(["已作废", "已取消", "已关闭", "已完成", "已交付"]);
 const CLOSED_TASK_STATUSES = new Set(["已完成", "已作废", "已取消"]);
 const BLOCKED_TASK_STATUSES = new Set(["异常暂停", "数量差异待处理", "待完工确认"]);
 const OUTBOUND_FULFILLMENT_STATUSES = new Set(["已交付", "已取消", "已作废", "已出库", "已拉走", "配送中"]);
 export const EARLY_SHIPMENT_SPLIT_SNAPSHOT_TYPE = "early_shipment_split";
 
-export function createEarlyShipmentSplitService({ buildOperationLog, now = () => new Date() } = {}) {
+export function createEarlyShipmentSplitService({ buildOperationLog, completeProductionReport, now = () => new Date() } = {}) {
   if (typeof buildOperationLog !== "function") throw new TypeError("buildOperationLog must be a function");
 
-  return {
-    async splitForEarlyShipment({ workspace, productionTaskId, body = {}, operatorId }) {
-      const plan = planEarlyShipmentSplit(workspace, productionTaskId, body);
-      if (plan.error || plan.notFound) return plan;
-      const splitAt = isoNow(now);
-      const records = buildSplitRecords(workspace, plan, { operatorId, splitAt, reason: clean(body.reason) });
-      const operationLog = buildOperationLog(workspace, {
-        targetType: "order_line",
-        targetId: plan.line.id,
-        action: "split_order_line_for_early_shipment",
-        operatorId,
-        before: {
-          orderLine: { orderLineId: plan.line.id, qty: plan.plannedQty, revision: plan.lineRevision },
-          productionTask: { productionTaskId: plan.task.id, plannedQty: plan.plannedQty, taskStatus: plan.task.status, revision: plan.taskRevision },
-          fulfillment: { fulfillmentId: plan.fulfillment.id, expectedQty: plan.plannedQty },
+  async function split({ workspace, productionTaskId, body = {}, operatorId }) {
+    const plan = planEarlyShipmentSplit(workspace, productionTaskId, body);
+    if (plan.error || plan.notFound) return plan;
+    const splitAt = isoNow(now);
+    const records = buildSplitRecords(workspace, plan, { operatorId, splitAt, reason: clean(body.reason) });
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "order_line",
+      targetId: plan.line.id,
+      action: "split_order_line_for_early_shipment",
+      operatorId,
+      before: {
+        orderLine: { orderLineId: plan.line.id, qty: plan.plannedQty, revision: plan.lineRevision },
+        productionTask: { productionTaskId: plan.task.id, plannedQty: plan.plannedQty, taskStatus: plan.task.status, revision: plan.taskRevision, earlyShipRequestedAt: clean(plan.task.earlyShipRequestedAt) },
+        fulfillment: { fulfillmentId: plan.fulfillment.id, expectedQty: plan.plannedQty },
+        priceSnapshotId: plan.price.id,
+      },
+      after: {
+        shippedNowQty: plan.readyQty,
+        remainderQty: plan.remainderQty,
+        remainderOrderLineId: records.remainderLine.id,
+        remainderProductionTaskId: records.remainderTask.id,
+        remainderFulfillmentId: records.remainderFulfillment.id,
+        priceSnapshotIds: [records.linePrice.priceSnapshotId, records.remainderPrice.priceSnapshotId],
+        amounts: { shippedNow: records.linePrice.finalAmount, remainder: records.remainderPrice.finalAmount, before: plan.price.finalAmount },
+        trigger: body.trigger === "daily_progress" ? "车间下班报数后自动先发" : "办公室直接先发",
+      },
+      reason: clean(body.reason) || `先发已做好的 ${plan.readyQty} 个，剩下 ${plan.remainderQty} 个续做后再发`,
+    });
+    let saved;
+    try {
+      saved = await workspace.productionPackingTransactionRepository.splitForEarlyShipment({
+        workspace,
+        plan: {
+          orderLineId: plan.line.id,
+          productionTaskId: plan.task.id,
+          fulfillmentId: plan.fulfillment.id,
           priceSnapshotId: plan.price.id,
-        },
-        after: {
-          shippedNowQty: plan.readyQty,
+          lineRevision: plan.lineRevision,
+          taskRevision: plan.taskRevision,
+          fulfillmentRevision: plan.fulfillmentRevision,
+          plannedQty: plan.plannedQty,
+          readyQty: plan.readyQty,
           remainderQty: plan.remainderQty,
-          remainderOrderLineId: records.remainderLine.id,
-          remainderProductionTaskId: records.remainderTask.id,
-          remainderFulfillmentId: records.remainderFulfillment.id,
-          priceSnapshotIds: [records.linePrice.priceSnapshotId, records.remainderPrice.priceSnapshotId],
-          amounts: { shippedNow: records.linePrice.finalAmount, remainder: records.remainderPrice.finalAmount, before: plan.price.finalAmount },
+          taskType: plan.task.taskType,
         },
-        reason: clean(body.reason) || `先发已做好的 ${plan.readyQty} 个，剩下 ${plan.remainderQty} 个续做后再发`,
+        ...records,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: { productionTaskId, operatorId, expectedRevision: plan.taskRevision, readyQty: plan.readyQty, reason: clean(body.reason) },
+      });
+    } catch (error) {
+      if (error?.statusCode === 409) return businessError(409, error.code || "BUSINESS_WRITE_CONFLICT", "订单或生产进度刚有变动，请刷新后再操作。");
+      throw error;
+    }
+    // The packers' labels are the count check (owner): the ready part is confirmed complete right
+    // away and goes to packing like any finished task. If that step cannot run (for example no
+    // matching stock key), the split stands and the task waits for a normal 报工完成.
+    const completion = await completeReadyPart(workspace, saved, plan, operatorId, body.idempotencyKey);
+    return { response: { ...saved, shippedNowQty: plan.readyQty, remainderQty: plan.remainderQty, completion } };
+  }
+
+  async function completeReadyPart(workspace, saved, plan, operatorId, idempotencyKey) {
+    if (typeof completeProductionReport !== "function") return { status: "pending", message: "请车间点「报工完成」后进打包。" };
+    try {
+      const result = await completeProductionReport({
+        workspace,
+        productionTaskId: plan.task.id,
+        operatorId,
+        body: {
+          qualifiedQty: plan.readyQty,
+          orderLineId: plan.line.id,
+          processType: plan.task.taskType,
+          expectedRevision: Number(saved.productionTask?.revision),
+          remark: `先发：按车间已报的 ${plan.readyQty} 个确认完工，打包按包贴标签核数`,
+          ...(idempotencyKey ? { idempotencyKey: `${String(idempotencyKey).slice(0, 100)}-complete` } : {}),
+        },
+      });
+      if (result?.response) return { status: "completed", packingTaskId: result.response.packingTaskId ?? "" };
+      return { status: "pending", message: `已拆分，但自动确认完工没成功：${result?.message || result?.code || "请车间点「报工完成」"}` };
+    } catch (error) {
+      return { status: "pending", message: `已拆分，但自动确认完工没成功：${error?.message || "请车间点「报工完成」"}` };
+    }
+  }
+
+  return {
+    splitForEarlyShipment: (input) => split(input),
+
+    // Office: "today ship what is made" (or take the mark off again).
+    async setEarlyShipmentRequest({ workspace, productionTaskId, body = {}, operatorId }) {
+      const task = normalizeTask(findBy(workspace.productionTasks, productionTaskId, ["productionTaskId", "id"]));
+      if (!task) return notFound("PRODUCTION_TASK_NOT_FOUND");
+      const requested = body.requested !== false;
+      if (positive(body.expectedRevision) !== revisionOf(task)) return staleError(revisionOf(task));
+      if (requested) {
+        const check = planEarlyShipmentSplit(workspace, productionTaskId, { expectedRevision: revisionOf(task) }, { allowNothingReady: true });
+        if (check.error || check.notFound) return check;
+      } else if (!clean(task.earlyShipRequestedAt)) {
+        return businessError(409, "EARLY_SHIPMENT_NOT_REQUESTED", "这个任务没有安排今天先发。");
+      }
+      const requestedAt = isoNow(now);
+      const note = clean(body.note).slice(0, 200);
+      const operationLog = buildOperationLog(workspace, {
+        targetType: "production_task",
+        targetId: task.id,
+        action: requested ? "request_early_shipment" : "cancel_early_shipment",
+        operatorId,
+        before: { earlyShipRequestedAt: clean(task.earlyShipRequestedAt), revision: revisionOf(task) },
+        after: { requested, note },
+        reason: note || (requested ? "客户要求今天先发，出多少发多少" : "取消今天先发"),
       });
       try {
-        const saved = await workspace.productionPackingTransactionRepository.splitForEarlyShipment({
+        const saved = await workspace.productionPackingTransactionRepository.setEarlyShipmentRequest({
           workspace,
-          plan: {
-            orderLineId: plan.line.id,
-            productionTaskId: plan.task.id,
-            fulfillmentId: plan.fulfillment.id,
-            priceSnapshotId: plan.price.id,
-            lineRevision: plan.lineRevision,
-            taskRevision: plan.taskRevision,
-            fulfillmentRevision: plan.fulfillmentRevision,
-            plannedQty: plan.plannedQty,
-            readyQty: plan.readyQty,
-            remainderQty: plan.remainderQty,
-            taskType: plan.task.taskType,
-          },
-          ...records,
+          productionTaskId: task.id,
+          expectedRevision: revisionOf(task),
+          requested,
+          note,
+          requestedAt,
+          operatorId,
           operationLog,
           idempotencyKey: body.idempotencyKey,
-          idempotencyPayload: { productionTaskId, operatorId, expectedRevision: plan.taskRevision, readyQty: plan.readyQty, reason: clean(body.reason) },
+          idempotencyPayload: { productionTaskId: task.id, operatorId, requested, note, expectedRevision: revisionOf(task) },
         });
-        return { response: { ...saved, shippedNowQty: plan.readyQty, remainderQty: plan.remainderQty } };
+        return { response: { ...saved, requested } };
       } catch (error) {
-        if (error?.statusCode === 409) return businessError(409, error.code || "BUSINESS_WRITE_CONFLICT", "订单或生产进度刚有变动，请刷新后再操作。");
+        if (error?.statusCode === 409) return businessError(409, error.code || "BUSINESS_WRITE_CONFLICT", "生产任务刚有变动，请刷新后再操作。");
         throw error;
       }
+    },
+
+    // Workshop: after the normal end-of-day quantity report on a task the office marked.
+    async afterDailyProgress({ workspace, productionTaskId, operatorId, idempotencyKey }) {
+      const task = normalizeTask(findBy(workspace.productionTasks, productionTaskId, ["productionTaskId", "id"]));
+      if (!task || !clean(task.earlyShipRequestedAt)) return null;
+      const result = await split({
+        workspace,
+        productionTaskId,
+        operatorId,
+        body: {
+          expectedRevision: revisionOf(task),
+          trigger: "daily_progress",
+          reason: clean(task.earlyShipNote) || "办公室安排今天先发，车间下班报数后出多少发多少",
+          ...(idempotencyKey ? { idempotencyKey: `${String(idempotencyKey).slice(0, 100)}-early` } : {}),
+        },
+      });
+      if (result.response) return { status: "split", ...result.response };
+      return { status: "not_split", code: result.code, message: result.message };
     },
   };
 }
 
 // Pure checks shared by the service and the desktop preview text.
-export function planEarlyShipmentSplit(workspace, productionTaskId, body = {}) {
+export function planEarlyShipmentSplit(workspace, productionTaskId, body = {}, { allowNothingReady = false } = {}) {
   const task = normalizeTask(findBy(workspace.productionTasks, productionTaskId, ["productionTaskId", "id"]));
   if (!task) return notFound("PRODUCTION_TASK_NOT_FOUND");
   const line = normalizeLine(findBy(workspace.orderLines, task.orderLineId, ["orderLineId", "id"]));
@@ -100,7 +197,7 @@ export function planEarlyShipmentSplit(workspace, productionTaskId, body = {}) {
   const reports = (workspace.workshopReports ?? []).filter((report) => clean(report.productionTaskId ?? report.production_task_id) === task.id);
   if (reports.some((report) => reportKindOf(report) !== "daily_progress")) return businessError(409, "EARLY_SHIPMENT_TASK_CLOSED", "生产任务已经报过完工，直接走打包即可。");
   const readyQty = reports.reduce((sum, report) => sum + Math.max(0, integer(report.qualifiedQty ?? report.qualified_qty)), 0);
-  if (!(readyQty > 0)) return businessError(409, "EARLY_SHIPMENT_NOTHING_READY", "车间还没报当日数量，没有做好的可以先发。请车间先在手机上「报当日数量」。");
+  if (!(readyQty > 0) && !allowNothingReady) return businessError(409, "EARLY_SHIPMENT_NOTHING_READY", "车间还没报当日数量，没有做好的可以先发。请车间先在手机上「报当日数量」。");
   if (readyQty >= plannedQty) return businessError(409, "EARLY_SHIPMENT_TASK_BLOCKED", "车间报的数量已经够整单了，请车间直接点「报工完成」。");
   const fulfillments = (workspace.fulfillments ?? []).filter((row) => clean(row.orderLineId ?? row.lineId) === line.id);
   if (fulfillments.length !== 1) return businessError(409, "EARLY_SHIPMENT_FULFILLMENT_REVIEW_REQUIRED", "这条明细的交付记录不是一条，请办公室先核对交付。");

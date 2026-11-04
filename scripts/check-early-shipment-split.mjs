@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { createLocalProductionPackingTransactionRepository } from "../server/productionPackingTransactionRepository.mjs";
 import { buildEarlyShipmentSplitQuery } from "../server/earlyShipmentSplitRepository.mjs";
 import { createEarlyShipmentSplitService } from "../server/services/earlyShipmentSplitService.mjs";
+import { buildEarlyShipmentRequestQuery } from "../server/earlyShipmentSplitRepository.mjs";
+import { buildDeliveryBatchFamily, describeBatchProgress } from "../shared/deliveryBatches.js";
+import { projectBagwinDeliveries } from "../server/miniapp/bagwinErpIntegrationService.mjs";
 
 // 负责人 2026-11-04：定制单 1 万个当天没做完，做好的先发一部分，剩下的第二天做完再发。
 // 办公室点「先发已做好的部分」：原明细改成已做好的数量、车间确认完工后照常打包出库；
@@ -97,6 +100,72 @@ const query = buildEarlyShipmentSplitQuery({
 for (const pattern of [/FOR UPDATE/, /evidence_json->>'reportKind' = 'daily_progress'/, /ERP_EARLY_SHIPMENT_FULFILLMENT_CONFLICT/, /jsonb_populate_record\(NULL::order_lines/, /'split_from_order_line_id'/, /NOT EXISTS \(SELECT 1 FROM statement_lines/]) {
   assert.match(query.text, pattern);
 }
+// ---- 今天先发（出多少发多少）: the office marks, the normal end-of-day report ships what is made.
+{
+  const ws = fixture({ reports: [daily("WDP-1", 3500)] });
+  const completions = [];
+  const flow = createEarlyShipmentSplitService({
+    buildOperationLog: (_w, input) => ({ id: `LOG-F-${++logSeq}`, pageKey: "api", ...input }),
+    now: () => new Date("2026-11-04T09:00:00.000Z"),
+    completeProductionReport: async (input) => {
+      completions.push(input);
+      const task = ws.productionTasks.find((row) => row.productionTaskId === input.productionTaskId);
+      assert.deepEqual([task.taskStatus, task.plannedQty], ["待完工确认", input.body.qualifiedQty], "completion sees the split already applied");
+      return { response: { packingTaskId: `PKT-${task.orderLineId}` } };
+    },
+  });
+  assert.equal(await flow.afterDailyProgress({ workspace: ws, productionTaskId: "PT-OL-1-BAG", operatorId: "U-W" }), null, "an unmarked task is untouched by the daily report");
+  assert.equal((await flow.setEarlyShipmentRequest({ workspace: ws, productionTaskId: "PT-OL-1-BAG", body: { expectedRevision: 2 }, operatorId: "U-OFFICE-A" })).code, "BUSINESS_WRITE_CONFLICT");
+  const marked = await flow.setEarlyShipmentRequest({ workspace: ws, productionTaskId: "PT-OL-1-BAG", body: { expectedRevision: 3, note: "客户快递 7 点装车", idempotencyKey: "mark-task-1" }, operatorId: "U-OFFICE-A" });
+  assert.equal(marked.error, undefined, marked.message);
+  const markedTask = ws.productionTasks.find((row) => row.productionTaskId === "PT-OL-1-BAG");
+  assert.deepEqual([Boolean(markedTask.earlyShipRequestedAt), markedTask.earlyShipNote, markedTask.revision], [true, "客户快递 7 点装车", 4]);
+  // End of the day: the worker reports today's count as usual (3500 + 2730), the system ships 6230.
+  ws.workshopReports.push(daily("WDP-2", 2730));
+  const shipped = await flow.afterDailyProgress({ workspace: ws, productionTaskId: "PT-OL-1-BAG", operatorId: "U-W", idempotencyKey: "daily-2" });
+  assert.equal(shipped.status, "split", shipped.message);
+  assert.deepEqual([shipped.shippedNowQty, shipped.remainderQty, shipped.completion.status], [6230, 3770, "completed"]);
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0].body.idempotencyKey, "daily-2-early-complete");
+  const restTask = ws.productionTasks.find((row) => row.productionTaskId === "PT-OL-1-BAG-R1");
+  assert.equal(restTask.earlyShipRequestedAt, "", "the follow-up task is not marked; tomorrow is a normal day");
+  assert.equal(ws.productionTasks.find((row) => row.productionTaskId === "PT-OL-1-BAG").earlyShipRequestedAt, "", "the mark is used up");
+  assert.equal(ws.operationLogs[0].after.trigger, "车间下班报数后自动先发");
+  // Mark → cancel works too.
+  const ws2 = fixture();
+  await flow.setEarlyShipmentRequest({ workspace: ws2, productionTaskId: "PT-OL-1-BAG", body: { expectedRevision: 3 }, operatorId: "U-OFFICE-A" });
+  const cancelled = await flow.setEarlyShipmentRequest({ workspace: ws2, productionTaskId: "PT-OL-1-BAG", body: { expectedRevision: 4, requested: false }, operatorId: "U-OFFICE-A" });
+  assert.equal(cancelled.response.requested, false);
+  assert.equal(ws2.productionTasks[0].earlyShipRequestedAt, "");
+  const markSql = buildEarlyShipmentRequestQuery({ productionTaskId: "PT-1", expectedRevision: 3, requested: true, requestedAt: "2026-11-04T09:00:00.000Z", operatorId: "U-OFFICE-A", note: "x",
+    operationLog: { id: "LOG-M", targetType: "production_task", targetId: "PT-1", action: "request_early_shipment", operatorId: "U-OFFICE-A" } });
+  assert.match(markSql.text, /early_ship_requested_at = \$\d+::timestamptz/);
+
+  // ---- The customer and the delivery note see one order shipped in batches.
+  const firstFulfillment = ws.fulfillments.find((row) => row.fulfillmentId === "F-OL-1");
+  assert.equal(describeBatchProgress(buildDeliveryBatchFamily(ws, "OL-1"), { fulfillmentId: "F-OL-1" }), "分批发货 第1批（共2批）：本次 6230 个 / 整单 10000 个 / 已发 0 个 / 待发 3770 个");
+  Object.assign(firstFulfillment, { status: "已交付", actualQty: 6230, physicalOutboundAt: "2026-11-04T11:00:00.000Z" });
+  ws.packages = [1, 2, 3].map((n) => ({ packageId: `PKG-${n}`, fulfillmentId: "F-OL-1", status: "已打印" }));
+  // Next day the rest is split once more (2000 made), then the last 1770.
+  ws.workshopReports.push({ ...daily("WDP-R1", 2000), productionTaskId: "PT-OL-1-BAG-R1", orderLineId: "OL-1-R1" });
+  const second = await flow.splitForEarlyShipment({ workspace: ws, productionTaskId: "PT-OL-1-BAG-R1", body: { expectedRevision: 1, idempotencyKey: "split-day-2" }, operatorId: "U-OFFICE-A" });
+  assert.equal(second.error, undefined, second.message);
+  const family = buildDeliveryBatchFamily(ws, "OL-1-R1-R1");
+  assert.deepEqual(family.batches.map((batch) => [batch.batchNo, batch.orderLineId, batch.qty, batch.shipped, batch.packageCount]),
+    [[1, "OL-1", 6230, true, 3], [2, "OL-1-R1", 2000, false, 0], [3, "OL-1-R1-R1", 1770, false, 0]]);
+  assert.deepEqual([family.orderedQty, family.shippedQty, family.pendingQty], [10000, 6230, 3770]);
+  assert.equal(describeBatchProgress(family, { fulfillmentId: "F-OL-1-R1" }), "分批发货 第2批（共3批）：本次 2000 个 / 整单 10000 个 / 已发 6230 个 / 待发 1770 个");
+  const deliveries = projectBagwinDeliveries({
+    deliveryLines: ws.orderLines.map((line) => ({ orderLineId: line.id, splitFromOrderLineId: line.splitFromOrderLineId ?? null, qty: line.qty, lineStatus: line.lineStatus, productName: line.productName, size: "30*40", bagColor: "白", createdAt: line.createdAt ?? "2026-11-01T00:00:00.000Z" })),
+    deliveryFulfillments: ws.fulfillments.map((row) => ({ fulfillmentId: row.fulfillmentId, orderLineId: row.orderLineId, status: row.status, expectedQty: row.expectedQty, actualQty: row.actualQty, physicalOutboundAt: row.physicalOutboundAt ?? null })),
+    deliveryPackages: ws.packages,
+  });
+  assert.equal(deliveries.length, 1, "the customer sees one item, not three");
+  assert.deepEqual([deliveries[0].productName, deliveries[0].orderedQty, deliveries[0].shippedQty, deliveries[0].pendingQty], ["无纺布袋", 10000, 6230, 3770]);
+  assert.deepEqual(deliveries[0].batches.map((batch) => [batch.batchNo, batch.qty, batch.packageCount, batch.shipped]), [[1, 6230, 3, true], [2, 2000, 0, false], [3, 1770, 0, false]]);
+  assert.equal(deliveries[0].batches[0].shippedAt, "2026-11-04T11:00:00.000Z");
+}
+
 console.log("Early shipment split: ready part stays on the line for completion, rest becomes a follow-up line on the same machine, price conserved, guarded.");
 
 function fixture({ reports } = {}) {

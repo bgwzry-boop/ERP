@@ -1,3 +1,4 @@
+import { buildDeliveryBatchFamily, isShippedFulfillment } from "../../shared/deliveryBatches.js";
 import { createHash, randomUUID } from "node:crypto";
 import { orderTypeFromMiniappProductType } from "../../shared/orderRouting.js";
 
@@ -405,12 +406,14 @@ export function projectBagwinPublicStatus(facts, now = new Date()) {
   const hasExpectedAt = expectedAt && !Number.isNaN(expectedAt.getTime());
   const expected = hasExpectedAt ? shanghaiDateTime(expectedAt) : null;
   const observedAt = facts?.observedAt ? new Date(facts.observedAt) : now;
+  const deliveries = projectBagwinDeliveries(facts);
   return {
     schemaVersion: 1,
     sourceOrderNo: facts.sourceOrderNo,
     erpOrderId: facts.erpOrderId,
     status,
     publicNote: notes[status],
+    ...(deliveries ? { deliveries } : {}),
     observedAt: (Number.isNaN(observedAt.getTime()) ? now : observedAt).toISOString(),
     ...(hasExpectedAt ? {
       expectedDeliveryDate: expected.date,
@@ -541,4 +544,52 @@ export function createBagwinErpIntegrationService(options = {}) {
       };
     },
   });
+}
+
+// P2-03（负责人 2026-11-04）：一单分几批发，客户要能看到是怎么发的。每个货品一项：
+// 整单数量、已发、待发，以及每一批（第几批、数量、几包、是否已发、发出时间）。
+export function projectBagwinDeliveries(facts) {
+  const orderLines = Array.isArray(facts?.deliveryLines) ? facts.deliveryLines : null;
+  if (!orderLines) return null;
+  const fulfillments = Array.isArray(facts.deliveryFulfillments) ? facts.deliveryFulfillments : [];
+  const packages = Array.isArray(facts.deliveryPackages) ? facts.deliveryPackages : [];
+  const roots = orderLines.filter((line) => !String(line?.splitFromOrderLineId ?? "").trim());
+  return roots
+    .filter((line) => !/作废|取消/.test(String(line?.lineStatus ?? "")))
+    .map((root) => {
+      const family = buildDeliveryBatchFamily({ orderLines, fulfillments, packages }, root.orderLineId);
+      const batches = family?.batches ?? [singleBatch(root, fulfillments, packages)];
+      const orderedQty = family?.orderedQty ?? batches[0].plannedQty;
+      const shippedQty = batches.filter((batch) => batch.shipped).reduce((sum, batch) => sum + batch.qty, 0);
+      return {
+        productName: String(root.productName ?? ""),
+        spec: [root.size, root.bagColor].map((value) => String(value ?? "").trim()).filter(Boolean).join(" "),
+        orderedQty,
+        shippedQty,
+        pendingQty: family?.pendingQty ?? (batches[0].shipped ? 0 : orderedQty),
+        batches: batches.map((batch) => ({
+          batchNo: batch.batchNo,
+          qty: batch.qty,
+          packageCount: batch.packageCount,
+          shipped: batch.shipped,
+          ...(batch.shippedAt ? { shippedAt: new Date(batch.shippedAt).toISOString() } : {}),
+        })),
+      };
+    });
+}
+
+function singleBatch(line, fulfillments, packages) {
+  const rows = fulfillments.filter((row) => row.orderLineId === line.orderLineId);
+  const shipped = rows.length > 0 && rows.every(isShippedFulfillment);
+  const ids = rows.map((row) => row.fulfillmentId);
+  const shippedAt = rows.map((row) => row.physicalOutboundAt ?? row.loadedAt ?? row.deliveredAt ?? row.finalDeliveryAt).filter(Boolean).sort()[0] ?? "";
+  const plannedQty = Number(line.qty) || 0;
+  return {
+    batchNo: 1,
+    plannedQty,
+    qty: shipped ? rows.reduce((sum, row) => sum + (Number(row.actualQty ?? row.expectedQty) || 0), 0) : plannedQty,
+    packageCount: packages.filter((row) => ids.includes(row.fulfillmentId) && !/作废|失效|voided|invalidated/.test(String(row.status ?? ""))).length,
+    shipped,
+    shippedAt,
+  };
 }

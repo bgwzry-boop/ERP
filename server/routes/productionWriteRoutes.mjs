@@ -29,7 +29,7 @@ export async function handleProductionWriteRoutes({
   if (method !== "POST") return false;
 
   const productionActionMatch = url.pathname.match(
-    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|claim|release|early-shipment|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
+    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|claim|release|early-shipment|early-shipment-request|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
   );
   if (productionActionMatch) {
     const productionTaskId = decodeURIComponent(productionActionMatch[1]);
@@ -63,13 +63,24 @@ export async function handleProductionWriteRoutes({
         includeErrorDetails: true,
         run: (operatorId) => earlyShipmentSplitService.splitForEarlyShipment({ workspace, productionTaskId, body, operatorId }),
       },
+      "early-shipment-request": {
+        permission: writeActionPermissions.publishProductionSchedule,
+        includeErrorDetails: true,
+        run: (operatorId) => earlyShipmentSplitService.setEarlyShipmentRequest({ workspace, productionTaskId, body, operatorId }),
+      },
       "report-complete": {
         permission: writeActionPermissions.reportProduction,
         run: (operatorId) => productionReportingCommandService.completeProductionReport({ workspace, productionTaskId, body, operatorId }),
       },
       "daily-progress": {
         permission: writeActionPermissions.reportProduction,
-        run: (operatorId) => productionReportingCommandService.recordDailyProgress({ workspace, productionTaskId, body, operatorId }),
+        run: async (operatorId) => {
+          const result = await productionReportingCommandService.recordDailyProgress({ workspace, productionTaskId, body, operatorId });
+          if (!result?.response) return result;
+          // P2-03: the office marked "今天先发" — the normal end-of-day report ships what is made.
+          const earlyShipment = await earlyShipmentSplitService?.afterDailyProgress?.({ workspace, productionTaskId, operatorId, idempotencyKey: body.idempotencyKey });
+          return earlyShipment ? { ...result, response: { ...result.response, earlyShipment } } : result;
+        },
       },
       exception: {
         permission: writeActionPermissions.reportProduction,

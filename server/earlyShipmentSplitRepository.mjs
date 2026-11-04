@@ -16,121 +16,75 @@ const OUTBOUND_FULFILLMENT_STATUSES = ["已交付", "已取消", "已作废", "�
 
 export function createLocalEarlyShipmentSplitRepository() {
   const results = new Map();
+  const replay = (scope, input, write) => {
+    const key = `${scope}:${resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id)}`;
+    const requestHash = buildIdempotencyRequestHash(input.idempotencyPayload ?? {});
+    const existing = results.get(key);
+    if (existing) {
+      if (existing.requestHash !== requestHash) throw buildIdempotencyConflictError();
+      return structuredClone(existing.result);
+    }
+    const result = write();
+    results.set(key, { requestHash, result: structuredClone(result) });
+    return result;
+  };
   return {
+    setEarlyShipmentRequest(input) {
+      return replay("production.early_shipment.request", input, () => {
+        const task = find(input.workspace.productionTasks, input.productionTaskId);
+        if (!task || revision(task) !== input.expectedRevision || CLOSED_TASK_STATUSES.includes(clean(task.taskStatus ?? task.status))) throw conflict();
+        const next = applyEarlyShipmentRequestToWorkspace(input.workspace, input, revision(task) + 1);
+        return { productionTask: requestReceipt(next), operationLogId: clean(input.operationLog?.id) };
+      });
+    },
+
     splitForEarlyShipment(input) {
-      const key = `production.early_shipment.split:${resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id)}`;
-      const requestHash = buildIdempotencyRequestHash(input.idempotencyPayload ?? {});
-      const existing = results.get(key);
-      if (existing) {
-        if (existing.requestHash !== requestHash) throw buildIdempotencyConflictError();
-        return structuredClone(existing.result);
-      }
-      const { workspace, plan } = input;
-      const line = find(workspace.orderLines, plan.orderLineId);
-      const task = find(workspace.productionTasks, plan.productionTaskId);
-      const fulfillment = find(workspace.fulfillments, plan.fulfillmentId);
-      const dailyQty = (workspace.workshopReports ?? [])
-        .filter((report) => clean(report.productionTaskId) === plan.productionTaskId)
-        .reduce((sum, report) => clean(report.evidence?.reportKind) === "daily_progress" ? sum + Number(report.qualifiedQty ?? 0) : Number.NaN, 0);
-      const ok = line && task && fulfillment
-        && revision(line) === plan.lineRevision && revision(task) === plan.taskRevision && revision(fulfillment) === plan.fulfillmentRevision
-        && Number(line.qty ?? line.originalQty) === plan.plannedQty && Number(task.plannedQty) === plan.plannedQty
-        && Number(fulfillment.expectedQty ?? fulfillment.qty) === plan.plannedQty && dailyQty === plan.readyQty
-        && !CLOSED_TASK_STATUSES.includes(clean(task.taskStatus ?? task.status)) && !BLOCKED_TASK_STATUSES.includes(clean(task.taskStatus ?? task.status));
-      if (!ok) throw conflict();
-      const now = input.splitAt;
-      const nextLine = { ...line, qty: plan.readyQty, originalQty: plan.readyQty, revision: revision(line) + 1, updatedAt: now };
-      const remainderLine = {
-        ...line,
-        id: input.remainderLine.id,
-        orderLineId: input.remainderLine.id,
-        bizNo: input.remainderLine.bizNo,
-        lineNo: input.remainderLine.id.split("-").at(-1),
-        qty: plan.remainderQty,
-        originalQty: plan.remainderQty,
-        splitFromOrderLineId: plan.orderLineId,
-        amount: input.remainderPrice.finalAmount,
-        revision: 1,
-        createdBy: input.operatorId,
-        createdAt: now,
-        updatedAt: now,
-      };
-      nextLine.amount = input.linePrice.finalAmount;
-      const nextTask = { ...task, plannedQty: plan.readyQty, qty: plan.readyQty, taskStatus: "待完工确认", status: "待完工确认", revision: revision(task) + 1, updatedAt: now };
-      const remainderTask = {
-        ...task,
-        id: input.remainderTask.id,
-        productionTaskId: input.remainderTask.id,
-        bizNo: input.remainderTask.bizNo,
-        orderLineId: input.remainderLine.id,
-        lineId: input.remainderLine.id,
-        plannedQty: plan.remainderQty,
-        qty: plan.remainderQty,
-        taskStatus: input.remainderTask.taskStatus,
-        status: input.remainderTask.taskStatus,
-        publishedScheduleId: input.remainderTask.publishedScheduleId,
-        revision: 1,
-        createdBy: input.operatorId,
-        createdAt: now,
-        updatedAt: now,
-      };
-      const nextFulfillment = { ...fulfillment, expectedQty: plan.readyQty, qty: plan.readyQty, revision: revision(fulfillment) + 1, updatedAt: now };
-      const remainderFulfillment = {
-        ...fulfillment,
-        id: input.remainderFulfillment.id,
-        fulfillmentId: input.remainderFulfillment.id,
-        bizNo: input.remainderFulfillment.bizNo,
-        orderLineId: input.remainderLine.id,
-        lineId: input.remainderLine.id,
-        expectedQty: plan.remainderQty,
-        qty: plan.remainderQty,
-        actualQty: null,
-        revision: 1,
-        createdBy: input.operatorId,
-        createdAt: now,
-        updatedAt: now,
-      };
-      const source = (workspace.priceSnapshots ?? []).find((row) => clean(row.priceSnapshotId ?? row.id) === plan.priceSnapshotId) ?? {};
-      const priceRow = (target, orderLineId) => ({
-        ...source,
-        id: target.priceSnapshotId,
-        priceSnapshotId: target.priceSnapshotId,
-        orderLineId,
-        snapshotType: target.snapshotType,
-        versionNo: target.versionNo,
-        chargeableQty: target.chargeableQty,
-        finalAmount: target.finalAmount,
-        amount: target.finalAmount,
-        otherFee: target.otherFee,
-        adjustmentAmount: target.adjustmentAmount,
-        overrideReason: target.overrideReason,
-        sourceEvidence: { ...(source.sourceEvidence ?? {}), ...target.sourceEvidence },
-        createdBy: input.operatorId,
-        createdAt: now,
+      return replay("production.early_shipment.split", input, () => {
+        const { workspace, plan } = input;
+        const line = find(workspace.orderLines, plan.orderLineId);
+        const task = find(workspace.productionTasks, plan.productionTaskId);
+        const fulfillment = find(workspace.fulfillments, plan.fulfillmentId);
+        const dailyQty = (workspace.workshopReports ?? [])
+          .filter((report) => clean(report.productionTaskId) === plan.productionTaskId)
+          .reduce((sum, report) => clean(report.evidence?.reportKind) === "daily_progress" ? sum + Number(report.qualifiedQty ?? 0) : Number.NaN, 0);
+        const ok = line && task && fulfillment
+          && revision(line) === plan.lineRevision && revision(task) === plan.taskRevision && revision(fulfillment) === plan.fulfillmentRevision
+          && Number(line.qty ?? line.originalQty) === plan.plannedQty && Number(task.plannedQty) === plan.plannedQty
+          && Number(fulfillment.expectedQty ?? fulfillment.qty) === plan.plannedQty && dailyQty === plan.readyQty
+          && !CLOSED_TASK_STATUSES.includes(clean(task.taskStatus ?? task.status)) && !BLOCKED_TASK_STATUSES.includes(clean(task.taskStatus ?? task.status));
+        if (!ok) throw conflict();
+        const versionNo = Math.max(0, ...(workspace.priceSnapshots ?? [])
+          .filter((row) => clean(row.orderLineId ?? row.order_line_id) === plan.orderLineId)
+          .map((row) => Number(row.versionNo ?? row.version_no) || 0)) + 1;
+        return applySplitToWorkspace(workspace, input, {
+          lineRevision: revision(line) + 1,
+          taskRevision: revision(task) + 1,
+          fulfillmentRevision: revision(fulfillment) + 1,
+          linePriceVersionNo: versionNo,
+        });
       });
-      replace(workspace, "orderLines", nextLine); workspace.orderLines.push(remainderLine);
-      replace(workspace, "productionTasks", nextTask); workspace.productionTasks.push(remainderTask);
-      replace(workspace, "fulfillments", nextFulfillment); workspace.fulfillments.push(remainderFulfillment);
-      workspace.priceSnapshots = [...(workspace.priceSnapshots ?? []), priceRow(input.linePrice, plan.orderLineId), priceRow(input.remainderPrice, input.remainderLine.id)];
-      workspace.operationLogs = [input.operationLog, ...(workspace.operationLogs ?? [])];
-      const result = receipt({
-        orderLine: { orderLineId: nextLine.id, qty: plan.readyQty, revision: nextLine.revision },
-        remainderOrderLine: { orderLineId: remainderLine.id, qty: plan.remainderQty, revision: 1 },
-        productionTask: { productionTaskId: nextTask.productionTaskId ?? nextTask.id, plannedQty: plan.readyQty, taskStatus: nextTask.taskStatus, revision: nextTask.revision },
-        remainderProductionTask: { productionTaskId: remainderTask.id, plannedQty: plan.remainderQty, taskStatus: remainderTask.taskStatus, machineId: remainderTask.machineId ?? "", revision: 1 },
-        fulfillmentId: nextFulfillment.fulfillmentId ?? nextFulfillment.id,
-        remainderFulfillmentId: remainderFulfillment.id,
-        priceSnapshotIds: [input.linePrice.priceSnapshotId, input.remainderPrice.priceSnapshotId],
-        operationLogId: clean(input.operationLog?.id),
-      });
-      results.set(key, { requestHash, result: structuredClone(result) });
-      return result;
     },
   };
 }
 
 export function createPostgresEarlyShipmentSplitRepository({ idempotentTransactionJson }) {
   return {
+    async setEarlyShipmentRequest(input) {
+      const raw = await idempotentTransactionJson(buildPostgresIdempotencyRequest({
+        scope: "production.early_shipment.request",
+        idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+        payload: input.idempotencyPayload ?? {},
+        operatorId: input.operationLog?.operatorId,
+        targetType: "production_task",
+        targetId: input.productionTaskId,
+        resourceLocks: [`production-task:${input.productionTaskId}`],
+        query: buildEarlyShipmentRequestQuery(input),
+      }));
+      if (!raw?.productionTask) throw new Error("PostgreSQL early shipment request returned an invalid result");
+      const next = applyEarlyShipmentRequestToWorkspace(input.workspace, input, Number(raw.productionTask.revision));
+      return { productionTask: requestReceipt(next ?? raw.productionTask), operationLogId: clean(raw.operationLogId) };
+    },
+
     async splitForEarlyShipment(input) {
       const query = buildEarlyShipmentSplitQuery(input);
       const raw = await idempotentTransactionJson(buildPostgresIdempotencyRequest({
@@ -148,8 +102,177 @@ export function createPostgresEarlyShipmentSplitRepository({ idempotentTransacti
         query,
       }));
       if (!raw?.orderLine || !raw?.remainderOrderLine) throw new Error("PostgreSQL early shipment split returned an invalid result");
+      // Keep this request's workspace in step so the automatic completion right after sees the split.
+      if (find(input.workspace?.orderLines, input.plan.orderLineId) && !find(input.workspace?.orderLines, raw.remainderOrderLine.orderLineId)) {
+        applySplitToWorkspace(input.workspace, input, {
+          lineRevision: Number(raw.orderLine.revision),
+          taskRevision: Number(raw.productionTask?.revision),
+          fulfillmentRevision: Number(raw.fulfillmentRevision),
+          linePriceVersionNo: Number(raw.linePriceVersionNo),
+        });
+      }
       return receipt(raw);
     },
+  };
+}
+
+// The same projection of a committed split onto the in-memory workspace, for both stores.
+function applySplitToWorkspace(workspace, input, revisions) {
+  const { plan } = input;
+  const line = find(workspace.orderLines, plan.orderLineId);
+  const task = find(workspace.productionTasks, plan.productionTaskId);
+  const fulfillment = find(workspace.fulfillments, plan.fulfillmentId);
+  const now = input.splitAt;
+  const nextLine = { ...line, qty: plan.readyQty, originalQty: plan.readyQty, amount: input.linePrice.finalAmount, revision: revisions.lineRevision, updatedAt: now };
+  const remainderLine = {
+    ...line,
+    id: input.remainderLine.id,
+    orderLineId: input.remainderLine.id,
+    bizNo: input.remainderLine.bizNo,
+    lineNo: input.remainderLine.id.split("-").at(-1),
+    qty: plan.remainderQty,
+    originalQty: plan.remainderQty,
+    splitFromOrderLineId: plan.orderLineId,
+    amount: input.remainderPrice.finalAmount,
+    revision: 1,
+    createdBy: input.operatorId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const noRequest = { earlyShipRequestedAt: "", earlyShipRequestedBy: "", earlyShipNote: "" };
+  const nextTask = { ...task, ...noRequest, plannedQty: plan.readyQty, qty: plan.readyQty, taskStatus: "待完工确认", status: "待完工确认", revision: revisions.taskRevision, updatedAt: now };
+  const remainderTask = {
+    ...task,
+    ...noRequest,
+    id: input.remainderTask.id,
+    productionTaskId: input.remainderTask.id,
+    bizNo: input.remainderTask.bizNo,
+    orderLineId: input.remainderLine.id,
+    lineId: input.remainderLine.id,
+    plannedQty: plan.remainderQty,
+    qty: plan.remainderQty,
+    taskStatus: input.remainderTask.taskStatus,
+    status: input.remainderTask.taskStatus,
+    publishedScheduleId: input.remainderTask.publishedScheduleId,
+    revision: 1,
+    createdBy: input.operatorId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const nextFulfillment = { ...fulfillment, expectedQty: plan.readyQty, qty: plan.readyQty, revision: revisions.fulfillmentRevision, updatedAt: now };
+  const remainderFulfillment = {
+    ...fulfillment,
+    id: input.remainderFulfillment.id,
+    fulfillmentId: input.remainderFulfillment.id,
+    bizNo: input.remainderFulfillment.bizNo,
+    orderLineId: input.remainderLine.id,
+    lineId: input.remainderLine.id,
+    expectedQty: plan.remainderQty,
+    qty: plan.remainderQty,
+    actualQty: null,
+    revision: 1,
+    createdBy: input.operatorId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const source = (workspace.priceSnapshots ?? []).find((row) => clean(row.priceSnapshotId ?? row.id) === plan.priceSnapshotId) ?? {};
+  const priceRow = (target, orderLineId, versionNo) => ({
+    ...source,
+    id: target.priceSnapshotId,
+    priceSnapshotId: target.priceSnapshotId,
+    orderLineId,
+    snapshotType: target.snapshotType,
+    versionNo,
+    chargeableQty: target.chargeableQty,
+    finalAmount: target.finalAmount,
+    amount: target.finalAmount,
+    otherFee: target.otherFee,
+    adjustmentAmount: target.adjustmentAmount,
+    overrideReason: target.overrideReason,
+    sourceEvidence: { ...(source.sourceEvidence ?? {}), ...target.sourceEvidence },
+    createdBy: input.operatorId,
+    createdAt: now,
+  });
+  replace(workspace, "orderLines", nextLine); workspace.orderLines.push(remainderLine);
+  replace(workspace, "productionTasks", nextTask); workspace.productionTasks.push(remainderTask);
+  replace(workspace, "fulfillments", nextFulfillment); workspace.fulfillments.push(remainderFulfillment);
+  workspace.priceSnapshots = [...(workspace.priceSnapshots ?? []),
+    priceRow(input.linePrice, plan.orderLineId, revisions.linePriceVersionNo),
+    priceRow(input.remainderPrice, input.remainderLine.id, 1)];
+  workspace.operationLogs = [input.operationLog, ...(workspace.operationLogs ?? [])];
+  return receipt({
+    orderLine: { orderLineId: nextLine.id, qty: plan.readyQty, revision: nextLine.revision },
+    remainderOrderLine: { orderLineId: remainderLine.id, qty: plan.remainderQty, revision: 1 },
+    productionTask: { productionTaskId: nextTask.productionTaskId ?? nextTask.id, plannedQty: plan.readyQty, taskStatus: nextTask.taskStatus, revision: nextTask.revision },
+    remainderProductionTask: { productionTaskId: remainderTask.id, plannedQty: plan.remainderQty, taskStatus: remainderTask.taskStatus, machineId: remainderTask.machineId ?? "", revision: 1 },
+    fulfillmentId: nextFulfillment.fulfillmentId ?? nextFulfillment.id,
+    remainderFulfillmentId: remainderFulfillment.id,
+    priceSnapshotIds: [input.linePrice.priceSnapshotId, input.remainderPrice.priceSnapshotId],
+    operationLogId: clean(input.operationLog?.id),
+  });
+}
+
+function applyEarlyShipmentRequestToWorkspace(workspace, input, nextRevision) {
+  const task = find(workspace?.productionTasks, input.productionTaskId);
+  if (!task) return null;
+  const next = {
+    ...task,
+    earlyShipRequestedAt: input.requested ? input.requestedAt : "",
+    earlyShipRequestedBy: input.requested ? input.operatorId : "",
+    earlyShipNote: input.requested ? input.note : "",
+    revision: nextRevision,
+    updatedAt: input.requestedAt,
+  };
+  replace(workspace, "productionTasks", next);
+  workspace.operationLogs = [input.operationLog, ...(workspace.operationLogs ?? [])];
+  return next;
+}
+
+function requestReceipt(task) {
+  return {
+    productionTaskId: clean(task.productionTaskId ?? task.id),
+    earlyShipRequestedAt: clean(task.earlyShipRequestedAt),
+    earlyShipNote: clean(task.earlyShipNote),
+    revision: revision(task),
+  };
+}
+
+export function buildEarlyShipmentRequestQuery(input) {
+  const p = createPostgresParameterBinder();
+  const taskId = p.text(input.productionTaskId);
+  return {
+    text: `
+BEGIN;
+WITH locked_task AS MATERIALIZED (
+  SELECT id, revision, task_status FROM production_tasks WHERE id = ${taskId} FOR UPDATE
+),
+write_guard AS MATERIALIZED (
+  SELECT erp_require(EXISTS (
+    SELECT 1 FROM locked_task
+    WHERE revision = ${p.integer(input.expectedRevision)} AND task_status <> ALL(${p.textArray(CLOSED_TASK_STATUSES)})
+  ), 'ERP_EARLY_SHIPMENT_REQUEST_CONFLICT') AS ok
+),
+updated_task AS (
+  UPDATE production_tasks SET
+    early_ship_requested_at = ${input.requested ? p.timestamp(input.requestedAt) : "NULL"},
+    early_ship_requested_by = ${input.requested ? p.text(input.operatorId) : "NULL"},
+    early_ship_note = ${input.requested ? p.nullableText(input.note) : "NULL"},
+    revision = production_tasks.revision + 1,
+    updated_at = now()
+  FROM write_guard WHERE production_tasks.id = ${taskId} AND write_guard.ok
+  RETURNING json_build_object('productionTaskId', production_tasks.id, 'revision', production_tasks.revision,
+    'earlyShipRequestedAt', production_tasks.early_ship_requested_at, 'earlyShipNote', COALESCE(production_tasks.early_ship_note, '')) AS result
+),
+inserted_operation_log AS (
+  ${buildInsertOperationLogSql(input.operationLog, p, "write_guard")}
+)
+SELECT json_build_object(
+  'productionTask', (SELECT result FROM updated_task),
+  'operationLogId', (SELECT id FROM inserted_operation_log)
+) AS result;
+COMMIT;
+`.trim(),
+    values: p.values,
   };
 }
 
@@ -180,7 +303,7 @@ export function buildEarlyShipmentSplitQuery(input) {
   ))).*
   FROM price_snapshots AS source, write_guard
   WHERE source.id = ${p.text(plan.priceSnapshotId)} AND write_guard.ok
-  RETURNING id`;
+  RETURNING id, version_no`;
   return {
     text: `
 BEGIN;
@@ -264,7 +387,9 @@ inserted_line AS (
   RETURNING json_build_object('orderLineId', id, 'qty', original_qty, 'revision', revision) AS result
 ),
 updated_task AS (
-  UPDATE production_tasks SET planned_qty = ${readyQty}, task_status = '待完工确认', revision = production_tasks.revision + 1, updated_at = now()
+  UPDATE production_tasks SET planned_qty = ${readyQty}, task_status = '待完工确认',
+    early_ship_requested_at = NULL, early_ship_requested_by = NULL, early_ship_note = NULL,
+    revision = production_tasks.revision + 1, updated_at = now()
   FROM write_guard WHERE production_tasks.id = ${taskId} AND write_guard.ok
   RETURNING json_build_object('productionTaskId', production_tasks.id, 'plannedQty', production_tasks.planned_qty,
     'taskStatus', production_tasks.task_status, 'revision', production_tasks.revision) AS result
@@ -278,6 +403,9 @@ inserted_task AS (
     'planned_qty', ${remainderQty},
     'task_status', ${p.text(input.remainderTask.taskStatus)},
     'published_schedule_id', ${p.nullableText(input.remainderTask.publishedScheduleId)},
+    'early_ship_requested_at', NULL,
+    'early_ship_requested_by', NULL,
+    'early_ship_note', NULL,
     'revision', 1,
     'created_by', ${operator},
     'created_at', now(),
@@ -290,7 +418,7 @@ inserted_task AS (
 updated_fulfillment AS (
   UPDATE fulfillment_records SET expected_qty = ${readyQty}, revision = fulfillment_records.revision + 1, updated_at = now()
   FROM write_guard WHERE fulfillment_records.id = ${fulfillmentId} AND write_guard.ok
-  RETURNING fulfillment_records.id
+  RETURNING fulfillment_records.id, fulfillment_records.revision
 ),
 inserted_fulfillment AS (
   INSERT INTO fulfillment_records
@@ -309,7 +437,7 @@ inserted_fulfillment AS (
   RETURNING id
 ),
 inserted_line_price AS (
-  ${priceCopy(input.linePrice, lineId, `(SELECT COALESCE(MAX(version_no), 0) + 1 FROM price_snapshots WHERE order_line_id = ${lineId} AND snapshot_type = 'quantity_adjustment')`)}
+  ${priceCopy(input.linePrice, lineId, `(SELECT COALESCE(MAX(version_no), 0) + 1 FROM price_snapshots WHERE order_line_id = ${lineId})`)}
 ),
 inserted_remainder_price AS (
   ${priceCopy(input.remainderPrice, `(SELECT ${p.text(input.remainderLine.id)} FROM inserted_line LIMIT 1)`)}
@@ -323,6 +451,8 @@ SELECT json_build_object(
   'productionTask', (SELECT result FROM updated_task),
   'remainderProductionTask', (SELECT result FROM inserted_task),
   'fulfillmentId', (SELECT id FROM updated_fulfillment),
+  'fulfillmentRevision', (SELECT revision FROM updated_fulfillment),
+  'linePriceVersionNo', (SELECT version_no FROM inserted_line_price),
   'remainderFulfillmentId', (SELECT id FROM inserted_fulfillment),
   'priceSnapshotIds', json_build_array((SELECT id FROM inserted_line_price), (SELECT id FROM inserted_remainder_price)),
   'operationLogId', (SELECT id FROM inserted_operation_log)

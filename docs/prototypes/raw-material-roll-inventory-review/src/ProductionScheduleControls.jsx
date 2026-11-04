@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listOfficeProductionMachineQueue, publishOfficeProductionSchedule, resequenceOfficeProductionMachineQueue } from "../../../../src/services/officeProductionPackingLazyApi.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { releaseSilkScreenTask } from "../../../../src/services/silkScreenClaimApiClient.js";
-import { splitForEarlyShipment } from "../../../../src/services/earlyShipmentApiClient.js";
+import { setEarlyShipmentRequest, splitForEarlyShipment } from "../../../../src/services/earlyShipmentApiClient.js";
 import { DelegatedBusinessDecisionFields, isDelegatedBusinessDecisionComplete } from "../../../../src/components/DelegatedBusinessDecisionFields.jsx";
 import { eligibleProductionMachines, isSelectedProductionMachineAllowed } from "./production-machine-options.js";
 
@@ -143,15 +143,16 @@ function SilkScreenClaimNotice({ task, authState, canRelease, onSaved }) {
   </section>;
 }
 
-// P2-03 边做边发：车间已报做好一部分、整单还没做完时，办公室可以先发做好的部分；
-// 剩下的拆成续做明细，同一机台接着做，做完再发。单价仍按整单下单数量定的档。
+// P2-03 边做边发：办公室和客户说好后点「今天先发（出多少发多少）」；车间下班照常报当日数量，
+// 系统就把做好的部分先发（确认完工进打包），剩下的拆成续做明细第二天接着做。单价按整单下单数量不变。
+// 车间已经报过数、来不及等时，办公室也可以「现在就按已报数量先发」。
 const EARLY_SHIP_CLOSED = new Set(["已完成", "已作废", "已取消", "异常暂停", "数量差异待处理", "待完工确认"]);
 export function EarlyShipmentPanel({ selected, formal, onSaved }) {
   const raw = selected?.sourceTask || {};
   const task = raw.productionTask || {};
   const line = raw.orderLine || selected?.sourceOrderLine || {};
   const permissions = formal.permissionContext?.actionPermissions || [];
-  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState("");
@@ -162,26 +163,42 @@ export function EarlyShipmentPanel({ selected, formal, onSaved }) {
   const planned = Number(task.plannedQty || 0);
   const ready = Number(raw.dailyProgress?.cumulativeQualifiedQty || 0);
   const status = String(task.taskStatus || task.status || "");
-  if (!permissions.includes("production.schedule.publish") || !finalStage || EARLY_SHIP_CLOSED.has(status) || !(ready > 0) || !(ready < planned)) return null;
-  const remainder = planned - ready;
-  async function submit() {
-    if (busy) return;
-    setBusy(true); setMessage("");
-    const result = await splitForEarlyShipment({ authState: formal.authState, productionTaskId: task.productionTaskId || selected.id, expectedRevision: Number(task.revision ?? 1), reason: reason.trim() });
+  const requested = Boolean(task.earlyShipRequestedAt);
+  if (!permissions.includes("production.schedule.publish") || !finalStage || EARLY_SHIP_CLOSED.has(status) || !(planned > 0) || ready >= planned) return null;
+  const productionTaskId = task.productionTaskId || selected.id;
+  async function finish(result, okText) {
     if (!live.current) return;
     setBusy(false); setConfirming(false);
-    if (result.ok) { setReason(""); setMessage(`已拆分：这单先发 ${result.data.shippedNowQty} 个（等车间点「报工完成」后进打包）；剩下 ${result.data.remainderQty} 个在续做明细 ${result.data.remainderOrderLineId} 里接着做。`); }
-    else setMessage(result.error?.message || "先发拆分没有成功，请刷新后再试。");
+    if (result.ok) { setNote(""); setMessage(okText(result.data)); }
+    else setMessage(result.error?.message || "没有成功，请刷新后再试。");
     if (result.ok || result.uncertain) await onSaved?.();
   }
-  return <section className="business-detail-section production-schedule-controls" aria-label="先发已做好的部分">
-    <h3>先发已做好的部分</h3>
-    <p>车间已报做好 <strong>{ready}</strong> 个，整单 {planned} 个，还差 {remainder} 个。</p>
-    <p>先发这 {ready} 个：这条明细改成 {ready} 个，车间确认完工后照常打包出库、单独开送货单；剩下 {remainder} 个拆成「续做」明细，同一机台接着做，做完再发。单价不变。</p>
-    <label>备注（可不填）<textarea value={reason} maxLength={200} disabled={busy} onChange={event => setReason(event.target.value)} placeholder="例如：客户今天要先拉一部分" /></label>
-    {!confirming
-      ? <button type="button" disabled={busy} onClick={() => setConfirming(true)}>先发已做好的 {ready} 个</button>
-      : <div className="production-queue-actions"><button type="button" disabled={busy} onClick={() => setConfirming(false)}>先不拆</button><button type="button" className="primary" disabled={busy} onClick={() => void submit()}>{busy ? "拆分中…" : `确认：先发 ${ready} 个，续做 ${remainder} 个`}</button></div>}
+  async function mark(next) {
+    if (busy) return;
+    setBusy(true); setMessage("");
+    const result = await setEarlyShipmentRequest({ authState: formal.authState, productionTaskId, expectedRevision: Number(task.revision ?? 1), requested: next, note: note.trim() });
+    await finish(result, () => next ? "已安排今天先发：车间下班报完当日数量，做好的就自动进打包，剩下的明天接着做。" : "已取消今天先发。");
+  }
+  async function splitNow() {
+    if (busy) return;
+    setBusy(true); setMessage("");
+    const result = await splitForEarlyShipment({ authState: formal.authState, productionTaskId, expectedRevision: Number(task.revision ?? 1), reason: note.trim() });
+    await finish(result, (data) => `已先发 ${data.shippedNowQty} 个${data.completion?.status === "completed" ? "，已进打包" : `（${data.completion?.message || "请车间点「报工完成」后进打包"}）`}；剩下 ${data.remainderQty} 个在续做明细 ${data.remainderOrderLineId} 里接着做。`);
+  }
+  return <section className="business-detail-section production-schedule-controls" aria-label="边做边发">
+    <h3>边做边发</h3>
+    <p>整单 {planned} 个，车间已报做好 {ready} 个。</p>
+    {requested
+      ? <p><strong>已安排今天先发</strong>{task.earlyShipNote ? `（${task.earlyShipNote}）` : ""}：车间下班报完当日数量，做好的自动进打包先发，剩下的拆成续做明细明天接着做。</p>
+      : <p>客户要今天先拉一部分时点「今天先发」：车间照常做、下班照常报数，出多少发多少。</p>}
+    <label>备注（可不填）<textarea value={note} maxLength={200} disabled={busy} onChange={event => setNote(event.target.value)} placeholder="例如：客户的快递晚上 7 点装车" /></label>
+    <div className="production-queue-actions">
+      {requested
+        ? <button type="button" disabled={busy} onClick={() => void mark(false)}>取消今天先发</button>
+        : <button type="button" className="primary" disabled={busy} onClick={() => void mark(true)}>今天先发（出多少发多少）</button>}
+      {ready > 0 && !confirming ? <button type="button" disabled={busy} onClick={() => setConfirming(true)}>现在就按已报的 {ready} 个先发</button> : null}
+    </div>
+    {ready > 0 && confirming ? <div className="production-queue-actions"><button type="button" disabled={busy} onClick={() => setConfirming(false)}>先不拆</button><button type="button" className="primary" disabled={busy} onClick={() => void splitNow()}>{busy ? "处理中…" : `确认：先发 ${ready} 个，续做 ${planned - ready} 个`}</button></div> : null}
     {message ? <p role="status">{message}</p> : null}
   </section>;
 }

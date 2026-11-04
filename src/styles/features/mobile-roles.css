@@ -1323,3 +1323,16 @@
   white-space: nowrap;
 }
 .silk-claim-lock.mine { border-color: var(--erp-success-border); background: var(--erp-surface); color: var(--erp-success); }
+
+/* P2-03 今天先发：车间下班报数后，做好的进打包先发。 */
+.workshop-early-ship-notice {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--erp-info-border);
+  border-radius: 8px;
+  background: var(--erp-info-bg);
+  color: var(--erp-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.workshop-early-ship-notice strong { color: var(--erp-info); }

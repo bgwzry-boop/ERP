@@ -1,3 +1,4 @@
+import { buildDeliveryBatchFamily, describeBatchProgress } from "../../shared/deliveryBatches.js";
 import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
 import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
 import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
@@ -110,6 +111,11 @@ export function createFulfillmentPrintCommandService({
       paperNo: printableBody.paperNo,
       pricing: pricingResult?.pricing,
       packageLabelRows: packageLabelRows((workspace.packages??[]).filter(row=>row.fulfillmentId===fulfillmentId)),
+      // P2-03: a batch of a split order item says which batch it is and what is still to come.
+      batchProgress: describeBatchProgress(
+        buildDeliveryBatchFamily({ orderLines: workspace.orderLines ?? [], fulfillments: workspace.fulfillments ?? [], packages: workspace.packages ?? [] }, before.lineId ?? before.orderLineId),
+        { fulfillmentId, orderLineId: before.lineId ?? before.orderLineId, quantity: pricingResult?.pricing?.deliveredQty },
+      ),
     });
     const printJob = buildPrintJobRecord({
       workspace,

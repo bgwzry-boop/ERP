@@ -40,7 +40,11 @@ async function fixture(key) {
 
 try {
   const a = await fixture("A");
-  const done = await service.splitForEarlyShipment({ workspace: a.workspace, productionTaskId: a.task, body: { expectedRevision: 1, idempotencyKey: "early-split-a-1" }, operatorId: "U-OFFICE-A" });
+  // The office marks "今天先发" first; the split uses the mark up and the follow-up task starts unmarked.
+  const marked = await service.setEarlyShipmentRequest({ workspace: a.workspace, productionTaskId: a.task, body: { expectedRevision: 1, note: "7 点装车", idempotencyKey: "early-mark-a-1" }, operatorId: "U-OFFICE-A" });
+  assert.equal(marked.error, undefined, marked.message);
+  assert.equal((await pool.query("SELECT early_ship_note, revision FROM production_tasks WHERE id = $1", [a.task])).rows[0].revision, 2);
+  const done = await service.splitForEarlyShipment({ workspace: a.workspace, productionTaskId: a.task, body: { expectedRevision: 2, idempotencyKey: "early-split-a-1" }, operatorId: "U-OFFICE-A" });
   assert.equal(done.error, undefined, done.message);
   const rest = `${a.line}-R1`;
   const lines = (await pool.query("SELECT id, original_qty, split_from_order_line_id, order_id, customer_id, print_color, line_status, revision FROM order_lines WHERE id = ANY($1) ORDER BY id", [[a.line, rest]])).rows;
@@ -49,6 +53,8 @@ try {
   const tasks = (await pool.query("SELECT id, order_line_id, planned_qty, task_status, machine_id, published_schedule_id FROM production_tasks WHERE order_line_id = ANY($1) ORDER BY id", [[a.line, rest]])).rows;
   assert.deepEqual(tasks.map((row) => [row.id, row.planned_qty, row.task_status, row.machine_id, row.published_schedule_id]),
     [[a.task, 6000, "待完工确认", "BAG-03", "SCH-A"], [`${a.task}-R1`, 4000, "跨日继续", "BAG-03", "SCH-A-R1"]]);
+  const marks = (await pool.query("SELECT id, early_ship_requested_at IS NULL AS clear FROM production_tasks WHERE order_line_id = ANY($1) ORDER BY id", [[a.line, rest]])).rows;
+  assert.deepEqual(marks.map((row) => row.clear), [true, true]);
   const fuls = (await pool.query("SELECT id, order_line_id, expected_qty, customer_snapshot->>'address' AS address FROM fulfillment_records WHERE order_line_id = ANY($1) ORDER BY id", [[a.line, rest]])).rows;
   assert.deepEqual(fuls.map((row) => [row.id, row.order_line_id, row.expected_qty, row.address]), [[a.ful, a.line, 6000, "一厂"], [`${a.ful}-R1`, rest, 4000, "一厂"]]);
   const prices = (await pool.query("SELECT order_line_id, snapshot_type, version_no, chargeable_qty, final_amount::float AS amount, bag_price::float AS bag, source_evidence_json FROM price_snapshots WHERE order_line_id = ANY($1) AND id LIKE '%SPLIT%' ORDER BY order_line_id", [[a.line, rest]])).rows;

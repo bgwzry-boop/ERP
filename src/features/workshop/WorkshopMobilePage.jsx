@@ -470,6 +470,12 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
               size="standard"
               stateLabel={selectedTaskStatus}
             />
+            {mode === "生产报工" && selectedProductionLine?.productionTask?.earlyShipRequestedAt ? (
+              <p className="workshop-early-ship-notice" role="note">
+                <strong>办公室安排今天先发</strong>：下班照常「报当日数量」，报完做好的就进打包先发，剩下的明天接着做。
+                {selectedProductionLine.productionTask.earlyShipNote ? `（${selectedProductionLine.productionTask.earlyShipNote}）` : ""}
+              </p>
+            ) : null}
             {isSuppliedMaterialLine(selectedLine) ? (
               <p className="workshop-supplied-material-warning" role="note">
                 <strong>来料加工</strong>：用客户送来的布料印，不要领本厂卷料。印完填的数量要先减掉调机试印的。

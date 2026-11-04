@@ -330,7 +330,6 @@ export function createApiSharedServiceRegistry() {
     summarizeOrderLineForChange,
   });
   const silkScreenTaskClaimService = createSilkScreenTaskClaimService({ buildOperationLog });
-  const earlyShipmentSplitService = createEarlyShipmentSplitService({ buildOperationLog });
   const productionReportingCommandService = createProductionReportingCommandService({
     buildOperationLog,
     buildProductionTaskFromBody,
@@ -341,6 +340,11 @@ export function createApiSharedServiceRegistry() {
     isProductionTaskCompletedStatus,
     resolvePersistableCreatedBy,
     summarizeOrderLineForChange,
+  });
+  // P2-03: the ready part of an early shipment is confirmed complete through the normal completion.
+  const earlyShipmentSplitService = createEarlyShipmentSplitService({
+    buildOperationLog,
+    completeProductionReport: (input) => productionReportingCommandService.completeProductionReport(input),
   });
   const packingCommandService = createPackingCommandService({
     buildOperationLog,
