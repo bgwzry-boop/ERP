@@ -148,7 +148,8 @@ test("outbound delivery and supplier month-end share the complete review list-de
   ]);
 
   assert.doesNotMatch(appSource, /function StatementWorkspace/, "supplier month-end must not retain its older standalone list shell");
-  assert.match(appSource, /!isRawMaterialView && activeNavId !== "raw-material-cost" \? <BusinessWorkspace/, "existing business pages retain their complete-review workbench while the migrated cost flow has one dedicated entry");
+  assert.match(appSource, /!isRawMaterialView && activeNavId !== "raw-material-cost" && activeNavId !== "mold-changes" \? <BusinessWorkspace/, "existing business pages retain their complete-review workbench while the migrated cost flow and the mold-change work orders have dedicated entries");
+  assert.match(appSource, /activeNavId === "mold-changes" \? <MoldChangeWorkspace formal=\{formal\}/, "P2-04: mold-change work orders have their own page");
   assert.match(appSource, /activeNavId === "raw-material-cost" \? <RawMaterialCostWorkspace formal=\{formal\}/, "raw-material cost uses the migrated authoritative cost workbench");
   assert.match(workspacesSource, /navId === "outbound-delivery"\) return <FulfillmentWorkspace/, "outbound delivery should use its current-shell workspace");
   assert.match(workspacesSource, /navId === "supplier-month-end"\) return <SupplierSettlementWorkspace/, "supplier month-end should use its current-shell workspace");

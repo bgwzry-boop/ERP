@@ -20,7 +20,9 @@ export function resolveTodoWorkspaceLink(todo, permissionContext) {
   if (retake && (todo.productionTaskReferenceStatus !== 'valid' || !String(todo.productionTaskId || '').trim())) {
     return blocked('重拍任务归属缺失或冲突，请刷新并核对来源。');
   }
-  const navId = retake ? 'production-tasks' : targets[todo.resolvedRefType];
+  // P2-04: mold-change work orders open the 换模工单 page; other device tasks keep their target.
+  const moldChange = todo.resolvedRefType === 'maintenance_task' && todo.type === '换模工单';
+  const navId = retake ? 'production-tasks' : moldChange ? 'mold-changes' : targets[todo.resolvedRefType];
   if (!navId) return blocked('该引用类型尚未配置跳转，请在对应业务中核查。');
   const item = getVisiblePcNavGroups(permissionContext).flatMap(group => group.items).find(item => item.id === navId);
   if (!item) return blocked('当前账号无权进入关联工作台，请联系有权限的同事处理。');
@@ -28,7 +30,7 @@ export function resolveTodoWorkspaceLink(todo, permissionContext) {
     navId, label: '打开重拍生产任务', reason: '', disabled: false,
     productionTaskId: String(todo.productionTaskId).trim(),
   };
-  if (todo.resolvedRefType === 'maintenance_task') return { navId, label: '打开设备任务', reason: '', disabled: false, maintenanceTaskId: String(todo.resolvedRefId).trim() };
+  if (todo.resolvedRefType === 'maintenance_task') return { navId, label: moldChange ? '打开换模工单' : '打开设备任务', reason: '', disabled: false, maintenanceTaskId: String(todo.resolvedRefId).trim() };
   if (todo.resolvedRefType === 'fulfillment') return {
     navId, label: `打开${item.label}记录`, reason: '', disabled: false,
     fulfillmentId: String(todo.resolvedRefId).trim(),

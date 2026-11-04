@@ -1352,3 +1352,7 @@
 .early-ship-packing button { min-height: 40px; padding: 0 14px; }
 .early-ship-message { margin: 0; font-size: 14px; }
 .early-ship-warning { margin: 0; color: var(--erp-danger); font-size: 14px; }
+
+/* P2-04 换模：开始换模 / 换模完成 两个按钮。 */
+.maintenance-mold-actions { display: grid; gap: 8px; }
+.maintenance-mold-actions button { min-height: 44px; font-size: 15px; }

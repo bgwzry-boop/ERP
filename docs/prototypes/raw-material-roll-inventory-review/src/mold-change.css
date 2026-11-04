@@ -1,0 +1,30 @@
+/* P2-04 换模工单 */
+.mold-change-workspace { display: grid; gap: 12px; padding: 12px 0; min-width: 0; overflow: auto; }
+.mold-change-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.mold-change-head h1 { margin: 0; font-size: 20px; }
+.mold-change-head p { margin: 4px 0 0; color: var(--erp-text-muted); font-size: 13px; }
+.mold-change-head button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; }
+.mold-change-card { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--erp-surface); }
+.mold-change-card h2 { margin: 0; font-size: 16px; }
+.mold-change-card h2 small { margin-left: 6px; color: var(--erp-text-muted); font-size: 13px; font-weight: 500; }
+.mold-change-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; align-items: end; }
+.mold-change-form label { display: grid; gap: 4px; font-size: 13px; }
+.mold-change-form label.wide { grid-column: 1 / -1; }
+.mold-change-form :is(input, select, textarea) { min-height: 34px; font-size: 14px; }
+.mold-change-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.mold-change-quick button { min-height: 34px; padding: 0 10px; font-size: 13px; }
+.mold-change-card > button.primary { justify-self: start; min-height: 36px; padding: 0 18px; }
+.mold-change-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mold-change-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.mold-change-list li.done { background: var(--erp-surface-subtle); }
+.mold-change-list li img { grid-column: 1 / -1; max-width: min(100%, 420px); height: auto; border-radius: 6px; }
+.mold-change-list li [role="alert"] { grid-column: 1 / -1; margin: 0; color: var(--erp-danger); }
+.mold-change-info { display: grid; gap: 2px; min-width: 0; }
+.mold-change-info strong { font-size: 14px; }
+.mold-change-info :is(span, small) { color: var(--erp-text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.mold-change-empty { margin: 0; color: var(--erp-text-muted); font-size: 13px; }
+.mold-change-when { display: grid; gap: 8px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; grid-column: 1 / -1; }
+.mold-change-when legend { padding: 0 4px; font-size: 13px; }
+.mold-change-when label.inline { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.mold-change-when label:not(.inline) { display: grid; gap: 4px; font-size: 13px; max-width: 420px; }
+.mold-change-times { color: var(--erp-text) !important; }

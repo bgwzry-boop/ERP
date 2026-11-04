@@ -30,6 +30,8 @@ const MOBILE_VIEWS = [
   ["all", "全部功能", AppstoreOutlined],
 ];
 const TERMINAL_STATUSES = new Set(["已恢复", "已完成"]);
+const TECHNICIAN_TASK_TYPES = new Set(["设备报修", "换模"]);
+const TASK_TYPE_LABELS = Object.freeze({ 设备报修: "修理工单", 换模: "换模工单" });
 
 const DEFAULT_TASKS = Object.freeze([
   { id: "MT-BAG-01", machineId: "BAG-01", machineName: "1号制袋机", type: "日常巡检", status: "待检查", priority: "今天", faultCategory: "例行检查", summary: "检查温控、切刀、计数器和安全防护。", due: "今天 16:00", revision: 1, photoAttachmentIds: [] },
@@ -63,9 +65,11 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const isFormalSession = authState?.source === "api_runtime" && authState?.authenticated === true;
   const canWriteTask = !recovery.error && isFormalSession && [...(authState?.permissions?.actionPermissions || []), ...(authState?.permissions?.buttonPermissions || [])].includes("maintenance.task.update");
-  const pendingTasks = useMemo(() => taskRecords.filter((task) => !TERMINAL_STATUSES.has(task.status)), [taskRecords]);
-  const completedTasks = useMemo(() => taskRecords.filter((task) => TERMINAL_STATUSES.has(task.status)), [taskRecords]);
-  const selected = pendingTask ?? taskRecords.find((task) => task.id === selectedId) ?? pendingTasks[0] ?? taskRecords[0] ?? null;
+  // Owner 2026-11-04: technicians only need repair and mold-change work orders.
+  const technicianTasks = useMemo(() => taskRecords.filter((task) => TECHNICIAN_TASK_TYPES.has(task.type)), [taskRecords]);
+  const pendingTasks = useMemo(() => technicianTasks.filter((task) => !TERMINAL_STATUSES.has(task.status)), [technicianTasks]);
+  const completedTasks = useMemo(() => technicianTasks.filter((task) => TERMINAL_STATUSES.has(task.status)), [technicianTasks]);
+  const selected = pendingTask ?? technicianTasks.find((task) => task.id === selectedId) ?? pendingTasks[0] ?? technicianTasks[0] ?? null;
   const draft = pendingRequest ? {finding:pendingRequest.finding,action:pendingRequest.actionTaken,status:pendingRequest.status,photoFile:null} : drafts[selected?.id] ?? buildDraft(selected);
   const frozen = Boolean(confirmation) || submitting || Boolean(pendingRequest);
 
@@ -125,7 +129,18 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
     submitTask({ completionConfirmed: false });
   }
 
-  async function submitTask({ completionConfirmed }) {
+  // P2-04: 换模完成 needs the photo of the final test bag, then the usual final confirmation.
+  function finishMoldChange() {
+    if (!selected || submittingRef.current || pendingRequestRef.current || readState.loading || readState.error) return;
+    if (!draft.photoFile && !(selected.photoAttachmentIds ?? []).length) {
+      setNotice({ tone: "danger", text: "换模完成要先拍最终试做的袋子。" });
+      return;
+    }
+    updateDraft("status", "已完成");
+    setConfirmation({ taskId: selected.id, expectedRevision: selected.revision });
+  }
+
+  async function submitTask({ completionConfirmed, statusOverride }) {
     if (!selected || !canWriteTask || submittingRef.current || readState.loading || readState.error) return;
     submittingRef.current = true;
     setSubmitting(true);
@@ -146,7 +161,7 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
           createMaintenanceEvidenceAttachmentInput({
             taskId: selected.id,
             operatorId: currentUser.userId,
-            remark: `${selected.machineName} · ${draft.status} · 设备检查留痕`,
+            remark: isMoldChange(selected) ? `${selected.machineName} · 换成 ${selected.faultCategory} · 最终试做的袋子` : `${selected.machineName} · ${draft.status} · 设备检查留痕`,
             file,
           }),
           { serverRequired: true },
@@ -165,7 +180,7 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
         expectedRevision: confirmation?.expectedRevision ?? selected.revision,
         finding: draft.finding.trim(),
         actionTaken: draft.action.trim(),
-        status: draft.status,
+        status: statusOverride || draft.status,
         photoAttachmentIds,
         completionConfirmed,
       };
@@ -202,7 +217,7 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
         tone: "success",
         text: TERMINAL_STATUSES.has(saved.status)
           ? `已完成 ${saved.machineName} 的任务，实际机修人员、时间、照片和办公室待办均已留痕。`
-          : `已保存“${saved.status}”，办公室共享待办已同步。`,
+          : saved.status === "换模中" ? `已记下开始换模（${formatTimestamp(saved.startedAt)}），办公室能看到。` : `已保存“${saved.status}”，办公室共享待办已同步。`,
       });
       if (TERMINAL_STATUSES.has(saved.status)) {
         const nextTask = pendingTasks.find((item) => item.id !== saved.id);
@@ -235,7 +250,7 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
   }
 
   function openFirstType(type) {
-    const task = pendingTasks.find((item) => item.type === type) ?? taskRecords.find((item) => item.type === type);
+    const task = pendingTasks.find((item) => item.type === type) ?? technicianTasks.find((item) => item.type === type);
     if (task) openTask(task.id);
   }
 
@@ -250,7 +265,7 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
     <section className={`maintenance-mobile-page guided-mobile-page view-${view}`} aria-label="现场机修手机工作台">
       <header className="guided-mobile-hero maintenance-mobile-hero">
         <div>
-          <h1>设备任务</h1>
+          <h1>修理和换模</h1>
         </div>
         <strong>{pendingTasks.length}<small>待处理</small></strong>
       </header>
@@ -267,12 +282,17 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
             <div><span>{selected.id}</span><h2>{selected.machineName}</h2></div>
             <em className={selected.priority === "异常" ? "danger" : TERMINAL_STATUSES.has(selected.status) ? "success" : "warning"}>{selected.status}</em>
           </header>
-          <dl>
-            <div><dt>任务类型</dt><dd>{selected.type}</dd></div>
+          {isMoldChange(selected) ? <dl>
+            <div><dt>任务类型</dt><dd>换模工单</dd></div>
+            <div><dt>机台编号</dt><dd>{selected.machineId}</dd></div>
+            <div><dt>换成</dt><dd>{selected.faultCategory}</dd></div>
+            <div><dt>换模时间</dt><dd>{formatMoldWhen(selected)}</dd></div>
+          </dl> : <dl>
+            <div><dt>任务类型</dt><dd>{TASK_TYPE_LABELS[selected.type] ?? selected.type}</dd></div>
             <div><dt>机台编号</dt><dd>{selected.machineId}</dd></div>
             <div><dt>故障分类</dt><dd>{selected.faultCategory}</dd></div>
             <div><dt>最晚处理</dt><dd>{formatDue(selected)}</dd></div>
-          </dl>
+          </dl>}
           <p className="maintenance-mobile-summary">{selected.summary}</p>
           {TERMINAL_STATUSES.has(selected.status) ? (
             <section className="maintenance-mobile-completed-summary">
@@ -285,7 +305,12 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
               <section className="maintenance-mobile-steps" aria-label="设备任务处理步骤">
                 <span className="active">1 查看任务</span><span>2 记录处理</span><span>3 确认提交</span>
               </section>
-              <section className="maintenance-mobile-form">
+              {isMoldChange(selected) ? <section className="maintenance-mobile-form">
+                {selected.startedAt ? <p className="maintenance-photo-name">已开始换模：{formatTimestamp(selected.startedAt)}</p> : null}
+                <label className="maintenance-photo-field"><CameraOutlined /><span>拍最终试做的袋子</span><input accept="image/*" capture="environment" disabled={frozen} onChange={(event) => updateDraft("photoFile", event.target.files?.[0] ?? null)} type="file" /></label>
+                {draft.photoFile ? <p className="maintenance-photo-name">已选择：{draft.photoFile.name}</p> : selected.photoAttachmentIds?.length ? <p className="maintenance-photo-name">服务器已有 {selected.photoAttachmentIds.length} 张照片</p> : null}
+                <label><span>备注（可不填）</span><textarea disabled={frozen} maxLength={500} onChange={(event) => updateDraft("action", event.target.value)} placeholder="比如：换好后试做 20 个，尺寸正常" value={draft.action} /></label>
+              </section> : <section className="maintenance-mobile-form">
                 <label><span>检查发现</span><textarea disabled={frozen} maxLength={500} onChange={(event) => updateDraft("finding", event.target.value)} placeholder="写清看到的问题或检查结果" value={draft.finding} /></label>
                 <label><span>采取措施</span><textarea disabled={frozen} maxLength={500} onChange={(event) => updateDraft("action", event.target.value)} placeholder="维修、调整、更换或继续观察" value={draft.action} /></label>
                 <label><span>处理状态</span><select disabled={frozen} onChange={(event) => updateDraft("status", event.target.value)} value={draft.status}>
@@ -293,25 +318,34 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
                 </select></label>
                 <label className="maintenance-photo-field"><CameraOutlined /><span>拍照或选择设备照片</span><input accept="image/*" capture="environment" disabled={frozen} onChange={(event) => updateDraft("photoFile", event.target.files?.[0] ?? null)} type="file" /></label>
                 {draft.photoFile ? <p className="maintenance-photo-name">已选择：{draft.photoFile.name}</p> : selected.photoAttachmentIds?.length ? <p className="maintenance-photo-name">服务器已有 {selected.photoAttachmentIds.length} 张照片</p> : null}
-              </section>
-              {!confirmation ? (
+              </section>}
+              {!confirmation && isMoldChange(selected) ? (
+                <div className="maintenance-mold-actions">
+                  {selected.status === "待换模" ? <button className="maintenance-mobile-primary" disabled={!canWriteTask || Boolean(readState.error) || readState.loading || submitting} onClick={() => submitTask({ completionConfirmed: false, statusOverride: "换模中" })} type="button">
+                    <ToolOutlined /> {!isFormalSession ? "正式账号登录后提交" : !canWriteTask ? "当前账号无任务处理权限" : "开始换模"}
+                  </button> : null}
+                  <button className={selected.status === "待换模" ? "" : "maintenance-mobile-primary"} disabled={!canWriteTask || Boolean(readState.error) || readState.loading || submitting} onClick={finishMoldChange} type="button">
+                    <CheckCircleOutlined /> 换模完成（要先拍试做的袋子）
+                  </button>
+                </div>
+              ) : !confirmation ? (
                 <>
-                  {draft.status === "已恢复" ? <section className="maintenance-mobile-boundary">
-                    <strong><WarningOutlined /> 完成任务</strong>
-                    <p>确认后记录处理人、完成时间和照片，并关闭办公室待办。</p>
+                  {TERMINAL_STATUSES.has(draft.status) ? <section className="maintenance-mobile-boundary">
+                    <strong><WarningOutlined /> {isMoldChange(selected) ? "换模完成" : "完成任务"}</strong>
+                    <p>{isMoldChange(selected) ? "确认后记录换模人、完成时间和试做照片，办公室就能看到这台机已换好。" : "确认后记录处理人、完成时间和照片，并关闭办公室待办。"}</p>
                   </section> : null}
                   <button className="maintenance-mobile-primary" disabled={!canWriteTask || Boolean(readState.error) || readState.loading || submitting} onClick={beginSubmit} type="button">
-                    <CheckCircleOutlined /> {!isFormalSession ? "正式账号登录后提交" : !canWriteTask ? "当前账号无任务处理权限" : draft.status === "已恢复" ? "核对并提交完成" : "保存处理进度"}
+                    <CheckCircleOutlined /> {!isFormalSession ? "正式账号登录后提交" : !canWriteTask ? "当前账号无任务处理权限" : TERMINAL_STATUSES.has(draft.status) ? "核对并提交完成" : "保存处理进度"}
                   </button>
                 </>
               ) : (
                 <section className="maintenance-completion-confirmation" aria-live="polite">
-                  <strong>{pendingRequest ? "提交结果待核实：原请求摘要" : "最终确认：提交设备已恢复"}</strong>
+                  <strong>{pendingRequest ? "提交结果待核实：原请求摘要" : isMoldChange(selected) ? "最终确认：换模完成" : "最终确认：提交设备已恢复"}</strong>
                   <dl>
                     <div><dt>任务 / 机台</dt><dd>{selected.id} · {selected.machineName}</dd></div>
-                    <div><dt>检查发现</dt><dd>{draft.finding}</dd></div>
-                    <div><dt>采取措施</dt><dd>{draft.action}</dd></div>
-                    <div><dt>设备照片</dt><dd>{draft.photoFile ? `新照片：${draft.photoFile.name}` : `服务器已有 ${selected.photoAttachmentIds?.length ?? 0} 张`}</dd></div>
+                    {isMoldChange(selected) ? <div><dt>换成</dt><dd>{selected.faultCategory}</dd></div> : <div><dt>检查发现</dt><dd>{draft.finding}</dd></div>}
+                    <div><dt>{isMoldChange(selected) ? "备注" : "采取措施"}</dt><dd>{draft.action || "无"}</dd></div>
+                    <div><dt>{isMoldChange(selected) ? "试做照片" : "设备照片"}</dt><dd>{draft.photoFile ? `新照片：${draft.photoFile.name}` : `服务器已有 ${selected.photoAttachmentIds?.length ?? 0} 张`}</dd></div>
                   </dl>
                   <p>确认后写入实际机修人员和完成时间，并把同一设备任务的办公室待办标为已处理；历史结果不可被旧版本覆盖。</p>
                   {!pendingRequest ? <div>
@@ -322,20 +356,19 @@ function MaintenanceMobileSession({ authState, currentUser = {}, tasks = DEFAULT
               )}
             </>
           )}
-        </section> : <section className="maintenance-mobile-empty"><CheckCircleOutlined /><strong>{readState.loading ? "正在读取设备任务" : readState.error ? "设备任务暂不可用" : "当前没有设备任务"}</strong><span>新的报修或巡检任务会出现在这里。</span></section>
+        </section> : <section className="maintenance-mobile-empty"><CheckCircleOutlined /><strong>{readState.loading ? "正在读取工单" : readState.error ? "工单暂不可用" : "当前没有工单"}</strong><span>新的修理工单和换模工单会出现在这里。</span></section>
       ) : null}
 
       {view === "pending" ? <section className="guided-mobile-queue maintenance-mobile-queue" aria-label="设备任务列表">
         <header><div><h2>{queueMode === "completed" ? "维护记录" : "待处理任务"}</h2></div><strong>{queueTasks.length}</strong></header>
-        {queueTasks.length ? queueTasks.map((task) => <button key={task.id} onClick={() => openTask(task.id)} type="button"><span>{task.type} · {task.priority}</span><strong>{task.machineName} · {task.faultCategory}</strong><small>{task.summary}</small></button>) : <p className="maintenance-queue-empty">当前没有{queueMode === "completed" ? "维护记录" : "待处理任务"}。</p>}
+        {queueTasks.length ? queueTasks.map((task) => <button key={task.id} onClick={() => openTask(task.id)} type="button"><span>{TASK_TYPE_LABELS[task.type] ?? task.type} · {isMoldChange(task) ? formatMoldWhen(task) : task.priority}</span><strong>{task.machineName} · {isMoldChange(task) ? `换成 ${task.faultCategory}` : task.faultCategory}</strong><small>{task.summary}</small></button>) : <p className="maintenance-queue-empty">当前没有{queueMode === "completed" ? "维护记录" : "待处理任务"}。</p>}
       </section> : null}
 
       {view === "all" ? <section className="guided-mobile-functions maintenance-mobile-functions" aria-label="机修全部功能">
         <header><h2>任务分类</h2></header>
         <div>
-          <FunctionButton count={pendingTasks.filter((task) => task.type === "设备报修").length} icon={WarningOutlined} label="设备报修" onClick={() => openFirstType("设备报修")} />
-          <FunctionButton count={pendingTasks.filter((task) => task.type === "日常巡检").length} icon={CheckCircleOutlined} label="日常巡检" onClick={() => openFirstType("日常巡检")} />
-          <FunctionButton count={pendingTasks.filter((task) => task.type === "预防维护").length} icon={ToolOutlined} label="预防维护" onClick={() => openFirstType("预防维护")} />
+          <FunctionButton count={pendingTasks.filter((task) => task.type === "设备报修").length} icon={WarningOutlined} label="修理工单" onClick={() => openFirstType("设备报修")} />
+          <FunctionButton count={pendingTasks.filter((task) => task.type === "换模").length} icon={ToolOutlined} label="换模工单" onClick={() => openFirstType("换模")} />
           <FunctionButton count={completedTasks.length} icon={HistoryOutlined} label="维护记录" onClick={showRecords} />
           <button disabled={!isFormalSession || readState.loading || frozen} onClick={refreshTasks} type="button"><ReloadOutlined /><strong>刷新任务</strong><span>{readState.loading ? "读取中" : isFormalSession ? "服务器" : "正式账号"}</span></button>
         </div>
@@ -374,7 +407,17 @@ function buildDraft(task) {
   };
 }
 
+// P2-04: a mold change only needs the progress and, to finish, the photo of the final test bag.
+function isMoldChange(task) {
+  return task?.type === "换模";
+}
+
 function validateDraft(task, draft) {
+  if (isMoldChange(task)) {
+    if (!draft.status) return "请选择换模进度。";
+    if (TERMINAL_STATUSES.has(draft.status) && !draft.photoFile && !(task.photoAttachmentIds ?? []).length) return "换模完成要先拍最终试做的袋子。";
+    return "";
+  }
   if (!draft.finding?.trim() || draft.finding.trim().length < 2) return "请填写至少 2 个字的检查发现。";
   if (!draft.action?.trim() || draft.action.trim().length < 2) return "请填写至少 2 个字的采取措施。";
   if (!draft.status) return "请选择处理状态。";
@@ -387,6 +430,12 @@ function formatDue(task) {
   const timestamp = Date.parse(task?.dueAt ?? "");
   if (!Number.isFinite(timestamp)) return "未设置";
   return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(timestamp));
+}
+
+// "11/4 18:30", or "做完 ORD-1104-003 … 后（已做完，可以换了）".
+function formatMoldWhen(task) {
+  if (task?.afterProductionTaskLabel) return `做完 ${task.afterProductionTaskLabel} 后${task.afterProductionTaskDone ? "（这单已做完，可以换了）" : ""}`;
+  return formatDue(task);
 }
 
 function formatTimestamp(value) {

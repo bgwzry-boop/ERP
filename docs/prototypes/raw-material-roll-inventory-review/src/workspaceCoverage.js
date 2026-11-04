@@ -21,4 +21,5 @@ export const dedicatedWorkspaceIds = Object.freeze([
   "roll-inventory",
   "supplier-month-end",
   "raw-material-cost",
+  "mold-changes",
 ]);

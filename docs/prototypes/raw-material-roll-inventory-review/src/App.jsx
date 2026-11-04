@@ -31,6 +31,7 @@ import {
 } from "./navigation.js";
 import { BusinessWorkspace } from "./BusinessWorkspaces.jsx";
 import { RawMaterialCostWorkspace } from "./RawMaterialCostWorkspace.jsx";
+import { MoldChangeWorkspace } from "./MoldChangeWorkspace.jsx";
 import { RawMaterialStockOperationsDialog } from "./RawMaterialStockOperationsDialog.jsx";
 import { RawMaterialPurchasePanel } from "../../../../src/features/raw-materials/RawMaterialPurchasePanel.jsx";
 import { getUiActionState } from "../../../../src/auth/seedPermissions.js";
@@ -452,7 +453,8 @@ export function App({ permissionContext = defaultPermissionContext }) {
       {activeView === "收货录入" && import.meta.env.DEV && import.meta.env.VITE_ERP_REVIEW_DATA_LABEL ? <p className="workspace-data-snapshot">{import.meta.env.VITE_ERP_REVIEW_DATA_LABEL}</p> : null}
       {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenReceive={openReceive} onManageColors={canManageSupplierColors ? () => setColorMappingOpen(true) : undefined} /> : null}
       {activeNavId === "raw-material-cost" ? <RawMaterialCostWorkspace formal={formal} /> : null}
-      {!isRawMaterialView && activeNavId !== "raw-material-cost" ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} workspaceFocus={workspaceFocus} /> : null}
+      {activeNavId === "mold-changes" ? <MoldChangeWorkspace formal={formal} /> : null}
+      {!isRawMaterialView && activeNavId !== "raw-material-cost" && activeNavId !== "mold-changes" ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} productionFocusId={productionFocusId} workspaceFocus={workspaceFocus} /> : null}
       </>}
       </WorkspaceErrorBoundary>
     </main>

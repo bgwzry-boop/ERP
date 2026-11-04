@@ -17,6 +17,7 @@ export const workspaceReadDependencies = Object.freeze({
   "customer-statements": ["statements"],
   "supplier-month-end": ["supplierStatementReviews", "rawMaterialInbounds"],
   "raw-material-cost": ["rawMaterialInbounds", "productionTasks"],
+  "mold-changes": ["machines", "productionTasks"],
   "customer-records": ["orderLines", "statements"],
   "people-machines": ["employeeAccountReviews", "machines"],
   "general-prices": [],
