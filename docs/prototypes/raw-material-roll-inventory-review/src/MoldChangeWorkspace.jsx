@@ -1,5 +1,6 @@
 // P2-04 换模工单（负责人 2026-11-04）：办公室或管理看订单数据决定哪台机、什么时候换模、换成什么；
-// 技工手机上收到工单，换好后拍最终试做的袋子上传就完成。这里安排换模、看进度和试做照片。
+// 换模时间可以选 12:00 / 18:30 下班点、任意时间，或者"等某个订单做完后"。技工手机上收到工单，
+// 点「开始换模」，换好后拍最终试做的袋子点「换模完成」。这里能看到开始和完成时间、试做照片。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReloadOutlined } from "@ant-design/icons";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
@@ -20,7 +21,7 @@ export function MoldChangeWorkspace({ formal }) {
   const [tasks, setTasks] = useState([]);
   const [readError, setReadError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ machineId: "", dueAt: "", target: "", note: "" });
+  const [form, setForm] = useState({ machineId: "", when: "time", dueAt: "", afterTaskId: "", target: "", note: "" });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const live = useRef(true);
@@ -45,7 +46,13 @@ export function MoldChangeWorkspace({ formal }) {
   }
 
   const dueIso = toIso(form.dueAt);
-  const valid = form.machineId && dueIso && form.target.trim() && form.target.trim().length <= 80;
+  // Orders still to be made on the chosen machine ("换模等哪个订单做完").
+  const machineOrders = (formal.data.productionTasks || []).filter((item) => {
+    const task = item.productionTask || item;
+    return form.machineId && (task.machineId || "") === form.machineId && !["已完成", "已作废", "已取消"].includes(task.taskStatus || task.status || "");
+  });
+  const whenValid = form.when === "after" ? Boolean(form.afterTaskId) : Boolean(dueIso);
+  const valid = form.machineId && whenValid && form.target.trim() && form.target.trim().length <= 80;
 
   async function submit() {
     if (busy || !valid) return;
@@ -57,7 +64,7 @@ export function MoldChangeWorkspace({ formal }) {
       idempotencyKey: pendingKey.current,
       type: "换模",
       machineId: form.machineId,
-      dueAt: dueIso,
+      ...(form.when === "after" ? { afterProductionTaskId: form.afterTaskId } : { dueAt: dueIso }),
       faultCategory: form.target.trim(),
       summary: form.note.trim() || undefined,
     }, { serverRequired: true });
@@ -65,8 +72,8 @@ export function MoldChangeWorkspace({ formal }) {
     setBusy(false);
     if (result.task) {
       pendingKey.current = "";
-      setForm({ machineId: "", dueAt: "", target: "", note: "" });
-      setMessage(`已派出换模工单：${result.task.machineName} 换成 ${result.task.faultCategory}，${formatTime(result.task.dueAt)}。技工手机上会收到。`);
+      setForm({ machineId: "", when: "time", dueAt: "", afterTaskId: "", target: "", note: "" });
+      setMessage(`已派出换模工单：${result.task.machineName} 换成 ${result.task.faultCategory}，${whenText(result.task)}。技工手机上会收到。`);
       await reload();
     } else {
       setMessage(result.error?.message || "换模工单没有派出，请检查后重试。");
@@ -89,18 +96,30 @@ export function MoldChangeWorkspace({ formal }) {
       <h2>安排换模</h2>
       <div className="mold-change-form">
         <label><span>机台</span>
-          <select value={form.machineId} disabled={busy} onChange={(event) => update("machineId", event.target.value)}>
+          <select value={form.machineId} disabled={busy} onChange={(event) => { update("machineId", event.target.value); update("afterTaskId", ""); }}>
             <option value="">选择机台</option>
             {machines.map((machine) => { const id = machine.machineId || machine.id; return <option key={id} value={id}>{machine.name || machine.machineLabel || id}</option>; })}
           </select>
         </label>
-        <label><span>换模时间</span>
-          <input type="datetime-local" value={form.dueAt} disabled={busy} onChange={(event) => update("dueAt", event.target.value)} />
-        </label>
-        <div className="mold-change-quick" aria-label="常用时间">
-          <button type="button" disabled={busy} onClick={() => update("dueAt", localInput(0, 18, 0))}>今天下班后（18:00）</button>
-          <button type="button" disabled={busy} onClick={() => update("dueAt", localInput(1, 12, 0))}>明天中午（12:00）</button>
-        </div>
+        <fieldset className="mold-change-when wide">
+          <legend>什么时候换</legend>
+          <label className="inline"><input type="radio" name="mold-when" checked={form.when === "time"} disabled={busy} onChange={() => update("when", "time")} /> 按时间</label>
+          <label className="inline"><input type="radio" name="mold-when" checked={form.when === "after"} disabled={busy} onChange={() => update("when", "after")} /> 等某个订单做完后</label>
+          {form.when === "time" ? <>
+            <div className="mold-change-quick" aria-label="下班时间">
+              <button type="button" disabled={busy} onClick={() => update("dueAt", localInput(0, 12, 0))}>今天 12:00</button>
+              <button type="button" disabled={busy} onClick={() => update("dueAt", localInput(0, 18, 30))}>今天 18:30</button>
+              <button type="button" disabled={busy} onClick={() => update("dueAt", localInput(1, 12, 0))}>明天 12:00</button>
+              <button type="button" disabled={busy} onClick={() => update("dueAt", localInput(1, 18, 30))}>明天 18:30</button>
+            </div>
+            <label><span>或者选时间</span><input type="datetime-local" value={form.dueAt} disabled={busy} onChange={(event) => update("dueAt", event.target.value)} /></label>
+          </> : <label><span>等这单做完</span>
+            <select value={form.afterTaskId} disabled={busy || !form.machineId} onChange={(event) => update("afterTaskId", event.target.value)}>
+              <option value="">{form.machineId ? (machineOrders.length ? "选这台机上的订单" : "这台机上没有没做完的订单") : "先选机台"}</option>
+              {machineOrders.map((item) => { const task = item.productionTask || item; const line = item.orderLine || {}; const id = item.productionTaskId || task.productionTaskId; return <option key={id} value={id}>{[line.orderId || item.orderLineId, line.productName, line.size, task.plannedQty ? `${task.plannedQty}个` : "", task.taskStatus].filter(Boolean).join(" · ")}</option>; })}
+            </select>
+          </label>}
+        </fieldset>
         <label><span>换成什么</span>
           <input value={form.target} maxLength={80} disabled={busy} placeholder="例如：30*40 模具" onChange={(event) => update("target", event.target.value)} />
         </label>
@@ -147,7 +166,8 @@ function MoldChangeRow({ task, authState }) {
   return <li className={doneStatus ? "done" : ""}>
     <div className="mold-change-info">
       <strong>{task.machineName} · 换成 {task.faultCategory}</strong>
-      <span>{formatTime(task.dueAt)} · {task.status}{doneStatus && task.completedAt ? ` · ${formatTime(task.completedAt)} 完成` : ""}</span>
+      <span>{whenText(task)} · {task.status}</span>
+      {task.startedAt || task.completedAt ? <span className="mold-change-times">{task.startedAt ? `开始换模 ${formatTime(task.startedAt)}` : ""}{task.startedAt && task.completedAt ? " · " : ""}{task.completedAt ? `换模完成 ${formatTime(task.completedAt)}` : ""}</span> : null}
       {task.summary && !task.summary.endsWith(`换成 ${task.faultCategory}`) ? <small>{task.summary}</small> : null}
       {doneStatus && task.actionTaken ? <small>技工：{task.actionTaken}</small> : null}
     </div>
@@ -169,6 +189,11 @@ function toIso(value) {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function whenText(task) {
+  if (task.afterProductionTaskLabel) return `做完 ${task.afterProductionTaskLabel} 后${task.afterProductionTaskDone ? "（这单已做完）" : ""}`;
+  return formatTime(task.dueAt);
 }
 
 function formatTime(value) {

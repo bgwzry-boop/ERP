@@ -33,6 +33,9 @@ try {
   assert.equal(done.statusCode, 200, done.message);
   const row = (await pool.query("SELECT task_type, status, fault_category, photo_attachment_ids_json FROM maintenance_tasks WHERE id = $1", [taskId])).rows[0];
   assert.deepEqual([row.task_type, row.status, row.fault_category, row.photo_attachment_ids_json], ["换模", "已完成", "30*40 模具", ["ATT-MOLD-LIVE"]]);
+  assert.ok(done.response.task.startedAt, "start time is kept even when finished straight away");
+  // Without a time or an order to wait for, the table refuses a mold change.
+  await assert.rejects(pool.query("UPDATE maintenance_tasks SET due_at = NULL WHERE id = $1", [taskId]), /maintenance_tasks_mold_change_when_check/);
   await assert.rejects(pool.query("UPDATE maintenance_tasks SET status = '已恢复' WHERE id = $1", [taskId]), /maintenance_tasks_mold_change_status_check/);
   console.log("PASS mold-change work order on migrated PostgreSQL: created, finished with the test-bag photo, mold statuses enforced.");
 } finally {

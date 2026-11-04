@@ -23,6 +23,8 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
       machineId: cleanText(body.machineId), type: cleanText(body.type ?? body.taskType),
       faultCategory: cleanText(body.faultCategory ?? body.moldTarget), priority: cleanText(body.priority) || "普通",
       summary: cleanText(body.summary), dueAt: nullableTimestamp(body.dueAt),
+      // Only present for "after this order" mold changes, so earlier receipts keep their hash.
+      ...(cleanText(body.afterProductionTaskId) ? { afterProductionTaskId: cleanText(body.afterProductionTaskId) } : {}),
       assignedEmployeeId: cleanText(body.assignedTechnicianEmployeeId) };
     // Invalid dates must not be normalized into an existing empty-date receipt.
     if (body.dueAt != null && body.dueAt !== "" && !idempotencyPayload.dueAt) return error(422, "MAINTENANCE_TASK_DUE_AT_INVALID", "最晚处理时间无效。");
@@ -44,7 +46,14 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
     if (!taskTypes.has(type)) return error(422, "MAINTENANCE_TASK_TYPE_INVALID", "设备任务类型无效。");
     if (!priorities.has(priority)) return error(422, "MAINTENANCE_TASK_PRIORITY_INVALID", "设备任务优先级无效。");
     if (moldChange && (!faultCategory || faultCategory.length > 80)) return error(422, "MOLD_CHANGE_TARGET_REQUIRED", "请写清换成什么模具（80 个字以内），例如：30*40 模具。");
-    if (moldChange && !dueAt) return error(422, "MOLD_CHANGE_TIME_REQUIRED", "请选择换模时间。");
+    // When: a time (12:00 / 18:30 breaks or any time), or after an order on this machine is done.
+    const afterTask = moldChange && cleanText(body.afterProductionTaskId) ? findProductionTask(workspace, body.afterProductionTaskId) : null;
+    if (moldChange && cleanText(body.afterProductionTaskId)) {
+      if (!afterTask) return error(422, "MOLD_CHANGE_AFTER_TASK_INVALID", "选的订单找不到，请刷新后重选。");
+      if (cleanText(afterTask.machineId) !== cleanText(machine.id ?? machine.machineId)) return error(422, "MOLD_CHANGE_AFTER_TASK_INVALID", "选的订单不在这台机上，请重选。");
+      if (["已完成", "已作废", "已取消"].includes(cleanText(afterTask.taskStatus ?? afterTask.status))) return error(422, "MOLD_CHANGE_AFTER_TASK_INVALID", "选的订单已经做完了，直接选时间就行。");
+    }
+    if (moldChange && !dueAt && !afterTask) return error(422, "MOLD_CHANGE_TIME_REQUIRED", "请选择换模时间，或者选等哪个订单做完后换。");
     if (!faultCategory || faultCategory.length > 80) return error(422, "MAINTENANCE_FAULT_CATEGORY_REQUIRED", "请填写 80 个字以内的故障或检查分类。");
     if (summary.length < 2 || summary.length > 300) return error(422, "MAINTENANCE_TASK_SUMMARY_REQUIRED", "请填写 2–300 个字的任务说明。");
     const assignedEmployeeId = cleanText(body.assignedTechnicianEmployeeId);
@@ -64,6 +73,9 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
       status: initialStatus(type),
       summary,
       dueAt,
+      afterProductionTaskId: afterTask ? cleanText(afterTask.productionTaskId ?? afterTask.id) : "",
+      afterProductionTaskLabel: afterTask ? productionTaskLabel(workspace, afterTask) : "",
+      startedAt: "",
       finding: "",
       actionTaken: "",
       photoAttachmentIds: [],
@@ -149,6 +161,8 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
       photoAttachmentIds,
       actualTechnicianEmployeeId: technician.employee.id,
       completedAt: terminal ? timestamp : "",
+      // The office sees when the change started and when it was done (owner).
+      startedAt: moldChange ? (current.startedAt || timestamp) : current.startedAt || "",
       updatedBy: operatorId,
       revision: current.revision + 1,
       updatedAt: timestamp,
@@ -210,7 +224,7 @@ function buildMaintenanceTodo(task, { operatorId, timestamp }) {
     priority: task.priority,
     status: terminal ? "已处理" : "未处理",
     summary: task.type === MOLD_CHANGE
-      ? `${task.machineName} 换模：换成 ${task.faultCategory} · ${formatShanghaiTime(task.dueAt)} · ${task.status}${task.summary && !task.summary.endsWith(`换成 ${task.faultCategory}`) ? `；${task.summary}` : ""}`
+      ? `${task.machineName} 换模：换成 ${task.faultCategory} · ${task.afterProductionTaskLabel ? `做完 ${task.afterProductionTaskLabel} 后` : formatShanghaiTime(task.dueAt)} · ${task.status}${task.summary && !task.summary.endsWith(`换成 ${task.faultCategory}`) ? `；${task.summary}` : ""}`
       : `${task.machineName} · ${task.faultCategory} · ${task.status}；${task.summary}`,
     dueAt: task.dueAt,
     remindAt: "",
@@ -282,6 +296,8 @@ function taskSnapshot(task) {
     photoAttachmentIds: task.photoAttachmentIds,
     actualTechnicianEmployeeId: task.actualTechnicianEmployeeId,
     completedAt: task.completedAt,
+    startedAt: task.startedAt,
+    afterProductionTaskId: task.afterProductionTaskId,
     revision: task.revision,
   };
 }
@@ -342,4 +358,18 @@ function formatShanghaiTime(value) {
   const timestamp = Date.parse(value ?? "");
   if (!Number.isFinite(timestamp)) return "时间未定";
   return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(timestamp));
+}
+
+function findProductionTask(workspace, id) {
+  const target = cleanText(id);
+  return (workspace?.productionTasks ?? []).find((row) => cleanText(row.productionTaskId ?? row.id) === target) ?? null;
+}
+
+// "ORD-1104-003 李记 无纺布袋 30*40 5000个" — kept on the work order so the technician sees it.
+function productionTaskLabel(workspace, task) {
+  const lineId = cleanText(task.orderLineId ?? task.lineId);
+  const line = (workspace?.orderLines ?? []).find((row) => cleanText(row.orderLineId ?? row.id) === lineId) ?? {};
+  const customer = (workspace?.customers ?? []).find((row) => cleanText(row.id ?? row.customerId) === cleanText(line.customerId));
+  return [cleanText(line.orderId ?? line.orderNo) || lineId, cleanText(customer?.shortName ?? customer?.name), cleanText(line.productName ?? line.product), cleanText(line.size),
+    Number(task.plannedQty) ? `${Number(task.plannedQty)}个` : ""].filter(Boolean).join(" ").slice(0, 120);
 }

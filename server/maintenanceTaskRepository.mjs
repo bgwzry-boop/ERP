@@ -197,7 +197,8 @@ inserted_task AS (
     id, biz_no, machine_id, machine_name_snapshot, task_type, fault_category, priority,
     status, summary, due_at, finding, action_taken, photo_attachment_ids_json,
     assigned_technician_employee_id, actual_technician_employee_id, completed_at,
-    created_by, updated_by, revision, created_at, updated_at
+    created_by, updated_by, revision, created_at, updated_at,
+    after_production_task_id, after_production_task_label, started_at
   )
   SELECT
     ${parameters.text(task.id)}, ${parameters.text(task.bizNo)}, ${parameters.text(task.machineId)},
@@ -207,7 +208,9 @@ inserted_task AS (
     ${parameters.json(task.photoAttachmentIds)}, ${parameters.nullableText(task.assignedTechnicianEmployeeId)},
     ${parameters.nullableText(task.actualTechnicianEmployeeId)}, ${parameters.nullableTimestamp(task.completedAt)},
     ${parameters.nullableText(task.createdBy)}, ${parameters.nullableText(task.updatedBy)}, ${parameters.integer(task.revision)},
-    ${parameters.timestamp(task.createdAt)}, ${parameters.timestamp(task.updatedAt)}
+    ${parameters.timestamp(task.createdAt)}, ${parameters.timestamp(task.updatedAt)},
+    ${parameters.nullableText(task.afterProductionTaskId)}, ${parameters.text(task.afterProductionTaskLabel)},
+    ${parameters.nullableTimestamp(task.startedAt)}
   FROM create_guard WHERE ok
   RETURNING ${maintenanceTaskJsonExpression("maintenance_tasks")} AS result
 ),
@@ -254,6 +257,7 @@ updated_task AS (
     photo_attachment_ids_json = ${parameters.json(task.photoAttachmentIds)},
     actual_technician_employee_id = ${parameters.nullableText(task.actualTechnicianEmployeeId)},
     completed_at = ${parameters.nullableTimestamp(task.completedAt)},
+    started_at = ${parameters.nullableTimestamp(task.startedAt)},
     updated_by = ${parameters.nullableText(task.updatedBy)},
     revision = ${parameters.integer(task.revision)},
     updated_at = ${parameters.timestamp(task.updatedAt)}
@@ -340,6 +344,9 @@ export function normalizeMaintenanceTask(value = {}) {
     assignedTechnicianEmployeeId: cleanText(value.assignedTechnicianEmployeeId ?? value.assigned_technician_employee_id),
     actualTechnicianEmployeeId: cleanText(value.actualTechnicianEmployeeId ?? value.actual_technician_employee_id),
     completedAt: cleanText(value.completedAt ?? value.completed_at),
+    afterProductionTaskId: cleanText(value.afterProductionTaskId ?? value.after_production_task_id),
+    afterProductionTaskLabel: cleanText(value.afterProductionTaskLabel ?? value.after_production_task_label),
+    startedAt: cleanText(value.startedAt ?? value.started_at),
     createdBy: cleanText(value.createdBy ?? value.created_by),
     updatedBy: cleanText(value.updatedBy ?? value.updated_by),
     revision: positiveInteger(value.revision, 1),
@@ -442,7 +449,10 @@ function maintenanceTaskJsonExpression(alias) {
     'actualTechnicianEmployeeId', COALESCE(${alias}.actual_technician_employee_id, ''),
     'completedAt', COALESCE(${alias}.completed_at::TEXT, ''), 'createdBy', COALESCE(${alias}.created_by, ''),
     'updatedBy', COALESCE(${alias}.updated_by, ''), 'revision', ${alias}.revision,
-    'createdAt', ${alias}.created_at::TEXT, 'updatedAt', ${alias}.updated_at::TEXT
+    'createdAt', ${alias}.created_at::TEXT, 'updatedAt', ${alias}.updated_at::TEXT,
+    'afterProductionTaskId', COALESCE(${alias}.after_production_task_id, ''),
+    'afterProductionTaskLabel', ${alias}.after_production_task_label,
+    'startedAt', COALESCE(${alias}.started_at::TEXT, '')
   )`;
 }
 

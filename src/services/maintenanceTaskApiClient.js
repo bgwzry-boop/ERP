@@ -102,6 +102,7 @@ function matchesCreationReceipt(task, { body, operatorId }) {
   return Boolean(initialStatus && task.status === initialStatus
     && task.machineId === cleanText(body.machineId) && task.type === type
     && task.faultCategory === cleanText(body.faultCategory)
+    && task.afterProductionTaskId === cleanText(body.afterProductionTaskId)
     && (serverFilled && !cleanText(body.summary) ? Boolean(cleanText(task.summary)) : task.summary === cleanText(body.summary))
     && (serverFilled && !cleanText(body.priority) ? ["今天", "普通"].includes(task.priority) : task.priority === (cleanText(body.priority) || "普通"))
     && task.assignedTechnicianEmployeeId === cleanText(body.assignedTechnicianEmployeeId)
@@ -129,6 +130,10 @@ export function normalizeMaintenanceTask(value = {}) {
     assignedTechnicianEmployeeId: cleanText(value.assignedTechnicianEmployeeId),
     actualTechnicianEmployeeId: cleanText(value.actualTechnicianEmployeeId),
     completedAt: cleanText(value.completedAt),
+    afterProductionTaskId: cleanText(value.afterProductionTaskId),
+    afterProductionTaskLabel: cleanText(value.afterProductionTaskLabel),
+    afterProductionTaskDone: value.afterProductionTaskDone === true,
+    startedAt: cleanText(value.startedAt),
     revision: Math.max(1, Math.trunc(Number(value.revision ?? 1)) || 1),
     updatedAt: cleanText(value.updatedAt),
   };

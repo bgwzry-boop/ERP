@@ -18,7 +18,15 @@ export async function handleMaintenanceTaskReadRoutes({
       assignedEmployeeId: url.searchParams.get("assignedEmployeeId") ?? "",
     },
   });
-  sendJson(response, 200, { items, total: items.length, readOnly: true });
+  // P2-04: a mold change waiting for an order says whether that order is done yet.
+  const withOrderState = items.map((item) => {
+    const afterId = String(item?.afterProductionTaskId ?? "").trim();
+    if (!afterId) return item;
+    const task = (workspace.productionTasks ?? []).find((row) => String(row.productionTaskId ?? row.id ?? "").trim() === afterId);
+    const status = String(task?.taskStatus ?? task?.status ?? "").trim();
+    return { ...item, afterProductionTaskStatus: status, afterProductionTaskDone: ["已完成", "已作废", "已取消"].includes(status) };
+  });
+  sendJson(response, 200, { items: withOrderState, total: withOrderState.length, readOnly: true });
   return true;
 }
 

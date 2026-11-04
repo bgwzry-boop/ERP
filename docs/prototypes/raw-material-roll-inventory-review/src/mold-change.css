@@ -23,3 +23,8 @@
 .mold-change-info strong { font-size: 14px; }
 .mold-change-info :is(span, small) { color: var(--erp-text-muted); font-size: 13px; overflow-wrap: anywhere; }
 .mold-change-empty { margin: 0; color: var(--erp-text-muted); font-size: 13px; }
+.mold-change-when { display: grid; gap: 8px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; grid-column: 1 / -1; }
+.mold-change-when legend { padding: 0 4px; font-size: 13px; }
+.mold-change-when label.inline { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.mold-change-when label:not(.inline) { display: grid; gap: 4px; font-size: 13px; max-width: 420px; }
+.mold-change-times { color: var(--erp-text) !important; }

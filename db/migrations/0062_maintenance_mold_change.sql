@@ -20,3 +20,14 @@ ALTER TABLE maintenance_tasks
     CHECK (status IN ('待检查', '待处理', '待维护', '处理中', '已恢复', '等待配件', '需要停机', '转办公室协调', '已完成', '待换模', '换模中')),
   ADD CONSTRAINT maintenance_tasks_mold_change_status_check
     CHECK (task_type <> '换模' OR status IN ('待换模', '换模中', '已完成'));
+
+-- A mold change happens at a time (12:00 / 18:30 breaks, or any time) or "after order X is done" on
+-- that machine. The office sees when the technician started and finished.
+ALTER TABLE maintenance_tasks
+  ADD COLUMN IF NOT EXISTS after_production_task_id TEXT,
+  ADD COLUMN IF NOT EXISTS after_production_task_label TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+
+ALTER TABLE maintenance_tasks
+  ADD CONSTRAINT maintenance_tasks_mold_change_when_check
+    CHECK (task_type <> '换模' OR due_at IS NOT NULL OR after_production_task_id IS NOT NULL);
