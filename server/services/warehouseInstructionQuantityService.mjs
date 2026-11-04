@@ -1,3 +1,4 @@
+import { autoQuantityDifference } from "../../shared/quantityTolerance.js";
 const id=row=>String(row?.fulfillmentId??row?.id??'');
 const positive=value=>Number.isSafeInteger(Number(value))&&Number(value)>0;
 export function captureWarehouseInstruction(workspace,fulfillment) {
@@ -5,6 +6,8 @@ export function captureWarehouseInstruction(workspace,fulfillment) {
  const base={instructionQty:positive(expectedQty)?expectedQty:null,instructionResolutionId:'',instructionDecisionId:''};
  if(!positive(actualQty)||actualQty===expectedQty)return base;
  const latest=[...(workspace.fulfillmentQuantityVarianceResolutions??[])].filter(r=>r.fulfillmentId===id(fulfillment)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))||String(b.id).localeCompare(String(a.id)))[0];
+ // P2-05: no office decision on a produced order within 1% of the plan — the paper carries the packed quantity.
+ if(!latest)return autoAccepted(workspace,fulfillment,expectedQty,actualQty)?{...base,instructionQty:actualQty}:base;
  if(!latest||!latest.businessDecisionId||Number(latest.expectedQty)!==expectedQty||Number(latest.actualQty)!==actualQty||!['按实际数量出库','赠送数量'].includes(latest.resolutionResult))return base;
  if((workspace.fulfillmentExceptions??[]).some(e=>e.fulfillmentId===id(fulfillment)&&e.exceptionType==='quantity_mismatch'&&!['已解决','已作废'].includes(e.status)))return base;
  if(workspace.fulfillmentActionTransactionRepository?.kind!=='postgres'&&!(workspace.businessDecisionRecords??[]).some(d=>d.id===latest.businessDecisionId&&d.businessId===id(fulfillment)&&d.decisionScope==='fulfillment_quantity_variance'&&d.status==='active'))return base;
@@ -18,7 +21,15 @@ export function resolveWarehouseInstructionQuantity(workspace,fulfillment,paper)
  const current=captureWarehouseInstruction(workspace,fulfillment);
  const hasActual=fulfillment.actualQty!==null&&fulfillment.actualQty!==undefined&&fulfillment.actualQty!=='';
  if(!current.instructionResolutionId&&(!hasActual||Number(fulfillment.actualQty)===expected)&&instruction===expected&&!paper.instructionResolutionId&&!paper.instructionDecisionId)return instruction;
+ if(!current.instructionResolutionId&&!paper.instructionResolutionId&&!paper.instructionDecisionId&&hasActual&&autoAccepted(workspace,fulfillment,expected,Number(fulfillment.actualQty))&&instruction===Number(fulfillment.actualQty)&&current.instructionQty===instruction)return instruction;
  const resolution=(workspace.fulfillmentQuantityVarianceResolutions??[]).find(r=>(r.id??r.quantityVarianceResolutionId)===paper.instructionResolutionId);
  if(instruction!==current.instructionQty||!current.instructionResolutionId||current.instructionResolutionId!==paper.instructionResolutionId||current.instructionDecisionId!==paper.instructionDecisionId||!resolution||!Number.isFinite(Date.parse(paper.createdAt))||!Number.isFinite(Date.parse(resolution.createdAt))||Date.parse(resolution.createdAt)>Date.parse(paper.createdAt))conflict();
  return instruction;
+}
+
+function autoAccepted(workspace,fulfillment,expectedQty,actualQty){
+ if((workspace.fulfillmentExceptions??[]).some(e=>e.fulfillmentId===id(fulfillment)&&e.exceptionType==='quantity_mismatch'&&!['已解决','已作废'].includes(e.status)))return false;
+ const lineId=String(fulfillment.lineId??fulfillment.orderLineId??'');
+ const orderLine=(workspace.orderLines??[]).find(row=>String(row.id??row.orderLineId)===lineId);
+ return Boolean(autoQuantityDifference({orderLine,expectedQty,actualQty}));
 }

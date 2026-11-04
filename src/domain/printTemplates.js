@@ -145,6 +145,8 @@ function buildFulfillmentDocumentFields({
   const pricing = input.pricing ?? buildReferencePricing(orderLine, quantity);
   const amount = pricing.amount;
   const unitPrice = pricing.unitPrice;
+  // P2-05: 多出来的写明赠送（下单 5000 出 5010 → 按 5000 计价，10 个赠送）。
+  const quantityNote = String(pricing.quantityNote ?? "").trim() || (Number(pricing.freeQty) > 0 ? `多出 ${Number(pricing.freeQty)} 个赠送，不收费` : "");
   const printEnabled = orderLine?.print === "是" || String(orderLine?.orderType ?? "").includes("印刷");
   const lineItem = {
     lineNo: orderLine?.lineNo ?? getLineNoFromOrderLineNo(orderLineNo),
@@ -161,7 +163,7 @@ function buildFulfillmentDocumentFields({
     unitPriceText: unitPrice !== null && unitPrice !== undefined ? formatUnitPrice(unitPrice) : "待核价",
     amountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
     otherFeeText: "待核对费用明细",
-    note: [input.batchProgress, buildDocumentLineNote({ orderLine, fulfillment })].filter(Boolean).join("；"),
+    note: [input.batchProgress, quantityNote, buildDocumentLineNote({ orderLine, fulfillment })].filter(Boolean).join("；"),
   };
   if (printEnabled) {
     lineItem.printSide = orderLine?.printSide ?? "";
@@ -176,6 +178,7 @@ function buildFulfillmentDocumentFields({
     lineItems: [lineItem],
     totalQuantityText: `${quantity}个`,
     batchProgressText: input.batchProgress || "",
+    quantityNoteText: quantityNote,
     totalPackageText: packageText,
     totalAmountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
     unitPriceLabel: "折合单价",

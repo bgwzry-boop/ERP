@@ -1,3 +1,7 @@
+import { orderTypeAliasesFor as productionOrderTypeAliasesFor } from "../shared/orderRouting.js";
+import { AUTO_QUANTITY_TOLERANCE_RATE } from "../shared/quantityTolerance.js";
+// P2-05: produced orders whose outbound may differ from the plan by up to 1% without an office decision.
+const PRODUCTION_MADE_ORDER_TYPE_ALIASES = ["custom_print", "custom_special", "external_print"].flatMap((type) => productionOrderTypeAliasesFor(type));
 import { packageAnchorId } from "../shared/packageContents.js";
 import { resolveWarehouseInstructionQuantity } from "./services/warehouseInstructionQuantityService.mjs";
 import { orderTypeAliasesFor } from "../shared/orderRouting.js";
@@ -1964,7 +1968,14 @@ function buildWarehouseExecutionGuardSql(execution, parameters) {
        AND r.created_at<=p.created_at AND d.business_type='fulfillment' AND d.business_id=f.id AND d.decision_scope='fulfillment_quantity_variance' AND d.status='active'
        AND NOT EXISTS(SELECT 1 FROM fulfillment_quantity_variance_resolutions newer WHERE newer.fulfillment_id=f.id AND (newer.created_at>r.created_at OR (newer.created_at=r.created_at AND newer.id>r.id)))
        AND NOT EXISTS(SELECT 1 FROM fulfillment_exceptions e WHERE e.fulfillment_id=f.id AND e.exception_type='quantity_mismatch' AND e.status NOT IN('已解决','已作废'))
-       FOR SHARE OF r,d))` : ""}`;
+       FOR SHARE OF r,d)
+      OR (NOT EXISTS(SELECT 1 FROM locked_execution_paper_document WHERE instruction_resolution_id IS NOT NULL OR instruction_decision_id IS NOT NULL)
+       AND EXISTS(SELECT 1 FROM locked_fulfillment f JOIN order_lines l ON l.id=f.order_line_id
+         WHERE f.actual_qty=${parameters.integer(execution.actualQty)} AND f.expected_qty>0 AND f.actual_qty<>f.expected_qty
+           AND abs(f.actual_qty-f.expected_qty)<=floor(f.expected_qty*${AUTO_QUANTITY_TOLERANCE_RATE})
+           AND f.status NOT IN ('数量差异待处理','待补货','无法出库','送货异常')
+           AND l.order_type=ANY(${parameters.textArray(PRODUCTION_MADE_ORDER_TYPE_ALIASES)}) AND COALESCE(l.qty_basis,'pieces')='pieces')
+       AND NOT EXISTS(SELECT 1 FROM fulfillment_exceptions e WHERE e.fulfillment_id=(SELECT id FROM locked_fulfillment) AND e.exception_type='quantity_mismatch' AND e.status NOT IN('已解决','已作废'))))` : ""}`;
 }
 
 function buildWritePaperOutboundDocumentSql(document, parameters) {

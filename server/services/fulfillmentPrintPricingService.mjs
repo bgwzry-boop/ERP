@@ -1,3 +1,5 @@
+import { autoQuantityDifference } from "../../shared/quantityTolerance.js";
+import { resolveFulfillmentBillingQuantity } from "./fulfillmentBillingQuantityService.mjs";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 import { captureFulfillmentBillingSnapshot, selectFulfillmentPriceSnapshot } from "./fulfillmentBillingSnapshotService.mjs";
 
@@ -7,6 +9,23 @@ const validNumber = value => ["number", "string"].includes(typeof value) && text
 
 export function captureLegacyPrintOrderPrice(orderLine) {
   return { id: text(orderLine?.id ?? orderLine?.orderLineId), qty: orderLine?.qty ?? orderLine?.originalQty ?? null, amount: orderLine?.amount ?? orderLine?.finalAmount ?? null };
+}
+
+// P2-05: before the statement line exists, the paper note already follows the same rule as billing.
+function plannedBillingQuantity({ workspace, fulfillment, orderLine, deliveredQty }) {
+  const fulfillmentId = text(fulfillment.fulfillmentId ?? fulfillment.id);
+  const decided = (workspace.fulfillmentQuantityVarianceResolutions ?? []).some(item => text(item.fulfillmentId) === fulfillmentId);
+  if (!decided) {
+    const auto = autoQuantityDifference({ orderLine, expectedQty: fulfillment.expectedQty ?? fulfillment.qty, actualQty: deliveredQty });
+    if (auto) return { chargeableQty: auto.chargeableQty, freeQty: auto.freeQty, note: auto.note };
+    return { chargeableQty: deliveredQty, freeQty: 0, note: "" };
+  }
+  try {
+    const billing = resolveFulfillmentBillingQuantity({ workspace, fulfillment, actualQty: deliveredQty });
+    return { chargeableQty: billing.chargeableQty, freeQty: billing.freeQty, note: billing.freeQty ? `多出 ${billing.freeQty} 个赠送，不收费` : "" };
+  } catch {
+    return { chargeableQty: deliveredQty, freeQty: 0, note: "" };
+  }
 }
 
 export function resolveFulfillmentPrintPricing({ workspace, fulfillment, orderLine }) {
@@ -34,6 +53,7 @@ export function resolveFulfillmentPrintPricing({ workspace, fulfillment, orderLi
   const legacyOrderPrice = price ? null : captureLegacyPrintOrderPrice(orderLine);
   const totalAmount = price ? price.finalAmount : legacyOrderPrice.amount;
   const totalQty = price ? price.chargeableQty : legacyOrderPrice.qty;
-  const allocation = allocateFulfillmentAmount({ totalAmount, totalChargeableQty: totalQty, chargeableQty: deliveredQty, priorLines: billingSnapshot.lines });
-  return { billingSnapshot, legacyOrderPrice, pricing: { deliveredQty, chargeableQty: deliveredQty, freeQty: 0, amount: allocation.amount, unitPrice: Number(totalAmount) / Number(totalQty), phase: "planned", source: price ? "price_snapshot" : "local_order_reference", priceSnapshotId: price?.id || "", priorChargeableQty: allocation.priorChargeableQty, priorAmount: allocation.priorAmount } };
+  const billing = plannedBillingQuantity({ workspace, fulfillment, orderLine, deliveredQty });
+  const allocation = allocateFulfillmentAmount({ totalAmount, totalChargeableQty: totalQty, chargeableQty: billing.chargeableQty, priorLines: billingSnapshot.lines });
+  return { billingSnapshot, legacyOrderPrice, pricing: { deliveredQty, chargeableQty: billing.chargeableQty, freeQty: billing.freeQty, quantityNote: billing.note, amount: allocation.amount, unitPrice: Number(totalAmount) / Number(totalQty), phase: "planned", source: price ? "price_snapshot" : "local_order_reference", priceSnapshotId: price?.id || "", priorChargeableQty: allocation.priorChargeableQty, priorAmount: allocation.priorAmount } };
 }

@@ -647,6 +647,7 @@ function buildPrintableText({ normalized }) {
     }
     if (fields.chargeableQuantityText) lines.push(`计费数量：${fields.chargeableQuantityText}`);
     if (fields.freeQuantityText) lines.push(`赠送数量：${fields.freeQuantityText}`);
+    if (fields.quantityNoteText) lines.push(`数量说明：${fields.quantityNoteText}`);
     lines.push(`合计数量：${fields.totalQuantityText || fields.quantityText || ""}`,
       `${fields.amountLabel || "合计金额"}：${fields.totalAmountText || ""}`,
       `价格说明：${fields.priceStatementText || ""}`, `备注：${fields.note || "无"}`);

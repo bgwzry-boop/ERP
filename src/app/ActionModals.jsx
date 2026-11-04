@@ -218,6 +218,12 @@ function PrintTemplatePreview({ template, fulfillment }) {
             <span>价格说明</span>
             <strong>{fields.priceStatementText || "-"}</strong>
           </div>
+          {fields.quantityNoteText ? (
+            <div>
+              <span>数量说明</span>
+              <strong>{fields.quantityNoteText}</strong>
+            </div>
+          ) : null}
           <div>
             <span>联次</span>
             <strong>{fields.copyText || "-"}</strong>
