@@ -32,7 +32,16 @@ body:has(.receiving-workbench),
   border-bottom: 1px solid var(--erp-warning-border);
 }
 .formal-receiving-workspace .formal-receiving-empty { margin: auto; padding: 28px; text-align: center; }
-.receiving-workbench .formal-receiving-workspace > .raw-material-detail-pane { position: relative; border-radius: 0; box-shadow: none; }
+.receiving-workbench .formal-receiving-workspace > .raw-material-detail-pane {
+  position: relative;
+  display: flex !important;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0;
+  box-shadow: none;
+}
 .receiving-workbench .formal-receiving-workspace .raw-material-mobile-back { display: none; }
 .receiving-workbench .formal-receiving-workspace .detail-head { padding: 16px 160px 10px 24px; min-height: auto; border-bottom: 0; }
 .receiving-workbench .formal-receiving-workspace .detail-head h2 { margin: 4px 0 0; font-size: 18px; line-height: 1.4; }
@@ -46,10 +55,18 @@ body:has(.receiving-workbench),
 .receiving-workbench .formal-receiving-workspace .raw-material-detail-facts span { font-size: 12px; line-height: 18px; }
 .receiving-workbench .formal-receiving-workspace .raw-material-detail-facts strong { font-size: 13px; line-height: 20px; font-weight: 500; }
 .receiving-workbench .formal-receiving-workspace .receipt-facts { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 8px 20px; margin: 0; padding: 0 24px 14px; border-top: 0; border-bottom: 1px solid var(--erp-border-subtle); flex-shrink: 0; }
+.receiving-workbench .formal-receiving-workspace .formal-receiving-duplicate { flex: 0 0 auto; margin: 0; padding: 8px 24px 10px; color: var(--erp-danger); font-size: 13px; line-height: 1.4; border-bottom: 1px solid var(--erp-border-subtle); }
 .receiving-workbench .formal-receiving-workspace .receipt-facts > div { display: block; min-width: 0; min-height: 36px; border: 0; }
 .receiving-workbench .formal-receiving-workspace .receipt-facts dt { color: var(--erp-text-muted); font-size: 12px; margin-bottom: 2px; }
 .receiving-workbench .formal-receiving-workspace .receipt-facts dd { margin: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.receiving-workbench .formal-receiving-workspace .raw-material-detail-scroll { padding: 0 24px 20px; scrollbar-gutter: stable; }
+.receiving-workbench .formal-receiving-workspace .raw-material-detail-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 24px 16px;
+  scrollbar-gutter: stable;
+  scroll-padding-bottom: 16px;
+}
 .receiving-workbench .formal-receiving-workspace .raw-material-source-evidence { padding: 12px 0; }
 .receiving-workbench .formal-receiving-workspace .office-receive-more { margin: 0 0 14px; border-bottom: 1px solid var(--erp-border-subtle); }
 .receiving-workbench .formal-receiving-workspace .office-receive-more > summary { padding: 12px 0; font-size: 13px; }
@@ -88,8 +105,16 @@ body:has(.receiving-workbench),
 .receiving-workbench .formal-receiving-workspace .office-inbound-block { margin: 0 0 12px; padding: 10px 12px; font-size: 13px; }
 .receiving-workbench .formal-receiving-workspace .office-inbound-block-locate { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .receiving-workbench .formal-receiving-workspace .office-inbound-block-locate > button { flex-shrink: 0; }
-.receiving-workbench .formal-receiving-workspace .office-inbound-actions { position: static; padding: 0; gap: 10px; border: 0; }
-.receiving-workbench .formal-receiving-workspace .formal-receiving-action-dock { flex: 0 0 auto; padding: 14px 24px; border-top: 1px solid var(--erp-border); background: var(--erp-surface); }
+.receiving-workbench .formal-receiving-workspace .office-inbound-actions { position: static; bottom: auto; padding: 0; gap: 10px; border: 0; }
+.receiving-workbench .formal-receiving-workspace .formal-receiving-action-dock {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding: 14px 24px;
+  border-top: 1px solid var(--erp-border);
+  background: var(--erp-surface);
+}
 .receiving-workbench .formal-receiving-workspace .formal-receiving-action-dock:empty { display: none; }
 .receiving-workbench .formal-receiving-workspace .office-inbound-actions > button { min-height: 40px; font-size: 14px; padding: 8px 16px; }
 .receiving-workbench .formal-receiving-workspace .raw-material-receipt-history { margin-top: 12px; }
@@ -114,6 +139,7 @@ body:has(.receiving-workbench),
   .receiving-workbench .formal-receiving-workspace .raw-material-detail-status-line { padding-inline: 14px; }
   .receiving-workbench .formal-receiving-workspace .raw-material-detail-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-inline: 14px; gap: 8px; }
   .receiving-workbench .formal-receiving-workspace .receipt-facts { padding: 10px 14px; gap: 8px; }
+  .receiving-workbench .formal-receiving-workspace .formal-receiving-duplicate { padding-inline: 14px; }
   .receiving-workbench .formal-receiving-workspace .raw-material-detail-scroll { padding-inline: 14px; }
   .receiving-workbench .formal-receiving-workspace .formal-receiving-action-dock { padding: 12px 14px; }
   .receiving-workbench .formal-receiving-workspace .office-roll-head { display: none; }
