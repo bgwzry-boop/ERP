@@ -14,4 +14,4 @@
 .company-print-profile-actions button { min-height: 36px; padding: 0 16px; }
 .company-print-profile-muted { margin: 0; color: var(--erp-text-muted); font-size: 13px; }
 .company-print-profile-error { margin: 0; color: var(--erp-danger); }
-.company-print-profile-ok { margin: 0; color: var(--erp-success, #237804); }
+.company-print-profile-ok { margin: 0; color: var(--erp-success); }
