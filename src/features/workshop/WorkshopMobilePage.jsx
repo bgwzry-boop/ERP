@@ -5,9 +5,11 @@ import {
   AppstoreOutlined,
   BarcodeOutlined,
   InboxOutlined,
+  LockOutlined,
   ToolOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";
+import { SilkScreenClaimPool, useSilkScreenClaimPool } from "./SilkScreenClaimPool.jsx";
 import {
   DataState,
   DetailPane,
@@ -50,6 +52,8 @@ const MOBILE_VIEWS = [
   ["pending", "待处理", UnorderedListOutlined],
   ["all", "全部功能", AppstoreOutlined],
 ];
+// P2-02: silk-screen printers also get 领任务 (their pool, grouped by ink order).
+const SILK_CLAIM_VIEW = ["claim", "领任务", LockOutlined];
 const MixedPackageWorkbench = lazy(() => import("../packing/MixedPackageWorkbench.jsx").then(module => ({ default: module.MixedPackageWorkbench })));
 const SinglePackingWorkbench = lazy(() => import("../packing/SinglePackingWorkbench.jsx").then(module => ({ default: module.SinglePackingWorkbench })));
 
@@ -87,6 +91,10 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
   const openPackingTasks = availablePackingTasks.filter((task) => task.status !== "已完成");
   const [mode, setMode] = useState(modeItems[0] || (productionLines.length ? "生产报工" : "打包任务"));
   const [mobileView, setMobileView] = useState("current");
+  const silkClaimPool = useSilkScreenClaimPool({ authState, enabled: canUseProductionMode });
+  const canClaimSilk = silkClaimPool.status !== "off";
+  const claimableSilkCount = silkClaimPool.items.filter((item) => !String(item.productionTask?.claimedByUserId ?? "").trim()).length;
+  const mobileViews = canClaimSilk ? [MOBILE_VIEWS[0], SILK_CLAIM_VIEW, ...MOBILE_VIEWS.slice(1)] : MOBILE_VIEWS;
   const [detailView, setDetailView] = useState("操作");
   const [selectedProductionLineId, setSelectedProductionLineId] = useState(productionLines[0]?.id ?? "");
   const [selectedPackingTaskId, setSelectedPackingTaskId] = useState(openPackingTasks[0]?.packingTaskId ?? "");
@@ -403,6 +411,11 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
           title={mode === "打包任务" ? "打包任务" : "生产任务"}
           actions={modeItems.length > 1 ? <Segmented ariaLabel="现场任务模式" value={mode} onChange={changeMode} items={modeItems} /> : null}
         />
+        {mode === "生产报工" && canClaimSilk ? (
+          <button type="button" className="silk-claim-entry" onClick={() => setMobileView("claim")}>
+            <LockOutlined aria-hidden="true" /> 领丝印任务<small>{claimableSilkCount} 个可领</small>
+          </button>
+        ) : null}
         <div className="mobile-task-list">
           {mode === "生产报工" ? (
             productionLines.length ? productionLines.map((line) => {
@@ -751,11 +764,16 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
         )}
       </DetailPane> : null}
 
+      {mobileView === "claim" && canClaimSilk ? (
+        <SilkScreenClaimPool authState={authState} pool={silkClaimPool} onChanged={onPackagesSaved} />
+      ) : null}
+
       {mobileView === "all" ? (
         <section className="guided-mobile-functions" aria-label="现场岗位全部功能">
           <header><h2>全部功能</h2></header>
           <div>
             {canUseProductionMode ? <button onClick={() => openMode("生产报工")} type="button"><ToolOutlined /><strong>生产报工</strong><span>{productionLines.length} 条</span></button> : null}
+            {canClaimSilk ? <button onClick={() => setMobileView("claim")} type="button"><LockOutlined /><strong>领丝印任务</strong><span>{claimableSilkCount} 个可领</span></button> : null}
             {canUsePackingMode ? <button onClick={() => openMode("打包任务")} type="button"><InboxOutlined /><strong>打包任务</strong><span>{openPackingTasks.length} 条</span></button> : null}
             {canUseRawMaterialScan ? <button onClick={() => onNavigate?.("rawMaterialScanner")} type="button"><BarcodeOutlined /><strong>原料扫码</strong><span>扫卷领料</span></button> : null}
             <button disabled={!selectedLine} onClick={() => { setDetailView("记录"); setMobileView("current"); }} type="button"><UnorderedListOutlined /><strong>任务记录</strong><span>{selectedLine ? "查看" : "暂无"}</span></button>
@@ -765,8 +783,8 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
 
       <MobileRoleBottomNavigation
         ariaLabel="现场岗位手机导航"
-        badgeCount={(key) => key === "pending" ? pendingCount : 0}
-        items={MOBILE_VIEWS}
+        badgeCount={(key) => key === "pending" ? pendingCount : key === "claim" ? claimableSilkCount : 0}
+        items={mobileViews}
         onChange={setMobileView}
         value={mobileView}
       />

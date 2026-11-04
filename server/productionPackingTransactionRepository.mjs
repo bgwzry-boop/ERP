@@ -1,5 +1,6 @@
 import { normalizeOrderType } from "../shared/orderRouting.js";
 import { createPackageGroupRepository } from "./packageGroupRepository.mjs";
+import { createLocalSilkScreenClaimRepository, createPostgresSilkScreenClaimRepository } from "./silkScreenTaskClaimRepository.mjs";
 import { getBlockingProductionExceptions } from "../shared/productionExceptionPolicy.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -91,6 +92,7 @@ export function createLocalProductionPackingTransactionRepository() {
   return {
     kind: "local_memory",
     ...createPackageGroupRepository(),
+    ...createLocalSilkScreenClaimRepository(),
 
     findProductionReportIdempotentReplay(input = {}) {
       return readLocalProductionTransactionReplay(productionReportResults, input, "production.report.complete");
@@ -317,6 +319,7 @@ export function createPostgresProductionPackingTransactionRepository(options = {
   return {
     kind: "postgres",
     ...createPackageGroupRepository({ queryJson, idempotentTransactionJson }),
+    ...createPostgresSilkScreenClaimRepository({ idempotentTransactionJson }),
 
     async findProductionReportIdempotentReplay(input = {}) {
       const replay = await readPostgresIdempotencyReplay({

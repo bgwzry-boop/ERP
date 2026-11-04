@@ -1241,3 +1241,85 @@
   line-height: 1.5;
 }
 .workshop-supplied-material-warning strong { color: var(--erp-warning); }
+
+/* P2-02 丝印领任务：按油墨颜色分组，领了的显示领取人。 */
+.silk-claim-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 8px;
+  padding: 0 14px;
+  border: 1px solid var(--erp-accent-border);
+  border-radius: 8px;
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-soft-ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+.silk-claim-entry small { margin-left: auto; color: var(--erp-text-muted); font-size: 13px; font-weight: 500; }
+.silk-claim-pool { display: grid; gap: 12px; padding-bottom: 8px; }
+.silk-claim-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.silk-claim-head h2 { margin: 0; font-size: 18px; }
+.silk-claim-head p { margin: 4px 0 0; color: var(--erp-text-muted); font-size: 14px; }
+.silk-claim-head button, .silk-claim-status button { min-height: 40px; padding: 0 14px; }
+.silk-claim-status, .silk-claim-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--erp-border);
+  border-radius: 8px;
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font-size: 14px;
+}
+.silk-claim-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.silk-claim-group { display: grid; gap: 6px; }
+.silk-claim-group h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding-left: 10px;
+  border-left: 4px solid var(--erp-border);
+  font-size: 15px;
+}
+.silk-claim-group h3 small { color: var(--erp-text-muted); font-size: 13px; font-weight: 500; }
+.silk-claim-group.ink-white h3 { border-left-color: var(--erp-control-border); }
+.silk-claim-group.ink-single h3 { border-left-color: var(--erp-info-border); }
+.silk-claim-group.ink-black h3 { border-left-color: var(--erp-text); }
+.silk-claim-group.ink-multi h3 { border-left-color: var(--erp-accent); }
+.silk-claim-group.ink-unknown h3 { border-left-color: var(--erp-warning-border); }
+.silk-claim-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.silk-claim-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--erp-border);
+  border-radius: 8px;
+  background: var(--erp-surface);
+}
+.silk-claim-row.mine { border-color: var(--erp-success-border); background: var(--erp-success-bg); }
+.silk-claim-row.taken { background: var(--erp-surface-subtle); }
+.silk-claim-row.taken .silk-claim-info { color: var(--erp-text-muted); }
+.silk-claim-info { display: grid; gap: 2px; min-width: 0; }
+.silk-claim-info strong { font-size: 15px; }
+.silk-claim-info span, .silk-claim-info small { overflow-wrap: anywhere; color: var(--erp-text-muted); font-size: 13px; }
+.silk-claim-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.silk-claim-actions button { min-height: 40px; padding: 0 14px; }
+.silk-claim-confirm { display: flex; gap: 6px; }
+.silk-claim-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--erp-border);
+  border-radius: 999px;
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.silk-claim-lock.mine { border-color: var(--erp-success-border); background: var(--erp-surface); color: var(--erp-success); }

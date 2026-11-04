@@ -1572,6 +1572,10 @@ function normalizeProductionTaskDetail(task, fallback = {}) {
     status: cleanText(task?.status ?? task?.taskStatus),
     revision: Math.max(1, Math.trunc(Number(task?.revision ?? 1))),
     finishedGoodsPhoto: normalizeFinishedGoodsPhotoSummary(task?.finishedGoodsPhoto),
+    // P2-02: who claimed a silk-screen task (shown on the desktop and the phone pool).
+    claimedByUserId: cleanText(task?.claimedByUserId),
+    claimedByName: cleanText(task?.claimedByName),
+    claimedAt: cleanText(task?.claimedAt),
     createdBy: cleanText(task?.createdBy),
     createdAt: cleanText(task?.createdAt),
     updatedAt: cleanText(task?.updatedAt),

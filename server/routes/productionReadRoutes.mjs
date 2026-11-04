@@ -1,4 +1,5 @@
 import { getPackageGroupContext, publicPackageGroupContext } from "../services/packageGroupService.mjs";
+import { compareSilkScreenPoolItems, INK_ORDER_GROUPS, inkOrderGroup } from "../../shared/silkScreenInkOrder.js";
 import { canReadOfficePacking, canReadOfficeProduction, getTrustedWorkerMachine, isWorkerTaskVisible, projectWorkerTask } from "../services/businessReadAccessService.mjs";
 
 export async function handleProductionReadRoutes({
@@ -30,6 +31,40 @@ export async function handleProductionReadRoutes({
       200,
       workerScope ? { ...result, items: result.items.map((item) => projectWorkerTask(item)) } : result,
     );
+    return true;
+  }
+
+  // P2-02 丝印领任务池：按油墨颜色分组（先白色，黑色和多色收尾），领了的显示领取人。
+  if (url.pathname === "/api/production-schedules/silk-screen-pool") {
+    if (workerScope) {
+      const machine = (workspace.machines ?? []).find((row) => String(row.id ?? row.machineId ?? "").trim() === machineId);
+      if (machine?.machineType !== "screen_printing") {
+        sendJson(response, 403, { code: "SILK_SCREEN_CLAIM_MACHINE_REQUIRED", message: "只有丝印机的师傅可以领丝印任务。" });
+        return true;
+      }
+    }
+    const userId = String(permissionContext?.user?.userId ?? "").trim();
+    const result = await workspace.productionPackingReadRepository.listProductionTasks({
+      workspace,
+      query: new URLSearchParams({ visibility: "silk_screen_pool", pageSize: "200" }),
+    });
+    const items = [...result.items].sort(compareSilkScreenPoolItems).map((item) => {
+      const group = inkOrderGroup(item.orderLine ?? {});
+      const claimer = String(item.productionTask?.claimedByUserId ?? "").trim();
+      return {
+        ...(workerScope ? projectWorkerTask(item) : item),
+        inkGroup: group.key,
+        inkGroupLabel: group.label,
+        claimedByMe: Boolean(userId) && claimer === userId,
+      };
+    });
+    sendJson(response, 200, {
+      items,
+      groups: INK_ORDER_GROUPS,
+      total: result.total,
+      truncated: result.total > items.length,
+      machineId,
+    });
     return true;
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listOfficeProductionMachineQueue, publishOfficeProductionSchedule, resequenceOfficeProductionMachineQueue } from "../../../../src/services/officeProductionPackingLazyApi.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
+import { releaseSilkScreenTask } from "../../../../src/services/silkScreenClaimApiClient.js";
 import { DelegatedBusinessDecisionFields, isDelegatedBusinessDecisionComplete } from "../../../../src/components/DelegatedBusinessDecisionFields.jsx";
 import { eligibleProductionMachines, isSelectedProductionMachineAllowed } from "./production-machine-options.js";
 
@@ -90,6 +91,7 @@ export function ProductionScheduleControls({ selected, formal, onSaved }) {
       ...decisionPayload(queueDecision), remark: reason.trim() });
   }
   if (!selected) return <section><h3>办公室排产</h3><p>选择生产任务后安排机台。</p></section>;
+  if (String(task.claimedByUserId || "").trim()) return <SilkScreenClaimNotice task={task} authState={authState} canRelease={permissions.includes("production.schedule.publish")} onSaved={onSaved} />;
   return <section className="business-detail-section production-schedule-controls" aria-label="办公室排产">
     <h3>办公室排产</h3>
     {scheduleId ? <p>已发布排产：{scheduleId}</p> : null}
@@ -107,5 +109,35 @@ export function ProductionScheduleControls({ selected, formal, onSaved }) {
     </>}
     {message ? <p role="status">{message}</p> : null}
     {uncertain ? <button type="button" className="primary" disabled={busy} onClick={() => void write()}>按原内容重试排产</button> : null}
+  </section>;
+}
+
+// P2-02: a silk-screen printer claimed this task themselves. The office sees who and may release it
+// (with a reason) while it has not been started, e.g. when the printer is away.
+function SilkScreenClaimNotice({ task, authState, canRelease, onSaved }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const started = task.taskStatus !== "丝印已排产";
+  async function release() {
+    if (busy || !reason.trim()) return;
+    setBusy(true); setMessage("");
+    const result = await releaseSilkScreenTask({ authState, productionTaskId: task.productionTaskId, expectedRevision: Number(task.revision ?? 1), reason: reason.trim() });
+    if (!live.current) return;
+    setBusy(false);
+    if (result.ok) { setReason(""); setMessage("已释放，任务回到丝印领任务池。"); }
+    else setMessage(result.error?.message || "释放没有成功，请刷新核对。");
+    if (result.ok || result.uncertain) await onSaved?.();
+  }
+  return <section className="business-detail-section production-schedule-controls" aria-label="丝印工领取">
+    <h3>丝印工自己领取</h3>
+    <p>已被 <strong>{task.claimedByName || task.claimedByUserId}</strong> 领取，机台 {task.machineId || "—"}{task.claimedAt ? `，领取时间 ${String(task.claimedAt).slice(0, 16).replace("T", " ")}` : ""}。</p>
+    {started ? <p>已经开始报数量，不能释放；如需调整请先处理生产记录。</p> : canRelease ? <>
+      <label>释放原因<textarea value={reason} maxLength={200} disabled={busy} onChange={event => setReason(event.target.value)} placeholder="例如：师傅请假，先放回任务池" /></label>
+      <button type="button" disabled={busy || !reason.trim()} onClick={() => void release()}>{busy ? "释放中…" : "释放这个领取"}</button>
+    </> : <p>只有办公室或领取人本人可以释放。</p>}
+    {message ? <p role="status">{message}</p> : null}
   </section>;
 }

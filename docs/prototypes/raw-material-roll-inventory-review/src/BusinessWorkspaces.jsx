@@ -178,7 +178,8 @@ function buildProductionRows(tasks = [], orderLines = [], customerNames = new Ma
     line.product,
     `${line.size} · ${getLineColorSpecLabel(line) || line.color}`,
     `${formatNumber(line.qty)}个`,
-    productionMachineLabel(line, machineLabels),
+    // P2-02: a silk-screen printer's own claim shows who took it.
+    `${productionMachineLabel(line, machineLabels)}${taskFacts.claimedByName ? ` · ${taskFacts.claimedByName}领` : ""}`,
     line.status,
   ],
   status: line.status,
@@ -191,6 +192,7 @@ function buildProductionRows(tasks = [], orderLines = [], customerNames = new Ma
     ["颜色", getLineColorSpecLabel(line) || line.color],
     ["计划数量", `${formatNumber(line.qty)}个`],
     ["执行机台", productionMachineLabel(line, machineLabels)],
+    ...(taskFacts.claimedByName ? [["领取人", `${taskFacts.claimedByName}（丝印工自己领）`]] : []),
     ["内部工序", line.status],
     ["小程序进度", miniappProgressLabel(line)],
     ...(Array.isArray(line.exceptions) && line.exceptions.length
