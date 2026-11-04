@@ -5,6 +5,7 @@ import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared
 import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
+import { readCompanyPrintProfile } from "./companyPrintProfileService.mjs";
 
 export function createFulfillmentPrintCommandService({
   buildFulfillmentActionRecord,
@@ -79,6 +80,11 @@ export function createFulfillmentPrintCommandService({
       // P2-05: a produced order within 1% of the plan needs no office decision.
       if (members.some(row=>Number(row.actualQty)!==Number(row.expectedQty??row.qty) && !autoQuantityDifference({ orderLine: findOrderLine(workspace, row.lineId ?? row.orderLineId), expectedQty: row.expectedQty ?? row.qty, actualQty: row.actualQty }) && !(workspace.fulfillmentQuantityVarianceResolutions??[]).some(r=>r.fulfillmentId===(row.fulfillmentId??row.id)&&Number(r.expectedQty)===Number(row.expectedQty??row.qty)&&Number(r.actualQty)===Number(row.actualQty)&&["按实际数量出库","赠送数量"].includes(r.resolutionResult)&&!(workspace.fulfillmentExceptions??[]).some(e=>e.fulfillmentId===(row.fulfillmentId??row.id)&&e.exceptionType==="quantity_mismatch"&&!["已解决","已作废"].includes(e.status))))) return businessError(409,"PACKING_QUANTITY_REVIEW_REQUIRED","包组存在数量差异，请办公室核对后再打印。");
     }
+    // 负责人 2026-11-04：实际来拿货的人（客户 A 的单子由 B 来拿）。开单时选或输入，记在本次交付上，
+    // 下次给这个客户开单时作为常用拿货人供选择。
+    // 送货单由司机送，不记提货人。
+    const pickerName = documentType === "delivery_note" ? "" : normalizeText(printableBody.pickerName);
+    if (pickerName.length > 20) return businessError(422, "FULFILLMENT_PICKER_NAME_INVALID", "拿货人名字不能超过 20 个字。");
     const printRecord = buildFulfillmentPrintRecord({
       workspace,
       fulfillmentId,
@@ -112,6 +118,9 @@ export function createFulfillmentPrintCommandService({
       action: printableBody.printAction,
       paperNo: printableBody.paperNo,
       pricing: pricingResult?.pricing,
+      pickerName,
+      // P2-07: the sheet header the office keeps under 打印与设备 → 单据抬头.
+      companyProfile: pricingResult ? await readCompanyPrintProfile(workspace) : undefined,
       packageLabelRows: packageLabelRows((workspace.packages??[]).filter(row=>row.fulfillmentId===fulfillmentId)),
       // P2-03: a batch of a split order item says which batch it is and what is still to come.
       batchProgress: describeBatchProgress(
@@ -150,6 +159,7 @@ export function createFulfillmentPrintCommandService({
     printJob.operationLogId = printJobOperationLog.id;
     const fulfillment = buildFulfillmentActionRecord(workspace, {
       ...before,
+      ...(pickerName && paperOutboundDocument ? { receiverName: pickerName } : {}),
       ...(paperOutboundDocument
         ? {
             paperOutboundStatus: "待打印确认",

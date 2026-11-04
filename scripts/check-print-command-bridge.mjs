@@ -266,15 +266,20 @@ assert.equal(cupsSentRecord.cups.submitted, true);
 assert.equal(cupsSentRecord.cups.cupsJobId, "QA_Label_Printer-101");
 assert.equal(cupsSentRecord.cups.stdoutBytes > 0, true);
 assert.match(cupsSentRecord.cups.printFileDigest, /^[0-9a-f]{64}$/);
-assert.equal(existsSync(join(storageRoot, "print-command-bridge", "documents", `${cupsDirectOutput.externalJobId}.txt`)), true);
-
-const paperOutput=readFileSync(join(storageRoot, "print-command-bridge", "documents", `${cupsDirectOutput.externalJobId}.txt`),'utf8');
-assert.match(paperOutput,/客户：合成客户/);
-assert.match(paperOutput,/明细：.*合成袋/);
-assert.match(paperOutput,/本次出库：405个/);
-assert.match(paperOutput,/金额：¥145\.8(?:\n|$)/);
-assert.match(paperOutput,/计费数量：405个/);
-assert.doesNotMatch(paperOutput,/金额：¥360(?:\n|$)/,'A 405/1000 split must not print the whole-order 360 amount');
+// P2-07: paper notes go to the printer as the old-ERP three-price layout (PDF), not plain text.
+assert.equal(existsSync(join(storageRoot, "print-command-bridge", "documents", `${cupsDirectOutput.externalJobId}.txt`)), false);
+const paperBytes=readFileSync(join(storageRoot, "print-command-bridge", "documents", `${cupsDirectOutput.externalJobId}.pdf`));
+assert.ok(paperBytes.subarray(0,5).equals(Buffer.from('%PDF-')));
+const {getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+const paperDocument=await getDocument({data:new Uint8Array(paperBytes),useSystemFonts:false}).promise;
+const paperOutput=(await (await paperDocument.getPage(1)).getTextContent()).items.map(row=>row.str).join('');
+await paperDocument.destroy();
+assert.match(paperOutput,/客户名称：合成客户/);
+assert.match(paperOutput,/合成袋/);
+assert.match(paperOutput,/405/);
+assert.match(paperOutput,/145\.80/);
+assert.match(paperOutput,/壹佰肆拾伍元捌角/);
+assert.doesNotMatch(paperOutput,/360\.00/,'A 405/1000 split must not print the whole-order 360 amount');
 
 const cupsStatusResult = runBridge({
   args: ["--storage-root", storageRoot, "--action", "status", "--external-job-id", cupsDirectOutput.externalJobId],

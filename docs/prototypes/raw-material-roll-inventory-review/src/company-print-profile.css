@@ -1,0 +1,17 @@
+/* P2-07 单据抬头 */
+.company-print-profile { display: grid; gap: 10px; margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--erp-surface); min-width: 0; }
+.company-print-profile h2 { margin: 0; font-size: 16px; }
+.company-print-profile h2 small { margin-left: 6px; color: var(--erp-text-muted); font-size: 13px; font-weight: 500; }
+.company-print-profile form { display: grid; gap: 10px; }
+.company-print-profile-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.company-print-profile-form label { display: grid; gap: 4px; font-size: 13px; }
+.company-print-profile-form label.wide { grid-column: 1 / -1; }
+.company-print-profile-form :is(input, textarea) { min-height: 34px; font-size: 14px; }
+.company-print-profile-preview { display: grid; gap: 2px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 6px; background: var(--erp-surface-subtle); }
+.company-print-profile-preview strong { font-size: 16px; }
+.company-print-profile-preview :is(span, small) { color: var(--erp-text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.company-print-profile-actions { display: flex; gap: 8px; }
+.company-print-profile-actions button { min-height: 36px; padding: 0 16px; }
+.company-print-profile-muted { margin: 0; color: var(--erp-text-muted); font-size: 13px; }
+.company-print-profile-error { margin: 0; color: var(--erp-danger); }
+.company-print-profile-ok { margin: 0; color: var(--erp-success); }

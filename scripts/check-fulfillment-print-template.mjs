@@ -71,12 +71,12 @@ const pickupTemplate = buildFulfillmentPrintTemplate({
   },
 });
 assert.equal(pickupTemplate.documentType, "pickup_note");
-assert.equal(pickupTemplate.templateVersion, "p0-pickup_note-dot-matrix-v2");
+assert.equal(pickupTemplate.templateVersion, "p2-pickup_note-legacy-three-price-v1");
 assert.equal(pickupTemplate.title, "自提单");
 assert.equal(pickupTemplate.priceHidden, false);
 assert.equal(pickupTemplate.paper.widthMm, 241);
-assert.equal(pickupTemplate.paper.copies, 2);
-assert.deepEqual(pickupTemplate.paper.copyNames, ["客户联", "工厂留底联"]);
+assert.equal(pickupTemplate.paper.copies, 3);
+assert.deepEqual(pickupTemplate.paper.copyNames, ["①白存根联", "②红客户联", "③黄回单联"]);
 assert.equal(pickupTemplate.fields.receiverSignatureLabel, "提货人签收");
 assert.equal(pickupTemplate.fields.lineItems?.[0]?.orderLineNo, "ORD-0629-001-01");
 assert.equal(pickupTemplate.fields.lineItems?.[0]?.amountText, "¥180");

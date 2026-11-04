@@ -1,3 +1,4 @@
+import { saveCompanyPrintProfile } from "../services/companyPrintProfileService.mjs";
 export async function handlePrintWriteRoutes({
   method,
   url,
@@ -35,6 +36,12 @@ export async function handlePrintWriteRoutes({
       fallbackOperatorId: "U-OFFICE-A",
       responseMode: "json",
       run: (operatorId) => printDeviceCommandService.upsertPrintDevice({ workspace, body, operatorId }),
+    },
+    // P2-07 单据抬头
+    "/api/print-settings/company-profile": {
+      permission: writeActionPermissions.printFulfillment,
+      fallbackOperatorId: "U-OFFICE-A",
+      run: (operatorId) => saveCompanyPrintProfile({ workspace, body, operatorId }),
     },
     "/api/print-jobs/status-poll": {
       permission: writeActionPermissions.printJobDriverCallback,

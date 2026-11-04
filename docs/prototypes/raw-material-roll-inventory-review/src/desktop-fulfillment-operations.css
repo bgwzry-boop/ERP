@@ -22,3 +22,9 @@
 .fulfillment-operation-confirm > div { display: flex; gap: 8px; flex-wrap: wrap; }
 .fulfillment-operation-notice { padding: 10px; border-left: 3px solid var(--erp-warning); background: var(--erp-warning-bg); }
 @media (max-width: 760px) { .fulfillment-operation-grid { grid-template-columns: 1fr; } .desktop-fulfillment-operations button { min-height: 44px; } }
+/* 负责人 2026-11-04：自提单的提货人（常用拿货人一点就选） */
+.desktop-fulfillment-operations .fulfillment-picker { display: grid; gap: 6px; margin: 6px 0; }
+.desktop-fulfillment-operations .fulfillment-picker label { display: grid; gap: 4px; max-width: 320px; }
+.desktop-fulfillment-operations .fulfillment-picker-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.desktop-fulfillment-operations .fulfillment-picker-quick button { min-height: 32px; padding: 0 10px; }
+.desktop-fulfillment-operations .fulfillment-picker-quick button.is-active { border-color: var(--erp-accent-border); color: var(--erp-accent-ink); background: var(--erp-accent-soft); }

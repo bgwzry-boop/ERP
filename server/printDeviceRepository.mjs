@@ -5,6 +5,7 @@ import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { createLocalCompanyPrintProfileStore, createPostgresCompanyPrintProfileStore } from "./companyPrintProfileStore.mjs";
 
 export const printDeviceStoreKey = "metadata/print-devices.json";
 
@@ -37,6 +38,8 @@ export function createLocalPrintDeviceRepository(options = {}) {
 
   return {
     kind: "local_json",
+    // P2-07 单据抬头 lives with the print settings.
+    ...createLocalCompanyPrintProfileStore(storageRoot),
 
     loadState() {
       return loadPersistentPrintDeviceState(storageRoot);
@@ -73,6 +76,8 @@ export function createPostgresPrintDeviceRepository(options = {}) {
 
   return {
     kind: "postgres",
+    // P2-07 单据抬头 lives with the print settings.
+    ...createPostgresCompanyPrintProfileStore({ queryJson, idempotentTransactionJson }),
 
     async loadState() {
       const query = buildListPrintDevicesQuery({});
@@ -365,7 +370,7 @@ export function buildDefaultPrintDevices(now = "2026-07-02T10:30:00.000Z") {
       defaultDocumentTypes: ["outbound_note", "pickup_note", "delivery_note", "outbound_slip", "pickup_slip"],
       paperWidthMm: 241,
       paperHeightMm: 140,
-      paperName: "二联二等分连续针式纸",
+      paperName: "三联二等分连续针式纸",
       isContinuous: true,
       dpi: 180,
       defaultCopies: 2,
@@ -394,12 +399,12 @@ export function buildDefaultPrintDevices(now = "2026-07-02T10:30:00.000Z") {
         recommendedCupsQueueName: "epson_lq_615kii_notes",
         hostOperatingSystem: "Windows 11",
         systemPrinterNameKnown: false,
-        fieldPaperProfile: "现场二联二等分连续针式纸，当前模板假设 241x140mm，需实测纸宽、纸高、孔距、页顶和左边距。",
+        fieldPaperProfile: "现场三联二等分连续针式纸（白存根、红客户、黄回单），当前模板假设 241x140mm，需实测纸宽、纸高、孔距、页顶和左边距。",
         sampleDocumentType: "delivery_note",
         sampleDocumentSource: "2026-07-09 现场成品袋送货单照片样张",
         fieldAlignmentIssueKnown: false,
         sourceUrl: "https://www.epson.com.cn/products/dot/1058/lq-615kii/",
-        note: "现场已确认型号、Win11 打印主机、二联二等分连续针式纸和送货单照片样张；仍需确认系统打印机名称/队列名、驱动安装名、连接方式、精确纸张尺寸和对位参数。",
+        note: "现场已确认型号、Win11 打印主机、三联二等分连续针式纸和送货单照片样张；仍需确认系统打印机名称/队列名、驱动安装名、连接方式、精确纸张尺寸和对位参数。",
       },
     },
   ]);

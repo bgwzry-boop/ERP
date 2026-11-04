@@ -84,6 +84,18 @@ export async function getOfficeFulfillment(input = {}, options = {}) {
   }
 }
 
+// 负责人 2026-11-04：给客户开自提单时，列出以前来拿过货的人（最近的在前）供选择。
+export async function getOfficeFulfillmentPickerSuggestions({ authState, operatorId, customerId } = {}, options = {}) {
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/picker-suggestions?customerId=${encodeURIComponent(cleanText(customerId))}`, { ...options, authState, operatorId, method: "GET" });
+    const json = await readJson(response);
+    if (!response.ok) return { blocked: true, items: [], error: toApiError(json, response.status, "常用拿货人读取失败。") };
+    return { items: (Array.isArray(json?.items) ? json.items : []).map(item => cleanText(item?.name)).filter(Boolean) };
+  } catch (error) {
+    return { blocked: true, items: [], error: { code: "FULFILLMENT_PICKER_SUGGESTIONS_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
 export async function printOfficeFulfillment(input, options = {}) {
   const { authState, fulfillment, action = "打印预览", operatorId, printAction } = input;
   const resolvedPrintAction = cleanText(printAction) || getFulfillmentPrintAction(action);
@@ -118,6 +130,7 @@ export async function printOfficeFulfillment(input, options = {}) {
         documentType: getFulfillmentDocumentType(fulfillment, action),
         printAction: resolvedPrintAction,
         ...(resolvedPrintAction === "reprint" ? { previousPrintRecordId, reprintReason } : {}),
+        ...(cleanText(input.pickerName) ? { pickerName: cleanText(input.pickerName) } : {}),
         operatorId,
       },
     });

@@ -16,6 +16,7 @@ import { EarlyShipmentPanel, ProductionScheduleControls } from "./ProductionSche
 import { buildDeliveryBatchFamily, describeBatchProgress } from "../../../../shared/deliveryBatches.js";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
+import { CompanyPrintProfilePanel } from "./CompanyPrintProfilePanel.jsx";
 import { DesktopFulfillmentOperations, operationsOwnStockPackingEntry } from "./DesktopFulfillmentOperations.jsx";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
@@ -626,7 +627,7 @@ function FinanceOperationsWorkspace({ formal, navId, onNavigate }) {
     onRefresh: formal.actions.refreshAll,
   };
   const Dialog = isStatement ? StatementDetailDialog : PrintJobDetailDialog;
-  return <><GenericWorkspace config={config} onNavigate={onNavigate} />{openedId ? <Dialog statementId={isStatement ? openedId : undefined} printJobId={isStatement ? undefined : openedId} authState={formal.authState} onClose={() => setOpenedId("")} onUpdated={() => formal.actions.refreshAll()} /> : null}</>;
+  return <>{navId === "print-devices" ? <CompanyPrintProfilePanel formal={formal} /> : null}<GenericWorkspace config={config} onNavigate={onNavigate} />{openedId ? <Dialog statementId={isStatement ? openedId : undefined} printJobId={isStatement ? undefined : openedId} authState={formal.authState} onClose={() => setOpenedId("")} onUpdated={() => formal.actions.refreshAll()} /> : null}</>;
 }
 
 function PeopleMachinesWorkspace({ formal, onNavigate }) {

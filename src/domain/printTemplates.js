@@ -1,6 +1,8 @@
 import { getFulfillmentGoodsDisplay } from "./officeRules.js";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 import { fulfillmentDocumentTypeFor } from "../../shared/fulfillmentDocumentType.js";
+import { resolvePrintColorCount } from "../../shared/largeMachinePrintPricing.js";
+import { DEFAULT_COMPANY_PRINT_PROFILE, DELIVERY_NOTE_PAPER, DELIVERY_NOTE_SIGNATURES, amountInChineseUppercase, formatLegacyUnitPrice, normalizeCompanyPrintProfile } from "../../shared/deliveryNoteLayout.js";
 
 export const expressLtlLabelTemplateId = "tpl-p0-express-ltl-label";
 export const deliveryNoteTemplateId = "tpl-p0-delivery-note";
@@ -60,17 +62,17 @@ export function buildFulfillmentPrintTemplate(input = {}) {
 
   return {
     templateId: printRecord.templateId ?? getTemplateId(documentType),
-    templateVersion: isExpressLtl ? "p0-express-ltl-label-v1" : `p0-${documentType}-dot-matrix-v2`,
+    templateVersion: isExpressLtl ? "p0-express-ltl-label-v1" : `p2-${documentType}-legacy-three-price-v1`,
     documentType,
     title: isExpressLtl ? "快递快运包裹标签" : getFulfillmentDocumentTitle(documentType, method),
     priceHidden: isExpressLtl,
     paper: {
-      name: isExpressLtl ? "80mm x 50mm 标签纸" : "241mm 针式连续二联纸",
-      widthMm: isExpressLtl ? 80 : 241,
-      heightMm: isExpressLtl ? 50 : 140,
-      copies: isExpressLtl ? Math.max(packageCount, 1) : 2,
+      name: isExpressLtl ? "80mm x 50mm 标签纸" : DELIVERY_NOTE_PAPER.name,
+      widthMm: isExpressLtl ? 80 : DELIVERY_NOTE_PAPER.widthMm,
+      heightMm: isExpressLtl ? 50 : DELIVERY_NOTE_PAPER.heightMm,
+      copies: isExpressLtl ? Math.max(packageCount, 1) : DELIVERY_NOTE_PAPER.copyNames.length,
       isContinuous: isFulfillmentNote,
-      copyNames: isFulfillmentNote ? ["客户联", "工厂留底联"] : [],
+      copyNames: isFulfillmentNote ? [...DELIVERY_NOTE_PAPER.copyNames] : [],
     },
     fields: {
       printBatchNo: batchNo,
@@ -95,7 +97,7 @@ export function buildFulfillmentPrintTemplate(input = {}) {
     },
     safeguards: isExpressLtl
       ? ["标签不显示价格", "打印后等待快递/快运拉走确认才扣库存", "包裹数量变化时作废旧标签后重打"]
-      : ["针式连续纸二联", "正式单据显示价格", "数量、价格、客户或交付方式变化后需要作废并重打"],
+      : ["针式连续纸三联", "正式单据显示价格", "数量、价格、客户或交付方式变化后需要作废并重打"],
   };
 }
 
@@ -146,6 +148,7 @@ function buildFulfillmentDocumentFields({
   const amount = pricing.amount;
   const unitPrice = pricing.unitPrice;
   // P2-05: 多出来的写明赠送（下单 5000 出 5010 → 按 5000 计价，10 个赠送）。
+  const company = normalizeCompanyPrintProfile(input.companyProfile ?? DEFAULT_COMPANY_PRINT_PROFILE);
   const quantityNote = String(pricing.quantityNote ?? "").trim() || (Number(pricing.freeQty) > 0 ? `多出 ${Number(pricing.freeQty)} 个赠送，不收费` : "");
   const printEnabled = orderLine?.print === "是" || String(orderLine?.orderType ?? "").includes("印刷");
   const lineItem = {
@@ -153,7 +156,7 @@ function buildFulfillmentDocumentFields({
     orderLineNo,
     productName: orderLine?.product ?? fulfillment?.goods ?? "",
     size: orderLine?.size ?? "",
-    color: orderLine?.color ?? "",
+    color: orderLine?.color ?? orderLine?.bagColor ?? "",
     handle: orderLine?.handle ?? "",
     style: orderLine?.style ?? "",
     goodsSummary,
@@ -162,7 +165,21 @@ function buildFulfillmentDocumentFields({
     packageText,
     unitPriceText: unitPrice !== null && unitPrice !== undefined ? formatUnitPrice(unitPrice) : "待核价",
     amountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
+    amount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
     otherFeeText: "待核对费用明细",
+    // P2-07 方案二：产品名称、规格、颜色、实发数量、计价数量、单价（袋子/印刷/长提/加扣）、金额、备注。
+    // 多做赠送不写备注：实发 1010、计价 1000，金额按计价数量算。
+    deliveredQtyText: String(quantity),
+    chargeableQtyText: String(Number.isSafeInteger(Number(pricing.chargeableQty)) ? Number(pricing.chargeableQty) : quantity),
+    deliveredQty: quantity,
+    chargeableQty: Number.isSafeInteger(Number(pricing.chargeableQty)) ? Number(pricing.chargeableQty) : quantity,
+    unit: "个",
+    bagUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.bag),
+    // 负责人 2026-11-04：印刷单价客户默认是单色，双色、三色直接写在单价后面：0.2(双色)。
+    printingUnitPriceText: printingPriceText(orderLine, pricing.unitPrices?.print),
+    handleUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.handle),
+    snapUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.snap),
+    remark: buildSheetRemark({ orderLine, fulfillment, pricing }),
     note: [input.batchProgress, quantityNote, buildDocumentLineNote({ orderLine, fulfillment })].filter(Boolean).join("；"),
   };
   if (printEnabled) {
@@ -172,7 +189,22 @@ function buildFulfillmentDocumentFields({
   return {
     documentNo: printRecord.printRecordId ?? "",
     paperNo: input.paperNo ?? printRecord.paperNo ?? "",
-    copyText: "客户联 / 工厂留底联",
+    copyText: DELIVERY_NOTE_PAPER.copyNames.join(" / "),
+    companyName: company.companyName,
+    companyContactName: company.contactName,
+    companyAddress: company.address,
+    companyPhone: company.phone,
+    footerNote: company.footerNote,
+    senderSignatureText: DELIVERY_NOTE_SIGNATURES.sender,
+    receiverSignatureText: DELIVERY_NOTE_SIGNATURES.receiver,
+    documentDateText: documentDate(printRecord, input),
+    // 负责人 2026-11-04：客户是 A、实际来拿货的是 B 时，单子上单独印「提货人：B」（送货单印收货人）。
+    // 送货单（司机送货）不印提货人；只有自提单、出库单印。
+    pickerName: printRecord?.documentType === "delivery_note" || input.documentType === "delivery_note" ? "" : String(input.pickerName ?? fulfillment?.receiverName ?? "").trim().slice(0, 20),
+    pickerLabel: "提货人",
+    totalAmount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
+    totalQuantity: quantity,
+    totalAmountUppercase: amount !== null && amount !== undefined ? amountInChineseUppercase(amount) : "",
     receiverSignatureLabel: method === "送货" ? "客户签收" : "提货人签收",
     operatorSignatureLabel: "经办人",
     lineItems: [lineItem],
@@ -193,6 +225,50 @@ function buildFulfillmentDocumentFields({
       : !input.pricing || pricing.source === "local_order_reference" ? "金额仅供核对；正式纸单由服务器按价格快照与分批计费记录生成"
       : "按价格快照与当前分批记录计算；折合单价包含分摊费用，最终入账以实际交付为准",
   };
+}
+
+// 负责人 2026-11-04：备注一栏系统自动写。几色写在印刷单价后面（没有单独印刷单价时才写进备注）；
+// 长提、加扣没有单独单价的（以前的订单），写「加长提」「加扣」；（负责人 2026-11-04：赠送看实发/计价两列，不写备注；不写现货、不印仓库列）
+const CHINESE_COUNTS = ["", "单", "双", "三", "四", "五", "六", "七", "八"];
+function buildSheetRemark({ orderLine, fulfillment, pricing }) {
+  const parts = [];
+  const printing = orderLine?.print === "是" || orderLine?.printFlag === true || /印刷/.test(String(orderLine?.orderType ?? "")) || /print/.test(String(orderLine?.orderType ?? ""));
+  // 印刷有单独单价时，几色已经写在印刷单价后面；没有单独印刷单价时才写进备注。
+  if (printing && !(Number(pricing.unitPrices?.print) > 0)) {
+    const detail = printDetail(orderLine);
+    if (detail) parts.push(detail);
+  }
+  if (/加长|长提/.test(String(orderLine?.handle ?? orderLine?.handleType ?? "")) && !(Number(pricing.unitPrices?.handle) > 0)) parts.push("加长提");
+  if (hasSnapButton(orderLine) && !(Number(pricing.unitPrices?.snap) > 0)) parts.push("加扣");
+  for (const extra of [orderLine?.note, fulfillment?.note]) if (String(extra ?? "").trim()) parts.push(String(extra).trim());
+  return [...new Set(parts)].join("、");
+}
+
+function printDetail(orderLine) {
+  const colors = resolvePrintColorCount(orderLine ?? {});
+  // 负责人 2026-11-04：单面双面机印同价，不写；只写几色。
+  return colors >= 2 ? `${CHINESE_COUNTS[colors] ?? colors}色` : "";
+}
+
+function printingPriceText(orderLine, printPrice) {
+  const text = formatLegacyUnitPrice(printPrice);
+  const detail = text ? printDetail(orderLine) : "";
+  return detail ? `${text}(${detail})` : text;
+}
+
+function hasSnapButton(orderLine) {
+  if (!orderLine) return false;
+  const requirements = [orderLine.specialRequirements, orderLine.specification?.specialRequirements].flat().filter(Boolean);
+  return requirements.includes("snap_button") || orderLine.hasSnap === true || orderLine.snap === true
+    || /按扣|加扣/.test([orderLine.snapRequirement, orderLine.style, orderLine.requirements].filter(Boolean).join(" "));
+}
+
+function documentDate(printRecord, input) {
+  const raw = input.documentDate ?? printRecord?.printedAt ?? printRecord?.createdAt ?? "";
+  const time = Date.parse(raw);
+  if (!Number.isFinite(time)) return "";
+  // 单据日期按北京时间
+  return new Date(time + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
 function buildReferencePricing(orderLine, quantity) {
