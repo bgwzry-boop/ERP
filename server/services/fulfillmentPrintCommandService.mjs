@@ -1,3 +1,4 @@
+import { autoQuantityDifference } from "../../shared/quantityTolerance.js";
 import { buildDeliveryBatchFamily, describeBatchProgress } from "../../shared/deliveryBatches.js";
 import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
 import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
@@ -75,7 +76,8 @@ export function createFulfillmentPrintCommandService({
     if (documentType === "package_label" && packageAnchorId(before)) {
       if (packageAnchorId(before) !== fulfillmentId) return businessError(409,"PACKING_GROUP_USE_ANCHOR","请在包组主任务打印独立包裹挂牌。");
       const members=workspace.fulfillments.filter(row=>packageAnchorId(row)===fulfillmentId);
-      if (members.some(row=>Number(row.actualQty)!==Number(row.expectedQty??row.qty) && !(workspace.fulfillmentQuantityVarianceResolutions??[]).some(r=>r.fulfillmentId===(row.fulfillmentId??row.id)&&Number(r.expectedQty)===Number(row.expectedQty??row.qty)&&Number(r.actualQty)===Number(row.actualQty)&&["按实际数量出库","赠送数量"].includes(r.resolutionResult)&&!(workspace.fulfillmentExceptions??[]).some(e=>e.fulfillmentId===(row.fulfillmentId??row.id)&&e.exceptionType==="quantity_mismatch"&&!["已解决","已作废"].includes(e.status))))) return businessError(409,"PACKING_QUANTITY_REVIEW_REQUIRED","包组存在数量差异，请办公室核对后再打印。");
+      // P2-05: a produced order within 1% of the plan needs no office decision.
+      if (members.some(row=>Number(row.actualQty)!==Number(row.expectedQty??row.qty) && !autoQuantityDifference({ orderLine: findOrderLine(workspace, row.lineId ?? row.orderLineId), expectedQty: row.expectedQty ?? row.qty, actualQty: row.actualQty }) && !(workspace.fulfillmentQuantityVarianceResolutions??[]).some(r=>r.fulfillmentId===(row.fulfillmentId??row.id)&&Number(r.expectedQty)===Number(row.expectedQty??row.qty)&&Number(r.actualQty)===Number(row.actualQty)&&["按实际数量出库","赠送数量"].includes(r.resolutionResult)&&!(workspace.fulfillmentExceptions??[]).some(e=>e.fulfillmentId===(row.fulfillmentId??row.id)&&e.exceptionType==="quantity_mismatch"&&!["已解决","已作废"].includes(e.status))))) return businessError(409,"PACKING_QUANTITY_REVIEW_REQUIRED","包组存在数量差异，请办公室核对后再打印。");
     }
     const printRecord = buildFulfillmentPrintRecord({
       workspace,

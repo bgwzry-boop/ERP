@@ -1,4 +1,5 @@
 import { orderTypeAliasesFor } from "../shared/orderRouting.js";
+import { autoQuantityDifference } from "../shared/quantityTolerance.js";
 import { packageGroupLoadSnapshot } from "./services/packageGroupLoadService.mjs";
 import { createPostgresCoreWorkspaceReadRepository } from "./coreWorkspaceReadRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -10,13 +11,20 @@ const clone = value => structuredClone(value);
 const conflict = () => { throw Object.assign(new Error("订单、包裹、调度或下游事实已变化，请刷新核对。"), { statusCode: 409, code: "PACKING_GROUP_CHANGED" }); };
 const lineId = row => row.orderLineId ?? row.lineId ?? row.id;
 function response(input) {
+  // P2-05: a produced order within 1% of the plan is handled by rule (short → bill actual,
+  // over → bill the plan, the rest free); only larger differences go to the office.
+  const autoAcceptedDifferences = [];
   const quantityDifferences = input.snapshot.fulfillments.flatMap(f => {
     const source = input.workspace.fulfillments.find(row => fulfillmentIdOf(row)===f.id);
     const expectedQty = Number(source.expectedQty ?? source.qty);
-    return input.totals[f.id] === expectedQty ? [] : [{ fulfillmentId:f.id, expectedQty, actualQty:input.totals[f.id],exceptionId:`EX-PKG-${input.operationLogId}-${f.id}`,todoId:`T-PKG-DIFF-${input.operationLogId}-${f.id}` }];
+    if (input.totals[f.id] === expectedQty) return [];
+    const orderLine = (input.workspace.orderLines ?? []).find(row => lineId(row) === lineId(source));
+    const auto = autoQuantityDifference({ orderLine, expectedQty, actualQty: input.totals[f.id] });
+    if (auto) { autoAcceptedDifferences.push({ fulfillmentId:f.id, expectedQty, actualQty:input.totals[f.id], kind:auto.kind, chargeableQty:auto.chargeableQty, freeQty:auto.freeQty, note:auto.note }); return []; }
+    return [{ fulfillmentId:f.id, expectedQty, actualQty:input.totals[f.id],exceptionId:`EX-PKG-${input.operationLogId}-${f.id}`,todoId:`T-PKG-DIFF-${input.operationLogId}-${f.id}` }];
   });
   return { anchorFulfillmentId: input.anchorId, packingRevision: input.packingRevision, packageIds: input.packages.map(packageIdOf), packages: input.packages,
-    fulfillmentIds: input.snapshot.fulfillments.map(row=>row.id), quantityDifferences, operationLogId: input.operationLogId, inventoryDeducted:false };
+    fulfillmentIds: input.snapshot.fulfillments.map(row=>row.id), quantityDifferences, ...(autoAcceptedDifferences.length ? { autoAcceptedDifferences } : {}), operationLogId: input.operationLogId, inventoryDeducted:false };
 }
 export function createPackageGroupRepository({ queryJson, idempotentTransactionJson } = {}) {
   const receipts = new Map();
@@ -136,7 +144,7 @@ new_packages AS (INSERT INTO packages(id,biz_no,order_line_id,fulfillment_id,pac
   SELECT r.id,r.id,r.line_id,${anchor},r.seq,r.count,r.qty,r.contents,${packRevision},NULL,'待打印标签',${operator},1,${now},${now}
   FROM jsonb_to_recordset(${p.json(input.packages.map(row=>({id:row.packageId,line_id:row.orderLineId,seq:row.packageSeq,count:row.packageCount,qty:row.packedQty,contents:row.contents})) )}) AS r(id text,line_id text,seq integer,count integer,qty integer,contents jsonb),guard WHERE guard.ok RETURNING id),
 updated_f AS (UPDATE fulfillment_records SET actual_qty=(${totals}->>fulfillment_records.id)::int,
-  status=CASE WHEN (${totals}->>fulfillment_records.id)::int=fulfillment_records.expected_qty THEN '待打印标签' ELSE '数量差异待处理' END,
+  status=CASE WHEN (${totals}->>fulfillment_records.id)::int=fulfillment_records.expected_qty OR fulfillment_records.id=ANY(${p.textArray((result.autoAcceptedDifferences ?? []).map(d=>d.fulfillmentId))}) THEN '待打印标签' ELSE '数量差异待处理' END,
   packing_group_anchor_id=${anchor},packing_group_revision=${packRevision},paper_outbound_document_id='',paper_outbound_status='待生成纸单',revision=fulfillment_records.revision+1,updated_at=${now}
   FROM guard WHERE id=ANY(${idParam}) AND guard.ok RETURNING id),
 updated_l AS (UPDATE order_lines SET line_status='待打印标签',revision=revision+1,updated_at=${now} FROM guard WHERE id=ANY(${lineParam}) AND guard.ok RETURNING id),
