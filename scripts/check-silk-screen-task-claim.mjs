@@ -5,6 +5,7 @@ import { buildClaimSilkScreenTaskQuery, buildReleaseSilkScreenTaskQuery } from "
 import { createSilkScreenTaskClaimService } from "../server/services/silkScreenTaskClaimService.mjs";
 import { handleProductionReadRoutes } from "../server/routes/productionReadRoutes.mjs";
 import { inkOrderGroup } from "../shared/silkScreenInkOrder.js";
+import { listOfficeProductionTasks } from "../src/services/officeProductionPackingApiClient.js";
 
 // 负责人 2026-11-04：丝印工自己领任务（先印白色，黑色和多色收尾）；领了显示“已被XX领取”，
 // 还没开始做时本人或办公室（写原因）可以释放；两个人同时领只能一个成功。
@@ -144,6 +145,14 @@ const releaseQuery = buildReleaseSilkScreenTaskQuery({
 });
 assert.match(releaseQuery.text, /NOT EXISTS \(\s*SELECT 1 FROM workshop_reports/);
 assert.match(releaseQuery.text, /claimed_by_user_id = NULL/);
+
+// The office/phone client keeps the claim on the task (the desktop shows it, the office releases it).
+const listed = await listOfficeProductionTasks({ query: {} }, {
+  apiBaseUrl: "http://erp.test/api",
+  fetchImpl: async () => new Response(JSON.stringify({ items: [{ productionTaskId: "PT-1", orderLineId: "OL-1", productionTask: { productionTaskId: "PT-1", orderLineId: "OL-1", taskType: "丝印", claimedByUserId: "U-P1", claimedByName: "丝印甲", claimedAt: "2026-11-04T08:00:00.000Z" } }] }), { status: 200, headers: { "content-type": "application/json" } }),
+});
+assert.equal(listed.source, "api");
+assert.deepEqual([listed.items[0].productionTask.claimedByUserId, listed.items[0].productionTask.claimedByName], ["U-P1", "丝印甲"]);
 
 console.log("Silk-screen claims: pool by ink order, one winner per task, release by claimer or office with a reason, not after work started.");
 
