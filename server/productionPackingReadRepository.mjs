@@ -840,6 +840,9 @@ function buildProductionTaskListWhereSql(filters, parameters) {
     conditions.push("task.task_status <> '已完成'");
     conditions.push(buildWorkshopMobileProductionTaskVisibilitySql());
   }
+  if (cleanText(filters.visibility) === "early_shipment") {
+    conditions.push(`task.early_ship_requested_at IS NOT NULL AND task.task_status <> ALL(ARRAY['已完成', '已作废', '已取消'])`);
+  }
   if (isSilkScreenPoolVisibility(filters.visibility)) {
     conditions.push(`task.task_type = '丝印'
       AND task.task_status <> ALL(ARRAY['已完成', '已作废', '已取消'])
@@ -935,6 +938,7 @@ function matchesProductionTaskListFilters(item, filters) {
   if (filters.machineId && cleanText(task.machineId) !== filters.machineId) return false;
   if (isWorkshopMobileVisibility(filters.visibility) && !matchesWorkshopMobileProductionTaskVisibility(item)) return false;
   if (isSilkScreenPoolVisibility(filters.visibility) && !matchesSilkScreenPoolVisibility(item)) return false;
+  if (cleanText(filters.visibility) === "early_shipment" && !(cleanText(task.earlyShipRequestedAt) && !["已完成", "已作废", "已取消"].includes(cleanText(task.taskStatus ?? task.status)))) return false;
   return matchesListKeyword(item, filters.keyword);
 }
 
@@ -1058,6 +1062,7 @@ function normalizeProductionTaskSummary(task, orderLine = {}) {
     earlyShipRequestedAt: cleanText(task.earlyShipRequestedAt ?? task.early_ship_requested_at),
     earlyShipRequestedBy: cleanText(task.earlyShipRequestedBy ?? task.early_ship_requested_by),
     earlyShipNote: cleanText(task.earlyShipNote ?? task.early_ship_note),
+    earlyShipMaxQty: toFiniteInteger(task.earlyShipMaxQty ?? task.early_ship_max_qty) || null,
     finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(task, orderLine),
     createdBy: cleanText(task.createdBy ?? task.created_by),
     createdAt: cleanText(task.createdAt ?? task.created_at),
@@ -1449,6 +1454,7 @@ function productionTaskJsonExpression(alias) {
     'earlyShipRequestedAt', ${alias}.early_ship_requested_at,
     'earlyShipRequestedBy', ${alias}.early_ship_requested_by,
     'earlyShipNote', ${alias}.early_ship_note,
+    'earlyShipMaxQty', ${alias}.early_ship_max_qty,
     'finishedGoodsPhoto', ${alias}.finished_goods_photo,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at,

@@ -1255,8 +1255,6 @@ function mapProductionDailyProgressResponse(json, fallback = {}) {
     reservationCreated: false,
     packingTaskCreated: false,
     operationLogId: cleanText(json?.operationLogId),
-    // P2-03: on a task marked 今天先发 the server ships what is made right after this report.
-    earlyShipment: json?.earlyShipment && typeof json.earlyShipment === "object" ? json.earlyShipment : null,
   };
 }
 
@@ -1578,9 +1576,10 @@ function normalizeProductionTaskDetail(task, fallback = {}) {
     claimedByUserId: cleanText(task?.claimedByUserId),
     claimedByName: cleanText(task?.claimedByName),
     claimedAt: cleanText(task?.claimedAt),
-    // P2-03: the office's "今天先发" mark (the phone shows it; the end-of-day report ships what is made).
+    // P2-03: the customer's request to ship part today, recorded by the office (packers pack whole packages).
     earlyShipRequestedAt: cleanText(task?.earlyShipRequestedAt),
     earlyShipNote: cleanText(task?.earlyShipNote),
+    earlyShipMaxQty: Number.isSafeInteger(Number(task?.earlyShipMaxQty)) && Number(task.earlyShipMaxQty) > 0 ? Number(task.earlyShipMaxQty) : null,
     createdBy: cleanText(task?.createdBy),
     createdAt: cleanText(task?.createdAt),
     updatedAt: cleanText(task?.updatedAt),

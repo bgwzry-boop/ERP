@@ -57,11 +57,19 @@ export async function handleProductionWriteRoutes({
         includeErrorDetails: true,
         run: (operatorId) => silkScreenTaskClaimService.releaseTask({ workspace, productionTaskId, body, operatorId, permissionContext }),
       },
-      // P2-03: the office ships what is already made; the rest becomes a follow-up line.
+      // P2-03: ship today's whole packages the customer asked for; the rest becomes a follow-up line.
+      // The office may split directly; packers only on a task the office marked with the customer's request.
       "early-shipment": {
-        permission: writeActionPermissions.publishProductionSchedule,
+        permission: permissionContext?.actionPermissions?.includes(writeActionPermissions.publishProductionSchedule)
+          ? writeActionPermissions.publishProductionSchedule
+          : writeActionPermissions.completePacking,
         includeErrorDetails: true,
-        run: (operatorId) => earlyShipmentSplitService.splitForEarlyShipment({ workspace, productionTaskId, body, operatorId }),
+        run: (operatorId) => earlyShipmentSplitService.splitForEarlyShipment({
+          workspace,
+          productionTaskId,
+          body: { ...body, officeAuthorized: Boolean(permissionContext?.actionPermissions?.includes(writeActionPermissions.publishProductionSchedule)) },
+          operatorId,
+        }),
       },
       "early-shipment-request": {
         permission: writeActionPermissions.publishProductionSchedule,
@@ -74,13 +82,7 @@ export async function handleProductionWriteRoutes({
       },
       "daily-progress": {
         permission: writeActionPermissions.reportProduction,
-        run: async (operatorId) => {
-          const result = await productionReportingCommandService.recordDailyProgress({ workspace, productionTaskId, body, operatorId });
-          if (!result?.response) return result;
-          // P2-03: the office marked "今天先发" — the normal end-of-day report ships what is made.
-          const earlyShipment = await earlyShipmentSplitService?.afterDailyProgress?.({ workspace, productionTaskId, operatorId, idempotencyKey: body.idempotencyKey });
-          return earlyShipment ? { ...result, response: { ...result.response, earlyShipment } } : result;
-        },
+        run: (operatorId) => productionReportingCommandService.recordDailyProgress({ workspace, productionTaskId, body, operatorId }),
       },
       exception: {
         permission: writeActionPermissions.reportProduction,

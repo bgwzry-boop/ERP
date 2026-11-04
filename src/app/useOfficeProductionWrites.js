@@ -482,7 +482,7 @@ export function createOfficeProductionWriteActions({
         () => refreshOrderPool({ showToast: false }),
         () => refreshProductionPackingTaskLists({ showToast: false }),
       ],
-      `已通过${sourceLabel}记录当日报数：今日合格 ${result.dailyQualifiedQty} 个，累计 ${result.cumulativeQualifiedQty} 个，剩余 ${result.remainingQty} 个；${describeEarlyShipment(result.earlyShipment)}`,
+      `已通过${sourceLabel}记录当日报数：今日合格 ${result.dailyQualifiedQty} 个，累计 ${result.cumulativeQualifiedQty} 个，剩余 ${result.remainingQty} 个；未入库、未占用、未生成打包任务。`,
       "生产当日报数已由后端提交，但订单池或生产任务池刷新失败，请手动刷新。",
     );
   }
@@ -1015,12 +1015,3 @@ export function useOfficeProductionWrites(options) {
   };
 }
 
-// P2-03: what happened to a task the office marked 今天先发.
-function describeEarlyShipment(earlyShipment) {
-  if (!earlyShipment) return "未入库、未占用、未生成打包任务。";
-  if (earlyShipment.status === "split") {
-    const packed = earlyShipment.completion?.status === "completed" ? "已进打包" : (earlyShipment.completion?.message || "请点「报工完成」后进打包");
-    return `今天先发 ${earlyShipment.shippedNowQty} 个，${packed}；剩下 ${earlyShipment.remainderQty} 个明天接着做。`;
-  }
-  return `今天先发没有执行：${earlyShipment.message || "请联系办公室"}`;
-}

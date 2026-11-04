@@ -1336,3 +1336,19 @@
   line-height: 1.5;
 }
 .workshop-early-ship-notice strong { color: var(--erp-info); }
+
+/* P2-03 打包工：今天先发（按整包）。 */
+.early-ship-packing { display: grid; gap: 8px; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--erp-info-border); border-radius: 8px; background: var(--erp-info-bg); }
+.early-ship-packing h3 { margin: 0; font-size: 15px; color: var(--erp-info); }
+.early-ship-packing ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.early-ship-packing li { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--erp-border); border-radius: 8px; background: var(--erp-surface); }
+.early-ship-info { display: grid; gap: 2px; }
+.early-ship-info strong { font-size: 15px; }
+.early-ship-info span, .early-ship-info small { color: var(--erp-text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.early-ship-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.early-ship-form label { display: grid; gap: 4px; font-size: 14px; }
+.early-ship-form input { min-height: 40px; font-size: 16px; }
+.early-ship-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.early-ship-packing button { min-height: 40px; padding: 0 14px; }
+.early-ship-message { margin: 0; font-size: 14px; }
+.early-ship-warning { margin: 0; color: var(--erp-danger); font-size: 14px; }

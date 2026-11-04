@@ -8,9 +8,12 @@ ALTER TABLE order_lines
 CREATE INDEX IF NOT EXISTS idx_order_lines_split_from
   ON order_lines (split_from_order_line_id) WHERE split_from_order_line_id IS NOT NULL;
 
--- The office marks a task "今天先发" after talking to the customer; the workshop's normal end-of-day
--- quantity report then ships what is made. The mark is cleared when the split happens.
+-- Whether, how much and how to ship is the customer's call (they send their own courier). The
+-- office tells the customer how many are made; when the customer wants today's part, the office
+-- records it here ("有多少发多少" = no cap, or at most N). The packers then pack whole packages and the
+-- split ships exactly what was packed. The record is cleared when the split happens.
 ALTER TABLE production_tasks
   ADD COLUMN IF NOT EXISTS early_ship_requested_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS early_ship_requested_by TEXT REFERENCES users(id),
-  ADD COLUMN IF NOT EXISTS early_ship_note TEXT;
+  ADD COLUMN IF NOT EXISTS early_ship_note TEXT,
+  ADD COLUMN IF NOT EXISTS early_ship_max_qty INTEGER CHECK (early_ship_max_qty IS NULL OR early_ship_max_qty > 0);

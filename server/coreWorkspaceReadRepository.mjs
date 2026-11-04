@@ -749,6 +749,7 @@ function toProductionTask(row) {
     earlyShipRequestedAt: timestamp(row.early_ship_requested_at),
     earlyShipRequestedBy: clean(row.early_ship_requested_by),
     earlyShipNote: clean(row.early_ship_note),
+    earlyShipMaxQty: row.early_ship_max_qty == null ? null : integer(row.early_ship_max_qty),
     finishedGoodsPhoto,
     finishedGoodsPhotoStatus: clean(finishedGoodsPhoto.status),
     finishedGoodsPhotoAttachmentId: clean(finishedGoodsPhoto.attachmentId),

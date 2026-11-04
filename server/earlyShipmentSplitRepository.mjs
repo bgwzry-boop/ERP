@@ -50,7 +50,7 @@ export function createLocalEarlyShipmentSplitRepository() {
         const ok = line && task && fulfillment
           && revision(line) === plan.lineRevision && revision(task) === plan.taskRevision && revision(fulfillment) === plan.fulfillmentRevision
           && Number(line.qty ?? line.originalQty) === plan.plannedQty && Number(task.plannedQty) === plan.plannedQty
-          && Number(fulfillment.expectedQty ?? fulfillment.qty) === plan.plannedQty && dailyQty === plan.readyQty
+          && Number(fulfillment.expectedQty ?? fulfillment.qty) === plan.plannedQty && dailyQty === plan.reportedQty && plan.readyQty <= plan.reportedQty
           && !CLOSED_TASK_STATUSES.includes(clean(task.taskStatus ?? task.status)) && !BLOCKED_TASK_STATUSES.includes(clean(task.taskStatus ?? task.status));
         if (!ok) throw conflict();
         const versionNo = Math.max(0, ...(workspace.priceSnapshots ?? [])
@@ -139,7 +139,7 @@ function applySplitToWorkspace(workspace, input, revisions) {
     createdAt: now,
     updatedAt: now,
   };
-  const noRequest = { earlyShipRequestedAt: "", earlyShipRequestedBy: "", earlyShipNote: "" };
+  const noRequest = { earlyShipRequestedAt: "", earlyShipRequestedBy: "", earlyShipNote: "", earlyShipMaxQty: null };
   const nextTask = { ...task, ...noRequest, plannedQty: plan.readyQty, qty: plan.readyQty, taskStatus: "待完工确认", status: "待完工确认", revision: revisions.taskRevision, updatedAt: now };
   const remainderTask = {
     ...task,
@@ -199,6 +199,23 @@ function applySplitToWorkspace(workspace, input, revisions) {
   workspace.priceSnapshots = [...(workspace.priceSnapshots ?? []),
     priceRow(input.linePrice, plan.orderLineId, revisions.linePriceVersionNo),
     priceRow(input.remainderPrice, input.remainderLine.id, 1)];
+  if (input.carryReport) {
+    workspace.workshopReports = [...(workspace.workshopReports ?? []), {
+      id: input.carryReport.reportId,
+      reportId: input.carryReport.reportId,
+      productionTaskId: input.remainderTask.id,
+      orderLineId: input.remainderLine.id,
+      processType: plan.taskType,
+      machineId: task.machineId ?? "",
+      operatorId: input.operatorId,
+      qualifiedQty: input.carryReport.qualifiedQty,
+      exceptionQty: 0,
+      remark: input.carryReport.remark,
+      evidence: input.carryReport.evidence,
+      completedAt: now,
+      createdAt: now,
+    }];
+  }
   workspace.operationLogs = [input.operationLog, ...(workspace.operationLogs ?? [])];
   return receipt({
     orderLine: { orderLineId: nextLine.id, qty: plan.readyQty, revision: nextLine.revision },
@@ -220,6 +237,7 @@ function applyEarlyShipmentRequestToWorkspace(workspace, input, nextRevision) {
     earlyShipRequestedAt: input.requested ? input.requestedAt : "",
     earlyShipRequestedBy: input.requested ? input.operatorId : "",
     earlyShipNote: input.requested ? input.note : "",
+    earlyShipMaxQty: input.requested ? input.maxQty ?? null : null,
     revision: nextRevision,
     updatedAt: input.requestedAt,
   };
@@ -233,6 +251,7 @@ function requestReceipt(task) {
     productionTaskId: clean(task.productionTaskId ?? task.id),
     earlyShipRequestedAt: clean(task.earlyShipRequestedAt),
     earlyShipNote: clean(task.earlyShipNote),
+    earlyShipMaxQty: task.earlyShipMaxQty ?? null,
     revision: revision(task),
   };
 }
@@ -257,6 +276,7 @@ updated_task AS (
     early_ship_requested_at = ${input.requested ? p.timestamp(input.requestedAt) : "NULL"},
     early_ship_requested_by = ${input.requested ? p.text(input.operatorId) : "NULL"},
     early_ship_note = ${input.requested ? p.nullableText(input.note) : "NULL"},
+    early_ship_max_qty = ${input.requested ? p.nullableInteger(input.maxQty) : "NULL"},
     revision = production_tasks.revision + 1,
     updated_at = now()
   FROM write_guard WHERE production_tasks.id = ${taskId} AND write_guard.ok
@@ -340,7 +360,8 @@ write_guard AS MATERIALIZED (
     ), 'ERP_EARLY_SHIPMENT_TASK_CONFLICT')
   AND erp_require(
       (SELECT COALESCE(SUM(qualified_qty), 0) FROM workshop_reports
-        WHERE production_task_id = ${taskId} AND evidence_json->>'reportKind' = 'daily_progress') = ${readyQty}
+        WHERE production_task_id = ${taskId} AND evidence_json->>'reportKind' = 'daily_progress') = ${p.integer(plan.reportedQty)}
+      AND ${readyQty} <= ${p.integer(plan.reportedQty)}
       AND NOT EXISTS (SELECT 1 FROM workshop_reports
         WHERE production_task_id = ${taskId} AND COALESCE(evidence_json->>'reportKind', '') <> 'daily_progress'),
     'ERP_EARLY_SHIPMENT_PROGRESS_CONFLICT')
@@ -388,7 +409,7 @@ inserted_line AS (
 ),
 updated_task AS (
   UPDATE production_tasks SET planned_qty = ${readyQty}, task_status = '待完工确认',
-    early_ship_requested_at = NULL, early_ship_requested_by = NULL, early_ship_note = NULL,
+    early_ship_requested_at = NULL, early_ship_requested_by = NULL, early_ship_note = NULL, early_ship_max_qty = NULL,
     revision = production_tasks.revision + 1, updated_at = now()
   FROM write_guard WHERE production_tasks.id = ${taskId} AND write_guard.ok
   RETURNING json_build_object('productionTaskId', production_tasks.id, 'plannedQty', production_tasks.planned_qty,
@@ -406,6 +427,7 @@ inserted_task AS (
     'early_ship_requested_at', NULL,
     'early_ship_requested_by', NULL,
     'early_ship_note', NULL,
+    'early_ship_max_qty', NULL,
     'revision', 1,
     'created_by', ${operator},
     'created_at', now(),
@@ -441,6 +463,14 @@ inserted_line_price AS (
 ),
 inserted_remainder_price AS (
   ${priceCopy(input.remainderPrice, `(SELECT ${p.text(input.remainderLine.id)} FROM inserted_line LIMIT 1)`)}
+),
+inserted_carry_report AS (
+  ${input.carryReport ? `INSERT INTO workshop_reports (id, production_task_id, order_line_id, process_type, machine_id, operator_id, qualified_qty, exception_qty, completed_at, remark, evidence_json, created_at)
+  SELECT ${p.text(input.carryReport.reportId)}, ${p.text(input.remainderTask.id)}, ${p.text(input.remainderLine.id)}, source.task_type, source.machine_id, ${operator},
+    ${p.integer(input.carryReport.qualifiedQty)}, 0, now(), ${p.text(input.carryReport.remark)}, ${p.json(input.carryReport.evidence)}, now()
+  FROM locked_task AS source, write_guard
+  WHERE write_guard.ok
+  RETURNING id` : "SELECT NULL::text AS id WHERE false"}
 ),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(input.operationLog, p, "write_guard")}
