@@ -7,7 +7,54 @@ const ADDRESS_SOURCES = new Set(["order_entry", "office", "driver_delivery", "mi
 
 export function createCustomerAddressCommandService({ buildOperationLog, now = () => new Date() } = {}) {
   if (typeof buildOperationLog !== "function") throw new TypeError("buildOperationLog must be a function");
-  return { addDeliveryAddress, learnLocationFromDelivery };
+  return { addDeliveryAddress, learnLocationFromDelivery, updateDeliveryAddress };
+
+  // 负责人 2026-11-04：客户资料可以编辑。改地址文字（改了就清掉旧定位，下次送到重新记）、
+  // 设为默认、单独清除定位。已开出的送货单地址不变。
+  async function updateDeliveryAddress({ workspace, customerId, addressId, body = {}, operatorId }) {
+    const id = clean(customerId);
+    const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === id);
+    if (!customer) return { notFound: true, code: "CUSTOMER_NOT_FOUND" };
+    const current = customerDeliveryAddresses(customerWithAddresses(workspace, customer)).find((item) => item.addressId === clean(addressId));
+    if (!current) return { notFound: true, code: "CUSTOMER_ADDRESS_NOT_FOUND" };
+    const expected = body.expected ?? {};
+    if (clean(expected.address) !== current.address || (expected.isDefault === true) !== current.isDefault || (expected.located === true) !== current.located) {
+      return businessError(409, "CUSTOMER_ADDRESS_CHANGED", "这个地址刚被别人改过，请刷新后再改。");
+    }
+    const nextAddress = body.address === undefined ? null : clean(body.address).replace(/\s+/gu, " ");
+    if (nextAddress !== null && nextAddress.length < 2) return businessError(422, "CUSTOMER_ADDRESS_REQUIRED", "请填写送货地址（至少 2 个字）。");
+    if (nextAddress !== null && nextAddress.length > DELIVERY_ADDRESS_MAX_LENGTH) return businessError(422, "CUSTOMER_ADDRESS_TOO_LONG", `送货地址最多 ${DELIVERY_ADDRESS_MAX_LENGTH} 个字。`);
+    const addressChanged = nextAddress !== null && nextAddress.replace(/\s+/gu, "") !== current.address.replace(/\s+/gu, "");
+    const change = {
+      address: addressChanged ? nextAddress : null,
+      remark: body.remark === undefined ? null : clean(body.remark).slice(0, 60),
+      makeDefault: body.makeDefault === true && !current.isDefault,
+      clearLocation: current.located && (body.clearLocation === true || addressChanged),
+    };
+    if (change.address === null && change.remark === null && !change.makeDefault && !change.clearLocation) {
+      return { statusCode: 200, response: { address: current, changed: false } };
+    }
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "customer",
+      targetId: id,
+      action: "update_customer_delivery_address",
+      operatorId,
+      before: current,
+      after: { addressId: current.addressId, ...change },
+      reason: change.clearLocation && !addressChanged ? "清除旧定位，下次送到重新记" : addressChanged ? "修改收货地址" : change.makeDefault ? "设为默认地址" : "修改地址备注",
+      pageKey: "customer",
+    });
+    try {
+      const saved = await workspace.masterDataImportTransactionRepository.updateCustomerAddress({
+        workspace, customerId: id, addressId: current.addressId, ...change, expected: { address: current.address, isDefault: current.isDefault, located: current.located }, operationLog,
+      });
+      return { statusCode: 200, response: { address: saved.address, changed: true, locationCleared: change.clearLocation } };
+    } catch (error) {
+      if (String(error?.message) === "CUSTOMER_ADDRESS_CHANGED") return businessError(409, "CUSTOMER_ADDRESS_CHANGED", "这个地址刚被别人改过，请刷新后再改。");
+      if (String(error?.message) === "CUSTOMER_ADDRESS_NOT_FOUND") return { notFound: true, code: "CUSTOMER_ADDRESS_NOT_FOUND" };
+      return businessError(409, "CUSTOMER_ADDRESS_WRITE_FAILED", clean(error?.message) || "送货地址保存失败，请稍后重试。");
+    }
+  }
 
   // 负责人 2026-11-04：司机首次送到并拍送货照时，把手机定位记到这单送去的客户地址上，
   // 下次谁送都能直接导航。只补空的定位，不覆盖已有的；失败也不影响送货本身。

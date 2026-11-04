@@ -68,3 +68,40 @@ console.log("Delivery address choice: customer default, another saved address or
   assert.equal((await service.addDeliveryAddress({ workspace, customerId: "C9", body: { address: "x" } })).code, "CUSTOMER_ADDRESS_REQUIRED");
 }
 console.log("Customer addresses can be added later (order entry, office, delivery) without duplicates.");
+
+// 负责人 2026-11-04：客户资料可以编辑——改地址、设默认、清除定位；改了地址就清掉旧定位。
+{
+  const { createCustomerAddressCommandService } = await import("../server/services/customerAddressCommandService.mjs");
+  const { createLocalMasterDataImportTransactionRepository, buildUpdateCustomerAddressQuery } = await import("../server/masterDataImportTransactionRepository.mjs");
+  const service = createCustomerAddressCommandService({ buildOperationLog: (_workspace, input) => ({ id: `LOG-${Math.random()}`, ...input }) });
+  const workspace = {
+    customers: [{ id: "C7", name: "王记", addresses: [{ addressId: "E1", address: "老地址 1 号", isDefault: true, latitude: 22.8, longitude: 113.6 }] }],
+    customerAddresses: [{ id: "E2", customerId: "C7", address: "二厂 5 号", isDefault: false }],
+    operationLogs: [],
+    masterDataImportTransactionRepository: createLocalMasterDataImportTransactionRepository(),
+  };
+  const { customerWithAddresses } = await import("../shared/deliveryAddress.js");
+  const list = () => customerDeliveryAddresses(customerWithAddresses(workspace, workspace.customers[0]));
+  const stale = await service.updateDeliveryAddress({ workspace, customerId: "C7", addressId: "E1", body: { address: "新地址", expected: { address: "别的", isDefault: true, located: true } } });
+  assert.equal(stale.code, "CUSTOMER_ADDRESS_CHANGED", "an edit made on a stale screen is refused");
+  const moved = await service.updateDeliveryAddress({ workspace, customerId: "C7", addressId: "E1", operatorId: "U-OFFICE-A",
+    body: { address: "新厂区 9 号", expected: { address: "老地址 1 号", isDefault: true, located: true } } });
+  assert.equal(moved.statusCode, 200, JSON.stringify(moved));
+  assert.equal(moved.response.locationCleared, true, "a changed address forgets the old location");
+  assert.deepEqual(list().find((item) => item.addressId === "E1"), { addressId: "E1", address: "新厂区 9 号", area: "", isDefault: true, remark: "", located: false });
+  const defaulted = await service.updateDeliveryAddress({ workspace, customerId: "C7", addressId: "E2",
+    body: { makeDefault: true, expected: { address: "二厂 5 号", isDefault: false, located: false } } });
+  assert.equal(defaulted.response.address.isDefault, true);
+  assert.deepEqual(list().map((item) => [item.addressId, item.isDefault]).sort(), [["E1", false], ["E2", true]], "only one default address");
+  workspace.customerAddresses.find((row) => row.id === "E2").latitude = 23.1;
+  workspace.customerAddresses.find((row) => row.id === "E2").longitude = 113.9;
+  const cleared = await service.updateDeliveryAddress({ workspace, customerId: "C7", addressId: "E2",
+    body: { clearLocation: true, expected: { address: "二厂 5 号", isDefault: true, located: true } } });
+  assert.equal(cleared.response.address.located, false, "the office can clear a wrong location; it is learnt again on the next delivery");
+  assert.ok(workspace.operationLogs.length >= 3, "every edit is logged");
+  const query = buildUpdateCustomerAddressQuery({ customerId: "C7", addressId: "E2", address: null, remark: null, makeDefault: true, clearLocation: false,
+    expected: { address: "二厂 5 号", isDefault: false, located: false } }, { id: "LOG-1" });
+  assert.match(query.text, /erp_require\(EXISTS \(SELECT 1 FROM target WHERE BTRIM\(address\) = \$7/, "Postgres refuses an edit based on a stale screen");
+  assert.match(query.text, /SET is_default = false[\s\S]*id <> \$1/, "setting a default clears the others");
+}
+console.log("Customer addresses can be edited: change text (old location cleared), set default, clear location; stale edits are refused.");

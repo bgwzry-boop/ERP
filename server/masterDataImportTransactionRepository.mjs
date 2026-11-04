@@ -105,6 +105,32 @@ export function createLocalMasterDataImportTransactionRepository(options = {}) {
       return { recorded: true, addressId: pick.id ?? pick.addressId };
     },
 
+    // 负责人 2026-11-04：客户资料可编辑。改地址文字、设默认、清除定位；按编辑前快照防并发覆盖。
+    async updateCustomerAddress(input = {}) {
+      const change = normalizeAddressChange(input);
+      const addresses = (input.workspace.customerAddresses ??= []);
+      let target = addresses.find((row) => (row.id ?? row.addressId) === change.addressId && (row.customerId ?? row.customer_id) === change.customerId);
+      if (!target) {
+        // An address that so far only lives on the customer record moves into the address list.
+        const owner = (input.workspace.customers ?? []).find((customer) => (customer.id ?? customer.customerId) === change.customerId);
+        const embedded = (owner?.addresses ?? []).find((row) => (row.addressId ?? row.id) === change.addressId);
+        if (embedded) { target = { ...embedded, id: change.addressId, customerId: change.customerId }; addresses.push(target); }
+      }
+      if (!target) throw new Error("CUSTOMER_ADDRESS_NOT_FOUND");
+      if (!addressMatchesExpected(target, change.expected)) throw new Error("CUSTOMER_ADDRESS_CHANGED");
+      if (change.address !== null) target.address = change.address;
+      if (change.remark !== null) target.remark = change.remark;
+      if (change.clearLocation) Object.assign(target, { latitude: null, longitude: null, locationCapturedAt: "", locationSource: "", locationFulfillmentId: "" });
+      if (change.makeDefault) for (const row of addresses) if ((row.customerId ?? row.customer_id) === change.customerId) row.isDefault = row === target;
+      for (const customer of input.workspace.customers ?? []) {
+        if ((customer.id ?? customer.customerId) !== change.customerId || !Array.isArray(customer.addresses)) continue;
+        customer.addresses = customer.addresses.filter((row) => (row.addressId ?? row.id) !== change.addressId);
+        if (change.makeDefault) customer.addresses = customer.addresses.map((row) => ({ ...row, isDefault: false }));
+      }
+      if (input.operationLog) (input.workspace.operationLogs ??= []).push(input.operationLog);
+      return { address: projectAddress(target) };
+    },
+
     async applyImportExecution(input) {
       assertExecutionCanBeWritten(input.importExecution);
       if (input.operationLog?.targetType === "raw_material_supplier_color_mapping") {
@@ -201,6 +227,21 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
 
   return {
     kind: "postgres",
+
+    async updateCustomerAddress(input = {}) {
+      const change = normalizeAddressChange(input);
+      const builtQuery = buildUpdateCustomerAddressQuery(change, input.operationLog);
+      let result;
+      try {
+        result = await queryJson(builtQuery.text, builtQuery.values);
+      } catch (error) {
+        if (String(error?.message).includes("CUSTOMER_ADDRESS_CHANGED")) throw new Error("CUSTOMER_ADDRESS_CHANGED");
+        throw error;
+      }
+      const row = Array.isArray(result) ? result[0] : result;
+      if (!row?.address) throw new Error("CUSTOMER_ADDRESS_NOT_FOUND");
+      return { address: row.address };
+    },
 
     async recordCustomerAddressLocation(input = {}) {
       const location = normalizeAddressLocation(input);
@@ -1307,6 +1348,82 @@ updated AS (
   RETURNING address.id
 )
 SELECT json_build_object('addressId', (SELECT id FROM updated)) AS result;`.trim(),
+    values,
+  };
+}
+
+function normalizeAddressChange(input = {}) {
+  const text = (value) => value === undefined || value === null ? null : String(value).replace(/\s+/gu, " ").trim();
+  return {
+    customerId: String(input.customerId ?? "").trim(),
+    addressId: String(input.addressId ?? "").trim(),
+    address: text(input.address),
+    remark: text(input.remark),
+    makeDefault: input.makeDefault === true,
+    clearLocation: input.clearLocation === true,
+    expected: {
+      address: String(input.expected?.address ?? "").trim(),
+      isDefault: input.expected?.isDefault === true,
+      located: input.expected?.located === true,
+    },
+  };
+}
+
+function addressMatchesExpected(row, expected) {
+  const located = row.latitude != null && row.longitude != null;
+  return String(row.address ?? "").trim() === expected.address
+    && (row.isDefault === true || row.is_default === true) === expected.isDefault
+    && located === expected.located;
+}
+
+function projectAddress(row) {
+  return { addressId: row.id ?? row.addressId, address: row.address, area: row.area ?? "", isDefault: row.isDefault === true,
+    remark: row.remark ?? "", located: row.latitude != null && row.longitude != null };
+}
+
+export function buildUpdateCustomerAddressQuery(change, operationLog = {}) {
+  const values = [change.addressId, change.customerId, change.address, change.remark, change.makeDefault, change.clearLocation,
+    change.expected.address, change.expected.isDefault, change.expected.located,
+    operationLog.id ?? "", JSON.stringify(operationLog.before ?? null), JSON.stringify(operationLog.after ?? null),
+    String(operationLog.reason ?? ""), operationLog.operatorId ?? null];
+  return {
+    text: `
+WITH target AS MATERIALIZED (
+  SELECT id, address, is_default, latitude, longitude FROM customer_addresses WHERE id = $1 AND customer_id = $2 FOR UPDATE
+),
+guard AS MATERIALIZED (
+  SELECT erp_require(EXISTS (SELECT 1 FROM target WHERE BTRIM(address) = $7 AND is_default = $8::boolean
+    AND ((latitude IS NOT NULL AND longitude IS NOT NULL) = $9::boolean)), 'CUSTOMER_ADDRESS_CHANGED') AS ok
+),
+updated AS (
+  UPDATE customer_addresses AS address SET
+    address = COALESCE($3::text, address.address),
+    remark = COALESCE($4::text, address.remark),
+    is_default = CASE WHEN $5::boolean THEN true ELSE address.is_default END,
+    latitude = CASE WHEN $6::boolean THEN NULL ELSE address.latitude END,
+    longitude = CASE WHEN $6::boolean THEN NULL ELSE address.longitude END,
+    location_captured_at = CASE WHEN $6::boolean THEN NULL ELSE address.location_captured_at END,
+    location_source = CASE WHEN $6::boolean THEN NULL ELSE address.location_source END,
+    location_fulfillment_id = CASE WHEN $6::boolean THEN NULL ELSE address.location_fulfillment_id END,
+    updated_at = now()
+  FROM guard
+  WHERE address.id = $1 AND address.customer_id = $2 AND guard.ok
+  RETURNING address.*
+),
+other_defaults AS (
+  UPDATE customer_addresses SET is_default = false, updated_at = now()
+  WHERE customer_id = $2 AND id <> $1 AND $5::boolean AND is_default AND EXISTS (SELECT 1 FROM updated)
+  RETURNING id
+),
+logged AS (
+  INSERT INTO operation_logs (id, target_type, target_id, action, before_json, after_json, reason, operator_id, page_key, occurred_at, created_at)
+  SELECT $10, 'customer', $2, 'update_customer_delivery_address', $11::jsonb, $12::jsonb, $13, $14, 'customer', now(), now()
+  WHERE $10 <> '' AND EXISTS (SELECT 1 FROM updated)
+  RETURNING id
+)
+SELECT json_build_object('address', (SELECT json_build_object('addressId', id, 'address', address, 'area', COALESCE(area, ''),
+  'isDefault', is_default, 'remark', COALESCE(remark, ''), 'located', latitude IS NOT NULL AND longitude IS NOT NULL) FROM updated),
+  'clearedDefaults', (SELECT count(*) FROM other_defaults), 'operationLogId', (SELECT id FROM logged)) AS result;`.trim(),
     values,
   };
 }

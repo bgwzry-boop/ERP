@@ -870,3 +870,7 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .customer-address-panel label { display: grid; gap: 5px; font-size: 12px; }
 .customer-address-panel > button { justify-self: start; }
 .customer-address-panel p { margin: 0; color: var(--ink-soft); font-size: 12px; }
+.customer-address-panel li > input { flex: 1 1 200px; min-width: 0; }
+.customer-address-actions { display: inline-flex; gap: 10px; margin-left: auto; }
+.customer-address-panel .link-button { padding: 0; border: 0; background: transparent; color: var(--erp-accent-strong); font-size: 12px; cursor: pointer; }
+.customer-address-panel .link-button:disabled { color: var(--ink-soft); cursor: default; }

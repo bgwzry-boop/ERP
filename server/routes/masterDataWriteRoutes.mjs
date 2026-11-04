@@ -119,6 +119,20 @@ export async function handleMasterDataWriteRoutes({
     return true;
   }
 
+  const addressEditMatch = method === "PATCH" && url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/delivery-addresses\/([^/]+)$/);
+  if (addressEditMatch && customerAddressCommandService) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    const result = await customerAddressCommandService.updateDeliveryAddress({
+      workspace,
+      customerId: decodeURIComponent(addressEditMatch[1]),
+      addressId: decodeURIComponent(addressEditMatch[2]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    sendCommandResponse(response, result, { notFoundCode: "CUSTOMER_ADDRESS_NOT_FOUND", useResultStatusCode: true });
+    return true;
+  }
+
   if (url.pathname === "/api/master-data/raw-material-supplier-colors") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageRawMaterialSupplierColors)) return true;
     const result = await rawMaterialSupplierColorMappingService.saveMapping({

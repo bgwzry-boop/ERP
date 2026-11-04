@@ -784,3 +784,24 @@ export async function addOfficeCustomerDeliveryAddress(input = {}, options = {})
     return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) } };
   }
 }
+
+// 客户资料可编辑：改地址（会清掉旧定位）、设为默认、清除定位（负责人 2026-11-04）。
+export async function updateOfficeCustomerDeliveryAddress(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  const addressId = String(input.addressId ?? "").trim();
+  if (!customerId || !addressId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_ID_REQUIRED", message: "请先选择要改的地址。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/delivery-addresses/${encodeURIComponent(addressId)}`, {
+      ...options,
+      method: "PATCH",
+      authState: input.authState,
+      operatorId: input.operatorId,
+      body: { address: input.address, remark: input.remark, makeDefault: input.makeDefault === true, clearLocation: input.clearLocation === true, expected: input.expected },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "收货地址修改失败。") };
+    return { source: "api", address: json.address ?? null, changed: json.changed === true, locationCleared: json.locationCleared === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
