@@ -489,6 +489,11 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
         style: line.style ?? "空白袋",
         print,
         qty: Number(line.qty ?? 0),
+        ...(line.qtyBasis === "incoming_rolls" ? { qtyBasis: "incoming_rolls", incomingRollCount: Number(line.incomingRollCount ?? 0) } : {}),
+        ...(line.printMethod ? { printMethod: line.printMethod } : {}),
+        ...(line.deliveryAddressId ? { deliveryAddressId: line.deliveryAddressId } : {}),
+        ...(line.deliveryAddress ? { deliveryAddress: line.deliveryAddress } : {}),
+        ...(Number(line.printColorCount) >= 1 ? { printColorCount: Number(line.printColorCount) } : {}),
         fulfillment: line.fulfillmentMethod ?? "待确认",
         latest: line.latestNeededAt ?? "待确认",
         printColor: line.printColor ?? (print === "是" ? "待确认" : "非印刷"),
@@ -614,7 +619,9 @@ function buildQueueIdempotencyKey(sourceMessages, sourceText) {
 
 export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
   return draftRows.map((row, index) => {
-    const printFlag = row.print === "是";
+    // 外加工印刷一定是印刷单。
+    const printFlag = row.print === "是" || normalizeOrderType(row.orderType) === "external_print";
+    const byIncomingRolls = normalizeOrderType(row.orderType) === "external_print" && row.qtyBasis === "incoming_rolls";
     return removeUndefinedFields({
       draftLineId: row.id ?? `DRAFT-LINE-${index + 1}`,
       customerId: row.customerId,
@@ -626,7 +633,13 @@ export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
       handleType: row.handle || "普通提",
       handleColor: row.handleColor || undefined,
       style: row.style || "空白袋",
-      qty: Number(row.qty ?? 0),
+      qty: byIncomingRolls ? 0 : Number(row.qty ?? 0),
+      qtyBasis: byIncomingRolls ? "incoming_rolls" : undefined,
+      incomingRollCount: byIncomingRolls ? Number(row.incomingRollCount ?? 0) : undefined,
+      printMethod: row.printMethod || undefined,
+      deliveryAddressId: row.deliveryAddressId || undefined,
+      deliveryAddress: row.deliveryAddress || undefined,
+      printColorCount: Number(row.printColorCount) >= 1 ? Number(row.printColorCount) : undefined,
       estimatedAmount: Number(row.amount ?? 0),
       fulfillmentMethod: row.fulfillment || "待确认",
       latestNeededAt: row.latest || "待确认",
@@ -725,4 +738,100 @@ function removeUndefinedFields(value) {
 
 function uniqueText(values) {
   return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
+}
+
+// 负责人 2026-11-04：一个客户可能有多个收货地址；开送货单时列出来让办公室选。
+export async function getOfficeCustomerDeliveryAddresses(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先确认客户。" }, addresses: [] };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/delivery-addresses`, {
+      ...options,
+      authState: input.authState,
+      operatorId: input.operatorId,
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "客户收货地址读取失败。"), addresses: [] };
+    }
+    return {
+      source: "api",
+      customerId,
+      addresses: Array.isArray(json.addresses) ? json.addresses : [],
+      defaultAddressId: String(json.defaultAddressId ?? ""),
+    };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) }, addresses: [] };
+  }
+}
+
+// 客户资料随用随补：开单时另填的地址可以顺手存进客户档案（负责人 2026-11-04）。
+export async function addOfficeCustomerDeliveryAddress(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先确认客户。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/delivery-addresses`, {
+      ...options,
+      method: "POST",
+      authState: input.authState,
+      operatorId: input.operatorId,
+      body: { address: input.address, area: input.area, remark: input.remark, source: input.source || "order_entry" },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "送货地址保存失败。") };
+    return { source: "api", address: json.address ?? null, created: json.created === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+// 客户资料可编辑：改地址（会清掉旧定位）、设为默认、清除定位（负责人 2026-11-04）。
+export async function updateOfficeCustomerDeliveryAddress(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  const addressId = String(input.addressId ?? "").trim();
+  if (!customerId || !addressId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_ID_REQUIRED", message: "请先选择要改的地址。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/delivery-addresses/${encodeURIComponent(addressId)}`, {
+      ...options,
+      method: "PATCH",
+      authState: input.authState,
+      operatorId: input.operatorId,
+      body: { address: input.address, remark: input.remark, makeDefault: input.makeDefault === true, clearLocation: input.clearLocation === true, expected: input.expected },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "收货地址修改失败。") };
+    return { source: "api", address: json.address ?? null, changed: json.changed === true, locationCleared: json.locationCleared === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+// 客户资料可编辑：名称、简称、结算周期、默认联系人和电话（负责人 2026-11-04）。
+export async function getOfficeCustomerProfile(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先选择客户。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/profile`, { ...options, authState: input.authState, operatorId: input.operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "客户资料读取失败。") };
+    return { source: "api", profile: json.profile ?? null, settlementCycleOptions: Array.isArray(json.settlementCycleOptions) ? json.settlementCycleOptions : [] };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_PROFILE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+export async function updateOfficeCustomerProfile(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先选择客户。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/profile`, {
+      ...options, method: "PATCH", authState: input.authState, operatorId: input.operatorId,
+      body: { name: input.name, shortName: input.shortName, settlementCycle: input.settlementCycle, contactName: input.contactName, phone: input.phone, expected: input.expected },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "客户资料保存失败。") };
+    return { source: "api", profile: json.profile ?? null, changed: json.changed === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_PROFILE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
 }

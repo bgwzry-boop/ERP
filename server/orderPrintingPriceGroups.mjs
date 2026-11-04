@@ -3,7 +3,7 @@ import {assertOrderDocumentsVoided} from "./orderMutationDocumentGuard.mjs";
 import { createHash } from "node:crypto";
 import { normalizeMiniappSize } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
-import { PRINT_PRICE_TABLE_VERSION } from "../src/domain/priceTable.js";
+import { LARGE_MACHINE_PRINT_PRICE_VERSION, printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
 import { normalizeFactoryStandardColor } from "../shared/factoryStandardColors.js";
 
 const text = (value) => String(value ?? "").trim();
@@ -48,11 +48,10 @@ export function printingGroupIdentity(row) {
     ...(row.printingScope ? { scope: text(row.printingScope) } : {}),
   };
 }
-export function sharedPrintingUnitPrice(quantity, side) {
-  if (quantity >= 10_000) return 0.06;
-  if (quantity >= 5_000) return 0.08;
-  if (quantity >= 3_000) return 0.09;
-  return side === "双面" ? 0.13 : 0.09;
+// Owner 2026-11-03: one printing price for every order — 大机器丝印阶梯价 by quantity,
+// × number of ink colours, single and double sided the same.
+export function sharedPrintingUnitPrice(quantity, side, colorCount = 1, method = resolvePrintMethod({}, quantity)) {
+  return printUnitPriceFor({ orderedQty: quantity, colorCount, method, printSide: side });
 }
 
 // Same size, exact content and standardized ink share one ladder. Bag colour does not.
@@ -64,6 +63,8 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
   ]) {
     for (const row of rows) {
       if (!isPrivatePrinting(row)) continue;
+      // 外加工印刷按大机器丝印阶梯价逐行计价（shared/largeMachinePrintPricing.js），不进本厂印刷合组。
+      if (normalizeOrderType(row.orderType) === "external_print") continue;
       const identity = printingGroupIdentity(row);
       const rowId = text(row.id ?? row.orderLineId);
       const key = identity
@@ -80,7 +81,7 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
         draftLineIds: [],
         relatedOrderLineIds: [],
         quantity: 0,
-        printRuleVersion: PRINT_PRICE_TABLE_VERSION,
+        printRuleVersion: LARGE_MACHINE_PRINT_PRICE_VERSION,
       };
       const quantity = Number(row.qty ?? row.originalQty);
       if (
@@ -94,6 +95,7 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
           422,
         );
       group.quantity += quantity;
+      if (!group.explicitPrintMethod && row.printMethod) group.explicitPrintMethod = text(row.printMethod);
       (kind === "draft" ? group.draftLineIds : group.relatedOrderLineIds).push(
         rowId,
       );
@@ -106,7 +108,10 @@ export function buildOrderPrintingPriceGroups(draftRows, relatedRows = []) {
         "ORDER_PRINT_GROUP_NOT_MATCHED",
         "关联补单必须与本次新单的客户、印刷内容、尺寸、印刷油墨色和印刷面一致。",
       );
-    group.unitPrice = sharedPrintingUnitPrice(group.quantity, group.side);
+    group.colorCount = resolvePrintColorCount({ printColor: group.inkColor }) || 1;
+    group.printMethod = resolvePrintMethod({ printMethod: group.explicitPrintMethod }, group.quantity);
+    delete group.explicitPrintMethod;
+    group.unitPrice = sharedPrintingUnitPrice(group.quantity, group.side, group.colorCount, group.printMethod);
     group.memberCount =
       group.draftLineIds.length + group.relatedOrderLineIds.length;
   }

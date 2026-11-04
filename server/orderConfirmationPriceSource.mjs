@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { assertPublishedOrderPriceSnapshots } from "./orderDraftPublishedPricing.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
+import { isValidIncomingRollsLine } from "../shared/externalPrintQuantity.js";
 
 const clean = value => String(value ?? "").trim();
 const finite = value => typeof value === "number" && Number.isFinite(value);
@@ -39,6 +40,11 @@ export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnap
     // A previously authorized zero-billable gift retains its audit basis. This
     // must not turn missing prices for ordinary billable units into free goods.
     const explicitGift = chargeableQty === 0 && finalAmount === 0 && clean(snapshot.overrideReason ?? snapshot.override_reason);
+    // 按来料卷数下单的外加工：下单时 0 数量、0 金额，印完按实际数量定价（负责人 2026-11-03）。
+    const pricedOnActualPrints = (snapshot.sourceEvidence ?? snapshot.source_evidence_json)?.pricedOnActualPrints === true
+      && isValidIncomingRollsLine({ ...line, qty: line.qty ?? line.originalQty })
+      && chargeableQty === 0 && finalAmount === 0 && printPrice === 0 && bagPrice === 0;
+    if (pricedOnActualPrints) continue;
     const hasRequiredPrice = normalizeOrderType(line.orderType ?? line.order_type) === "external_print"
       ? printPrice > 0 : bagPrice > 0;
     if (!hasRequiredPrice && !explicitGift) throw missingPrice(lineId);

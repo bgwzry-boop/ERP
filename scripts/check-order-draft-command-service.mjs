@@ -139,6 +139,7 @@ await checkFullyCancelledDraft();
 await checkUnresolvedShortageCancellation();
 await checkCustomerShortageDecision();
 await checkSplitCustomerShortageDecision();
+await checkDeliveryAddressChoice();
 await checkBlockedConfirmation();
 await checkValidation();
 
@@ -791,6 +792,29 @@ async function checkSplitCustomerShortageDecision() {
   } finally {
     shortageLineIds = new Set();
   }
+}
+
+// 负责人 2026-11-04：一个客户可能有多个收货地址；送货单冻结所选地址，别人的地址不能用。
+async function checkDeliveryAddressChoice() {
+  confirmationMode = "success";
+  const confirmWith = async (extra, key) => {
+    const workspace = buildWorkspace();
+    workspace.customers = [{ id: "C001", name: "张三服饰", contact: "张老板", phone: "13900000001",
+      addresses: [{ addressId: "A1", address: "虎门大道 36 号", isDefault: true }, { addressId: "A2", address: "厚街某村 李记制袋厂" }] }];
+    return service.confirmOrderDraft({ workspace, draftId: "DRAFT-SERVICE-001", operatorId: "U-OFFICE-A",
+      body: { expectedRevision: 1, idempotencyKey: key, lines: [{ ...buildRequestLine(), fulfillmentMethod: "送货", ...extra }] } });
+  };
+  await confirmWith({ deliveryAddressId: "A2" }, "address-chosen");
+  const chosen = calls.confirmations.at(-1).fulfillmentRecords[0].customerSnapshot;
+  assert.deepEqual([chosen.address, chosen.deliveryAddressId, chosen.deliveryAddressSource, chosen.contactName], ["厚街某村 李记制袋厂", "A2", "customer_address", "张老板"]);
+  await confirmWith({ deliveryAddress: "长安镇 某工业区 3 栋" }, "address-one-off");
+  assert.equal(calls.confirmations.at(-1).fulfillmentRecords[0].customerSnapshot.address, "长安镇 某工业区 3 栋");
+  await confirmWith({}, "address-default");
+  assert.equal(calls.confirmations.at(-1).fulfillmentRecords[0].customerSnapshot.address, "虎门大道 36 号");
+  const before = calls.confirmations.length;
+  const foreign = await confirmWith({ deliveryAddressId: "SOMEONE-ELSE" }, "address-foreign");
+  assert.equal(foreign.code, "ORDER_DELIVERY_ADDRESS_INVALID");
+  assert.equal(calls.confirmations.length, before, "nothing is written for another customer's address");
 }
 
 function buildWorkspace() {

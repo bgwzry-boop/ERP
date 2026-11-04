@@ -308,6 +308,7 @@ function toCustomerAddress(row) {
     defaultFulfillmentMethod: clean(row.default_fulfillment_method),
     isDefault: boolean(row.is_default),
     remark: clean(row.remark),
+    ...(row.latitude != null && row.longitude != null ? { latitude: Number(row.latitude), longitude: Number(row.longitude), locationCapturedAt: timestamp(row.location_captured_at) } : {}),
   };
 }
 
@@ -540,6 +541,8 @@ function toOrderLine(row, priceSnapshot, reservations) {
     handleColor: clean(row.handle_color),
     qty: integer(row.original_qty),
     originalQty: integer(row.original_qty),
+    qtyBasis: clean(row.qty_basis) || "pieces",
+    incomingRollCount: row.incoming_roll_count == null ? null : integer(row.incoming_roll_count),
     latest: timestamp(row.latest_needed_at) || "待确认",
     latestNeededAt: timestamp(row.latest_needed_at),
     fulfillment: clean(row.fulfillment_method),

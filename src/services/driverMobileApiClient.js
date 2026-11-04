@@ -607,10 +607,41 @@ export function getDriverRouteStopLabel(task = {}) {
 }
 
 export function getDriverNavigationUrl(task = {}) {
+  return getDriverNavigationOptions(task)[0]?.url ?? "";
+}
+
+// 负责人 2026-11-04：村里很多地方要靠定位。这个地址送到过一次、记下了手机定位（WGS-84），
+// 就按定位导航；还没有定位时按地址文字搜索。高德、百度、腾讯都给，司机自己选。
+export function getDriverNavigationOptions(task = {}) {
   const address = cleanText(task.address);
-  if (!address || address === "地址待补") return "";
+  // 功能开关关闭（第一批默认）：只给原来的高德按地址搜索。
+  if (task.locationNavigationEnabled !== true) {
+    if (!address || address === "地址待补") return [];
+    const keyword = [address, cleanText(task.customerName)].filter(Boolean).join(" ");
+    return [{ app: "amap", label: "打开导航", located: false, legacy: true, url: `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}` }];
+  }
+  const name = cleanText(task.customerName) || "送货点";
+  const latitude = Number(task.addressLatitude);
+  const longitude = Number(task.addressLongitude);
+  const located = task.addressLatitude != null && task.addressLongitude != null && Number.isFinite(latitude) && Number.isFinite(longitude);
+  if (located) {
+    const label = encodeURIComponent(name);
+    return [
+      { app: "amap", label: "高德地图", located: true,
+        url: `https://uri.amap.com/navigation?to=${longitude},${latitude},${label}&mode=car&coordinate=wgs84&callnative=1` },
+      { app: "baidu", label: "百度地图", located: true,
+        url: `https://api.map.baidu.com/direction?destination=${encodeURIComponent(`latlng:${latitude},${longitude}|name:${name}`)}&mode=driving&coord_type=wgs84&output=html&src=bagwin.erp.driver` },
+      { app: "tencent", label: "腾讯地图", located: true,
+        url: `https://apis.map.qq.com/uri/v1/routeplan?type=drive&to=${label}&tocoord=${latitude},${longitude}&coord_type=1&referer=bagwin-erp-driver` },
+    ];
+  }
+  if (!address || address === "地址待补") return [];
   const keyword = [address, cleanText(task.customerName)].filter(Boolean).join(" ");
-  return `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}`;
+  return [
+    { app: "amap", label: "高德地图", located: false, url: `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}` },
+    { app: "baidu", label: "百度地图", located: false, url: `https://api.map.baidu.com/geocoder?address=${encodeURIComponent(address)}&output=html&src=bagwin.erp.driver` },
+    { app: "tencent", label: "腾讯地图", located: false, url: `https://apis.map.qq.com/uri/v1/search?keyword=${encodeURIComponent(keyword)}&referer=bagwin-erp-driver` },
+  ];
 }
 
 export function getDriverRouteExecutionContext(tasks = [], selectedTask = {}) {

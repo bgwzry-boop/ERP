@@ -1,3 +1,4 @@
+import { isDriverLocationNavigationEnabled } from "./services/driverLocationNavigationPolicy.mjs";
 import { packageAnchorId, packageContents } from "../shared/packageContents.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -198,6 +199,8 @@ SELECT
   COALESCE(${contactField(["contactName", "contact"], "contact.contact_name")}, '联系人待确认') AS contact_name,
   COALESCE(${contactField(["contactPhone", "phone"], "contact.phone")}, '电话待确认') AS contact_phone,
   COALESCE(${contactField(["address"], "address.address")}, '地址待补') AS address,
+  located.latitude AS address_latitude,
+  located.longitude AS address_longitude,
   line.product_name,
   line.order_type,
   line.size,
@@ -286,6 +289,19 @@ LEFT JOIN LATERAL (
   ORDER BY is_default DESC, created_at ASC, id ASC
   LIMIT 1
 ) AS address ON true
+LEFT JOIN LATERAL (
+  -- 负责人 2026-11-04：这单送去的地址若已记下定位，司机可直接导航；本单另填的地址没有定位。
+  SELECT latitude, longitude
+  FROM customer_addresses
+  WHERE customer_id = fulfillment.customer_id
+    AND latitude IS NOT NULL AND longitude IS NOT NULL
+    AND COALESCE(fulfillment.customer_snapshot->>'deliveryAddressSource', '') <> 'order_one_off'
+    AND (id = NULLIF(fulfillment.customer_snapshot->>'deliveryAddressId', '')
+      OR (NULLIF(fulfillment.customer_snapshot->>'deliveryAddressId', '') IS NULL AND id = (
+        SELECT fallback.id FROM customer_addresses AS fallback WHERE fallback.customer_id = fulfillment.customer_id
+        ORDER BY fallback.is_default DESC, fallback.created_at ASC, fallback.id ASC LIMIT 1)))
+  LIMIT 1
+) AS located ON true
 LEFT JOIN LATERAL (
   SELECT id, batch_no
   FROM print_records
@@ -389,6 +405,8 @@ function driverDeliveryTaskJsonExpression(alias) {
     'contactName', ${alias}.contact_name,
     'contactPhone', ${alias}.contact_phone,
     'address', ${alias}.address,
+    'addressLatitude', ${alias}.address_latitude,
+    'addressLongitude', ${alias}.address_longitude,
     'addressArea', CASE WHEN char_length(${alias}.address) > 8 THEN substring(${alias}.address from 1 for 8) ELSE ${alias}.address END,
     'deliveryNoteNo', ${alias}.delivery_note_no,
     'productName', ${alias}.product_name,
@@ -545,6 +563,7 @@ export function normalizeDriverDeliveryTask(value = {}) {
     contactName: cleanText(value.contactName ?? value.contact) || "联系人待确认",
     contactPhone: cleanText(value.contactPhone ?? value.phone) || "电话待确认",
     address: cleanText(value.address) || "地址待补",
+    ...driverAddressLocation(value),
     addressArea: cleanText(value.addressArea) || inferDriverAddressArea(value.address),
     deliveryNoteNo: cleanText(value.deliveryNoteNo) || "待打印/回填",
     goodsSummary: cleanText(value.goodsSummary) || buildDriverGoodsSummary({ fulfillment: value, orderLine: line, qty }),
@@ -755,4 +774,12 @@ function toFiniteInteger(value, fallback = 0) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.trunc(number);
+}
+
+function driverAddressLocation(value = {}) {
+  if (!isDriverLocationNavigationEnabled()) return {};
+  const latitude = Number(value.addressLatitude);
+  const longitude = Number(value.addressLongitude);
+  return value.addressLatitude != null && value.addressLongitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? { addressLatitude: latitude, addressLongitude: longitude, locationNavigationEnabled: true } : { locationNavigationEnabled: true };
 }

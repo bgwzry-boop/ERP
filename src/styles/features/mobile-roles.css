@@ -1228,3 +1228,16 @@
 .maintenance-mobile-notice > button,
 .decision-mobile-notice > button { min-height: 44px; margin-top: 8px; padding: 8px 12px; font: inherit; }
 .mobile-action-blocker { color: var(--erp-text-muted); font-size: 14px; line-height: 21px; margin: 8px 0; }
+
+/* 来料加工（客户布料）提醒：丝印工不要领本厂卷料。 */
+.workshop-supplied-material-warning {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--erp-warning);
+  border-radius: 8px;
+  background: var(--erp-warning-bg);
+  color: var(--erp-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.workshop-supplied-material-warning strong { color: var(--erp-warning); }

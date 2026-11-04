@@ -96,7 +96,7 @@ async function checkPublishedPriceService() {
   assert.equal((await confirm(keyedSize)).response.priceSnapshots[0].finalAmount, 90, "Price size keys resolve through the same size-spec master as the Miniapp projection");
   const printed = pricedWorkspace();
   Object.assign(printed.orderDrafts[0].lines[0], { orderType: "custom_print", print: "是", printFlag: true, printSide: "单面", printColor: "黑色", artworkStatus: "已上传" });
-  assert.equal((await confirm(printed)).response.priceSnapshots[0].finalAmount, 99, "Reuse the established shared print-step price on the published bag price");
+  assert.equal((await confirm(printed)).response.priceSnapshots[0].finalAmount, 99, "100 pieces default to 手工丝印 single sided on top of the published bag price (100 × (0.90 + 0.09); plate fee separate, owner 2026-11-03)");
   const printedCommon = pricedWorkspace();
   Object.assign(printedCommon.orderDrafts[0].lines[0], { orderType: "stock_printed", style: "福", product: "福字袋", print: "是", printFlag: true, printColor: "金色" });
   assert.equal((await confirm(printedCommon)).response.priceSnapshots[0].finalAmount, 90, "A printed common-goods pattern must not be charged an extra private-print fee");

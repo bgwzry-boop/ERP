@@ -7,6 +7,8 @@ import { buildOrderDraftQueuePlan } from "../orderDraftQueueDomain.mjs";
 import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
+import { INCOMING_ROLLS_QTY_BASIS, incomingRollCountOf, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
+import { customerWithAddresses, resolveDeliveryAddress } from "../../shared/deliveryAddress.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
@@ -672,6 +674,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(cancellationResolution.activeLines);
     if (reviewError) return reviewError;
+    const deliveryAddressError = findDeliveryAddressError(workspace, cancellationResolution.activeLines);
+    if (deliveryAddressError) return deliveryAddressError;
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
       try {
@@ -850,7 +854,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         ...fulfillment,
         expectedQty: fulfillment.qty,
         createdBy: operatorId,
-        customerSnapshot: buildCustomerSnapshot(workspace, fulfillment.customerId),
+        customerSnapshot: buildFulfillmentCustomerSnapshot(workspace, fulfillment, confirmation.newLines),
       })),
       inventoryReservations,
       inventoryLedgerEntries,
@@ -961,6 +965,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     const reviewError = assertNoPendingFieldReviews(resolvedCancellations.activeLines);
     if (reviewError) return reviewError;
+    const deliveryAddressError = findDeliveryAddressError(workspace, cancellationResolution.activeLines);
+    if (deliveryAddressError) return deliveryAddressError;
     const officePriceQuote = previous.recognitionContext?.officePriceQuote;
     if (officePriceQuote || body.pricingQuoteId) {
       try {
@@ -1137,7 +1143,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         ...fulfillment,
         expectedQty: fulfillment.qty,
         createdBy: operatorId,
-        customerSnapshot: buildCustomerSnapshot(workspace, fulfillment.customerId),
+        customerSnapshot: buildFulfillmentCustomerSnapshot(workspace, fulfillment, newLines),
       })),
       inventoryReservations,
       inventoryLedgerEntries: buildInventoryLedgerEntries(workspace, inventoryReservations, operatorId),
@@ -1266,6 +1272,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
         style: line.style ?? "空白袋",
         print: printFlag ? "是" : "否",
         qty: ["number", "string"].includes(typeof line.qty) ? Number(line.qty) : 0,
+        ...normalizeDraftQtyBasis(line),
+        ...(line.printMethod ? { printMethod: String(line.printMethod) } : {}),
+        ...(String(line.deliveryAddressId ?? "").trim() ? { deliveryAddressId: String(line.deliveryAddressId).trim() } : {}),
+        ...(String(line.deliveryAddress ?? "").trim() ? { deliveryAddress: String(line.deliveryAddress).replace(/\s+/gu, " ").trim() } : {}),
+        ...(Number.isSafeInteger(Number(line.printColorCount)) && Number(line.printColorCount) >= 1 ? { printColorCount: Number(line.printColorCount) } : {}),
         fulfillment: line.fulfillmentMethod ?? line.fulfillment ?? "待确认",
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),
@@ -1319,6 +1330,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
       handleColor: row.handleColor,
       style: row.style,
       qty: row.qty,
+      ...(row.qtyBasis ? { qtyBasis: row.qtyBasis, incomingRollCount: row.incomingRollCount } : {}),
+      ...(row.printMethod ? { printMethod: row.printMethod } : {}),
+      ...(row.deliveryAddressId ? { deliveryAddressId: row.deliveryAddressId } : {}),
+      ...(row.deliveryAddress ? { deliveryAddress: row.deliveryAddress } : {}),
+      ...(row.printColorCount ? { printColorCount: row.printColorCount } : {}),
       fulfillmentMethod: row.fulfillment,
       latestNeededAt: row.latest,
       printFlag: row.print === "是",
@@ -1461,11 +1477,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
   function buildProductionTasks(orderLines, operatorId) {
     return orderLines
       .filter((line) => requiresProductionOrderType(line.orderType, line.inventory) || /补印/.test(String(line.status ?? "")))
-      .filter((line) => normalizeOrderType(line.orderType) !== "external_print")
       .map((line) => {
         const productionTaskId = nextPlainId("PT", line.id);
         const orderType = normalizeOrderType(line.orderType);
-        const taskType = orderType === "stock_printed" || orderType === "custom_print" || line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
+        // 外加工印刷 only goes through the silk-screen workshop (no bag-making, no stock).
+        const taskType = orderType === "external_print" || orderType === "stock_printed" || orderType === "custom_print" || line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
         return {
           productionTaskId,
           bizNo: productionTaskId,
@@ -1745,6 +1761,35 @@ export function createOrderDraftCommandService(dependencies = {}) {
     return `缺货按客户意见：${decision.label}${decision.note ? `（${decision.note}）` : ""}`;
   }
 
+  // The address and contact this delivery goes to are frozen on the fulfillment (the driver
+  // task reads them from here); a line may pick one of the customer's addresses or a one-off one.
+  function buildFulfillmentCustomerSnapshot(workspace, fulfillment, newLines) {
+    const base = buildCustomerSnapshot(workspace, fulfillment.customerId);
+    const customer = customerWithAddresses(workspace, (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === fulfillment.customerId) ?? {});
+    const line = newLines.find((item) => item.id === fulfillment.lineId) ?? {};
+    const delivery = resolveDeliveryAddress(customer, line);
+    if (delivery.error || !delivery.address) return base;
+    return {
+      ...base,
+      address: delivery.address,
+      deliveryAddressId: delivery.addressId,
+      deliveryAddressSource: delivery.source,
+      contactName: String(customer.contact ?? "").trim(),
+      contactPhone: String(customer.phone ?? "").trim(),
+    };
+  }
+
+  // Reject a chosen address that does not belong to the line's customer before anything is written.
+  function findDeliveryAddressError(workspace, lines) {
+    for (const line of lines) {
+      if (!line.deliveryAddressId && !line.deliveryAddress) continue;
+      const customer = customerWithAddresses(workspace, (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === line.customerId) ?? {});
+      const delivery = resolveDeliveryAddress(customer, line);
+      if (delivery.error) return businessError(422, "ORDER_DELIVERY_ADDRESS_INVALID", delivery.error);
+    }
+    return null;
+  }
+
   function buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId) {
     const customerId = confirmation.newLines[0]?.customerId ?? body.customerId ?? "";
     return {
@@ -1922,8 +1967,16 @@ function requireFunction(value, name) {
 
 function hasInvalidDraftQuantity(lines,{allowUnknown=false}={}) {
  return Array.isArray(lines) && lines.some(line=>{
+  // 按来料卷数下单的外加工行：数量 0、卷数有效即可（印完才知道数量）。
+  if(isValidIncomingRollsLine({ ...line, orderType: normalizeOrderType(line?.orderType ?? line?.productType) }))return false;
   const raw=line?.qty;
   if(allowUnknown && (raw===undefined || raw===null || raw==="" || raw===0))return false;
   return !["number","string"].includes(typeof raw) || !Number.isSafeInteger(Number(raw)) || Number(raw)<=0 || Number(raw)>2147483647;
  });
+}
+
+function normalizeDraftQtyBasis(line) {
+  const orderType = normalizeOrderType(line.orderType ?? line.productType);
+  if (orderType !== "external_print" || String(line.qtyBasis ?? "").trim() !== INCOMING_ROLLS_QTY_BASIS) return {};
+  return { qtyBasis: INCOMING_ROLLS_QTY_BASIS, incomingRollCount: incomingRollCountOf(line), qty: 0 };
 }

@@ -800,6 +800,7 @@ async function routeGet(context) {
       masterDataImportCommandService,
       masterDataSubaccountCommandService,
       rawMaterialSupplierColorMappingService,
+      customerAddressCommandService,
       phoneIdentityCommandService,
       sendNotFound,
       sendBusinessError,
@@ -1205,6 +1206,7 @@ async function routeWrite(context) {
       getPermissionOperatorId,
       fulfillmentActionCommandService,
       driverDeviceFieldTestCommandService,
+      customerAddressCommandService,
       sendCommandResponse,
     })
   ) {
@@ -1245,6 +1247,7 @@ async function routeWrite(context) {
       masterDataSubaccountCommandService,
       masterDataMachineCommandService,
       rawMaterialSupplierColorMappingService,
+      customerAddressCommandService,
       phoneIdentityCommandService,
       sendCommandResponse,
     })
@@ -1408,6 +1411,7 @@ const {
   rawMaterialCommandService,
   rawMaterialPurchaseCommandService,
   rawMaterialSupplierColorMappingService,
+  customerAddressCommandService,
   requireActionPermission,
   requireAnyActionPermission,
   requireAttachmentCreatePermission,

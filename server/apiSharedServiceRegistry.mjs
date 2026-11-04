@@ -78,6 +78,7 @@ import { createRawMaterialCommandService } from "./services/rawMaterialCommandSe
 import { createRawMaterialPurchaseCommandService } from "./services/rawMaterialPurchaseCommandService.mjs";
 import { createRawMaterialOcrParserService } from "./services/rawMaterialOcrParserService.mjs";
 import { createRawMaterialSupplierColorMappingService } from "./services/rawMaterialSupplierColorMappingService.mjs";
+import { createCustomerAddressCommandService } from "./services/customerAddressCommandService.mjs";
 import { createRequestAuthorizationService } from "./services/requestAuthorizationService.mjs";
 import { createRuntimeAuthCommandService } from "./services/runtimeAuthCommandService.mjs";
 import { createStatementCommunicationCommandService } from "./services/statementCommunicationCommandService.mjs";
@@ -394,6 +395,7 @@ export function createApiSharedServiceRegistry() {
   });
   const rawMaterialPurchaseCommandService = createRawMaterialPurchaseCommandService({ rawMaterialCommandService });
   const rawMaterialSupplierColorMappingService = createRawMaterialSupplierColorMappingService({ buildOperationLog });
+  const customerAddressCommandService = createCustomerAddressCommandService({ buildOperationLog });
   const orderLineMutationCommandService = createOrderLineMutationCommandService({
     buildOperationLog,
     findInventoryItem,
@@ -525,6 +527,7 @@ export function createApiSharedServiceRegistry() {
     rawMaterialPurchaseCommandService,
     rawMaterialOcrParserService,
     rawMaterialSupplierColorMappingService,
+    customerAddressCommandService,
     requireActionPermission,
     requireAnyActionPermission,
     requireAttachmentCreatePermission,

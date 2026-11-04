@@ -859,3 +859,31 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .supplier-payment-history small { grid-column: 1 / -1; color: var(--ink-soft); font-size: 12px; }
 .supplier-action-done { margin: 12px 0 0; color: var(--green); font-size: 13px; }
 .supplier-action-blocked { margin: 12px 0 0; color: var(--erp-warning); font-size: 13px; }
+
+/* 客户档案 · 收货地址（负责人 2026-11-04：资料随用随补）。 */
+.customer-address-panel { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.customer-address-panel h3 { margin: 0; font-size: 14px; }
+.customer-address-panel ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.customer-address-panel li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; }
+.customer-address-panel li b { padding: 0 6px; border-radius: 99px; background: var(--erp-accent-soft); color: var(--erp-accent-strong); font-size: 11px; }
+.customer-address-panel li small { color: var(--ink-soft); font-size: 12px; }
+.customer-address-panel label { display: grid; gap: 5px; font-size: 12px; }
+.customer-address-panel > button { justify-self: start; }
+.customer-address-panel p { margin: 0; color: var(--ink-soft); font-size: 12px; }
+.customer-address-panel li > input { flex: 1 1 200px; min-width: 0; }
+.customer-address-actions { display: inline-flex; gap: 10px; margin-left: auto; }
+.customer-address-panel .link-button { padding: 0; border: 0; background: transparent; color: var(--erp-accent-strong); font-size: 12px; cursor: pointer; }
+.customer-address-panel .link-button:disabled { color: var(--ink-soft); cursor: default; }
+
+/* 客户档案 · 客户资料（可编辑，负责人 2026-11-04）。 */
+.customer-profile-panel { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.customer-profile-panel > header { display: flex; align-items: center; justify-content: space-between; }
+.customer-profile-panel h3 { margin: 0; font-size: 14px; }
+.customer-profile-panel .link-button { padding: 0; border: 0; background: transparent; color: var(--erp-accent-strong); font-size: 12px; cursor: pointer; }
+.customer-profile-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px 12px; margin: 0; }
+.customer-profile-facts dt { color: var(--ink-soft); font-size: 11px; }
+.customer-profile-facts dd { margin: 0; font-size: 13px; font-weight: 650; }
+.customer-profile-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 12px; }
+.customer-profile-form label { display: grid; gap: 5px; font-size: 12px; }
+.customer-profile-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.customer-profile-panel p { margin: 0; color: var(--ink-soft); font-size: 12px; }

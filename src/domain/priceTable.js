@@ -1,3 +1,4 @@
+import { printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 export {
   calculateSpecialBagPricing,
   getPublicSpecialQuoteRules,
@@ -5,7 +6,7 @@ export {
 } from "../../shared/pricing/specialBagPricing.js";
 
 export const BAG_PRICE_TABLE_VERSION = "bag-price-2026-07-03";
-export const PRINT_PRICE_TABLE_VERSION = "silk-print-price-2026-07-03";
+export const PRINT_PRICE_TABLE_VERSION = "large-machine-print-2026-11-03";
 export const P0_PRICE_SNAPSHOT_VERSION = "P0-PRICE-20260703";
 export const EXTENDED_HANDLE_ADDON = 0.03;
 
@@ -134,11 +135,9 @@ export function getPrintUnitPrice(input = {}) {
   const style = normalizePriceStyle(input.style ?? input.product ?? input.orderType);
   if (style === "小熊" || style === "喜" || style === "福" || style === "覆膜" || style === "覆膜金银") return 0;
 
-  const qty = toFiniteNumber(input.chargeableQty ?? input.qty, 0);
-  if (qty >= 10000) return 0.06;
-  if (qty >= 5000) return 0.08;
-  if (qty >= 3000) return 0.09;
-  return String(input.printSide ?? "").includes("双") ? 0.13 : 0.09;
+  // Owner 2026-11-03: one printing price for every order (大机器丝印阶梯价, × colours, single = double).
+  const qty = toFiniteNumber(input.qty ?? input.chargeableQty, 0);
+  return printUnitPriceFor({ orderedQty: qty, colorCount: resolvePrintColorCount(input) || 1, method: resolvePrintMethod(input, qty), printSide: input.printSide });
 }
 
 export function normalizePriceStyle(value = "") {

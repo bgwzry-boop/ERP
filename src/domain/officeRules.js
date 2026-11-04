@@ -6,6 +6,7 @@ import {
   FACTORY_STANDARD_COLOR_INPUT_ALIASES,
 } from "../../shared/factoryStandardColors.js";
 import { normalizeOrderType, orderTypeLabel, requiresProductionOrderType } from "../../shared/orderRouting.js";
+import { isIncomingRollsLine, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 
 export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 
@@ -135,7 +136,10 @@ export function getDraftMissingFields(row) {
   if (!row.customerId) missing.push("客户");
   if (!row.size || row.size === "待确认") missing.push("尺寸");
   if (!row.color || row.color === "待确认") missing.push("颜色");
-  if (!["number", "string"].includes(typeof row.qty) || String(row.qty).trim() === "" || !Number.isSafeInteger(Number(row.qty)) || Number(row.qty) <= 0) missing.push("有效正整数数量");
+  if (isIncomingRollsLine(row)) {
+    // 按来料卷数下单的外加工：只要卷数，数量印完才有。
+    if (!isValidIncomingRollsLine(row)) missing.push("来料卷数");
+  } else if (!["number", "string"].includes(typeof row.qty) || String(row.qty).trim() === "" || !Number.isSafeInteger(Number(row.qty)) || Number(row.qty) <= 0) missing.push("有效正整数数量");
   if (getPendingDraftFieldReviews(row).length) missing.push("识别字段待确认");
 
   if (isCustomPrintDraft(row)) {

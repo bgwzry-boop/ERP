@@ -190,8 +190,8 @@ const checks = [
   [
     "currentPriceTable20260703",
     calculateLinePricing({ size: "30*38*10", style: "空白袋", handle: "普通提", print: "否", qty: 500 }).amount === 170 &&
-      calculateLinePricing({ size: "35*27*10", style: "空白袋", handle: "普通提", print: "是", printSide: "单面", qty: 1500 }).amount === 585 &&
-      calculateLinePricing({ size: "30*38*10", style: "空白袋", handle: "普通提", print: "是", printSide: "双面", qty: 1000 }).amount === 470 &&
+      calculateLinePricing({ size: "35*27*10", style: "空白袋", handle: "普通提", print: "是", printSide: "单面", qty: 1500 }).amount === 675 &&
+      calculateLinePricing({ size: "30*38*10", style: "空白袋", handle: "普通提", print: "是", printSide: "双面", qty: 1000 }).amount === 490 &&
       p0BagPriceRows.some((row) => row.style === "覆膜" && row.size === "30*27*10" && row.metallicPrice === 0.63) &&
       p0BagPriceRows.some((row) => row.style === "小熊小狗" && row.size === "40*35*12" && row.normalPrice === 0.69),
   ],

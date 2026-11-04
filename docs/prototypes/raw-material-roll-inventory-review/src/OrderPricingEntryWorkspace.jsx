@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js";
+import { addOfficeCustomerDeliveryAddress, getOfficeCustomerDeliveryAddresses, getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { normalizeOrderType } from "../../../../shared/orderRouting.js";
@@ -548,14 +548,7 @@ function OrderPricingEditor({
       privatePrint(line) &&
       !/已交付|已完成|已作废|取消/u.test(line.status || ""),
   );
-  const missing = rows.some(
-    (line) =>
-      !line.customerId ||
-      !line.size ||
-      !(line.color || line.bagColor) ||
-      !Number.isSafeInteger(Number(line.qty)) ||
-      Number(line.qty) < 1,
-  );
+  const missing = rows.some((line) => missingQuoteFields(line).length > 0);
   // Lines converted from a hold use the held stock; only the server can judge them, and it
   // answers ORDER_SHORTAGE_DECISION_REQUIRED if the hold no longer covers them.
   const shortageVisible = shortageAsked || rows.some(isLocalShortage);
@@ -670,7 +663,7 @@ function OrderPricingEditor({
                       <option value="stock_printed">印刷通货</option>
                       <option value="custom_print">定制印刷通货</option>
                       <option value="custom_special">特殊尺寸</option>
-                      <option value="external_print">外来袋印刷</option>
+                      <option value="external_print">外加工印刷（来料加工）</option>
                     </select>
                   </label>
                   <label>
@@ -688,17 +681,49 @@ function OrderPricingEditor({
                       onChange={(e) => update(index, "color", e.target.value)}
                     />
                   </label>
-                  <label>
-                    数量（个）
-                    <input
-                      aria-label={`第${index + 1}行数量`}
-                      inputMode="numeric"
-                      value={line.qty ?? ""}
-                      onChange={(e) =>
-                        update(index, "qty", Number(e.target.value))
-                      }
-                    />
-                  </label>
+                  {line.orderType === "external_print" ? (
+                    <label>
+                      数量按
+                      <select
+                        aria-label={`第${index + 1}行数量按`}
+                        value={byIncomingRolls(line) ? "incoming_rolls" : "pieces"}
+                        onChange={(e) => {
+                          // 同行只送卷料、不说印多少个：按来料卷数下单，印完按实际印好数量定价（负责人 2026-11-03）。
+                          const rolls = e.target.value === "incoming_rolls";
+                          update(index, "qtyBasis", rolls ? "incoming_rolls" : "");
+                          update(index, "qty", rolls ? 0 : "");
+                        }}
+                      >
+                        <option value="pieces">客户说了印多少个</option>
+                        <option value="incoming_rolls">只送卷料，按来料印</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  {byIncomingRolls(line) ? (
+                    <label>
+                      来料卷数
+                      <input
+                        aria-label={`第${index + 1}行来料卷数`}
+                        inputMode="numeric"
+                        value={line.incomingRollCount ?? ""}
+                        onChange={(e) =>
+                          update(index, "incomingRollCount", Number(e.target.value))
+                        }
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      数量（个）
+                      <input
+                        aria-label={`第${index + 1}行数量`}
+                        inputMode="numeric"
+                        value={line.qty ?? ""}
+                        onChange={(e) =>
+                          update(index, "qty", Number(e.target.value))
+                        }
+                      />
+                    </label>
+                  )}
                   <label>
                     提手
                     <select
@@ -743,6 +768,15 @@ function OrderPricingEditor({
                     />
                   </label>
                 </div>
+                {line.fulfillment === "送货" ? (
+                  <DeliveryAddressField
+                    authState={formal.authState}
+                    disabled={editingLocked || locked}
+                    index={index}
+                    line={line}
+                    onChange={(key, value) => update(index, key, value)}
+                  />
+                ) : null}
                 {privatePrint(line) ? (
                   <div className="pricing-print-fields">
                     <label>
@@ -1107,7 +1141,7 @@ function OrderPricingEditor({
                   </div>
                   <div>
                     <dt>计费数量</dt>
-                    <dd>{line.chargeableQty} 个</dd>
+                    <dd>{line.sourceEvidence?.base?.pricedOnActualPrints ? "按实际印好数量，印完定档计价" : `${line.chargeableQty} 个`}</dd>
                   </div>
                   <div>
                     <dt>其他费 / 增减额</dt>
@@ -1201,6 +1235,95 @@ function missingQuoteFields(line) {
   if (!line.customerId) lacks.push("客户");
   if (!line.size) lacks.push("规格");
   if (!(line.color || line.bagColor)) lacks.push("袋身颜色");
-  if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 1) lacks.push("数量");
+  if (byIncomingRolls(line)) {
+    const rolls = Number(line.incomingRollCount);
+    if (!Number.isSafeInteger(rolls) || rolls < 1 || rolls > 9999) lacks.push("来料卷数");
+  } else if (!Number.isSafeInteger(Number(line.qty)) || Number(line.qty) < 1) lacks.push("数量");
   return lacks;
+}
+
+// 负责人 2026-11-04：一个客户可能有多个收货地址。送货时选客户已有地址，或本单另填；不选用默认地址。
+function DeliveryAddressField({ authState, disabled, index, line, onChange }) {
+  const [book, setBook] = useState({ customerId: "", loading: false, addresses: [], error: "" });
+  const [oneOff, setOneOff] = useState(Boolean(line.deliveryAddress));
+  const [saving, setSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState("");
+  // 客户资料随用随补：另填的地址可以顺手存进客户档案，下次直接选（负责人 2026-11-04）。
+  const saveToCustomer = async () => {
+    const address = String(line.deliveryAddress || "").trim();
+    if (!address || saving) return;
+    setSaving(true);
+    setSaveNotice("");
+    const result = await addOfficeCustomerDeliveryAddress({ customerId: line.customerId, address, source: "order_entry", authState }, { serverRequired: true });
+    setSaving(false);
+    if (result.blocked || !result.address?.addressId) { setSaveNotice(result.error?.message || "送货地址保存失败。"); return; }
+    setBook((current) => current.addresses.some((item) => item.addressId === result.address.addressId)
+      ? current : { ...current, addresses: [...current.addresses, result.address] });
+    setOneOff(false);
+    onChange("deliveryAddressId", result.address.addressId);
+    onChange("deliveryAddress", "");
+    setSaveNotice(result.created ? "已存进客户档案，这一单就用这个地址。" : "客户档案里已有这个地址，已选上。");
+  };
+  useEffect(() => {
+    if (!line.customerId) return undefined;
+    let live = true;
+    setBook({ customerId: line.customerId, loading: true, addresses: [], error: "" });
+    void getOfficeCustomerDeliveryAddresses({ customerId: line.customerId, authState }, { serverRequired: true }).then((result) => {
+      if (!live) return;
+      setBook({ customerId: line.customerId, loading: false, addresses: result.addresses ?? [],
+        error: result.blocked ? result.error?.message || "客户收货地址读取失败。" : "" });
+    });
+    return () => { live = false; };
+  }, [line.customerId, authState]);
+  const defaultAddress = book.addresses.find((item) => item.isDefault) ?? book.addresses[0];
+  const value = oneOff ? "__one_off__" : line.deliveryAddressId || "";
+  return (
+    <div className="pricing-delivery-address">
+      <label>
+        送货地址
+        <select
+          aria-label={`第${index + 1}行送货地址`}
+          disabled={disabled || book.loading}
+          value={value}
+          onChange={(e) => {
+            const next = e.target.value;
+            setOneOff(next === "__one_off__");
+            onChange("deliveryAddressId", next === "__one_off__" ? "" : next);
+            if (next !== "__one_off__") onChange("deliveryAddress", "");
+          }}
+        >
+          <option value="">{defaultAddress ? `客户默认地址：${defaultAddress.address}` : book.loading ? "正在读取客户地址…" : "客户档案里还没有地址"}</option>
+          {book.addresses.filter((item) => item !== defaultAddress).map((item) => (
+            <option key={item.addressId} value={item.addressId}>{item.address}{item.remark ? `（${item.remark}）` : ""}</option>
+          ))}
+          <option value="__one_off__">本单另填地址…</option>
+        </select>
+      </label>
+      {oneOff ? (
+        <label>
+          本单送到哪里
+          <input
+            aria-label={`第${index + 1}行本单送货地址`}
+            disabled={disabled}
+            maxLength={200}
+            placeholder="如：某某镇某某村 XX 制袋厂（只用于这一单）"
+            value={line.deliveryAddress || ""}
+            onChange={(e) => onChange("deliveryAddress", e.target.value)}
+          />
+        </label>
+      ) : null}
+      {oneOff ? (
+        <button type="button" className="secondary-button" disabled={disabled || saving || !String(line.deliveryAddress || "").trim()} onClick={() => void saveToCustomer()}>
+          {saving ? "正在保存…" : "存进客户档案，下次直接选"}
+        </button>
+      ) : null}
+      {saveNotice ? <p className="pricing-note" role="status">{saveNotice}</p> : null}
+      {book.error ? <p className="pricing-note" role="alert">{book.error}</p> : null}
+    </div>
+  );
+}
+
+// 外加工按来料卷数下单：数量印完才有。
+function byIncomingRolls(line) {
+  return line?.orderType === "external_print" && line?.qtyBasis === "incoming_rolls";
 }

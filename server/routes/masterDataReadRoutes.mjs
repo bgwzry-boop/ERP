@@ -1,3 +1,4 @@
+import { customerDeliveryAddresses, customerWithAddresses } from "../../shared/deliveryAddress.js";
 export async function handleMasterDataReadRoutes({
   url,
   response,
@@ -14,6 +15,7 @@ export async function handleMasterDataReadRoutes({
   masterDataImportCommandService,
   masterDataSubaccountCommandService,
   rawMaterialSupplierColorMappingService,
+  customerAddressCommandService,
   phoneIdentityCommandService,
   sendNotFound,
   sendBusinessError,
@@ -22,6 +24,46 @@ export async function handleMasterDataReadRoutes({
   if (url.pathname === "/api/master-data/permission-catalog") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageSubaccounts)) return true;
     sendJson(response, 200, masterDataSubaccountCommandService.getPermissionCatalog());
+    return true;
+  }
+
+  const profileMatch = url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/profile$/);
+  if (profileMatch && customerAddressCommandService) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    let source = workspace;
+    if (workspace.coreWorkspaceReadRepository?.loadState) {
+      const state = await workspace.coreWorkspaceReadRepository.loadState();
+      if (Array.isArray(state?.customers)) source = { ...workspace, customers: state.customers, customerContacts: state.customerContacts ?? [] };
+    }
+    const result = customerAddressCommandService.readCustomerProfile({ workspace: source, customerId: decodeURIComponent(profileMatch[1]) });
+    if (result.notFound) sendNotFound(response, result.code);
+    else sendJson(response, 200, result.response);
+    return true;
+  }
+
+  // 负责人 2026-11-04：开单送货时选这个客户的哪个收货地址。
+  const deliveryAddressMatch = url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/delivery-addresses$/);
+  if (deliveryAddressMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    const customerId = decodeURIComponent(deliveryAddressMatch[1]);
+    let customers = workspace.customers ?? [];
+    let addressSource = workspace;
+    if (workspace.coreWorkspaceReadRepository?.loadState) {
+      const state = await workspace.coreWorkspaceReadRepository.loadState();
+      if (Array.isArray(state?.customers)) { customers = state.customers; addressSource = state; }
+    }
+    const customer = customers.find((item) => (item.id ?? item.customerId) === customerId);
+    if (!customer) {
+      sendNotFound(response, "CUSTOMER_NOT_FOUND");
+      return true;
+    }
+    const addresses = customerDeliveryAddresses(customerWithAddresses(addressSource, customer));
+    sendJson(response, 200, {
+      customerId,
+      customerName: String(customer.name ?? ""),
+      addresses,
+      defaultAddressId: (addresses.find((item) => item.isDefault) ?? addresses[0])?.addressId ?? "",
+    });
     return true;
   }
 

@@ -345,7 +345,60 @@ const externalReport = await service.completeProductionReport({
   operatorId: "U-WORKSHOP",
   body: { qualifiedQty: 10, inventoryItemId: "INV-1" },
 });
-assert.equal(externalReport.code, "PRODUCTION_REPORT_EXTERNAL_PROCESSING_NOT_INVENTORY");
+assert.equal(externalReport.code, "PRODUCTION_EXTERNAL_PRINT_PROCESS_INVALID", "an external print line has no bag-making step");
+
+// Owner 2026-11-03: peers' cloth is printed in our silk-screen workshop. Printing is the final
+// step — the good pieces go to packing and delivery; no bag-making task, no finished-goods stock.
+workspace.orderLines[0].qty = 5000;
+workspace.productionTasks.push({ id: "PT-EXT", productionTaskId: "PT-EXT", orderLineId: "OL-1", taskType: "丝印", machineId: "SILK-01",
+  plannedQty: 5000, taskStatus: "丝印中", revision: 1, createdBy: "车间A", createdAt: "2026-07-11T09:00:00.000Z" });
+const externalStock = await service.completeProductionReport({ workspace, productionTaskId: "PT-EXT", operatorId: "U-WORKSHOP",
+  body: { qualifiedQty: 4960, machineCount: 5000, inventoryItemId: "INV-1" } });
+assert.equal(externalStock.code, "PRODUCTION_REPORT_EXTERNAL_PROCESSING_NOT_INVENTORY");
+const tooFewMachineCounts = await service.completeProductionReport({ workspace, productionTaskId: "PT-EXT", operatorId: "U-WORKSHOP",
+  body: { qualifiedQty: 4960, machineCount: 4000 } });
+assert.equal(tooFewMachineCounts.code, "PRODUCTION_MACHINE_COUNT_INVALID");
+const reportsBefore = calls.report.length;
+const externalDone = await service.completeProductionReport({ workspace, productionTaskId: "PT-EXT", operatorId: "U-WORKSHOP",
+  body: { qualifiedQty: 4960, machineCount: 5000, idempotencyKey: "ext-print-done-1" } });
+assert.equal(externalDone.response?.orderLineStatus, "待打包", JSON.stringify(externalDone));
+const externalInput = calls.report[reportsBefore];
+assert.equal(externalInput.packingTask.plannedQty, 4960, "packing and delivery carry the actual good prints");
+assert.equal(externalInput.downstreamProductionTask, undefined, "no bag-making task");
+assert.deepEqual([externalInput.inventoryAdjustments.length, externalInput.inventoryReservations.length, externalInput.inventoryLedgerEntries.length], [0, 0, 0], "no finished-goods stock");
+assert.equal(externalInput.machineCapacityBaseline, null);
+assert.equal(externalInput.workshopReport.processType, "丝印");
+assert.deepEqual([externalInput.workshopReport.evidence.externalPrint, externalInput.workshopReport.evidence.actualPrintedQty, externalInput.workshopReport.evidence.orderedQty, externalInput.workshopReport.evidence.exceptionQty],
+  [true, 4960, 5000, 40]);
+assert.equal(externalInput.operationLog.action, "complete_external_print_report");
+// Without a machine count (the printer already subtracted set-up prints) the report still goes through.
+workspace.productionTasks.push({ ...workspace.productionTasks.find((task) => task.productionTaskId === "PT-EXT"), id: "PT-EXT2", productionTaskId: "PT-EXT2" });
+const noMachineCount = await service.completeProductionReport({ workspace, productionTaskId: "PT-EXT2", operatorId: "U-WORKSHOP", body: { qualifiedQty: 4980 } });
+assert.equal(noMachineCount.response?.orderLineStatus, "待打包", JSON.stringify(noMachineCount));
+assert.equal(calls.report.at(-1).workshopReport.evidence.exceptionQty, 0);
+// 按来料卷数下单（同行送 10 卷料，不说印多少个）：印完按实际印好数量定档并计价。
+Object.assign(workspace.orderLines[0], { qty: 0, originalQty: 0, qtyBasis: "incoming_rolls", incomingRollCount: 10, printColor: "红/蓝", printSide: "单面" });
+workspace.priceSnapshots = [{ priceSnapshotId: "PS-CONFIRM", orderLineId: "OL-1", snapshotType: "order_confirm", chargeableQty: 0, finalAmount: 0,
+  sourceEvidence: { kind: "external_print_ladder", pricedOnActualPrints: true, colorCount: 2, printMethod: null, printSide: "单面" } }];
+workspace.productionTasks.push({ ...workspace.productionTasks.find((task) => task.productionTaskId === "PT-EXT"), id: "PT-ROLLS", productionTaskId: "PT-ROLLS", plannedQty: 0 });
+const rollsDone = await service.completeProductionReport({ workspace, productionTaskId: "PT-ROLLS", operatorId: "U-WORKSHOP", body: { qualifiedQty: 4960 } });
+assert.equal(rollsDone.response?.orderLineStatus, "待打包", JSON.stringify(rollsDone));
+const rollsInput = calls.report.at(-1);
+assert.equal(rollsInput.priceSnapshots.length, 1);
+const actualPrice = rollsInput.priceSnapshots[0];
+assert.deepEqual([actualPrice.snapshotType, actualPrice.chargeableQty, actualPrice.printPrice, actualPrice.finalAmount], ["actual_print_quantity", 4960, 0.18, 892.8],
+  "4960 good prints fall in the 2000–4999 tier: 0.09 × 2 colours");
+assert.equal(rollsInput.packingTask.plannedQty, 4960);
+assert.equal(rollsInput.workshopReport.evidence.pricedOnActualPrints, true);
+assert.equal(rollsInput.workshopReport.evidence.incomingRollCount, 10);
+const smallRun = { ...workspace.productionTasks.find((task) => task.productionTaskId === "PT-ROLLS"), id: "PT-ROLLS-2", productionTaskId: "PT-ROLLS-2" };
+workspace.productionTasks.push(smallRun);
+await service.completeProductionReport({ workspace, productionTaskId: "PT-ROLLS-2", operatorId: "U-WORKSHOP", body: { qualifiedQty: 800 } });
+assert.equal(calls.report.at(-1).priceSnapshots[0].printPrice, 0.18, "800 pieces without a chosen method default to 手工 single sided 0.09 × 2");
+delete workspace.orderLines[0].qtyBasis;
+delete workspace.orderLines[0].incomingRollCount;
+workspace.priceSnapshots = [];
+workspace.orderLines[0].qty = 100;
 workspace.orderLines[0].orderType = "定制印刷";
 
 console.log(

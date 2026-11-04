@@ -583,6 +583,7 @@ function normalizeOrderLine(line, fallbackOrderId = "") {
     handleColor: String(line.handleColor ?? line.handle_color ?? "").trim(),
     revision: Math.max(1, toFiniteInteger(line.revision ?? 1)),
     originalQty: toFiniteInteger(line.originalQty ?? line.original_qty ?? line.qty),
+    ...normalizeQtyBasis(line),
     latestNeededAt: String(line.latestNeededAt ?? line.latest_needed_at ?? line.latest ?? "").trim(),
     fulfillmentMethod: String(line.fulfillmentMethod ?? line.fulfillment_method ?? line.fulfillment ?? "待确认").trim() || "待确认",
     lineStatus: String(line.lineStatus ?? line.line_status ?? line.status ?? "待确认").trim() || "待确认",
@@ -1144,6 +1145,8 @@ function buildInsertOrderLinesSql(orderLines, parameters) {
     ${parameters.nullableText(line.printSide)},
     ${parameters.nullableText(line.handleColor)},
     ${parameters.integer(line.originalQty)},
+    ${parameters.text(line.qtyBasis ?? "pieces")},
+    ${line.incomingRollCount ? parameters.integer(line.incomingRollCount) : "NULL::integer"},
     ${parameters.nullableTimestamp(line.latestNeededAt)},
     ${parameters.text(line.fulfillmentMethod)},
     ${parameters.text(line.lineStatus)},
@@ -1170,6 +1173,8 @@ function buildInsertOrderLinesSql(orderLines, parameters) {
   print_side,
   handle_color,
   original_qty,
+  qty_basis,
+  incoming_roll_count,
   latest_needed_at,
   fulfillment_method,
   line_status,
@@ -1786,6 +1791,8 @@ function orderLineJsonExpression(alias) {
     'printSide', ${alias}.print_side,
     'handleColor', ${alias}.handle_color,
     'originalQty', ${alias}.original_qty,
+    'qtyBasis', ${alias}.qty_basis,
+    'incomingRollCount', ${alias}.incoming_roll_count,
     'latestNeededAt', ${alias}.latest_needed_at,
     'fulfillmentMethod', ${alias}.fulfillment_method,
     'lineStatus', ${alias}.line_status,
@@ -1966,4 +1973,12 @@ function toFiniteNumber(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return number;
+}
+
+// 按来料卷数下单的外加工行：数量在印完前未知（负责人 2026-11-03）。
+function normalizeQtyBasis(line) {
+  const basis = String(line.qtyBasis ?? line.qty_basis ?? "pieces").trim();
+  if (basis !== "incoming_rolls") return { qtyBasis: "pieces", incomingRollCount: null };
+  const count = Number(line.incomingRollCount ?? line.incoming_roll_count);
+  return { qtyBasis: "incoming_rolls", incomingRollCount: Number.isSafeInteger(count) && count >= 1 && count <= 9999 ? count : null };
 }
