@@ -14,6 +14,7 @@ export async function handleMasterDataWriteRoutes({
   masterDataSubaccountCommandService,
   masterDataMachineCommandService,
   rawMaterialSupplierColorMappingService,
+  customerAddressCommandService,
   phoneIdentityCommandService,
   sendCommandResponse,
 }) {
@@ -101,6 +102,20 @@ export async function handleMasterDataWriteRoutes({
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
     });
     sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
+    return true;
+  }
+
+  // 负责人 2026-11-04：客户资料可以随开单、送货、办公室事后补充。
+  const addressMatch = method === "POST" && url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/delivery-addresses$/);
+  if (addressMatch && customerAddressCommandService) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    const result = await customerAddressCommandService.addDeliveryAddress({
+      workspace,
+      customerId: decodeURIComponent(addressMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    sendCommandResponse(response, result, { notFoundCode: "CUSTOMER_NOT_FOUND", useResultStatusCode: true });
     return true;
   }
 

@@ -1,4 +1,4 @@
-import { customerDeliveryAddresses } from "../../shared/deliveryAddress.js";
+import { customerDeliveryAddresses, customerWithAddresses } from "../../shared/deliveryAddress.js";
 export async function handleMasterDataReadRoutes({
   url,
   response,
@@ -32,16 +32,17 @@ export async function handleMasterDataReadRoutes({
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
     const customerId = decodeURIComponent(deliveryAddressMatch[1]);
     let customers = workspace.customers ?? [];
+    let addressSource = workspace;
     if (workspace.coreWorkspaceReadRepository?.loadState) {
       const state = await workspace.coreWorkspaceReadRepository.loadState();
-      if (Array.isArray(state?.customers)) customers = state.customers;
+      if (Array.isArray(state?.customers)) { customers = state.customers; addressSource = state; }
     }
     const customer = customers.find((item) => (item.id ?? item.customerId) === customerId);
     if (!customer) {
       sendNotFound(response, "CUSTOMER_NOT_FOUND");
       return true;
     }
-    const addresses = customerDeliveryAddresses(customer);
+    const addresses = customerDeliveryAddresses(customerWithAddresses(addressSource, customer));
     sendJson(response, 200, {
       customerId,
       customerName: String(customer.name ?? ""),

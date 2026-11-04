@@ -2,6 +2,16 @@
 // 每张单送货时选这个客户已有的地址，或者本单另填一个地址；不选就用客户的默认地址。
 export const DELIVERY_ADDRESS_MAX_LENGTH = 200;
 
+// The customer's saved addresses plus any added since the customer list was built.
+export function customerWithAddresses(workspace = {}, customer = {}) {
+  const customerId = String(customer.id ?? customer.customerId ?? "").trim();
+  const saved = Array.isArray(customer.addresses) ? customer.addresses : [];
+  const known = new Set(saved.map((item) => String(item.addressId ?? item.id ?? "")));
+  const added = (Array.isArray(workspace.customerAddresses) ? workspace.customerAddresses : [])
+    .filter((item) => String(item.customerId ?? item.customer_id ?? "") === customerId && !known.has(String(item.addressId ?? item.id ?? "")));
+  return { ...customer, addresses: [...saved, ...added] };
+}
+
 export function customerDeliveryAddresses(customer = {}) {
   return (Array.isArray(customer.addresses) ? customer.addresses : [])
     .map((item) => ({

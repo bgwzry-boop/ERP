@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getOfficeCustomerDeliveryAddresses, getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js";
+import { addOfficeCustomerDeliveryAddress, getOfficeCustomerDeliveryAddresses, getOfficeDraft } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { normalizeOrderType } from "../../../../shared/orderRouting.js";
@@ -1246,6 +1246,24 @@ function missingQuoteFields(line) {
 function DeliveryAddressField({ authState, disabled, index, line, onChange }) {
   const [book, setBook] = useState({ customerId: "", loading: false, addresses: [], error: "" });
   const [oneOff, setOneOff] = useState(Boolean(line.deliveryAddress));
+  const [saving, setSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState("");
+  // 客户资料随用随补：另填的地址可以顺手存进客户档案，下次直接选（负责人 2026-11-04）。
+  const saveToCustomer = async () => {
+    const address = String(line.deliveryAddress || "").trim();
+    if (!address || saving) return;
+    setSaving(true);
+    setSaveNotice("");
+    const result = await addOfficeCustomerDeliveryAddress({ customerId: line.customerId, address, source: "order_entry", authState }, { serverRequired: true });
+    setSaving(false);
+    if (result.blocked || !result.address?.addressId) { setSaveNotice(result.error?.message || "送货地址保存失败。"); return; }
+    setBook((current) => current.addresses.some((item) => item.addressId === result.address.addressId)
+      ? current : { ...current, addresses: [...current.addresses, result.address] });
+    setOneOff(false);
+    onChange("deliveryAddressId", result.address.addressId);
+    onChange("deliveryAddress", "");
+    setSaveNotice(result.created ? "已存进客户档案，这一单就用这个地址。" : "客户档案里已有这个地址，已选上。");
+  };
   useEffect(() => {
     if (!line.customerId) return undefined;
     let live = true;
@@ -1294,6 +1312,12 @@ function DeliveryAddressField({ authState, disabled, index, line, onChange }) {
           />
         </label>
       ) : null}
+      {oneOff ? (
+        <button type="button" className="secondary-button" disabled={disabled || saving || !String(line.deliveryAddress || "").trim()} onClick={() => void saveToCustomer()}>
+          {saving ? "正在保存…" : "存进客户档案，下次直接选"}
+        </button>
+      ) : null}
+      {saveNotice ? <p className="pricing-note" role="status">{saveNotice}</p> : null}
       {book.error ? <p className="pricing-note" role="alert">{book.error}</p> : null}
     </div>
   );

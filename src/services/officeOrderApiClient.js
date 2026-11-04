@@ -764,3 +764,23 @@ export async function getOfficeCustomerDeliveryAddresses(input = {}, options = {
     return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) }, addresses: [] };
   }
 }
+
+// 客户资料随用随补：开单时另填的地址可以顺手存进客户档案（负责人 2026-11-04）。
+export async function addOfficeCustomerDeliveryAddress(input = {}, options = {}) {
+  const customerId = String(input.customerId ?? "").trim();
+  if (!customerId) return { source: "ui_error", blocked: true, error: { code: "CUSTOMER_ID_REQUIRED", message: "请先确认客户。" } };
+  try {
+    const response = await requestOrderApi(`/master-data/customers/${encodeURIComponent(customerId)}/delivery-addresses`, {
+      ...options,
+      method: "POST",
+      authState: input.authState,
+      operatorId: input.operatorId,
+      body: { address: input.address, area: input.area, remark: input.remark, source: input.source || "order_entry" },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "送货地址保存失败。") };
+    return { source: "api", address: json.address ?? null, created: json.created === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}

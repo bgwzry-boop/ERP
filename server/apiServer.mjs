@@ -1245,6 +1245,7 @@ async function routeWrite(context) {
       masterDataSubaccountCommandService,
       masterDataMachineCommandService,
       rawMaterialSupplierColorMappingService,
+      customerAddressCommandService,
       phoneIdentityCommandService,
       sendCommandResponse,
     })
@@ -1408,6 +1409,7 @@ const {
   rawMaterialCommandService,
   rawMaterialPurchaseCommandService,
   rawMaterialSupplierColorMappingService,
+  customerAddressCommandService,
   requireActionPermission,
   requireAnyActionPermission,
   requireAttachmentCreatePermission,

@@ -859,3 +859,14 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .supplier-payment-history small { grid-column: 1 / -1; color: var(--ink-soft); font-size: 12px; }
 .supplier-action-done { margin: 12px 0 0; color: var(--green); font-size: 13px; }
 .supplier-action-blocked { margin: 12px 0 0; color: var(--erp-warning); font-size: 13px; }
+
+/* 客户档案 · 收货地址（负责人 2026-11-04：资料随用随补）。 */
+.customer-address-panel { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.customer-address-panel h3 { margin: 0; font-size: 14px; }
+.customer-address-panel ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.customer-address-panel li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; }
+.customer-address-panel li b { padding: 0 6px; border-radius: 99px; background: var(--erp-accent-soft); color: var(--erp-accent-strong); font-size: 11px; }
+.customer-address-panel li small { color: var(--ink-soft); font-size: 12px; }
+.customer-address-panel label { display: grid; gap: 5px; font-size: 12px; }
+.customer-address-panel > button { justify-self: start; }
+.customer-address-panel p { margin: 0; color: var(--ink-soft); font-size: 12px; }

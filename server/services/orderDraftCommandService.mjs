@@ -8,7 +8,7 @@ import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { INCOMING_ROLLS_QTY_BASIS, incomingRollCountOf, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
-import { resolveDeliveryAddress } from "../../shared/deliveryAddress.js";
+import { customerWithAddresses, resolveDeliveryAddress } from "../../shared/deliveryAddress.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
@@ -1765,7 +1765,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
   // task reads them from here); a line may pick one of the customer's addresses or a one-off one.
   function buildFulfillmentCustomerSnapshot(workspace, fulfillment, newLines) {
     const base = buildCustomerSnapshot(workspace, fulfillment.customerId);
-    const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === fulfillment.customerId) ?? {};
+    const customer = customerWithAddresses(workspace, (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === fulfillment.customerId) ?? {});
     const line = newLines.find((item) => item.id === fulfillment.lineId) ?? {};
     const delivery = resolveDeliveryAddress(customer, line);
     if (delivery.error || !delivery.address) return base;
@@ -1783,7 +1783,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
   function findDeliveryAddressError(workspace, lines) {
     for (const line of lines) {
       if (!line.deliveryAddressId && !line.deliveryAddress) continue;
-      const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === line.customerId) ?? {};
+      const customer = customerWithAddresses(workspace, (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === line.customerId) ?? {});
       const delivery = resolveDeliveryAddress(customer, line);
       if (delivery.error) return businessError(422, "ORDER_DELIVERY_ADDRESS_INVALID", delivery.error);
     }

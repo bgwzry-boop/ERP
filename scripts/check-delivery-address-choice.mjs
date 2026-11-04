@@ -47,3 +47,24 @@ console.log("Delivery address choice: customer default, another saved address or
   await call("/api/master-data/customers/C1/delivery-addresses", false);
   assert.deepEqual(sent.at(-1), { status: 403, permission: "order.draft.save" });
 }
+
+// 负责人 2026-11-04：客户资料不指望一步填齐，地址可以开单时、办公室事后、送货时补充。
+{
+  const { createCustomerAddressCommandService } = await import("../server/services/customerAddressCommandService.mjs");
+  const { createLocalMasterDataImportTransactionRepository } = await import("../server/masterDataImportTransactionRepository.mjs");
+  const service = createCustomerAddressCommandService({ buildOperationLog: (_workspace, input) => ({ id: `LOG-${input.action}-${Math.random()}`, ...input }) });
+  const workspace = { customers: [{ id: "C9", name: "李记制袋", addresses: [] }], customerAddresses: [], operationLogs: [],
+    masterDataImportTransactionRepository: createLocalMasterDataImportTransactionRepository() };
+  const first = await service.addDeliveryAddress({ workspace, customerId: "C9", body: { address: " 厚街镇  某村 8 号 ", source: "order_entry" }, operatorId: "U-OFFICE-A" });
+  assert.equal(first.statusCode, 201, JSON.stringify(first));
+  assert.deepEqual([first.response.address.address, first.response.address.isDefault, first.response.address.remark], ["厚街镇 某村 8 号", true, "开单时补充"], "the first address becomes the default");
+  assert.equal(workspace.customerAddresses.length, 1, "saved into the customer's addresses");
+  const again = await service.addDeliveryAddress({ workspace, customerId: "C9", body: { address: "厚街镇某村8号" }, operatorId: "U-OFFICE-A" });
+  assert.deepEqual([again.statusCode, again.response.created, again.response.address.addressId], [200, false, first.response.address.addressId], "the same address typed again is not added twice");
+  const second = await service.addDeliveryAddress({ workspace, customerId: "C9", body: { address: "长安镇某工业区 3 栋" }, operatorId: "U-OFFICE-A" });
+  assert.equal(second.response.address.isDefault, false);
+  assert.deepEqual(customerDeliveryAddresses((await import("../shared/deliveryAddress.js")).customerWithAddresses(workspace, workspace.customers[0])).length, 2);
+  assert.equal((await service.addDeliveryAddress({ workspace, customerId: "NOPE", body: { address: "某地" } })).notFound, true);
+  assert.equal((await service.addDeliveryAddress({ workspace, customerId: "C9", body: { address: "x" } })).code, "CUSTOMER_ADDRESS_REQUIRED");
+}
+console.log("Customer addresses can be added later (order entry, office, delivery) without duplicates.");

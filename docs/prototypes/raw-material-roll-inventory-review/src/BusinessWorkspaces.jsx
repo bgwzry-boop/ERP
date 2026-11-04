@@ -1,3 +1,4 @@
+import { CustomerAddressPanel } from "./CustomerAddressPanel.jsx";
 import { EmptyWorkspace } from "./WorkspaceFeedback.jsx";
 import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
 import OrderPricingEntryWorkspace from "./OrderPricingEntryWorkspace.jsx";
@@ -502,6 +503,7 @@ function buildWorkspaceConfigs(formal) {
     columns: ["客户", "客户编号", "结算周期", "当前应收", "状态"],
     rows: buildCustomerRows(data.orderLines, data.statements),
     primaryAction: "查看客户事实",
+    keepPrimaryWithExtra: true,
     source: "正式订单与对账 API",
   },
   "people-machines": {
@@ -598,7 +600,7 @@ function GenericWorkspace({ config, onNavigate, detailExtra, focus = null }) {
         {detailExtra?.(selected)}
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </div>
-      <footer>{detailExtra ? null : <button className="primary" disabled={!selected || (config.canRunPrimary && !config.canRunPrimary(selected))} onClick={runPrimary} type="button">{config.primaryAction}</button>}{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : null}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
+      <footer>{detailExtra && !config.keepPrimaryWithExtra ? null : <button className="primary" disabled={!selected || (config.canRunPrimary && !config.canRunPrimary(selected))} onClick={runPrimary} type="button">{config.primaryAction}</button>}{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : null}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
     </aside>
   </div>{profileOpen && selected?.employeeReview ? <div className="dialog-backdrop employee-profile-dialog-backdrop" onMouseDown={() => setProfileOpen(false)} role="presentation"><section aria-labelledby="employee-profile-dialog-title" aria-modal="true" className="receive-dialog employee-profile-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></section></div> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
 }
@@ -1047,7 +1049,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;
   return <GenericWorkspace key={focus?.token || navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} focus={focus} onNavigate={onNavigate}
-    detailExtra={navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
+    detailExtra={navId === "customer-records" ? selected => selected?.id ? <CustomerAddressPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} authState={formal.authState} customerId={selected.id} /> : null : navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
 }
 
 export { completedBusinessWorkspaceIds };
