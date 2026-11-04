@@ -1,3 +1,4 @@
+import { isDriverLocationNavigationEnabled } from "./services/driverLocationNavigationPolicy.mjs";
 import { packageAnchorId, packageContents } from "../shared/packageContents.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -776,8 +777,9 @@ function toFiniteInteger(value, fallback = 0) {
 }
 
 function driverAddressLocation(value = {}) {
+  if (!isDriverLocationNavigationEnabled()) return {};
   const latitude = Number(value.addressLatitude);
   const longitude = Number(value.addressLongitude);
   return value.addressLatitude != null && value.addressLongitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
-    ? { addressLatitude: latitude, addressLongitude: longitude } : {};
+    ? { addressLatitude: latitude, addressLongitude: longitude, locationNavigationEnabled: true } : { locationNavigationEnabled: true };
 }

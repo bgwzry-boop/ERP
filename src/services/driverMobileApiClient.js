@@ -614,6 +614,12 @@ export function getDriverNavigationUrl(task = {}) {
 // 就按定位导航；还没有定位时按地址文字搜索。高德、百度、腾讯都给，司机自己选。
 export function getDriverNavigationOptions(task = {}) {
   const address = cleanText(task.address);
+  // 功能开关关闭（第一批默认）：只给原来的高德按地址搜索。
+  if (task.locationNavigationEnabled !== true) {
+    if (!address || address === "地址待补") return [];
+    const keyword = [address, cleanText(task.customerName)].filter(Boolean).join(" ");
+    return [{ app: "amap", label: "打开导航", located: false, legacy: true, url: `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}` }];
+  }
   const name = cleanText(task.customerName) || "送货点";
   const latitude = Number(task.addressLatitude);
   const longitude = Number(task.addressLongitude);

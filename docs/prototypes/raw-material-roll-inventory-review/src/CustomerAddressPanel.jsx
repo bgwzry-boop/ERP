@@ -60,7 +60,7 @@ export function CustomerAddressPanel({ authState, customerId }) {
                   <span>{item.address}</span>
                   {item.isDefault ? <b>默认</b> : null}
                   {item.remark ? <small>{item.remark}</small> : null}
-                  <small>{item.located ? "已记下定位，司机可直接导航" : "还没有定位，下次送到时自动记下"}</small>
+                  {item.located ? <small>已记下定位</small> : null}
                   <span className="customer-address-actions">
                     <button className="link-button" disabled={saving} onClick={() => setEditing({ addressId: item.addressId, address: item.address })} type="button">编辑</button>
                     {!item.isDefault ? <button className="link-button" disabled={saving} onClick={() => void change(item, { makeDefault: true }, "已设为默认地址")} type="button">设为默认</button> : null}

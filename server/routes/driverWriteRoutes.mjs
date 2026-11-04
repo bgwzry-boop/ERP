@@ -1,3 +1,4 @@
+import { isDriverLocationNavigationEnabled } from "../services/driverLocationNavigationPolicy.mjs";
 export async function handleDriverWriteRoutes({
   method,
   url,
@@ -44,7 +45,7 @@ export async function handleDriverWriteRoutes({
   const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-DRIVER-A");
   const result = await route.run(operatorId);
   // A successful delivery teaches the customer address its location (first time only).
-  if (action === "complete" && !result?.error && !result?.notFound && customerAddressCommandService) {
+  if (action === "complete" && !result?.error && !result?.notFound && customerAddressCommandService && isDriverLocationNavigationEnabled()) {
     await customerAddressCommandService.learnLocationFromDelivery({ workspace, fulfillmentId, body });
   }
   sendCommandResponse(response, result);

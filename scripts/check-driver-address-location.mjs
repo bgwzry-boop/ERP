@@ -3,6 +3,19 @@ import { createCustomerAddressCommandService, parseGeoPoint } from "../server/se
 import { buildRecordCustomerAddressLocationQuery, createLocalMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 import { getDriverNavigationOptions, getDriverNavigationUrl } from "../src/services/driverMobileApiClient.js";
 
+import { isDriverLocationNavigationEnabled } from "../server/services/driverLocationNavigationPolicy.mjs";
+
+// 不进第一批：默认关闭，ERP_DRIVER_LOCATION_NAVIGATION=on 才打开。
+assert.equal(isDriverLocationNavigationEnabled({}), false);
+assert.equal(isDriverLocationNavigationEnabled({ ERP_DRIVER_LOCATION_NAVIGATION: "off" }), false);
+assert.equal(isDriverLocationNavigationEnabled({ ERP_DRIVER_LOCATION_NAVIGATION: "on" }), true);
+assert.throws(() => isDriverLocationNavigationEnabled({ ERP_DRIVER_LOCATION_NAVIGATION: "yes" }));
+const legacyOptions = getDriverNavigationOptions({ address: "厚街某村 8 号", customerName: "李记", addressLatitude: 22.8, addressLongitude: 113.6 });
+assert.deepEqual(legacyOptions.map((item) => [item.label, item.legacy]), [["打开导航", true]], "switched off: the original single address-search link, coordinates ignored");
+assert.equal(getDriverNavigationUrl({ address: "厚街某村 8 号", customerName: "李记" }), "https://uri.amap.com/search?keyword=" + encodeURIComponent("厚街某村 8 号 李记"));
+const driverRoutes = (await import("node:fs")).readFileSync(new URL("../server/routes/driverWriteRoutes.mjs", import.meta.url), "utf8");
+assert.match(driverRoutes, /customerAddressCommandService && isDriverLocationNavigationEnabled\(\)/, "no location is written while switched off");
+
 // 负责人 2026-11-04：村里很多地方靠定位。第一次送到并拍送货照时记下手机定位，下次谁送都能直接导航。
 assert.deepEqual(parseGeoPoint("22.817123,113.672456"), { latitude: 22.817123, longitude: 113.672456 });
 assert.equal(parseGeoPoint("0,0"), null);
@@ -42,14 +55,14 @@ assert.match(query.text, /<> 'order_one_off'/);
 assert.match(query.text, /address\.customer_id = delivery\.customer_id/, "only the delivery's own customer address can be updated");
 
 // Navigation: by location when known, by address text otherwise; 高德 / 百度 / 腾讯 to choose from.
-const located = getDriverNavigationOptions({ address: "厚街某村 8 号", customerName: "李记", addressLatitude: 22.8171, addressLongitude: 113.6724 });
+const located = getDriverNavigationOptions({ address: "厚街某村 8 号", customerName: "李记", addressLatitude: 22.8171, addressLongitude: 113.6724, locationNavigationEnabled: true });
 assert.deepEqual(located.map((item) => item.app), ["amap", "baidu", "tencent"]);
 assert.ok(located.every((item) => item.located));
 assert.match(located[0].url, /uri\.amap\.com\/navigation\?to=113\.6724,22\.8171,.*coordinate=wgs84/);
 assert.match(located[1].url, /api\.map\.baidu\.com\/direction\?.*coord_type=wgs84/);
 assert.match(located[2].url, /apis\.map\.qq\.com\/uri\/v1\/routeplan\?.*tocoord=22\.8171,113\.6724&coord_type=1/);
-const byText = getDriverNavigationOptions({ address: "厚街某村 8 号", customerName: "李记" });
+const byText = getDriverNavigationOptions({ address: "厚街某村 8 号", customerName: "李记", locationNavigationEnabled: true });
 assert.ok(byText.every((item) => !item.located));
-assert.equal(getDriverNavigationUrl({ address: "厚街某村 8 号", customerName: "李记" }), byText[0].url);
+assert.equal(getDriverNavigationUrl({ address: "厚街某村 8 号", customerName: "李记", locationNavigationEnabled: true }), byText[0].url);
 assert.deepEqual(getDriverNavigationOptions({ address: "地址待补" }), []);
 console.log("Driver address location: learnt once from the delivery photo's GPS, never overwritten; navigation by location in 高德 / 百度 / 腾讯.");

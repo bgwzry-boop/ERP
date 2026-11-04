@@ -57,7 +57,7 @@ export function DriverRouteStage({
                 : "该任务尚未排路线；司机可按办公室临时通知执行，后续由办公室补派单。"}
           </p>
           <div className="driver-route-actions">
-            {navigationOptions.length ? <span className="driver-navigation-label">打开导航</span> : null}
+            {navigationOptions.length && !navigationOptions[0].legacy ? <span className="driver-navigation-label">打开导航</span> : null}
             {navigationOptions.length ? navigationOptions.map((option) => (
               <a className="route-nav-button" href={option.url} key={option.app} target="_blank" rel="noreferrer">
                 {option.label}
@@ -76,11 +76,11 @@ export function DriverRouteStage({
             </button>
             <span>{task.address}</span>
           </div>
-          <small className="driver-navigation-basis">
+          {navigationOptions[0]?.legacy ? null : <small className="driver-navigation-basis">
             {navigationOptions[0]?.located
               ? "这个地址之前送到过，已记下定位，按定位导航更准。"
               : navigationOptions.length ? "还没有定位，先按地址搜索；这次送到拍送货照时会记下定位，下次就能直接导航。" : ""}
-          </small>
+          </small>}
           <small className={`driver-native-navigation-status ${nativeNavigationStatusTone}`}>
             {nativeNavigationStatus}
           </small>

@@ -1,3 +1,4 @@
+import { isDriverLocationNavigationEnabled } from "./driverLocationNavigationPolicy.mjs";
 import { packageAnchorId, packageContents } from "../../shared/packageContents.js";
 import {
   getLineColorSpecLabel,
@@ -347,7 +348,8 @@ function finiteNumber(value, fallback = 0) {
 
 // 负责人 2026-11-04：这单送去的地址若已记下定位，司机可直接导航；本单另填的地址没有定位。
 function deliveredAddressLocation(workspace, customer, customerSnapshot = {}) {
-  if (String(customerSnapshot.deliveryAddressSource ?? "") === "order_one_off") return {};
+  if (!isDriverLocationNavigationEnabled()) return {};
+  if (String(customerSnapshot.deliveryAddressSource ?? "") === "order_one_off") return { locationNavigationEnabled: true };
   const customerId = cleanText(customer.id ?? customer.customerId);
   const addresses = [...(customer.addresses ?? []), ...(workspace.customerAddresses ?? []).filter((row) => cleanText(row.customerId ?? row.customer_id) === customerId)];
   const chosenId = cleanText(customerSnapshot.deliveryAddressId);
@@ -357,5 +359,5 @@ function deliveredAddressLocation(workspace, customer, customerSnapshot = {}) {
   const latitude = Number(address?.latitude);
   const longitude = Number(address?.longitude);
   return address?.latitude != null && address?.longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
-    ? { addressLatitude: latitude, addressLongitude: longitude } : {};
+    ? { addressLatitude: latitude, addressLongitude: longitude, locationNavigationEnabled: true } : { locationNavigationEnabled: true };
 }
