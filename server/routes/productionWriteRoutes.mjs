@@ -12,6 +12,7 @@ export async function handleProductionWriteRoutes({
   getPermissionOperatorId,
   productionSchedulingCommandService,
   silkScreenTaskClaimService,
+  earlyShipmentSplitService,
   productionReportingCommandService,
   productionFinishedGoodsPhotoCommandService,
   packingCommandService,
@@ -28,7 +29,7 @@ export async function handleProductionWriteRoutes({
   if (method !== "POST") return false;
 
   const productionActionMatch = url.pathname.match(
-    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|claim|release|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
+    /^\/api\/production-tasks\/([^/]+)\/(publish-schedule|claim|release|early-shipment|report-complete|daily-progress|exception|exception-resolution|finished-goods-photo|finished-goods-photo-review)$/,
   );
   if (productionActionMatch) {
     const productionTaskId = decodeURIComponent(productionActionMatch[1]);
@@ -55,6 +56,12 @@ export async function handleProductionWriteRoutes({
           : writeActionPermissions.reportProduction,
         includeErrorDetails: true,
         run: (operatorId) => silkScreenTaskClaimService.releaseTask({ workspace, productionTaskId, body, operatorId, permissionContext }),
+      },
+      // P2-03: the office ships what is already made; the rest becomes a follow-up line.
+      "early-shipment": {
+        permission: writeActionPermissions.publishProductionSchedule,
+        includeErrorDetails: true,
+        run: (operatorId) => earlyShipmentSplitService.splitForEarlyShipment({ workspace, productionTaskId, body, operatorId }),
       },
       "report-complete": {
         permission: writeActionPermissions.reportProduction,

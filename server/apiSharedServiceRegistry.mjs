@@ -74,6 +74,7 @@ import { createProductionMachineQueueReadService } from "./services/productionMa
 import { createProductionReportingCommandService } from "./services/productionReportingCommandService.mjs";
 import { createProductionSchedulingCommandService } from "./services/productionSchedulingCommandService.mjs";
 import { createSilkScreenTaskClaimService } from "./services/silkScreenTaskClaimService.mjs";
+import { createEarlyShipmentSplitService } from "./services/earlyShipmentSplitService.mjs";
 import { createProductionTaskProjectionService } from "./services/productionTaskProjectionService.mjs";
 import { createRawMaterialCommandService } from "./services/rawMaterialCommandService.mjs";
 import { createRawMaterialPurchaseCommandService } from "./services/rawMaterialPurchaseCommandService.mjs";
@@ -329,6 +330,7 @@ export function createApiSharedServiceRegistry() {
     summarizeOrderLineForChange,
   });
   const silkScreenTaskClaimService = createSilkScreenTaskClaimService({ buildOperationLog });
+  const earlyShipmentSplitService = createEarlyShipmentSplitService({ buildOperationLog });
   const productionReportingCommandService = createProductionReportingCommandService({
     buildOperationLog,
     buildProductionTaskFromBody,
@@ -526,6 +528,7 @@ export function createApiSharedServiceRegistry() {
     productionReportingCommandService,
     productionSchedulingCommandService,
     silkScreenTaskClaimService,
+    earlyShipmentSplitService,
     rawMaterialCommandService,
     rawMaterialPurchaseCommandService,
     rawMaterialOcrParserService,

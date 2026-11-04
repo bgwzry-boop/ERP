@@ -543,6 +543,7 @@ function toOrderLine(row, priceSnapshot, reservations) {
     originalQty: integer(row.original_qty),
     qtyBasis: clean(row.qty_basis) || "pieces",
     incomingRollCount: row.incoming_roll_count == null ? null : integer(row.incoming_roll_count),
+    splitFromOrderLineId: clean(row.split_from_order_line_id),
     latest: timestamp(row.latest_needed_at) || "待确认",
     latestNeededAt: timestamp(row.latest_needed_at),
     fulfillment: clean(row.fulfillment_method),
