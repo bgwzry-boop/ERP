@@ -44,6 +44,7 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
     contactName: firstText(contactSource.contactName, contactSource.contact) || "联系人待确认",
     contactPhone: firstText(contactSource.contactPhone, contactSource.phone) || "电话待确认",
     address,
+    ...deliveredAddressLocation(workspace, customer, customerSnapshot),
     addressArea: inferDriverAddressArea(address),
     deliveryNoteNo:
       firstText(
@@ -342,4 +343,19 @@ function cleanText(value) {
 function finiteNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+// 负责人 2026-11-04：这单送去的地址若已记下定位，司机可直接导航；本单另填的地址没有定位。
+function deliveredAddressLocation(workspace, customer, customerSnapshot = {}) {
+  if (String(customerSnapshot.deliveryAddressSource ?? "") === "order_one_off") return {};
+  const customerId = cleanText(customer.id ?? customer.customerId);
+  const addresses = [...(customer.addresses ?? []), ...(workspace.customerAddresses ?? []).filter((row) => cleanText(row.customerId ?? row.customer_id) === customerId)];
+  const chosenId = cleanText(customerSnapshot.deliveryAddressId);
+  const address = chosenId
+    ? addresses.find((row) => cleanText(row.addressId ?? row.id) === chosenId)
+    : addresses.find((row) => row.isDefault === true) ?? addresses[0];
+  const latitude = Number(address?.latitude);
+  const longitude = Number(address?.longitude);
+  return address?.latitude != null && address?.longitude != null && Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? { addressLatitude: latitude, addressLongitude: longitude } : {};
 }

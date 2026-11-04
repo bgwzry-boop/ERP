@@ -893,3 +893,7 @@ button.route-nav-button {
     grid-column: auto;
   }
 }
+
+/* 导航：已记下定位按定位导航，否则按地址搜索；高德 / 百度 / 腾讯让司机选（负责人 2026-11-04）。 */
+.driver-navigation-label { align-self: center; color: var(--erp-text); font-size: 14px; font-weight: 650; }
+.driver-navigation-basis { display: block; margin-top: 6px; color: var(--erp-text-muted); font-size: 12px; line-height: 1.5; }

@@ -308,6 +308,7 @@ function toCustomerAddress(row) {
     defaultFulfillmentMethod: clean(row.default_fulfillment_method),
     isDefault: boolean(row.is_default),
     remark: clean(row.remark),
+    ...(row.latitude != null && row.longitude != null ? { latitude: Number(row.latitude), longitude: Number(row.longitude), locationCapturedAt: timestamp(row.location_captured_at) } : {}),
   };
 }
 

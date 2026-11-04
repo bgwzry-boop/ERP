@@ -7,7 +7,21 @@ const ADDRESS_SOURCES = new Set(["order_entry", "office", "driver_delivery", "mi
 
 export function createCustomerAddressCommandService({ buildOperationLog, now = () => new Date() } = {}) {
   if (typeof buildOperationLog !== "function") throw new TypeError("buildOperationLog must be a function");
-  return { addDeliveryAddress };
+  return { addDeliveryAddress, learnLocationFromDelivery };
+
+  // 负责人 2026-11-04：司机首次送到并拍送货照时，把手机定位记到这单送去的客户地址上，
+  // 下次谁送都能直接导航。只补空的定位，不覆盖已有的；失败也不影响送货本身。
+  async function learnLocationFromDelivery({ workspace, fulfillmentId, body = {} }) {
+    const point = parseGeoPoint(body.watermarkGeoPoint ?? body.geoPoint);
+    if (!point || !workspace.masterDataImportTransactionRepository?.recordCustomerAddressLocation) return { recorded: false, reason: "no_location" };
+    try {
+      return await workspace.masterDataImportTransactionRepository.recordCustomerAddressLocation({
+        workspace, fulfillmentId, latitude: point.latitude, longitude: point.longitude, capturedAt: now().toISOString(),
+      });
+    } catch (error) {
+      return { recorded: false, reason: clean(error?.message) || "location_write_failed" };
+    }
+  }
 
   async function addDeliveryAddress({ workspace, customerId, body = {}, operatorId }) {
     const id = clean(customerId);
@@ -68,6 +82,15 @@ export function createCustomerAddressCommandService({ buildOperationLog, now = (
       return businessError(409, "CUSTOMER_ADDRESS_WRITE_FAILED", clean(error?.message) || "送货地址保存失败，请稍后重试。");
     }
   }
+}
+
+export function parseGeoPoint(value) {
+  const match = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(String(value ?? ""));
+  if (!match) return null;
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180 || (latitude === 0 && longitude === 0)) return null;
+  return { latitude, longitude };
 }
 
 function sourceLabel(source) {

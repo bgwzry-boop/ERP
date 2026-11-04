@@ -20,6 +20,7 @@ export function customerDeliveryAddresses(customer = {}) {
       area: String(item.area ?? "").trim(),
       isDefault: item.isDefault === true,
       remark: String(item.remark ?? "").trim(),
+      located: item.latitude != null && item.longitude != null,
     }))
     .filter((item) => item.addressId && item.address);
 }

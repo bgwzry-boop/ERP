@@ -38,6 +38,7 @@ export function CustomerAddressPanel({ authState, customerId }) {
             <li key={item.addressId}>
               <span>{item.address}</span>
               {item.isDefault ? <b>默认</b> : null}
+              <small>{item.located ? "已记下定位，司机可直接导航" : "还没有定位，下次送到时自动记下"}</small>
               {item.remark ? <small>{item.remark}</small> : null}
             </li>
           ))}

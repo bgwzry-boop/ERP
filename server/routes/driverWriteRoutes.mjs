@@ -11,6 +11,7 @@ export async function handleDriverWriteRoutes({
   getPermissionOperatorId,
   fulfillmentActionCommandService,
   driverDeviceFieldTestCommandService,
+  customerAddressCommandService,
   sendCommandResponse,
 }) {
   if (method !== "POST") return false;
@@ -42,6 +43,10 @@ export async function handleDriverWriteRoutes({
   if (!requireActionPermission(response, permissionContext, route.permission)) return true;
   const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-DRIVER-A");
   const result = await route.run(operatorId);
+  // A successful delivery teaches the customer address its location (first time only).
+  if (action === "complete" && !result?.error && !result?.notFound && customerAddressCommandService) {
+    await customerAddressCommandService.learnLocationFromDelivery({ workspace, fulfillmentId, body });
+  }
   sendCommandResponse(response, result);
   return true;
 }

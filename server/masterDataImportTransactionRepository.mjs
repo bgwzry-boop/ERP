@@ -84,6 +84,27 @@ export function createLocalMasterDataImportTransactionRepository(options = {}) {
     },
     kind: "local_memory",
 
+    // 负责人 2026-11-04：首次送到时把司机手机定位记到这个客户地址上；已有定位不覆盖。
+    async recordCustomerAddressLocation(input = {}) {
+      const location = normalizeAddressLocation(input);
+      const fulfillment = (input.workspace?.fulfillments ?? []).find((row) => (row.id ?? row.fulfillmentId) === location.fulfillmentId);
+      if (!fulfillment) return { recorded: false, reason: "fulfillment_not_found" };
+      const customerId = String(fulfillment.customerId ?? "").trim();
+      const addresses = (input.workspace.customerAddresses ??= []);
+      const pick = locationTargetAddress(addresses.filter((row) => (row.customerId ?? row.customer_id) === customerId), fulfillment.customerSnapshot);
+      if (!pick) return { recorded: false, reason: "address_not_found" };
+      if (pick.latitude != null && pick.longitude != null) return { recorded: false, reason: "already_located", addressId: pick.id ?? pick.addressId };
+      Object.assign(pick, { latitude: location.latitude, longitude: location.longitude, locationCapturedAt: location.capturedAt,
+        locationSource: "driver_delivery", locationFulfillmentId: location.fulfillmentId });
+      for (const customer of input.workspace.customers ?? []) {
+        for (const address of customer.addresses ?? []) {
+          if ((address.addressId ?? address.id) === (pick.id ?? pick.addressId)) Object.assign(address, { latitude: location.latitude, longitude: location.longitude, locationCapturedAt: location.capturedAt });
+        }
+      }
+      if (input.operationLog) (input.workspace.operationLogs ??= []).push(input.operationLog);
+      return { recorded: true, addressId: pick.id ?? pick.addressId };
+    },
+
     async applyImportExecution(input) {
       assertExecutionCanBeWritten(input.importExecution);
       if (input.operationLog?.targetType === "raw_material_supplier_color_mapping") {
@@ -180,6 +201,14 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
 
   return {
     kind: "postgres",
+
+    async recordCustomerAddressLocation(input = {}) {
+      const location = normalizeAddressLocation(input);
+      const builtQuery = buildRecordCustomerAddressLocationQuery(location, input.operationLog);
+      const result = await queryJson(builtQuery.text, builtQuery.values);
+      const row = Array.isArray(result) ? result[0] : result;
+      return row?.addressId ? { recorded: true, addressId: row.addressId } : { recorded: false, reason: "not_updated" };
+    },
 
     async applyImportExecution(input) {
       assertExecutionCanBeWritten(input.importExecution);
@@ -1230,4 +1259,54 @@ function nullableDateParameter(value, parameters) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function normalizeAddressLocation(input = {}) {
+  const latitude = Number(input.latitude);
+  const longitude = Number(input.longitude);
+  const fulfillmentId = String(input.fulfillmentId ?? "").trim();
+  if (!fulfillmentId || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180
+    || (latitude === 0 && longitude === 0)) throw new Error("CUSTOMER_ADDRESS_LOCATION_INVALID");
+  return { fulfillmentId, latitude: Math.round(latitude * 1e6) / 1e6, longitude: Math.round(longitude * 1e6) / 1e6,
+    capturedAt: String(input.capturedAt ?? new Date().toISOString()) };
+}
+
+// The address frozen on the delivery, or the customer's default address for an older delivery.
+function locationTargetAddress(addresses, customerSnapshot = {}) {
+  const chosenId = String(customerSnapshot?.deliveryAddressId ?? "").trim();
+  if (chosenId) return addresses.find((row) => (row.id ?? row.addressId) === chosenId) ?? null;
+  if (String(customerSnapshot?.deliveryAddressSource ?? "") === "order_one_off") return null;
+  return addresses.find((row) => row.isDefault === true || row.is_default === true) ?? addresses[0] ?? null;
+}
+
+export function buildRecordCustomerAddressLocationQuery(location, operationLog) {
+  const values = [location.fulfillmentId, location.latitude, location.longitude, location.capturedAt];
+  return {
+    text: `
+WITH delivery AS (
+  SELECT id, customer_id, customer_snapshot FROM fulfillment_records WHERE id = $1
+),
+target AS (
+  SELECT address.id FROM customer_addresses AS address, delivery
+  WHERE address.customer_id = delivery.customer_id
+    AND COALESCE(delivery.customer_snapshot->>'deliveryAddressSource', '') <> 'order_one_off'
+    AND (
+      address.id = NULLIF(delivery.customer_snapshot->>'deliveryAddressId', '')
+      OR (NULLIF(delivery.customer_snapshot->>'deliveryAddressId', '') IS NULL AND address.id = (
+        SELECT fallback.id FROM customer_addresses AS fallback WHERE fallback.customer_id = delivery.customer_id
+        ORDER BY fallback.is_default DESC, fallback.created_at ASC, fallback.id ASC LIMIT 1))
+    )
+  LIMIT 1
+),
+updated AS (
+  UPDATE customer_addresses AS address
+  SET latitude = $2::numeric, longitude = $3::numeric, location_captured_at = $4::timestamptz,
+      location_source = 'driver_delivery', location_fulfillment_id = $1, updated_at = now()
+  FROM target
+  WHERE address.id = target.id AND address.latitude IS NULL AND address.longitude IS NULL
+  RETURNING address.id
+)
+SELECT json_build_object('addressId', (SELECT id FROM updated)) AS result;`.trim(),
+    values,
+  };
 }

@@ -1205,6 +1205,7 @@ async function routeWrite(context) {
       getPermissionOperatorId,
       fulfillmentActionCommandService,
       driverDeviceFieldTestCommandService,
+      customerAddressCommandService,
       sendCommandResponse,
     })
   ) {
