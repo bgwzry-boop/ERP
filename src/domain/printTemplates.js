@@ -202,7 +202,6 @@ function buildFulfillmentDocumentFields({
     // 送货单（司机送货）不印提货人；只有自提单、出库单印。
     pickerName: printRecord?.documentType === "delivery_note" || input.documentType === "delivery_note" ? "" : String(input.pickerName ?? fulfillment?.receiverName ?? "").trim().slice(0, 20),
     pickerLabel: "提货人",
-    driverName: printRecord?.documentType === "delivery_note" || input.documentType === "delivery_note" ? String(input.driverName ?? "").trim().slice(0, 20) : "",
     totalAmount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
     totalQuantity: quantity,
     totalAmountUppercase: amount !== null && amount !== undefined ? amountInChineseUppercase(amount) : "",

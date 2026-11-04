@@ -67,12 +67,6 @@ assert.equal(template.fields.pickerName, "", "a delivery note (driver delivers) 
 const deliveredLater = buildFulfillmentPrintTemplate({ fulfillment: { id: "F-1", lineId: "OL-1", method: "送货", qty: 1000, receiverName: "签收店员" }, orderLine: { id: "OL-1", qty: 1000 },
   printRecord: { printRecordId: "PR-F-1-2" }, documentType: "delivery_note", pricing, pickerName: "不该出现" });
 assert.equal(deliveredLater.fields.pickerName, "", "not even on a reprint after the driver recorded who signed");
-// A delivery note prints the assigned driver after 送货单位及经手人; a pickup note never does.
-const withDriver = buildFulfillmentPrintTemplate({ fulfillment: { id: "F-1", lineId: "OL-1", method: "送货", qty: 1000 }, orderLine: { id: "OL-1", qty: 1000 },
-  printRecord: { printRecordId: "PR-F-1-3" }, documentType: "delivery_note", pricing, driverName: "合成司机" });
-assert.equal(withDriver.fields.driverName, "合成司机");
-const [driverPage] = await pdfText(await buildFulfillmentNotePdf(withDriver));
-assert.ok(driverPage.replace(/\s/g, "").includes("送货单位及经手人(签章)：司机：合成司机"), driverPage);
 assert.equal(isFulfillmentNoteTemplate(template), true);
 assert.equal(isFulfillmentNoteTemplate({ ...template, priceHidden: true }), false);
 

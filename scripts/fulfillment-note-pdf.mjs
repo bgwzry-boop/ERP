@@ -257,8 +257,6 @@ export async function buildFulfillmentNotePdf(template) {
       const x = left + index * (tableWidth / 2);
       draw(page, label, x, yOf(signBaseline), SIZE.sign);
       const lineStart = x + width(label, SIZE.sign) + mm(1);
-      // 送货单预填司机（已安排司机时），签字盖章仍在横线上。
-      if (index === 0 && text(fields.driverName)) draw(page, `司机：${text(fields.driverName)}`, lineStart + mm(2), yOf(signBaseline), SIZE.sign);
       page.drawLine({ start: { x: lineStart, y: yOf(signBaseline) - 2 }, end: { x: x + tableWidth / 2 - mm(8), y: yOf(signBaseline) - 2 }, thickness: LINE.inner, color: black });
     });
 
