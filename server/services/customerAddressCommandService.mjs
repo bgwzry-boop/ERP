@@ -150,7 +150,9 @@ export function createCustomerAddressCommandService({ buildOperationLog, now = (
       address,
       area: clean(body.area).slice(0, 40),
       defaultFulfillmentMethod: "送货",
-      isDefault: customerDeliveryAddresses(customerWithAddresses(workspace, customer)).length === 0,
+      // Never set here: two first addresses added at once must not both become the default. A
+      // customer without a flagged default is delivered to the first address; the office can set one.
+      isDefault: false,
       remark: clean(body.remark).slice(0, 60) || sourceLabel(source),
     };
     const operationLog = buildOperationLog(workspace, {

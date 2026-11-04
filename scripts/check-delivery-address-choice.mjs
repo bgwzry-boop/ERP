@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { customerDeliveryAddresses, resolveDeliveryAddress } from "../shared/deliveryAddress.js";
+import { customerDeliveryAddresses, customerWithAddresses, resolveDeliveryAddress } from "../shared/deliveryAddress.js";
 
 // 负责人 2026-11-04：一个客户可能有多个收货地址（同行让印完送到别的工厂）。
 const customer = {
@@ -57,7 +57,9 @@ console.log("Delivery address choice: customer default, another saved address or
     masterDataImportTransactionRepository: createLocalMasterDataImportTransactionRepository() };
   const first = await service.addDeliveryAddress({ workspace, customerId: "C9", body: { address: " 厚街镇  某村 8 号 ", source: "order_entry" }, operatorId: "U-OFFICE-A" });
   assert.equal(first.statusCode, 201, JSON.stringify(first));
-  assert.deepEqual([first.response.address.address, first.response.address.isDefault, first.response.address.remark], ["厚街镇 某村 8 号", true, "开单时补充"], "the first address becomes the default");
+  assert.deepEqual([first.response.address.address, first.response.address.isDefault, first.response.address.remark], ["厚街镇 某村 8 号", false, "开单时补充"],
+    "adding never flags a default (two first addresses added at once must not both become default)");
+  assert.equal(resolveDeliveryAddress(customerWithAddresses(workspace, workspace.customers[0]), {}).address, "厚街镇 某村 8 号", "without a flagged default the first address is used");
   assert.equal(workspace.customerAddresses.length, 1, "saved into the customer's addresses");
   const again = await service.addDeliveryAddress({ workspace, customerId: "C9", body: { address: "厚街镇某村8号" }, operatorId: "U-OFFICE-A" });
   assert.deepEqual([again.statusCode, again.response.created, again.response.address.addressId], [200, false, first.response.address.addressId], "the same address typed again is not added twice");
@@ -80,7 +82,6 @@ console.log("Customer addresses can be added later (order entry, office, deliver
     operationLogs: [],
     masterDataImportTransactionRepository: createLocalMasterDataImportTransactionRepository(),
   };
-  const { customerWithAddresses } = await import("../shared/deliveryAddress.js");
   const list = () => customerDeliveryAddresses(customerWithAddresses(workspace, workspace.customers[0]));
   const stale = await service.updateDeliveryAddress({ workspace, customerId: "C7", addressId: "E1", body: { address: "新地址", expected: { address: "别的", isDefault: true, located: true } } });
   assert.equal(stale.code, "CUSTOMER_ADDRESS_CHANGED", "an edit made on a stale screen is refused");
@@ -137,3 +138,21 @@ console.log("Customer addresses can be edited: change text (old location cleared
   assert.match(query.text, /NOT EXISTS \(SELECT 1 FROM contact\)/, "Postgres creates the first contact only when there is none");
 }
 console.log("Customer profile can be edited: name, short name, settlement cycle, default contact and phone; stale edits are refused.");
+
+// Release review 2026-11-04: two people setting different addresses of one customer as default at
+// the same moment both succeeded. Postgres edits of one customer now share one lock taken before
+// the statement snapshot, so the later edit sees the earlier default and clears it.
+{
+  const { createPostgresMasterDataImportTransactionRepository, customerEditLockKey } = await import("../server/masterDataImportTransactionRepository.mjs");
+  const calls = [];
+  const repository = createPostgresMasterDataImportTransactionRepository({ queryJson: async (text, values, options) => {
+    calls.push({ text, options });
+    return { address: { addressId: "A2", address: "二厂", isDefault: true, located: false }, profile: { customerId: "C1", name: "X" } };
+  } });
+  await repository.updateCustomerAddress({ customerId: "C1", addressId: "A2", makeDefault: true, expected: { address: "二厂", isDefault: false, located: false } });
+  await repository.updateCustomerProfile({ customerId: "C1", phone: "13900000000", expected: {} });
+  assert.deepEqual(calls.map((call) => call.options?.resourceLocks), [[customerEditLockKey("C1")], [customerEditLockKey("C1")]],
+    "address and profile edits of one customer take the same lock");
+  assert.equal(customerEditLockKey("C1"), "customer-master-data:C1");
+}
+console.log("Concurrent default changes of one customer are serialised by a per-customer lock.");

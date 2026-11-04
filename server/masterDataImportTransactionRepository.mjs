@@ -253,6 +253,12 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
   const queryJson =
     options.queryJson ??
     ((text, values) => postgresClient.transactionJson(text, values));
+  // Release review 2026-11-04: two people setting different addresses of one customer as the
+  // default at the same moment both succeeded. Every edit of one customer's addresses or
+  // profile now takes the same per-customer lock before its statement snapshot is taken.
+  const queryJsonForCustomer = (customerId, text, values) => options.queryJson
+    ? options.queryJson(text, values, { resourceLocks: [customerEditLockKey(customerId)] })
+    : postgresClient.transactionJson(text, values, { resourceLocks: [customerEditLockKey(customerId)] });
 
   return {
     kind: "postgres",
@@ -262,7 +268,7 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
       const builtQuery = buildUpdateCustomerProfileQuery(change, input.operationLog);
       let result;
       try {
-        result = await queryJson(builtQuery.text, builtQuery.values);
+        result = await queryJsonForCustomer(change.customerId, builtQuery.text, builtQuery.values);
       } catch (error) {
         if (String(error?.message).includes("CUSTOMER_PROFILE_CHANGED")) throw new Error("CUSTOMER_PROFILE_CHANGED");
         throw error;
@@ -277,7 +283,7 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
       const builtQuery = buildUpdateCustomerAddressQuery(change, input.operationLog);
       let result;
       try {
-        result = await queryJson(builtQuery.text, builtQuery.values);
+        result = await queryJsonForCustomer(change.customerId, builtQuery.text, builtQuery.values);
       } catch (error) {
         if (String(error?.message).includes("CUSTOMER_ADDRESS_CHANGED")) throw new Error("CUSTOMER_ADDRESS_CHANGED");
         throw error;
@@ -1542,4 +1548,8 @@ SELECT json_build_object('profile', (SELECT json_build_object('customerId', id, 
   'operationLogId', (SELECT id FROM logged)) AS result;`.trim(),
     values,
   };
+}
+
+export function customerEditLockKey(customerId) {
+  return `customer-master-data:${String(customerId ?? "").trim()}`;
 }
