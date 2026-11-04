@@ -82,7 +82,7 @@ const [page] = await pdfText(await buildFulfillmentNotePdf(template));
 assert.doesNotMatch(page, /长提|加扣|仓库|说明：/, "unused price columns and 仓库 are left out; no gift explanation without a gift");
 for (const value of ["0.09(双色)", "合成包装厂", "联系人：合成联系人", "工厂地址：合成路 1 号", "电话：0319-0000000", "No. PR-F-1-1", "日期：2026-11-04", "客户名称：合成客户", "联系人：王经理", "联系电话：尾号1234", "地址：合成镇",
   "序号", "产品名称", "实发数量", "计价数量", "单价（元/个）", "袋子", "印刷", "印刷袋", "30*40*10", "白色", "1000", "0.34", "460.00",
-  "合计：肆佰陆拾元整", "¥460.00", "注：请当面点清数量。", "送货单位及经手人(签章)：", "收货单位及经手人(签章)：", "白", "存", "根", "黄", "回"]) {
+  "合计（大写）：肆佰陆拾元整", "¥460.00", "注：请当面点清数量。", "送货单位及经手人(签章)：", "收货单位及经手人(签章)：", "白", "存", "根", "黄", "回"]) {
   assert.ok(page.includes(value), `missing ${value}: ${page}`);
 }
 assert.doesNotMatch(page, /13800001234/, "the customer's full phone stays off the paper (tail only, as today)");
@@ -137,7 +137,7 @@ const many = { ...template, fields: { ...template.fields, lineItems: Array.from(
 const pages = await pdfText(await buildFulfillmentNotePdf(many));
 assert.ok(pages.length >= 2);
 assert.match(pages[0], /续下页/);
-assert.match(pages.at(-1), /合计：贰佰伍拾元整/);
+assert.match(pages.at(-1), /合计（大写）：贰佰伍拾元整/);
 assert.ok(pages.join("").includes("货品25"));
 
 // Characters the embedded font cannot draw fail closed instead of printing blanks.

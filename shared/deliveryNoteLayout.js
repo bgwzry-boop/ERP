@@ -8,7 +8,7 @@
 export const DELIVERY_NOTE_PAPER = Object.freeze({
   name: "241mm 针式连续三联纸（二等分）",
   widthMm: 241,
-  heightMm: 140,
+  heightMm: 139.7, // 11 英寸连续纸二等分
   copyNames: Object.freeze(["①白存根联", "②红客户联", "③黄回单联"]),
 });
 
@@ -26,7 +26,7 @@ export const DELIVERY_NOTE_PRICE_COLUMNS = Object.freeze([
   column("snapUnitPriceText", "加扣", 50, "right", DELIVERY_NOTE_PRICE_GROUP),
 ]);
 const LEADING_COLUMNS = Object.freeze([
-  column("lineNo", "序号", 30, "center"),
+  column("lineNo", "序号", 34, "center"),
   column("productName", "产品名称", 105, "left"),
   column("size", "规格", 95, "left"),
   column("color", "颜色", 55, "center"),
