@@ -33,7 +33,10 @@ try {
     await pool.query(`INSERT INTO price_snapshots(id,order_line_id,snapshot_type,version_no,bag_price,chargeable_qty,final_amount,created_by) VALUES($1,$2,'confirmation',1,0.34,$3,$4,'U-OFFICE-A')`,[`PRICE-TOL-${key}`,`OL-TOL-${key}`,qty,qty*0.34]);
   }
   await pool.query(`INSERT INTO printer_devices(id,biz_no,name,device_type,connection_type,supported_document_types,default_document_types,settings_json,created_by) VALUES('PRINT-TOL-LABEL','PRINT-TOL-LABEL','合成标签机','label','system_printer',ARRAY['package_label'],ARRAY['package_label'],'{"driverMode":"system_printer"}','U-OFFICE-A');
-    INSERT INTO printer_devices(id,biz_no,name,device_type,connection_type,supported_document_types,settings_json,created_by) VALUES('PRINT-TOL-PAPER','PRINT-TOL-PAPER','合成针式机','dot_matrix','system_printer',ARRAY['delivery_note'],'{"driverMode":"system_printer"}','U-OFFICE-A');`);
+    INSERT INTO printer_devices(id,biz_no,name,device_type,connection_type,supported_document_types,settings_json,created_by) VALUES('PRINT-TOL-PAPER','PRINT-TOL-PAPER','合成针式机','dot_matrix','system_printer',ARRAY['delivery_note'],'{"driverMode":"system_printer"}','U-OFFICE-A');
+    -- What production completion leaves behind: the qualified 1010 in stock, reserved for the line.
+    INSERT INTO inventory_items(id,inventory_key,size,standard_color_id,handle_type,style,zone,inventory_state,on_hand_qty,reserved_qty,waiting_pickup_locked_qty,pending_handling_qty,trust_level) VALUES('INV-TOL-A','INV-TOL-A','25*32*10','SC-WHITE','加长提','空白袋','TOL','仓库已清点',1010,1010,0,0,'已清点');
+    INSERT INTO inventory_reservations(id,order_line_id,inventory_item_id,reserved_qty,reservation_type,status,created_by) VALUES('RES-TOL-A','OL-TOL-A','INV-TOL-A',1010,'生产完成待出库占用','生效','U-OFFICE-A');`);
   const client=createPostgresPoolClient({pool}),reader=createPostgresCoreWorkspaceReadRepository({postgresClient:client}),repo=createPostgresProductionPackingTransactionRepository({postgresClient:client});
   const fresh=async()=>({...await reader.loadState(),productionPackingTransactionRepository:repo,driverDeliveryDispatches:(await pool.query(`SELECT id,fulfillment_id AS "fulfillmentId",driver_id AS "driverId",route_date::text AS "routeDate",route_batch_no AS "routeNo",dispatch_status AS "dispatchStatus",revision FROM driver_delivery_dispatches`)).rows});
   const services=createApiSharedServiceRegistry();
@@ -83,6 +86,7 @@ try {
   const executed=await services.fulfillmentActionCommandService.recordWarehouseOutboundExecution({workspace:w,fulfillmentId:'F-TOL-A',operatorId:'U-WAREHOUSE-A',body:{expectedRevision:f.revision,paperOutboundDocumentId:doc.id??doc.paperOutboundDocumentId,paperDocumentVersion:doc.documentVersion,paperDocumentRevision:doc.revision,result:'实物已出库',actualQty:1010,physicalExecutorEmployeeId:'EMP-LIVE-MANAGER-001',feedbackChannel:'当面',executedAt:new Date().toISOString(),idempotencyKey:'tolerance-warehouse-a'}});
   assert.ok(executed.response,JSON.stringify(executed));
   assert.equal(executed.response.warehouseOutboundExecution.actualQty,1010);
+  assert.deepEqual((await pool.query("SELECT on_hand_qty,reserved_qty FROM inventory_items WHERE id='INV-TOL-A'")).rows[0],{on_hand_qty:0,reserved_qty:0},'all 1010 left the warehouse');
 
   // Billing for the statement follows the same rule.
   w=await fresh();
