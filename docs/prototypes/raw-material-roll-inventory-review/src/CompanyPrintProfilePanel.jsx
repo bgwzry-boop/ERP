@@ -1,4 +1,4 @@
-// P2-07 单据抬头（负责人 2026-11-04）：送货单/自提单最上面的公司名、地址、电话和最下面的说明，
+// P2-07 单据抬头（负责人 2026-11-04）：送货单/自提单最上面的公司名、联系人、电话、工厂地址和最下面的说明，
 // 办公室在这里自己改，以后换电话不用找人改程序。改完后新打的单子用新抬头，已经打过的单子不变。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
@@ -6,7 +6,7 @@ import { getCompanyPrintProfile, saveCompanyPrintProfile } from "../../../../src
 import { hasEffectivePermission } from "./navigation.js";
 import "./company-print-profile.css";
 
-const EMPTY = { companyName: "", address: "", phone: "", footerNote: "", revision: 1 };
+const EMPTY = { companyName: "", contactName: "", address: "", phone: "", footerNote: "", revision: 1 };
 
 export function CompanyPrintProfilePanel({ formal }) {
   const permissionContext = formal.permissionContext || {};
@@ -31,7 +31,7 @@ export function CompanyPrintProfilePanel({ formal }) {
   }, [authState, operatorId]);
   useEffect(() => { void reload(); }, [reload]);
 
-  const changed = ["companyName", "address", "phone", "footerNote"].some(key => form[key] !== saved[key]);
+  const changed = ["companyName", "contactName", "address", "phone", "footerNote"].some(key => form[key] !== saved[key]);
   const update = key => event => { pendingKey.current = ""; setForm(current => ({ ...current, [key]: event.target.value })); setState(current => ({ ...current, message: "" })); };
 
   async function submit(event) {
@@ -55,13 +55,14 @@ export function CompanyPrintProfilePanel({ formal }) {
     {state.loading ? <p className="company-print-profile-muted">正在读取…</p> : <form onSubmit={submit}>
       <div className="company-print-profile-form">
         <label>公司名称<input value={form.companyName} onChange={update("companyName")} maxLength={60} disabled={!canEdit || state.busy} /></label>
+        <label>联系人<input value={form.contactName} onChange={update("contactName")} maxLength={20} disabled={!canEdit || state.busy} /></label>
         <label>电话<input value={form.phone} onChange={update("phone")} maxLength={40} disabled={!canEdit || state.busy} /></label>
-        <label className="wide">地址<input value={form.address} onChange={update("address")} maxLength={120} disabled={!canEdit || state.busy} /></label>
+        <label className="wide">工厂地址<input value={form.address} onChange={update("address")} maxLength={120} disabled={!canEdit || state.busy} /></label>
         <label className="wide">单据底部说明<textarea rows={2} value={form.footerNote} onChange={update("footerNote")} maxLength={200} disabled={!canEdit || state.busy} /></label>
       </div>
       <div className="company-print-profile-preview" aria-label="抬头预览">
         <strong>{form.companyName || "（公司名称）"}</strong>
-        <span>{[form.address && `地址：${form.address}`, form.phone && `电话：${form.phone}`].filter(Boolean).join("　") || "（地址、电话）"}</span>
+        <span>{[form.contactName && `联系人：${form.contactName}`, form.phone && `电话：${form.phone}`, form.address && `工厂地址：${form.address}`].filter(Boolean).join("　") || "（联系人、电话、工厂地址）"}</span>
         {form.footerNote ? <small>注：{form.footerNote}</small> : null}
       </div>
       {state.error ? <p role="alert" className="company-print-profile-error">{state.error}</p> : null}

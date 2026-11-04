@@ -25,7 +25,7 @@ export async function saveCompanyPrintProfile({ workspace, body = {}, operatorId
   try {
     const saved = await repository.saveCompanyPrintProfile({
       workspace, profile, expectedRevision, operatorId, updatedAt: occurredAt, idempotencyKey,
-      idempotencyPayload: { companyName: profile.companyName, address: profile.address, phone: profile.phone, footerNote: profile.footerNote, expectedRevision, operatorId },
+      idempotencyPayload: { companyName: profile.companyName, contactName: profile.contactName, address: profile.address, phone: profile.phone, footerNote: profile.footerNote, expectedRevision, operatorId },
       operationLog: { id: `LOG-COMPANY-PRINT-${randomUUID()}`, occurredAt, createdAt: occurredAt },
     });
     return { companyPrintProfile: saved.companyPrintProfile, operationLogId: saved.operationLogId };

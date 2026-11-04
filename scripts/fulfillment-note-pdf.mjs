@@ -67,9 +67,9 @@ export async function buildFulfillmentNotePdf(template) {
   for (const column of columns) { column.x = x; x += column.w; }
   const rowHeight = mm(6);
   const headerTop = pageHeight - mm(8);
-  const tableTop = pageHeight - mm(40);
-  const footerHeight = mm(20); // 合计 row + 注 + signatures
-  const rowsPerPage = Math.max(1, Math.floor((tableTop - rowHeight - footerHeight - mm(6)) / rowHeight));
+  const tableTop = pageHeight - mm(37);
+  const footerHeight = mm(22); // 合计 row + 说明 + 注 + signatures
+  const rowsPerPage = Math.max(1, Math.floor((tableTop - 2 * rowHeight - footerHeight - mm(6)) / rowHeight));
   const pages = Math.max(1, Math.ceil(items.length / rowsPerPage));
 
   const draw = (page, value, xPos, y, size = 9) => page.drawText(safe(value), { x: xPos, y, size, font, color: black });
@@ -90,61 +90,76 @@ export async function buildFulfillmentNotePdf(template) {
   };
   const line = (page, x1, y1, x2, y2, thickness = 0.6) => page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness, color: black });
 
-  const totalQuantity = items.reduce((sum, item) => sum + (Number.isFinite(quantityOf(item)) ? quantityOf(item) : 0), 0);
+  const delivered = item => { const value = Number(item.deliveredQty ?? item.deliveredQtyText); return Number.isFinite(value) ? value : quantityOf(item); };
+  const chargeable = item => { const value = Number(item.chargeableQty ?? item.chargeableQtyText); return Number.isFinite(value) ? value : delivered(item); };
+  const totalDelivered = items.reduce((sum, item) => sum + (Number.isFinite(delivered(item)) ? delivered(item) : 0), 0);
+  const totalChargeable = items.reduce((sum, item) => sum + (Number.isFinite(chargeable(item)) ? chargeable(item) : 0), 0);
   const amounts = items.map(item => (item.amount === null || item.amount === undefined ? NaN : Number(item.amount)));
   const allPriced = amounts.every(Number.isFinite);
   const totalAmount = Number.isFinite(Number(fields.totalAmount)) && items.length === 1 ? Number(fields.totalAmount)
     : allPriced ? Math.round(amounts.reduce((sum, value) => sum + value, 0) * 100) / 100 : NaN;
+  const hasGift = items.some(item => delivered(item) > chargeable(item));
+  const priceColumns = columns.filter(column => column.group);
 
   for (let pageIndex = 0; pageIndex < pages; pageIndex += 1) {
     const page = doc.addPage([pageWidth, pageHeight]);
-    // Header: logo, company, title, number.
+    // Header: logo, company; under it 联系人 / 电话 / 工厂地址; title and number on the right.
     const logoSize = mm(13);
     page.drawImage(logo, { x: left + mm(18), y: headerTop - logoSize + mm(2), width: logoSize, height: logoSize });
     const company = fit(fields.companyName || "", 17, mm(110));
     draw(page, company.value, left + mm(34), headerTop - mm(5), company.size);
-    const contact = [fields.companyAddress && `地址：${text(fields.companyAddress)}`, fields.companyPhone && `电话：${text(fields.companyPhone)}`].filter(Boolean).join("    ");
-    if (contact) { const c = fit(contact, 8, mm(115)); draw(page, c.value, left + mm(34), headerTop - mm(10.5), c.size); }
+    const contact = [fields.companyContactName && `联系人：${text(fields.companyContactName)}`, fields.companyPhone && `电话：${text(fields.companyPhone)}`,
+      fields.companyAddress && `工厂地址：${text(fields.companyAddress)}`].filter(Boolean).join("    ");
+    if (contact) { const c = fit(contact, 8, mm(125)); draw(page, c.value, left + mm(34), headerTop - mm(10.5), c.size); }
     const title = `[${[...text(template.title || "送货单")].join(" ")}]`;
     draw(page, title, right - width(title, 15), headerTop - mm(5), 15);
     const number = `No. ${text(fields.documentNo)}`;
     const n = fit(number, 9, mm(70));
     draw(page, n.value, right - width(n.value, n.size), headerTop - mm(11), n.size);
-
-    // Customer block.
-    const infoY1 = pageHeight - mm(26), infoY2 = pageHeight - mm(32.5);
-    const pair = (label, value, xPos, y, maxWidth) => { const f = fit(`${label}${text(value)}`, 9, maxWidth); draw(page, f.value, xPos, y, f.size); };
-    pair("客户名称：", fields.customerName, left, infoY1, mm(95));
-    pair("联系人：", fields.contactName, left + mm(100), infoY1, mm(55));
-    pair("日期：", fields.documentDateText, right - mm(45), infoY1, mm(45));
-    pair("客户地址：", fields.address, left, infoY2, mm(95));
-    pair("客户电话：", fields.phoneTail ? `尾号${text(fields.phoneTail)}` : "", left + mm(100), infoY2, mm(55));
-    // 负责人 2026-11-04：实际来拿货/收货的人单独一项，不再写在备注里。
-    if (text(fields.pickerName)) pair(`${text(fields.pickerLabel) || "提货人"}：`, fields.pickerName, right - mm(45), infoY2, mm(45));
     if (pages > 1) { const pageText = `第 ${pageIndex + 1}/${pages} 页`; draw(page, pageText, right - width(n.value, n.size) - mm(5) - width(pageText, 8), headerTop - mm(11), 8); }
 
-    // Table header.
-    let y = tableTop - rowHeight;
+    // Customer block (负责人 2026-11-04): first line only 客户名称 and 提货人 (a size larger);
+    // second line 联系人、联系电话、地址, with 日期 at the right end.
+    const infoY1 = pageHeight - mm(26.5), infoY2 = pageHeight - mm(33);
+    const pair = (label, value, xPos, y, maxWidth, size = 9) => { const f = fit(`${label}${text(value)}`, size, maxWidth); draw(page, f.value, xPos, y, f.size); };
+    pair("客户名称：", fields.customerName, left, infoY1, mm(68), 10.5);
+    if (text(fields.pickerName)) pair(`${text(fields.pickerLabel) || "提货人"}：`, fields.pickerName, left + mm(70), infoY1, mm(80), 10.5);
+    const dateText = `日期：${text(fields.documentDateText)}`;
+    pair("联系人：", fields.contactName, left, infoY2, mm(48));
+    pair("联系电话：", fields.phoneTail ? `尾号${text(fields.phoneTail)}` : "", left + mm(52), infoY2, mm(38));
+    pair("地址：", fields.address, left + mm(93), infoY2, right - width(dateText, 9) - mm(4) - (left + mm(93)));
+    draw(page, dateText, right - width(dateText, 9), infoY2, 9);
+
+    // Table header: two rows; the price columns sit under one 单价（元/个） heading.
+    const headerBottom = tableTop - 2 * rowHeight;
     line(page, left, tableTop, right, tableTop, 0.8);
-    for (const column of columns) cell(page, column.label, { ...column, align: "center" }, y, 8.5);
-    line(page, left, y, right, y);
+    for (const column of columns) {
+      if (column.group) cell(page, column.label, { ...column, align: "center" }, headerBottom, 8.5);
+      else cell(page, column.label, { ...column, align: "center" }, headerBottom + rowHeight / 2, 8.5);
+    }
+    if (priceColumns.length) {
+      const groupX = priceColumns[0].x, groupW = priceColumns.reduce((sum, column) => sum + column.w, 0);
+      cell(page, priceColumns[0].group, { x: groupX, w: groupW, align: "center" }, headerBottom + rowHeight, 8.5);
+      line(page, groupX, headerBottom + rowHeight, groupX + groupW, headerBottom + rowHeight, 0.4);
+    }
+    line(page, left, headerBottom, right, headerBottom);
+    let y = headerBottom;
     const rows = items.slice(pageIndex * rowsPerPage, (pageIndex + 1) * rowsPerPage);
     rows.forEach((item, rowIndex) => {
       y -= rowHeight;
-      const quantity = quantityOf(item);
+      const index = pageIndex * rowsPerPage + rowIndex;
       const values = {
-        lineNo: String(pageIndex * rowsPerPage + rowIndex + 1),
+        lineNo: String(index + 1),
         productName: item.productName || item.goodsSummary,
         size: item.size,
         color: item.color,
-        warehouse: item.warehouse,
-        unit: item.unit || "个",
-        quantityText: Number.isFinite(quantity) ? String(quantity) : "",
+        deliveredQtyText: Number.isFinite(delivered(item)) ? String(delivered(item)) : "",
+        chargeableQtyText: Number.isFinite(chargeable(item)) ? String(chargeable(item)) : "",
         bagUnitPriceText: item.bagUnitPriceText,
         printingUnitPriceText: item.printingUnitPriceText,
         handleUnitPriceText: item.handleUnitPriceText,
         snapUnitPriceText: item.snapUnitPriceText,
-        amountText: Number.isFinite(amounts[pageIndex * rowsPerPage + rowIndex]) ? money(amounts[pageIndex * rowsPerPage + rowIndex]) : "待核价",
+        amountText: Number.isFinite(amounts[index]) ? money(amounts[index]) : "待核价",
         remark: item.remark,
       };
       for (const column of columns) cell(page, values[column.key], column, y);
@@ -152,29 +167,30 @@ export async function buildFulfillmentNotePdf(template) {
     });
     // 合计 row on the last page.
     const lastPage = pageIndex === pages - 1;
+    const firstQuantity = columns.find(column => column.key === "deliveredQtyText");
     if (lastPage) {
       y -= rowHeight;
-      const quantityColumn = columns.find(column => column.key === "quantityText");
       const amountColumn = columns.find(column => column.key === "amountText");
       const uppercase = Number.isFinite(totalAmount) ? (fields.totalAmountUppercase && items.length === 1 ? fields.totalAmountUppercase : amountInChineseUppercase(totalAmount)) : "待核价";
-      cell(page, `合计：${uppercase}`, { x: left, w: quantityColumn.x - left, align: "left" }, y, 9);
-      cell(page, String(totalQuantity), quantityColumn, y, 9);
-      cell(page, Number.isFinite(totalAmount) ? groupedMoney(totalAmount) : "待核价", { x: amountColumn.x, w: right - amountColumn.x, align: "left" }, y, 9);
+      cell(page, `合计：${uppercase}`, { x: left, w: firstQuantity.x - left, align: "left" }, y, 9);
+      cell(page, String(totalDelivered), firstQuantity, y, 9);
+      cell(page, String(totalChargeable), columns.find(column => column.key === "chargeableQtyText"), y, 9);
+      cell(page, Number.isFinite(totalAmount) ? groupedMoney(totalAmount) : "待核价", { x: amountColumn.x, w: amountColumn.w + (right - amountColumn.x - amountColumn.w), align: "left" }, y, 9);
       line(page, left, y, right, y, 0.8);
     }
-    // Vertical rules.
+    // Vertical rules (the 合计 text spans the columns before 实发数量; price sub-columns start under the group heading).
     for (const column of columns) {
       if (column.x === left) continue;
-      const bottom = lastPage ? y + rowHeight : y;
-      const extend = lastPage && !["quantityText", "amountText"].includes(column.key) && column.x < columns.find(c => c.key === "quantityText").x;
-      line(page, column.x, tableTop, column.x, extend ? bottom : y, 0.4);
+      const top = column.group && column !== priceColumns[0] ? headerBottom + rowHeight : tableTop;
+      const bottom = lastPage && column.x < firstQuantity.x ? y + rowHeight : y;
+      line(page, column.x, top, column.x, bottom, 0.4);
     }
     line(page, left, tableTop, left, y, 0.8);
     line(page, right, tableTop, right, y, 0.8);
     // Footer on the last page.
     if (lastPage) {
-      const explanation = [text(fields.batchProgressText), text(fields.quantityNoteText)].filter(Boolean).join("；");
-      const notes = [fields.footerNote && `注：${text(fields.footerNote)}`, explanation && `说明：${explanation}`].filter(Boolean);
+      const explanation = [hasGift ? "实发多于计价的部分为多做赠送，不收费" : "", text(fields.batchProgressText)].filter(Boolean).join("；");
+      const notes = [explanation && `说明：${explanation}。`, fields.footerNote && `注：${text(fields.footerNote)}`].filter(Boolean);
       let footerY = y - mm(5);
       for (const note of notes) {
         const f = fit(note, 8.5, tableWidth);

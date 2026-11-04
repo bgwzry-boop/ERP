@@ -12,14 +12,15 @@ import { resolveFulfillmentPrintPricing } from "../server/services/fulfillmentPr
 import { createLocalPrintDeviceRepository } from "../server/printDeviceRepository.mjs";
 import { readCompanyPrintProfile, saveCompanyPrintProfile } from "../server/services/companyPrintProfileService.mjs";
 
-// Columns in the order of the old printed sheet, plus 加扣单价.
+// Final layout (方案二): no 仓库 / 单位; 实发 and 计价 quantities; prices under one 单价（元/个） heading.
 assert.deepEqual(DELIVERY_NOTE_COLUMNS.map(column => column.label),
-  ["序号", "产品名称", "规格", "颜色", "仓库", "单位", "数量", "袋子单价", "印刷单价", "长提单价", "加扣单价", "金额", "备注"]);
+  ["序号", "产品名称", "规格", "颜色", "实发数量", "计价数量", "袋子", "印刷", "长提", "加扣", "金额", "备注"]);
+assert.deepEqual(DELIVERY_NOTE_COLUMNS.filter(column => column.group).map(column => column.group), Array(4).fill("单价（元/个）"));
 // 袋子单价 always; the other prices only when a line on this sheet uses them.
-const labelsFor = items => deliveryNoteColumns(items).map(column => column.label).filter(label => label.endsWith("单价"));
-assert.deepEqual(labelsFor([{ bagUnitPriceText: "0.47" }]), ["袋子单价"]);
-assert.deepEqual(labelsFor([{ bagUnitPriceText: "0.47", snapUnitPriceText: "0.1" }, { bagUnitPriceText: "0.48" }]), ["袋子单价", "加扣单价"]);
-assert.deepEqual(labelsFor([{ printingUnitPriceText: "0.2(双色)", handleUnitPriceText: "0.03" }]), ["袋子单价", "印刷单价", "长提单价"]);
+const labelsFor = items => deliveryNoteColumns(items).filter(column => column.group).map(column => column.label);
+assert.deepEqual(labelsFor([{ bagUnitPriceText: "0.47" }]), ["袋子"]);
+assert.deepEqual(labelsFor([{ bagUnitPriceText: "0.47", snapUnitPriceText: "0.1" }, { bagUnitPriceText: "0.48" }]), ["袋子", "加扣"]);
+assert.deepEqual(labelsFor([{ printingUnitPriceText: "0.2(双色)", handleUnitPriceText: "0.03" }]), ["袋子", "印刷", "长提"]);
 
 // 大写金额 as on the old 合计 row.
 for (const [amount, expected] of [[1043, "壹仟零肆拾叁元整"], [145.8, "壹佰肆拾伍元捌角"], [20.07, "贰拾元零柒分"], [100010000, "壹亿零壹万元整"], [0, "零元整"], [0.5, "伍角"]]) {
@@ -43,7 +44,7 @@ const { pricing } = resolveFulfillmentPrintPricing({ workspace, fulfillment: { i
 assert.deepEqual(pricing.unitPrices, { bag: 0.34, print: 0.09, handle: 0, snap: 0 });
 
 // Template: header from the office's setting, three copies, three price columns, uppercase total.
-const companyProfile = { companyName: "合成包装厂", address: "合成路 1 号", phone: "0319-0000000", footerNote: "请当面点清数量。" };
+const companyProfile = { companyName: "合成包装厂", contactName: "合成联系人", address: "合成路 1 号", phone: "0319-0000000", footerNote: "请当面点清数量。" };
 const template = buildFulfillmentPrintTemplate({
   fulfillment: { id: "F-1", lineId: "OL-1", customerId: "C1", method: "送货", qty: 1000, zone: "南屋", customerSnapshot: { name: "合成客户", contactName: "王经理", contactPhone: "13800001234", address: "合成镇" } },
   orderLine: { id: "OL-1", product: "印刷袋", size: "30*40*10", color: "白色", orderType: "custom_print", qty: 1000, print: "是", printColor: "红/蓝", printSide: "双面" },
@@ -60,7 +61,8 @@ assert.equal(template.fields.documentDateText, "2026-11-04");
 assert.equal(template.fields.totalAmountUppercase, "肆佰陆拾元整");
 const [item] = template.fields.lineItems;
 // 几色写在印刷单价后面（单面双面机印同价，不写）；备注里不再重复。
-assert.deepEqual([item.bagUnitPriceText, item.printingUnitPriceText, item.handleUnitPriceText, item.snapUnitPriceText, item.warehouse, item.unit, item.amount, item.remark], ["0.34", "0.09(双色)", "", "", "南屋", "个", 460, ""]);
+assert.deepEqual([item.bagUnitPriceText, item.printingUnitPriceText, item.handleUnitPriceText, item.snapUnitPriceText, item.deliveredQtyText, item.chargeableQtyText, item.amount, item.remark], ["0.34", "0.09(双色)", "", "", "1000", "1000", 460, ""]);
+assert.equal(template.fields.companyContactName, "合成联系人");
 assert.equal(template.fields.pickerName, "", "a delivery note printed before delivery has no receiver yet");
 assert.equal(template.fields.pickerLabel, "收货人");
 assert.equal(isFulfillmentNoteTemplate(template), true);
@@ -77,9 +79,9 @@ async function pdfText(bytes) {
 }
 
 const [page] = await pdfText(await buildFulfillmentNotePdf(template));
-assert.doesNotMatch(page, /长提单价|加扣单价/, "unused price columns are left out");
-for (const value of ["0.09(双色)", "合成包装厂", "地址：合成路 1 号", "电话：0319-0000000", "No. PR-F-1-1", "日期：2026-11-04", "客户名称：合成客户", "联系人：王经理", "客户地址：合成镇",
-  "序号", "产品名称", "袋子单价", "印刷单价", "印刷袋", "30*40*10", "白色", "南屋", "1000", "0.34", "460.00",
+assert.doesNotMatch(page, /长提|加扣|仓库|说明：/, "unused price columns and 仓库 are left out; no gift explanation without a gift");
+for (const value of ["0.09(双色)", "合成包装厂", "联系人：合成联系人", "工厂地址：合成路 1 号", "电话：0319-0000000", "No. PR-F-1-1", "日期：2026-11-04", "客户名称：合成客户", "联系人：王经理", "联系电话：尾号1234", "地址：合成镇",
+  "序号", "产品名称", "实发数量", "计价数量", "单价（元/个）", "袋子", "印刷", "印刷袋", "30*40*10", "白色", "1000", "0.34", "460.00",
   "合计：肆佰陆拾元整", "¥460.00", "注：请当面点清数量。", "送货单位及经手人(签章)：", "收货单位及经手人(签章)：", "白", "存", "根", "黄", "回"]) {
   assert.ok(page.includes(value), `missing ${value}: ${page}`);
 }
@@ -90,8 +92,8 @@ const remarkOf = (orderLine, unitPrices = { bag: 0.5, print: 0, handle: 0, snap:
   fulfillment: { id: "F-R", lineId: "OL-R", method: "自提", qty: 100 }, orderLine: { id: "OL-R", qty: 100, ...orderLine },
   printRecord: { printRecordId: "PR-R" }, documentType: "pickup_note", pricing: { ...pricing, unitPrices },
 }).fields.lineItems[0].remark;
-assert.equal(remarkOf({ orderType: "现货有货", handle: "加长提", specialRequirements: ["snap_button"] }), "加长提、加扣、现货");
-assert.equal(remarkOf({ orderType: "现货有货", handle: "加长提" }, { bag: 0.47, print: 0, handle: 0.03, snap: 0 }), "现货", "a separate 长提单价 needs no remark");
+assert.equal(remarkOf({ orderType: "现货有货", handle: "加长提", specialRequirements: ["snap_button"] }), "加长提、加扣", "no 现货 in 备注");
+assert.equal(remarkOf({ orderType: "现货有货", handle: "加长提" }, { bag: 0.47, print: 0, handle: 0.03, snap: 0 }), "", "a separate 长提 price needs no remark");
 assert.equal(remarkOf({ orderType: "custom_print", print: "是", printColor: "红+黑+白" }), "三色", "no separate print price: colours go to 备注");
 
 // 提货人: customer A's goods picked up by B; printed on its own, not in 备注.
@@ -123,10 +125,12 @@ const giftTemplate = buildFulfillmentPrintTemplate({
   printRecord: { printRecordId: "PR-F-2-1" }, documentType: "delivery_note", companyProfile,
   pricing: { ...pricing, deliveredQty: 1010, chargeableQty: 1000, freeQty: 10, quantityNote: "多出 10 个赠送，不收费（按下单 1000 个计价）" },
 });
-assert.equal(giftTemplate.fields.lineItems[0].remark, "赠送10个");
+// The gift is not written in 备注: 实发 1010, 计价 1000, amount on 计价, and one 说明 line.
+assert.deepEqual([giftTemplate.fields.lineItems[0].remark, giftTemplate.fields.lineItems[0].deliveredQtyText, giftTemplate.fields.lineItems[0].chargeableQtyText], ["", "1010", "1000"]);
 const [giftPage] = await pdfText(await buildFulfillmentNotePdf(giftTemplate));
-assert.ok(giftPage.includes("赠送10个"));
-assert.ok(giftPage.includes("说明：多出 10 个赠送，不收费（按下单 1000 个计价）"));
+assert.ok(giftPage.includes("1010") && giftPage.includes("1000"), giftPage);
+assert.ok(giftPage.includes("说明：实发多于计价的部分为多做赠送，不收费。"), giftPage);
+assert.doesNotMatch(giftPage, /赠送10个/);
 
 // Many lines continue on further pages; the total stays on the last.
 const many = { ...template, fields: { ...template.fields, lineItems: Array.from({ length: 25 }, (_, index) => ({ ...item, productName: `货品${index + 1}`, amount: 10 })) } };

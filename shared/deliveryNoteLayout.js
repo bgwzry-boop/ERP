@@ -1,5 +1,5 @@
 // P2-07 出库单打印样式（负责人 2026-11-04）：照旧 ERP（goInventoryLite「三个单价」模板）的送货单排版。
-// 从旧系统搬过来的：列（序号、产品名称、规格、颜色、仓库、单位、数量、袋子单价、印刷单价、长提单价、金额、备注）、
+// 从旧系统搬过来的：列（序号、产品名称、规格、颜色、数量、袋子/印刷/长提单价、金额、备注）、
 // 抬头（公司 logo/名称/地址/电话、单号、日期、客户名称/联系人/地址/电话）、合计行的大写金额、底部注意事项和
 // 双方签章、三联（白存根/红客户/黄回单）、241mm 针式连续纸。
 // 和现在冲突的按现在的来：金额仍按价格快照和分批计费（多出赠送不收钱），长提加价现在并在袋子单价里，
@@ -12,34 +12,35 @@ export const DELIVERY_NOTE_PAPER = Object.freeze({
   copyNames: Object.freeze(["①白存根联", "②红客户联", "③黄回单联"]),
 });
 
-// Column order follows the printed sheet; relative widths come from the old sale-bill grid
-// (产品名称 156、规格 107、仓库 48、颜色 53、数量 61、单价各 64、单位 52、金额 87、备注 156).
-// 负责人 2026-11-04：单价有袋子、印刷、长提、加扣几种；袋子单价每张都有，其余只在这张单子用到时才出现，
-// 用不到的列不占位置，免得字被挤小。
-const column = (key, label, width, align) => Object.freeze({ key, label, width, align });
+// 负责人 2026-11-04 定稿（方案二）：序号、产品名称、规格、颜色、实发数量、计价数量、单价（元/个）、金额、备注。
+// - 不印仓库、单位（都是「个」，写在单价标题里）。
+// - 实发、计价分两列：多做的赠送（下单 1000 实发 1010 只收 1000）一行就看清，不写进备注。
+// - 单价合在一个大标题「单价（元/个）」下，分袋子、印刷、长提、加扣小格；袋子每张都有，其余用到才出现，
+//   用不到的列不占位置，免得字被挤小。印刷格写几色：0.2(双色)。
+const column = (key, label, width, align, group = "") => Object.freeze({ key, label, width, align, group });
+export const DELIVERY_NOTE_PRICE_GROUP = "单价（元/个）";
 export const DELIVERY_NOTE_PRICE_COLUMNS = Object.freeze([
-  column("bagUnitPriceText", "袋子单价", 64, "right"),
-  column("printingUnitPriceText", "印刷单价", 80, "right"),
-  column("handleUnitPriceText", "长提单价", 64, "right"),
-  column("snapUnitPriceText", "加扣单价", 64, "right"),
+  column("bagUnitPriceText", "袋子", 56, "right", DELIVERY_NOTE_PRICE_GROUP),
+  column("printingUnitPriceText", "印刷", 78, "right", DELIVERY_NOTE_PRICE_GROUP),
+  column("handleUnitPriceText", "长提", 50, "right", DELIVERY_NOTE_PRICE_GROUP),
+  column("snapUnitPriceText", "加扣", 50, "right", DELIVERY_NOTE_PRICE_GROUP),
 ]);
 const LEADING_COLUMNS = Object.freeze([
   column("lineNo", "序号", 30, "center"),
-  column("productName", "产品名称", 120, "left"),
+  column("productName", "产品名称", 105, "left"),
   column("size", "规格", 95, "left"),
-  column("color", "颜色", 53, "center"),
-  column("warehouse", "仓库", 48, "center"),
-  column("unit", "单位", 36, "center"),
-  column("quantityText", "数量", 61, "right"),
+  column("color", "颜色", 55, "center"),
+  column("deliveredQtyText", "实发数量", 66, "right"),
+  column("chargeableQtyText", "计价数量", 66, "right"),
 ]);
 const TRAILING_COLUMNS = Object.freeze([
-  column("amountText", "金额", 80, "right"),
-  column("remark", "备注", 110, "left"),
+  column("amountText", "金额", 78, "right"),
+  column("remark", "备注", 80, "left"),
 ]);
 /** Every column the sheet can carry, in printed order. */
 export const DELIVERY_NOTE_COLUMNS = Object.freeze([...LEADING_COLUMNS, ...DELIVERY_NOTE_PRICE_COLUMNS, ...TRAILING_COLUMNS]);
 
-/** The columns this sheet prints: 袋子单价 always, the other prices only when a line uses them. */
+/** The columns this sheet prints: 袋子 always, 印刷 / 长提 / 加扣 only when a line uses them. */
 export function deliveryNoteColumns(lineItems = []) {
   const used = DELIVERY_NOTE_PRICE_COLUMNS.filter((priceColumn, index) => index === 0
     || lineItems.some(item => String(item?.[priceColumn.key] ?? "").trim() !== ""));
@@ -48,7 +49,8 @@ export function deliveryNoteColumns(lineItems = []) {
 
 export const DEFAULT_COMPANY_PRINT_PROFILE = Object.freeze({
   companyName: "河北禄兴包装制品有限公司",
-  address: "河北省邢台市宁晋县河渠镇大召村",
+  contactName: "",
+  address: "河北邢台宁晋河渠镇大召村",
   phone: "17367893639",
   footerNote: "以上货品请核对数量，如有质量问题，请在三个工作日内通知本公司，逾期恕不负责。",
 });
@@ -64,6 +66,7 @@ export function normalizeCompanyPrintProfile(value = {}) {
   const pick = (key, max) => clean(value?.[key]).slice(0, max);
   return {
     companyName: pick("companyName", 60) || DEFAULT_COMPANY_PRINT_PROFILE.companyName,
+    contactName: pick("contactName", 20),
     address: pick("address", 120),
     phone: pick("phone", 40),
     footerNote: pick("footerNote", 200),
@@ -78,7 +81,8 @@ export function validateCompanyPrintProfileInput(value = {}) {
   const name = clean(value.companyName);
   if (!name) return "请填写公司名称。";
   if (name.length > 60) return "公司名称不能超过 60 个字。";
-  if (clean(value.address).length > 120) return "地址不能超过 120 个字。";
+  if (clean(value.contactName).length > 20) return "联系人不能超过 20 个字。";
+  if (clean(value.address).length > 120) return "工厂地址不能超过 120 个字。";
   if (clean(value.phone).length > 40) return "电话不能超过 40 个字。";
   if (clean(value.footerNote).length > 200) return "单据底部说明不能超过 200 个字。";
   return "";

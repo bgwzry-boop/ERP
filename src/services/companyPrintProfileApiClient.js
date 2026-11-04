@@ -4,6 +4,7 @@ import { createOfficeIdempotencyKey, readOfficeApiJson as readJson, requestOffic
 const clean = value => String(value ?? "").trim();
 const normalize = value => ({
   companyName: clean(value?.companyName),
+  contactName: clean(value?.contactName),
   address: clean(value?.address),
   phone: clean(value?.phone),
   footerNote: clean(value?.footerNote),

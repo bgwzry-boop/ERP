@@ -167,8 +167,12 @@ function buildFulfillmentDocumentFields({
     amountText: amount !== null && amount !== undefined ? formatMoney(amount) : "待核价",
     amount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
     otherFeeText: "待核对费用明细",
-    // P2-07 照旧 ERP 的列：产品名称、规格、颜色、仓库、单位、数量、三个单价、金额、备注。
-    warehouse: String(fulfillment?.zone ?? orderLine?.zone ?? "").trim(),
+    // P2-07 方案二：产品名称、规格、颜色、实发数量、计价数量、单价（袋子/印刷/长提/加扣）、金额、备注。
+    // 多做赠送不写备注：实发 1010、计价 1000，金额按计价数量算。
+    deliveredQtyText: String(quantity),
+    chargeableQtyText: String(Number.isSafeInteger(Number(pricing.chargeableQty)) ? Number(pricing.chargeableQty) : quantity),
+    deliveredQty: quantity,
+    chargeableQty: Number.isSafeInteger(Number(pricing.chargeableQty)) ? Number(pricing.chargeableQty) : quantity,
     unit: "个",
     bagUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.bag),
     // 负责人 2026-11-04：印刷单价客户默认是单色，双色、三色直接写在单价后面：0.2(双色)。
@@ -187,6 +191,7 @@ function buildFulfillmentDocumentFields({
     paperNo: input.paperNo ?? printRecord.paperNo ?? "",
     copyText: DELIVERY_NOTE_PAPER.copyNames.join(" / "),
     companyName: company.companyName,
+    companyContactName: company.contactName,
     companyAddress: company.address,
     companyPhone: company.phone,
     footerNote: company.footerNote,
@@ -222,11 +227,10 @@ function buildFulfillmentDocumentFields({
 }
 
 // 负责人 2026-11-04：备注一栏系统自动写。几色写在印刷单价后面（没有单独印刷单价时才写进备注）；
-// 长提、加扣没有单独单价的（以前的订单），写「加长提」「加扣」；多出赠送写「赠送N个」；现货写「现货」。
+// 长提、加扣没有单独单价的（以前的订单），写「加长提」「加扣」；（负责人 2026-11-04：赠送看实发/计价两列，不写备注；不写现货、不印仓库列）
 const CHINESE_COUNTS = ["", "单", "双", "三", "四", "五", "六", "七", "八"];
 function buildSheetRemark({ orderLine, fulfillment, pricing }) {
   const parts = [];
-  if (Number(pricing.freeQty) > 0) parts.push(`赠送${Number(pricing.freeQty)}个`);
   const printing = orderLine?.print === "是" || orderLine?.printFlag === true || /印刷/.test(String(orderLine?.orderType ?? "")) || /print/.test(String(orderLine?.orderType ?? ""));
   // 印刷有单独单价时，几色已经写在印刷单价后面；没有单独印刷单价时才写进备注。
   if (printing && !(Number(pricing.unitPrices?.print) > 0)) {
@@ -235,7 +239,6 @@ function buildSheetRemark({ orderLine, fulfillment, pricing }) {
   }
   if (/加长|长提/.test(String(orderLine?.handle ?? orderLine?.handleType ?? "")) && !(Number(pricing.unitPrices?.handle) > 0)) parts.push("加长提");
   if (hasSnapButton(orderLine) && !(Number(pricing.unitPrices?.snap) > 0)) parts.push("加扣");
-  if (/现货|stock/.test(String(orderLine?.orderType ?? ""))) parts.push("现货");
   for (const extra of [orderLine?.note, fulfillment?.note]) if (String(extra ?? "").trim()) parts.push(String(extra).trim());
   return [...new Set(parts)].join("、");
 }

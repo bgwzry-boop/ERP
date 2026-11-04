@@ -10,7 +10,7 @@ export const COMPANY_PRINT_PROFILE_ID = "tpl-company-print-profile";
 export const companyPrintProfileStoreKey = "metadata/company-print-profile.json";
 
 const conflict = () => Object.assign(new Error("单据抬头刚被别人改过，请刷新后再改。"), { statusCode: 409, code: "COMPANY_PRINT_PROFILE_CHANGED" });
-const profilePayload = profile => ({ companyName: profile.companyName, address: profile.address, phone: profile.phone, footerNote: profile.footerNote });
+const profilePayload = profile => ({ companyName: profile.companyName, contactName: profile.contactName ?? "", address: profile.address, phone: profile.phone, footerNote: profile.footerNote });
 
 export function createLocalCompanyPrintProfileStore(storageRoot) {
   const filePath = join(storageRoot, companyPrintProfileStoreKey);
@@ -56,7 +56,7 @@ export function createPostgresCompanyPrintProfileStore({ queryJson, idempotentTr
 }
 
 function profileJson(alias) {
-  return `json_build_object('companyName', ${alias}.template_payload->>'companyName', 'address', ${alias}.template_payload->>'address',
+  return `json_build_object('companyName', ${alias}.template_payload->>'companyName', 'contactName', ${alias}.template_payload->>'contactName', 'address', ${alias}.template_payload->>'address',
     'phone', ${alias}.template_payload->>'phone', 'footerNote', ${alias}.template_payload->>'footerNote',
     'revision', ${alias}.revision, 'updatedAt', ${alias}.updated_at, 'updatedBy', COALESCE(${alias}.updated_by, ''))`;
 }
