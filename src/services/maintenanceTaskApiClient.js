@@ -18,7 +18,7 @@ export async function listMaintenanceTasks(input = {}, options = {}) {
     });
     const json = await readOfficeApiJson(response);
     if (!response.ok) return apiFailure(json, response.status, "设备任务读取失败。");
-    const statuses = new Set(['待检查','待处理','待维护','处理中','已恢复','等待配件','需要停机','转办公室协调','已完成']);
+    const statuses = new Set(['待检查','待处理','待维护','处理中','已恢复','等待配件','需要停机','转办公室协调','已完成','待换模','换模中']);
     if (!Array.isArray(json?.items) || !Number.isSafeInteger(json.total) || json.total !== json.items.length
       || json.items.some(item => !cleanText(item?.id ?? item?.taskId)
         || (item.id && item.taskId && item.id !== item.taskId)
@@ -91,7 +91,9 @@ async function writeMaintenanceTask(path, input, options, fallbackMessage) {
 
 function matchesCreationReceipt(task, { body, operatorId }) {
   const type = cleanText(body.type ?? body.taskType);
-  const initialStatus = { "设备报修": "待处理", "日常巡检": "待检查", "预防维护": "待维护" }[type];
+  const initialStatus = { "设备报修": "待处理", "日常巡检": "待检查", "预防维护": "待维护", "换模": "待换模" }[type];
+  // P2-04: for a mold change the server fills a default summary and sets 今天/普通 from the time.
+  const serverFilled = type === "换模";
   const requestedDate = cleanText(body.dueAt);
   const returnedDate = cleanText(task.dueAt);
   const datesMatch = !requestedDate && !returnedDate
@@ -99,8 +101,9 @@ function matchesCreationReceipt(task, { body, operatorId }) {
       && Date.parse(requestedDate) === Date.parse(returnedDate));
   return Boolean(initialStatus && task.status === initialStatus
     && task.machineId === cleanText(body.machineId) && task.type === type
-    && task.faultCategory === cleanText(body.faultCategory) && task.summary === cleanText(body.summary)
-    && task.priority === (cleanText(body.priority) || "普通")
+    && task.faultCategory === cleanText(body.faultCategory)
+    && (serverFilled && !cleanText(body.summary) ? Boolean(cleanText(task.summary)) : task.summary === cleanText(body.summary))
+    && (serverFilled && !cleanText(body.priority) ? ["今天", "普通"].includes(task.priority) : task.priority === (cleanText(body.priority) || "普通"))
     && task.assignedTechnicianEmployeeId === cleanText(body.assignedTechnicianEmployeeId)
     && cleanText(task.createdBy) === cleanText(operatorId) && datesMatch);
 }

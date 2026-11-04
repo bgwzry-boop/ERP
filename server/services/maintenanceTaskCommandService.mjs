@@ -2,9 +2,13 @@ import { createHash } from "node:crypto";
 import { normalizeIdempotencyKey } from "../idempotency.mjs";
 import { normalizeMaintenanceTask } from "../maintenanceTaskRepository.mjs";
 
-const taskTypes = new Set(["设备报修", "日常巡检", "预防维护"]);
+// P2-04 换模（负责人 2026-11-04）：办公室或管理看订单定哪台机、什么时候换、换成什么；技工收到工单，
+// 换好后拍最终试做的袋子上传就完成。「换成什么」放在 faultCategory，换模时间放在 dueAt。
+const MOLD_CHANGE = "换模";
+const taskTypes = new Set(["设备报修", "日常巡检", "预防维护", MOLD_CHANGE]);
 const priorities = new Set(["普通", "今天", "本周", "异常"]);
 const updateStatuses = new Set(["处理中", "已恢复", "等待配件", "需要停机", "转办公室协调"]);
+const moldChangeUpdateStatuses = new Set(["换模中", "已完成"]);
 const terminalStatuses = new Set(["已恢复", "已完成"]);
 
 export function createMaintenanceTaskCommandService({ buildOperationLog, now = () => new Date() } = {}) {
@@ -17,7 +21,7 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
     if (idempotencyKey.error) return idempotencyKey;
     const idempotencyPayload = { requestVersion: 2, operatorId,
       machineId: cleanText(body.machineId), type: cleanText(body.type ?? body.taskType),
-      faultCategory: cleanText(body.faultCategory), priority: cleanText(body.priority) || "普通",
+      faultCategory: cleanText(body.faultCategory ?? body.moldTarget), priority: cleanText(body.priority) || "普通",
       summary: cleanText(body.summary), dueAt: nullableTimestamp(body.dueAt),
       assignedEmployeeId: cleanText(body.assignedTechnicianEmployeeId) };
     // Invalid dates must not be normalized into an existing empty-date receipt.
@@ -32,14 +36,17 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
     const machine = findMachine(workspace, body.machineId);
     if (!machine) return error(404, "MAINTENANCE_MACHINE_NOT_FOUND", "请选择有效机台后再创建任务。");
     const type = cleanText(body.type ?? body.taskType);
-    const priority = cleanText(body.priority) || "普通";
-    const faultCategory = cleanText(body.faultCategory);
-    const summary = cleanText(body.summary);
+    const moldChange = type === MOLD_CHANGE;
+    const dueAt = nullableTimestamp(body.dueAt);
+    const faultCategory = cleanText(body.faultCategory ?? body.moldTarget);
+    const priority = cleanText(body.priority) || (moldChange ? moldChangePriority(dueAt, now()) : "普通");
+    const summary = cleanText(body.summary) || (moldChange && faultCategory ? `${cleanText(machine.name ?? machine.machineName ?? machine.id)}换成 ${faultCategory}` : "");
     if (!taskTypes.has(type)) return error(422, "MAINTENANCE_TASK_TYPE_INVALID", "设备任务类型无效。");
     if (!priorities.has(priority)) return error(422, "MAINTENANCE_TASK_PRIORITY_INVALID", "设备任务优先级无效。");
+    if (moldChange && (!faultCategory || faultCategory.length > 80)) return error(422, "MOLD_CHANGE_TARGET_REQUIRED", "请写清换成什么模具（80 个字以内），例如：30*40 模具。");
+    if (moldChange && !dueAt) return error(422, "MOLD_CHANGE_TIME_REQUIRED", "请选择换模时间。");
     if (!faultCategory || faultCategory.length > 80) return error(422, "MAINTENANCE_FAULT_CATEGORY_REQUIRED", "请填写 80 个字以内的故障或检查分类。");
     if (summary.length < 2 || summary.length > 300) return error(422, "MAINTENANCE_TASK_SUMMARY_REQUIRED", "请填写 2–300 个字的任务说明。");
-    const dueAt = nullableTimestamp(body.dueAt);
     const assignedEmployeeId = cleanText(body.assignedTechnicianEmployeeId);
     if (assignedEmployeeId && !findFormalEmployee(workspace, assignedEmployeeId)) {
       return error(422, "MAINTENANCE_ASSIGNEE_INVALID", "指定机修人员必须是有效正式员工。");
@@ -111,9 +118,11 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
     const technician = resolveFormalTechnician(workspace, operatorId);
     if (technician.error) return technician;
     const status = cleanText(body.status);
-    const finding = cleanText(body.finding);
-    const actionTaken = cleanText(body.actionTaken ?? body.action);
-    if (!updateStatuses.has(status)) return error(422, "MAINTENANCE_TASK_STATUS_INVALID", "请选择有效处理状态。");
+    const moldChange = current.type === MOLD_CHANGE;
+    // A mold change only needs the photo of the final test bag (owner); notes are optional.
+    const finding = cleanText(body.finding) || (moldChange ? `已换成 ${current.faultCategory}` : "");
+    const actionTaken = cleanText(body.actionTaken ?? body.action) || (moldChange ? (status === "已完成" ? "换好模具并试做，拍了最终试做的袋子" : "正在换模") : "");
+    if (!(moldChange ? moldChangeUpdateStatuses : updateStatuses).has(status)) return error(422, "MAINTENANCE_TASK_STATUS_INVALID", "请选择有效处理状态。");
     if (finding.length < 2 || finding.length > 500) return error(422, "MAINTENANCE_FINDING_REQUIRED", "请填写 2–500 个字的检查发现。");
     if (actionTaken.length < 2 || actionTaken.length > 500) return error(422, "MAINTENANCE_ACTION_REQUIRED", "请填写 2–500 个字的采取措施。");
     const photoAttachmentIds = [...new Set([
@@ -127,7 +136,9 @@ export function createMaintenanceTaskCommandService({ buildOperationLog, now = (
       return error(422, "MAINTENANCE_COMPLETION_CONFIRMATION_REQUIRED", "提交完工前必须确认冻结的任务、照片和处理结果摘要。");
     }
     if (terminal && !photoAttachmentIds.length) {
-      return error(422, "MAINTENANCE_COMPLETION_PHOTO_REQUIRED", "提交完工必须至少上传一张设备照片。");
+      return moldChange
+        ? error(422, "MOLD_CHANGE_TEST_PHOTO_REQUIRED", "换模完成要拍最终试做的袋子上传。")
+        : error(422, "MAINTENANCE_COMPLETION_PHOTO_REQUIRED", "提交完工必须至少上传一张设备照片。");
     }
     const timestamp = now().toISOString();
     const task = normalizeMaintenanceTask({
@@ -193,12 +204,14 @@ function buildMaintenanceTodo(task, { operatorId, timestamp }) {
     id,
     todoId: id,
     bizNo: id,
-    type: `${task.type} · 设备任务`,
+    type: task.type === MOLD_CHANGE ? "换模工单" : `${task.type} · 设备任务`,
     refType: "maintenance_task",
     refId: task.id,
     priority: task.priority,
     status: terminal ? "已处理" : "未处理",
-    summary: `${task.machineName} · ${task.faultCategory} · ${task.status}；${task.summary}`,
+    summary: task.type === MOLD_CHANGE
+      ? `${task.machineName} 换模：换成 ${task.faultCategory} · ${formatShanghaiTime(task.dueAt)} · ${task.status}${task.summary && !task.summary.endsWith(`换成 ${task.faultCategory}`) ? `；${task.summary}` : ""}`
+      : `${task.machineName} · ${task.faultCategory} · ${task.status}；${task.summary}`,
     dueAt: task.dueAt,
     remindAt: "",
     handledBy: terminal ? operatorId : "",
@@ -287,7 +300,7 @@ function buildStableId(prefix, key) {
 }
 
 function initialStatus(type) {
-  return { 设备报修: "待处理", 日常巡检: "待检查", 预防维护: "待维护" }[type] ?? "待处理";
+  return { 设备报修: "待处理", 日常巡检: "待检查", 预防维护: "待维护", [MOLD_CHANGE]: "待换模" }[type] ?? "待处理";
 }
 
 function nullableTimestamp(value) {
@@ -316,4 +329,17 @@ function error(statusCode, code, message, details) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+// Mold changes scheduled for today (Shanghai) show as 今天, later ones as 普通.
+function moldChangePriority(dueAt, nowValue) {
+  if (!dueAt) return "普通";
+  const day = (value) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
+  return day(new Date(dueAt)) <= day(nowValue instanceof Date ? nowValue : new Date(nowValue)) ? "今天" : "普通";
+}
+
+function formatShanghaiTime(value) {
+  const timestamp = Date.parse(value ?? "");
+  if (!Number.isFinite(timestamp)) return "时间未定";
+  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(timestamp));
 }
