@@ -73,6 +73,18 @@ for (const value of ["合成包装厂", "地址：合成路 1 号", "电话：03
 }
 assert.doesNotMatch(page, /13800001234/, "the customer's full phone stays off the paper (tail only, as today)");
 
+// P2-05 gift shows in the 备注 column and as a 说明 line under the table.
+const giftTemplate = buildFulfillmentPrintTemplate({
+  fulfillment: { id: "F-2", lineId: "OL-1", customerId: "C1", method: "送货", qty: 1010, customerSnapshot: { name: "合成客户" } },
+  orderLine: { id: "OL-1", product: "印刷袋", size: "30*40*10", orderType: "custom_print", qty: 1000 },
+  printRecord: { printRecordId: "PR-F-2-1" }, documentType: "delivery_note", companyProfile,
+  pricing: { ...pricing, deliveredQty: 1010, chargeableQty: 1000, freeQty: 10, quantityNote: "多出 10 个赠送，不收费（按下单 1000 个计价）" },
+});
+assert.equal(giftTemplate.fields.lineItems[0].remark, "赠送10个");
+const [giftPage] = await pdfText(await buildFulfillmentNotePdf(giftTemplate));
+assert.ok(giftPage.includes("赠送10个"));
+assert.ok(giftPage.includes("说明：多出 10 个赠送，不收费（按下单 1000 个计价）"));
+
 // Many lines continue on further pages; the total stays on the last.
 const many = { ...template, fields: { ...template.fields, lineItems: Array.from({ length: 25 }, (_, index) => ({ ...item, productName: `货品${index + 1}`, amount: 10 })) } };
 const pages = await pdfText(await buildFulfillmentNotePdf(many));

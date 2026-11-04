@@ -172,7 +172,7 @@ function buildFulfillmentDocumentFields({
     bagUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.bag),
     printingUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.print),
     handleUnitPriceText: formatLegacyUnitPrice(pricing.unitPrices?.handle),
-    remark: [quantityNote, sourceRemark({ orderLine, fulfillment })].filter(Boolean).join("；"),
+    remark: [Number(pricing.freeQty) > 0 ? `赠送${Number(pricing.freeQty)}个` : "", sourceRemark({ orderLine, fulfillment })].filter(Boolean).join("、"),
     note: [input.batchProgress, quantityNote, buildDocumentLineNote({ orderLine, fulfillment })].filter(Boolean).join("；"),
   };
   if (printEnabled) {

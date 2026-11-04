@@ -168,9 +168,10 @@ export async function buildFulfillmentNotePdf(template) {
     line(page, right, tableTop, right, y, 0.8);
     // Footer on the last page.
     if (lastPage) {
-      const notes = [text(fields.footerNote), text(fields.batchProgressText), text(fields.quantityNoteText)].filter(Boolean);
+      const explanation = [text(fields.batchProgressText), text(fields.quantityNoteText)].filter(Boolean).join("；");
+      const notes = [fields.footerNote && `注：${text(fields.footerNote)}`, explanation && `说明：${explanation}`].filter(Boolean);
       let footerY = y - mm(5);
-      for (const note of notes.length ? [`注：${notes.join("；")}`] : []) {
+      for (const note of notes) {
         const f = fit(note, 8.5, tableWidth);
         draw(page, f.value, left, footerY, f.size);
         footerY -= mm(5);
