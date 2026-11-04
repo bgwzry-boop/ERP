@@ -63,8 +63,10 @@ const [item] = template.fields.lineItems;
 // 几色写在印刷单价后面（单面双面机印同价，不写）；备注里不再重复。
 assert.deepEqual([item.bagUnitPriceText, item.printingUnitPriceText, item.handleUnitPriceText, item.snapUnitPriceText, item.deliveredQtyText, item.chargeableQtyText, item.amount, item.remark], ["0.34", "0.09(双色)", "", "", "1000", "1000", 460, ""]);
 assert.equal(template.fields.companyContactName, "合成联系人");
-assert.equal(template.fields.pickerName, "", "a delivery note printed before delivery has no receiver yet");
-assert.equal(template.fields.pickerLabel, "收货人");
+assert.equal(template.fields.pickerName, "", "a delivery note (driver delivers) prints no 提货人");
+const deliveredLater = buildFulfillmentPrintTemplate({ fulfillment: { id: "F-1", lineId: "OL-1", method: "送货", qty: 1000, receiverName: "签收店员" }, orderLine: { id: "OL-1", qty: 1000 },
+  printRecord: { printRecordId: "PR-F-1-2" }, documentType: "delivery_note", pricing, pickerName: "不该出现" });
+assert.equal(deliveredLater.fields.pickerName, "", "not even on a reprint after the driver recorded who signed");
 assert.equal(isFulfillmentNoteTemplate(template), true);
 assert.equal(isFulfillmentNoteTemplate({ ...template, priceHidden: true }), false);
 

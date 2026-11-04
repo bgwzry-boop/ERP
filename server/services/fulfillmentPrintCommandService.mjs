@@ -82,7 +82,8 @@ export function createFulfillmentPrintCommandService({
     }
     // 负责人 2026-11-04：实际来拿货的人（客户 A 的单子由 B 来拿）。开单时选或输入，记在本次交付上，
     // 下次给这个客户开单时作为常用拿货人供选择。
-    const pickerName = normalizeText(printableBody.pickerName);
+    // 送货单由司机送，不记提货人。
+    const pickerName = documentType === "delivery_note" ? "" : normalizeText(printableBody.pickerName);
     if (pickerName.length > 20) return businessError(422, "FULFILLMENT_PICKER_NAME_INVALID", "拿货人名字不能超过 20 个字。");
     const printRecord = buildFulfillmentPrintRecord({
       workspace,

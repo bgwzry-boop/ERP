@@ -199,8 +199,9 @@ function buildFulfillmentDocumentFields({
     receiverSignatureText: DELIVERY_NOTE_SIGNATURES.receiver,
     documentDateText: documentDate(printRecord, input),
     // 负责人 2026-11-04：客户是 A、实际来拿货的是 B 时，单子上单独印「提货人：B」（送货单印收货人）。
-    pickerName: String(input.pickerName ?? fulfillment?.receiverName ?? "").trim().slice(0, 20),
-    pickerLabel: printRecord?.documentType === "delivery_note" || input.documentType === "delivery_note" ? "收货人" : "提货人",
+    // 送货单（司机送货）不印提货人；只有自提单、出库单印。
+    pickerName: printRecord?.documentType === "delivery_note" || input.documentType === "delivery_note" ? "" : String(input.pickerName ?? fulfillment?.receiverName ?? "").trim().slice(0, 20),
+    pickerLabel: "提货人",
     totalAmount: amount !== null && amount !== undefined && Number.isFinite(Number(amount)) ? Number(amount) : null,
     totalQuantity: quantity,
     totalAmountUppercase: amount !== null && amount !== undefined ? amountInChineseUppercase(amount) : "",
