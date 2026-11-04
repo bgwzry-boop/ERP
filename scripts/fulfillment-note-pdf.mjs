@@ -95,7 +95,8 @@ export async function buildFulfillmentNotePdf(template) {
   const amountColumn = columns.find(column => column.key === "amountText");
 
   // A fixed number of rows per sheet: the totals, notes and signatures always sit in the same place.
-  const footerHeight = LAYOUT.totalRow + 2 * LAYOUT.noteLine + LAYOUT.signature;
+  // 负责人 2026-11-04：说明不单独占一行，并进「注」那一行，表格固定 10 行。
+  const footerHeight = LAYOUT.totalRow + LAYOUT.noteLine + LAYOUT.signature;
   const bodyTop = LAYOUT.tableTop + 2 * LAYOUT.headerRow;
   const rowsPerPage = Math.max(3, Math.floor((heightMm - LAYOUT.bottom - footerHeight - bodyTop) / LAYOUT.row));
   const pages = Math.max(1, Math.ceil(items.length / rowsPerPage));
@@ -231,13 +232,24 @@ export async function buildFulfillmentNotePdf(template) {
     }
     page.drawRectangle({ x: left, y: yOf(totalBottom), width: tableWidth, height: mm(totalBottom - top), borderWidth: LINE.outer, borderColor: black });
 
-    // ── Notes and signatures ────────────────────────────────────────────────
-    let noteTop = totalBottom + 1.2;
-    const explanation = lastPage ? [hasGift ? "实发多于计价的部分为多做赠送，不收费" : "", text(fields.batchProgressText)].filter(Boolean).join("；") : "";
-    for (const note of [explanation && `说明：${explanation}。`, fields.footerNote && `注：${text(fields.footerNote)}`].filter(Boolean)) {
-      const f = fit(note, SIZE.note, tableWidth);
-      draw(page, f.value, left, yOf(noteTop + LAYOUT.noteLine * 0.72), f.size);
-      noteTop += LAYOUT.noteLine;
+    // ── Note (one line; the gift / batch explanation follows the 注 text, wrapping to a second
+    //    line in the space above the signatures only when it does not fit) ──────────────────
+    const extras = lastPage ? [hasGift ? "实发多于计价的部分为多做赠送，不收费。" : "", text(fields.batchProgressText) ? `${text(fields.batchProgressText)}。` : ""].filter(Boolean) : [];
+    const noteText = [fields.footerNote ? text(fields.footerNote) : "", ...extras].filter(Boolean).join("").replace(/。。/g, "。");
+    if (noteText) {
+      // Wrap at punctuation (。，；) so a number is never split across the two lines.
+      const pieces = safe(noteText).match(/[^。，；]+[。，；]?/g) ?? [];
+      const lines = [];
+      let current = "注：";
+      for (const piece of pieces) {
+        if (lines.length < 1 && current.trim() !== "注：" && width(current + piece, SIZE.note) > tableWidth) { lines.push(current); current = "　　"; }
+        current += piece;
+      }
+      lines.push(current);
+      lines.slice(0, 2).forEach((lineText, index) => {
+        const f = fit(lineText, SIZE.note, tableWidth);
+        draw(page, f.value, left, yOf(totalBottom + 1.2 + LAYOUT.noteLine * (0.72 + index)), f.size);
+      });
     }
     const signBaseline = heightMm - LAYOUT.bottom - 2;
     const signatures = [fields.senderSignatureText || "送货单位及经手人(签章)：", fields.receiverSignatureText || "收货单位及经手人(签章)："];

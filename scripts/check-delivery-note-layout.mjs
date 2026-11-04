@@ -79,7 +79,7 @@ async function pdfText(bytes) {
 }
 
 const [page] = await pdfText(await buildFulfillmentNotePdf(template));
-assert.doesNotMatch(page, /长提|加扣|仓库|说明：/, "unused price columns and 仓库 are left out; no gift explanation without a gift");
+assert.doesNotMatch(page, /长提|加扣|仓库|多做赠送|说明：/, "unused price columns and 仓库 are left out; no gift explanation without a gift");
 for (const value of ["0.09(双色)", "合成包装厂", "联系人：合成联系人", "工厂地址：合成路 1 号", "电话：0319-0000000", "No. PR-F-1-1", "日期：2026-11-04", "客户名称：合成客户", "联系人：王经理", "联系电话：尾号1234", "地址：合成镇",
   "序号", "产品名称", "实发数量", "计价数量", "单价（元/个）", "袋子", "印刷", "印刷袋", "30*40*10", "白色", "1000", "0.34", "460.00",
   "合计（大写）：肆佰陆拾元整", "¥460.00", "注：请当面点清数量。", "送货单位及经手人(签章)：", "收货单位及经手人(签章)：", "白", "存", "根", "黄", "回"]) {
@@ -129,7 +129,8 @@ const giftTemplate = buildFulfillmentPrintTemplate({
 assert.deepEqual([giftTemplate.fields.lineItems[0].remark, giftTemplate.fields.lineItems[0].deliveredQtyText, giftTemplate.fields.lineItems[0].chargeableQtyText], ["", "1010", "1000"]);
 const [giftPage] = await pdfText(await buildFulfillmentNotePdf(giftTemplate));
 assert.ok(giftPage.includes("1010") && giftPage.includes("1000"), giftPage);
-assert.ok(giftPage.includes("说明：实发多于计价的部分为多做赠送，不收费。"), giftPage);
+assert.ok(giftPage.includes("注：请当面点清数量。实发多于计价的部分为多做赠送，不收费。"), "the gift explanation follows the 注 line: " + giftPage);
+assert.doesNotMatch(giftPage, /说明：/);
 assert.doesNotMatch(giftPage, /赠送10个/);
 
 // Many lines continue on further pages; the total stays on the last.
@@ -139,6 +140,10 @@ assert.ok(pages.length >= 2);
 assert.match(pages[0], /续下页/);
 assert.match(pages.at(-1), /合计（大写）：贰佰伍拾元整/);
 assert.ok(pages.join("").includes("货品25"));
+
+// A long note (gift + split-shipment progress) wraps to a second line instead of shrinking away.
+const longNote = await pdfText(await buildFulfillmentNotePdf({ ...giftTemplate, fields: { ...giftTemplate.fields, batchProgressText: "下单 10000 个，已发 6000 个，剩余待发 4000 个（本次第 2 批，客户要求有多少发多少）" } }));
+assert.ok(longNote[0].includes("剩余待发 4000 个") && longNote[0].includes("多做赠送"), longNote[0]);
 
 // Characters the embedded font cannot draw fail closed instead of printing blanks.
 await assert.rejects(() => buildFulfillmentNotePdf({ ...template, fields: { ...template.fields, customerName: "\u{2A6D6}客户" } }), /字体不支持/);
