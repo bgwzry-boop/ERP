@@ -327,7 +327,7 @@
     "p1-rules-r4-postgres:check": "node scripts/check-office-order-pricing-postgres.mjs && node scripts/check-statement-exact-payment-postgres.mjs && node scripts/check-mixed-package-group-postgres.mjs && node scripts/check-order-mutation-document-consumption-postgres.mjs && node scripts/check-order-print-group-correction-postgres.mjs",
     "order-entry-split:check": "node scripts/check-order-entry-split-desktop.mjs",
     "single-packing:check": "node scripts/check-single-packing-workbench-ui.mjs",
-    "receiving:ui-hardening:check": "node scripts/check-raw-material-inbound-review-consistency.mjs && node scripts/check-office-raw-material-inbound-flow.mjs && node scripts/check-receiving-queue-state.mjs && node scripts/check-receiving-draft-revision-ui.mjs"
+    "receiving:ui-hardening:check": "node scripts/check-raw-material-inbound-review-consistency.mjs && node scripts/check-office-raw-material-inbound-flow.mjs && node scripts/check-receiving-queue-state.mjs && node scripts/check-receiving-draft-revision-ui.mjs && node scripts/check-receiving-print-cancel-and-footer-ui.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",

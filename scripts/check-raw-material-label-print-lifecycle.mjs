@@ -28,12 +28,20 @@ const originalClearTimeout = globalThis.clearTimeout;
 const timers = new Map();
 let timerId = 0;
 globalThis.setTimeout = (callback, duration) => {
-  assert.equal(duration, 120000);
+  assert.ok(duration === 400 || duration === 120000, `unexpected print timer ${duration}`);
   const id = ++timerId;
-  timers.set(id, callback);
+  timers.set(id, { callback, duration });
   return id;
 };
 globalThis.clearTimeout = id => timers.delete(id);
+
+function fireTimers(duration) {
+  for (const [id, timer] of [...timers]) {
+    if (timer.duration !== duration) continue;
+    timers.delete(id);
+    timer.callback();
+  }
+}
 
 async function expectClean(test, pending, expected) {
   let settled = 0;
@@ -62,22 +70,60 @@ try {
   const asynchronous = harness(emit => emit("beforeprint"));
   const asyncResult = printRawMaterialLabelFrame(asynchronous.frame, "synthetic label");
   assert.equal(timers.size, 1);
-  const staleTimer = [...timers.values()][0];
+  const staleTimer = [...timers.values()][0].callback;
   asynchronous.win.emit("afterprint");
   await expectClean(asynchronous, asyncResult, true);
   staleTimer();
   assert.equal(asynchronous.removed(), 1, "a queued old timer cannot settle or remove again");
 
+  // Chrome cancel closes the preview with afterprint and never fires beforeprint
+  // on the hidden label frame. That preview did open.
+  const cancelled = harness(emit => emit("afterprint"));
+  await expectClean(cancelled, printRawMaterialLabelFrame(cancelled.frame, "synthetic label"), true);
+  assert.equal(timers.size, 0, "a closed preview must not keep the open-grace timer");
+
+  const cancelledBeforeBeforePrint = harness(emit => { emit("afterprint"); emit("beforeprint"); });
+  await expectClean(cancelledBeforeBeforePrint, printRawMaterialLabelFrame(cancelledBeforeBeforePrint.frame, "synthetic label"), true);
+
+  const parent = harness(() => {});
+  const parentListeners = new Map();
+  const parentWin = {
+    addEventListener(type, callback) {
+      if (!parentListeners.has(type)) parentListeners.set(type, new Set());
+      parentListeners.get(type).add(callback);
+    },
+    removeEventListener(type, callback) { parentListeners.get(type)?.delete(callback); },
+    emit(type) { for (const callback of [...(parentListeners.get(type) ?? [])]) callback(); },
+  };
+  parent.frame.ownerDocument = { defaultView: parentWin };
+  const parentResult = printRawMaterialLabelFrame(parent.frame, "synthetic label");
+  parentWin.emit("afterprint");
+  await expectClean(parent, parentResult, true);
+  assert.equal([...parentListeners.values()].reduce((sum, items) => sum + items.size, 0), 0, "parent print listeners removed");
+
   const noEvents = harness(() => {});
-  await expectClean(noEvents, printRawMaterialLabelFrame(noEvents.frame, "synthetic label"), false);
+  const noEventsResult = printRawMaterialLabelFrame(noEvents.frame, "synthetic label");
+  assert.equal(timers.size, 1);
+  assert.equal([...timers.values()][0].duration, 400);
+  fireTimers(400);
+  await expectClean(noEvents, noEventsResult, false);
+
+  const delayedOpen = harness(() => {});
+  const delayedResult = printRawMaterialLabelFrame(delayedOpen.frame, "synthetic label");
+  assert.equal([...timers.values()][0].duration, 400);
+  delayedOpen.win.emit("beforeprint");
+  assert.equal([...timers.values()][0].duration, 120000, "a late beforeprint must wait for the preview to close");
+  delayedOpen.win.emit("afterprint");
+  await expectClean(delayedOpen, delayedResult, true);
 
   const missingAfterPrint = harness(emit => emit("beforeprint"));
   const fallbackResult = printRawMaterialLabelFrame(missingAfterPrint.frame, "synthetic label");
   assert.equal(timers.size, 1);
-  [...timers.values()][0]();
+  assert.equal([...timers.values()][0].duration, 120000);
+  [...timers.values()][0].callback();
   await expectClean(missingAfterPrint, fallbackResult, true);
 } finally {
   globalThis.setTimeout = originalSetTimeout;
   globalThis.clearTimeout = originalClearTimeout;
 }
-console.log("PASS label print lifecycle: blocking and delayed print closure, print errors, no-event failure and missing-afterprint fallback settle once and clean listeners/timers. No browser, physical print or business writes.");
+console.log("PASS label print lifecycle: blocking and delayed print closure, print cancel, parent-window preview, print errors, no-event failure and missing-afterprint fallback settle once and clean listeners/timers. No browser, physical print or business writes.");
