@@ -191,4 +191,5 @@ console.log("Underpayment checks passed: 10850 receivable, 10500 received, 350 r
   assert.equal(roundingShareOfBill(100, 10100), 0.99);
   assert.equal(roundingShareOfBill(500, 10500), 4.76);
   assert.equal(roundingShareOfBill(0, 100), 0);
+  assert.equal(roundingShareOfBill(73, 273), 26.74);
 }

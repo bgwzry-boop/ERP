@@ -1,5 +1,5 @@
 import { createStatementPreviewProjectionService } from './statementPreviewProjectionService.mjs';
-import { getStatementFinancialSummary } from '../../src/domain/officeRules.js';
+import { getStatementFinancialSummary, presentedStatementVariance } from '../../src/domain/officeRules.js';
 import { chinaCalendarYear, ROUNDING_HANDLING_RESULT, summarizeAnnualReceiptAndRounding } from '../../shared/statementUnderpaymentNotice.js';
 
 const preview = createStatementPreviewProjectionService();
@@ -76,8 +76,10 @@ export function buildStatementDetail(workspace, item, { includeAttachments = fal
     payments: rows(workspace.paymentRecords),
     varianceRecords: rows(workspace.varianceRecords),
   }, annualYear) : null;
+  const presentedVariance = presentedStatementVariance(item);
   const statement = {
     ...item, roundingAmount, annualReceiptSummary, ...getStatementFinancialSummary({ ...item, roundingAmount }, workspace.customers), statementId,
+    ...(presentedVariance !== null ? { variance: presentedVariance, varianceAmount: presentedVariance } : {}),
     customerName: text(item.customerName || rows(workspace.customers).find(row => text(row.id ?? row.customerId) === customerId)?.name),
     sent: Boolean(latestSend), sendRecordId: latestSend?.sendRecordId || '',
     sendRecordRevision: latestSend?.revision ?? null,

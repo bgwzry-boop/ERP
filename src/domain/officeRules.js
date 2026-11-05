@@ -494,6 +494,17 @@ export function getStatementFinancialSummary(statement, customers) {
   };
 }
 
+// 本期差额 must follow the same figure as 本期未收. A stored variance that still
+// carries a customer's historical debt (or any other stale snapshot) is not a
+// second balance: settlement already rejects it when it is not 应收 − 实收.
+export function presentedStatementVariance(statement) {
+  const unpaid = getStatementFinancialSummary(statement, []).currentUnpaid;
+  if (unpaid !== null) return unpaid;
+  if (!statement || statement.variance === undefined || statement.variance === null || statement.variance === "") return null;
+  const amount = Number(statement.variance);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 export function getStatementBucket(statement, customers) {
   if (!statement) return "本期待对账";
   const blockingAmount = getStatementBlockingAmount(statement, customers);

@@ -7,6 +7,19 @@ const options = Object.freeze({ serverRequired: true });
 const queryKey = query => JSON.stringify(query);
 const emptyPage = () => ({ ...UNLOADED_READ, items: [], total: 0, stageCounts: null, metrics: null, resultQuery: null });
 
+// List reads annotate duplicateSummary. A single-record detail or command
+// response omits that annotation; keep the hint already shown in the queue.
+function retainReceiptDuplicateHint(previous, incoming) {
+  if (!incoming || !previous) return incoming;
+  const next = { ...incoming };
+  if (incoming.duplicateSummary == null && previous.duplicateSummary) next.duplicateSummary = previous.duplicateSummary;
+  if (incoming.duplicate == null && previous.duplicate) next.duplicate = previous.duplicate;
+  if (!Array.isArray(incoming.duplicateCandidates) && Array.isArray(previous.duplicateCandidates)) {
+    next.duplicateCandidates = previous.duplicateCandidates;
+  }
+  return next;
+}
+
 export function useReceivingData({ authState, active, operatorId }) {
   const [query, setQuery] = useState(() => normalizeReceiptQuery());
   const [pageState, setPageState] = useState(emptyPage);
@@ -47,7 +60,9 @@ export function useReceivingData({ authState, active, operatorId }) {
       if (!live.current || authRef.current?.session?.accessToken !== token || !guard.current.current(key, version)) return { source: "superseded" };
       if (result.source === "api" && !result.blocked) {
         const cached = cache.current.get(id);
-        if (!cached || Number(result.inbound.revision || 0) >= Number(cached.revision || 0)) cache.current.set(id, result.inbound);
+        if (!cached || Number(result.inbound.revision || 0) >= Number(cached.revision || 0)) {
+          cache.current.set(id, retainReceiptDuplicateHint(cached, result.inbound));
+        }
       }
       updateDetailState(id, finishRead(detailStates.current[id], result));
       return result;
@@ -118,10 +133,11 @@ export function useReceivingData({ authState, active, operatorId }) {
     if (!inbound?.id) return;
     guard.current.begin("page");
     guard.current.begin(`detail:${inbound.id}`);
-    cache.current.set(inbound.id, inbound);
+    const retained = retainReceiptDuplicateHint(cache.current.get(inbound.id), inbound);
+    cache.current.set(inbound.id, retained);
     updateDetailState(inbound.id, finishRead(detailStates.current[inbound.id], { source: "api" }));
     setPageState(previous => ({ ...previous, ...invalidateRead(previous),
-      items: previous.items.map(item => item.id === inbound.id ? inbound : item) }));
+      items: previous.items.map(item => item.id === inbound.id ? retainReceiptDuplicateHint(item, inbound) : item) }));
     if (activeRef.current) void refreshReceiptPage();
   }, [refreshReceiptPage, updateDetailState]);
   const lookupInbound = useCallback(id => cache.current.get(id), []);

@@ -32,6 +32,13 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
     .filter((row, index, all) => row.ownerType === "statement" && row.ownerId === detail.id && row.purpose === purpose && row.status === "uploaded" && row.hasContent === true
       && all.findIndex(item => item.attachmentId === row.attachmentId) === index);
   const blocked = payment ? getStatementPaymentBlocker(detail) : confirmation && !(detail.sendRecords ?? []).length ? "请先登记实际发送的对账单，再登记客户回复。" : "";
+  let draftPayment = null;
+  if (payment && String(amount).trim()) {
+    try { draftPayment = paymentReview(detail, amount); } catch { draftPayment = null; }
+  }
+  const roundingRequired = (draftPayment?.unpaid ?? 0) > 0;
+  const roundingValid = CUSTOMER_ROUNDING_REASON_KINDS.includes(roundingKind);
+  const reviewReady = verified && (!roundingRequired || roundingValid);
 
   function review() {
     action.setError("");
@@ -97,7 +104,8 @@ export function StatementActionPanel({ detail, authState, mode, onBusyChange, on
       </div> : null}
       <label className="finance-check"><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />{payment ? "已核对累计到账，确认没有遗漏以前的收款。" : confirmation ? "以上为客户实际回复，我已核对。" : "已实际发送给上述接收人。"}</label>
     </fieldset>
-    {snapshot ? <div className="finance-confirm" role="status"><h4>保存前核对</h4><p>{detail.customerName || detail.customerId} · {detail.id} · {detail.period || "未提供账期"}</p>{payment ? <><dl><div><dt>原累计实收</dt><dd>{money(snapshot.totals.previous)}</dd></div><div><dt>保存后累计</dt><dd>{money(snapshot.totals.amount)}</dd></div><div><dt>本次变更</dt><dd>{money(snapshot.totals.difference)}</dd></div><div><dt>{snapshot.totals.unpaid > 0 ? "抹零" : "剩余未收"}</dt><dd>{money(snapshot.totals.unpaid)}{snapshot.totals.unpaid > 0 ? ` · 占账单 ${roundingShareOfBill(snapshot.totals.unpaid, snapshot.statement.receivable)}%` : ""}</dd></div></dl>{snapshot.totals.unpaid > 0 ? <p>确认后这笔差额记为抹零（{snapshot.input.roundingReasonKind}），账期立即结清，并通知老板、财务、管理查看。应收仍是原账单金额。</p> : null}</> : <p>{snapshot.input.sentTo} · {snapshot.input.reason}</p>}{snapshot.totals?.difference < 0 ? <p className="finance-warning">累计实收将减少，请再次确认调整依据。</p> : null}{snapshot.totals?.overpaid > 0 ? <p className="finance-warning">累计实收超过本期应收 {money(snapshot.totals.overpaid)}，请核对是否含其他账期款项。</p> : null}<div className="finance-actions"><button disabled={action.busy} onClick={() => setSnapshot(null)} type="button">返回修改</button><button className="primary" disabled={action.busy || action.conflict} onClick={submit} type="button">{action.busy ? "保存中…" : "确认保存"}</button></div></div> : <button className="primary" disabled={action.busy || !verified} onClick={review} type="button">核对本次登记</button>}
+    {!snapshot && roundingRequired ? <p className="finance-warning" role="status">抹零 {money(draftPayment.unpaid)} · 占账单 {roundingShareOfBill(draftPayment.unpaid, detail.receivable)}%{roundingValid ? "" : "。请选择抹零原因后才能核对。"}</p> : null}
+    {snapshot ? <div className="finance-confirm" role="status"><h4>保存前核对</h4><p>{detail.customerName || detail.customerId} · {detail.id} · {detail.period || "未提供账期"}</p>{payment ? <><dl><div><dt>原累计实收</dt><dd>{money(snapshot.totals.previous)}</dd></div><div><dt>保存后累计</dt><dd>{money(snapshot.totals.amount)}</dd></div><div><dt>本次变更</dt><dd>{money(snapshot.totals.difference)}</dd></div><div><dt>{snapshot.totals.unpaid > 0 ? "抹零" : "剩余未收"}</dt><dd>{money(snapshot.totals.unpaid)}{snapshot.totals.unpaid > 0 ? ` · 占账单 ${roundingShareOfBill(snapshot.totals.unpaid, snapshot.statement.receivable)}%` : ""}</dd></div></dl>{snapshot.totals.unpaid > 0 ? <p>确认后这笔差额记为抹零（{snapshot.input.roundingReasonKind}），账期立即结清，并通知老板、财务、管理查看。应收仍是原账单金额。</p> : null}</> : <p>{snapshot.input.sentTo} · {snapshot.input.reason}</p>}{snapshot.totals?.difference < 0 ? <p className="finance-warning">累计实收将减少，请再次确认调整依据。</p> : null}{snapshot.totals?.overpaid > 0 ? <p className="finance-warning">累计实收超过本期应收 {money(snapshot.totals.overpaid)}，请核对是否含其他账期款项。</p> : null}<div className="finance-actions"><button disabled={action.busy} onClick={() => setSnapshot(null)} type="button">返回修改</button><button className="primary" disabled={action.busy || action.conflict} onClick={submit} type="button">{action.busy ? "保存中…" : "确认保存"}</button></div></div> : <button className="primary" disabled={action.busy || !reviewReady} onClick={review} type="button">核对本次登记</button>}
     {action.error ? <p role="alert" className="finance-error">{action.error}</p> : null}
     {action.conflict ? <button disabled={action.busy} onClick={onRefresh} type="button">刷新账单后重新核对</button> : null}
   </section>;

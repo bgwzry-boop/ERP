@@ -87,6 +87,11 @@ assert.ok(beforePolicy.employees[0].blockers.includes("本月无已关联打卡"
 assert.equal(beforePolicy.summary.draftReady, false);
 const blockedReadiness = service.buildPayrollReadiness({ workspace, month: "2026-08" });
 assert.equal(blockedReadiness.ready, false);
+assert.equal(blockedReadiness.criteria.find((criterion) => criterion.key === "attendance_source")?.label, "真实考勤来源已配置");
+assert.equal(blockedReadiness.criteria.find((criterion) => criterion.key === "payroll_policy")?.label, "本月计薪规则未发布");
+assert.equal(blockedReadiness.criteria.find((criterion) => criterion.key === "payroll_policy")?.evidence.published, false);
+assert.equal(blockedReadiness.criteria.find((criterion) => criterion.key === "attendance_import")?.label, "本月自然月考勤尚未整月同步");
+assert.equal(blockedReadiness.blockingCriteria.some((criterion) => criterion.label === "真实考勤来源已配置"), false);
 assert.ok(blockedReadiness.blockingCriteria.some((criterion) => criterion.key === "postgres_repository"));
 assert.equal(JSON.stringify(blockedReadiness).includes("测试员工"), false);
 assert.throws(
@@ -621,6 +626,17 @@ assert.equal(readyWorkbench.summary.payrollPeriodClosed, true);
 assert.equal(readyWorkbench.summary.attendanceCoverageComplete, true);
 assert.equal(readyWorkbench.summary.attendanceCoverageGapCount, 0);
 assert.equal(readyWorkbench.summary.draftReady, true);
+assert.ok(readyWorkbench.policyVersion.positionRateKeys.includes("PAY-BAG"));
+const employeesBeforeEmptyCheck = workspace.employees;
+workspace.employees = [];
+const emptyEmployeeReadiness = service.buildPayrollReadiness({ workspace, month: "2026-08" });
+assert.equal(emptyEmployeeReadiness.criteria.find((criterion) => criterion.key === "payroll_policy")?.status, "passed");
+assert.equal(emptyEmployeeReadiness.criteria.find((criterion) => criterion.key === "payroll_policy")?.label, "本月岗位费率规则已发布");
+assert.equal(emptyEmployeeReadiness.criteria.find((criterion) => criterion.key === "attendance_source")?.status, "passed");
+assert.equal(emptyEmployeeReadiness.ready, false);
+assert.ok(emptyEmployeeReadiness.blockingCriteria.some((criterion) => criterion.label === "本月没有可计薪员工"));
+assert.equal(service.buildPayrollWorkbench({ workspace, month: "2026-08" }).employees.length, 0);
+workspace.employees = employeesBeforeEmptyCheck;
 
 // A historical import completed mid-month never proves future days were read.
 workspace.attendanceImportBatches = verifiedImportBatches.map((batch) => ({ ...batch, completedAt: "2026-08-15T00:00:00Z" }));
@@ -657,6 +673,7 @@ for (const [criterion, patch] of [
 }
 const unconfiguredSourceService = createAttendancePayrollService({ now: () => new Date(fixedNow) });
 assert.equal(unconfiguredSourceService.buildPayrollWorkbench({ workspace, month: "2026-08" }).summary.draftReady, false);
+assert.equal(unconfiguredSourceService.buildPayrollReadiness({ workspace, month: "2026-08" }).criteria.find((criterion) => criterion.key === "attendance_source")?.label, "真实考勤来源未配置");
 const runsBeforeSourceCheck = workspace.payrollRuns.length;
 await assert.rejects(unconfiguredSourceService.generatePayrollDraft({ workspace, body: { month: "2026-08" }, operatorId: "U-FINANCE-A" }),
   (error) => error.code === "PAYROLL_READINESS_BLOCKED" && error.details.readiness.blockingCriteria.some((item) => item.key === "attendance_source"));

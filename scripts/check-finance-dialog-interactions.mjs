@@ -82,11 +82,19 @@ try {
   await page.getByLabel("本期累计实收（元）").fill("500.25");
   await page.getByLabel("到账及调整依据").fill("核对两次到账合计，测试记录");
   // Owner 2026-10-29: a shortfall settles as 抹零 directly, but only with a chosen reason.
+  // The wipe amount and share must be visible before confirm, and the empty
+  // 「没有抹零 / 请选择」 option must keep 核对本次登记 disabled.
+  await page.getByText("抹零 ¥499.75 · 占账单 49.98%。请选择抹零原因后才能核对。", { exact: true }).waitFor();
   await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").check();
-  await page.getByRole("button", { name: "核对本次登记" }).click();
-  await page.getByText("实收低于应收，差额记为抹零：请选择抹零原因。", { exact: true }).waitFor();
-  await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").uncheck();
+  assert.equal(await page.getByRole("button", { name: "核对本次登记" }).isDisabled(), true);
   await page.getByLabel("抹零原因（实收低于应收时必选）").selectOption("抹零头");
+  await page.getByText("抹零 ¥499.75 · 占账单 49.98%", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "核对本次登记" }).isEnabled(), true);
+  await page.getByLabel("抹零原因（实收低于应收时必选）").selectOption("");
+  assert.equal(await page.getByRole("button", { name: "核对本次登记" }).isDisabled(), true);
+  await page.getByLabel("抹零原因（实收低于应收时必选）").selectOption("抹零头");
+  await page.getByLabel("已核对累计到账，确认没有遗漏以前的收款。").uncheck();
+  assert.equal(await page.getByRole("button", { name: "核对本次登记" }).isDisabled(), true);
   assert.equal(await page.locator('input[type="file"]').getAttribute("accept"), "image/*");
   await page.locator('input[type="file"]').setInputFiles({ name: "新到账截图.png", mimeType: "image/png", buffer: Buffer.from("synthetic-upload-contract") });
   await page.getByRole("button", { name: "上传凭证", exact: true }).click();

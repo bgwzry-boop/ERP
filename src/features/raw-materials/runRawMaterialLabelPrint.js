@@ -16,10 +16,16 @@ export function isRawMaterialLabelPrintFrame(value) {
   return Boolean(value && typeof value.contentWindow?.print === "function" && typeof value.remove === "function");
 }
 
+const PRINT_OPEN_GRACE_MS = 400;
+const PRINT_CLOSE_FALLBACK_MS = 120000;
+
 // Resolves true after the print preview closes, false if the browser never
 // opened it. The frame is created during the click (before any await) so the
 // later print still belongs to that gesture; the confirm dialog waits until
-// afterprint so it cannot cover or cancel the preview.
+// the preview closes so it cannot cover or cancel that preview.
+// Cancelling the dialog is not a failure to open: Chrome often delivers only
+// afterprint, and sometimes delivers it on the parent window instead of the
+// hidden label frame.
 export function printRawMaterialLabelFrame(frame, sheetHtml) {
   const iframe = frame || createRawMaterialLabelPrintFrame();
   if (!iframe?.contentDocument || !iframe.contentWindow) {
@@ -27,25 +33,37 @@ export function printRawMaterialLabelFrame(frame, sheetHtml) {
     return Promise.resolve(false);
   }
   const win = iframe.contentWindow;
+  const parentWin = iframe.ownerDocument?.defaultView;
+  const targets = parentWin && parentWin !== win ? [win, parentWin] : [win];
   return new Promise((resolve) => {
     let opened = false;
     let settled = false;
     let fallback;
-    const beforePrint = () => { opened = true; };
-    const afterPrint = () => finish(opened);
+    const rememberOpen = () => {
+      opened = true;
+      if (settled || fallback === undefined) return;
+      clearTimeout(fallback);
+      fallback = setTimeout(() => finish(true), PRINT_CLOSE_FALLBACK_MS);
+    };
+    const beforePrint = () => rememberOpen();
+    const afterPrint = () => finish(true);
     const finish = (result) => {
       if (settled) return;
       settled = true;
-      win.removeEventListener("beforeprint", beforePrint);
-      win.removeEventListener("afterprint", afterPrint);
+      for (const target of targets) {
+        target.removeEventListener("beforeprint", beforePrint);
+        target.removeEventListener("afterprint", afterPrint);
+      }
       if (fallback !== undefined) clearTimeout(fallback);
       iframe.remove();
       resolve(result);
     };
     // Blocking print implementations dispatch afterprint before print() returns.
     // Install both listeners first so closing the dialog cannot be missed.
-    win.addEventListener("beforeprint", beforePrint);
-    win.addEventListener("afterprint", afterPrint);
+    for (const target of targets) {
+      target.addEventListener("beforeprint", beforePrint);
+      target.addEventListener("afterprint", afterPrint);
+    }
     try {
       iframe.contentDocument.open();
       iframe.contentDocument.write(buildRawMaterialLabelPrintDocument(sheetHtml));
@@ -53,8 +71,7 @@ export function printRawMaterialLabelFrame(frame, sheetHtml) {
       win.focus();
       win.print();
       if (settled) return;
-      if (!opened) finish(false);
-      else fallback = setTimeout(() => finish(true), 120000);
+      fallback = setTimeout(() => finish(opened), opened ? PRINT_CLOSE_FALLBACK_MS : PRINT_OPEN_GRACE_MS);
     } catch {
       finish(false);
     }
