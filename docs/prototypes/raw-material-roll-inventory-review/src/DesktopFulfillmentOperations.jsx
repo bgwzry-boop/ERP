@@ -7,6 +7,8 @@ import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { normalizeInventoryHoldTimestamp } from "../../../../shared/inventoryHoldTime.js";
 import { toFactoryDatetimeLocal } from "../../../../shared/fulfillmentHandoffTime.js";
 import { hasWarehouseExecutionReceipt } from "../../../../shared/warehouseExecutionReceipt.js";
+import { buildStockPickingSlip, buildStockPickingSlipHtml } from "../../../../src/domain/stockPickingSlip.js";
+import { printStockPickingSlip } from "../../../../src/features/fulfillment/printStockPickingSlip.js";
 import "./desktop-fulfillment-operations.css";
 
 export function DesktopFulfillmentOperations({ fulfillment, formal }) {
@@ -101,6 +103,19 @@ function FulfillmentOperations({ fulfillment, formal }) {
       .then(result => { if (active) setPickerSuggestions(result.items ?? []); });
     return () => { active = false; controller.abort(); };
   }, [pickupNote, fulfillment.customerId, formal?.authState, formal?.operatorId]);
+  // 备货小票（负责人 2026-11-05）：本订单所有还没出库的现货，交库房配货。
+  async function printSlip() {
+    const orderId = line?.orderId ?? line?.orderNo ?? fulfillment.orderId;
+    const fulfillmentsByLine = new Map((formal?.data?.fulfillments ?? []).map(row => [row.orderLineId ?? row.lineId, row]));
+    const siblings = (formal?.data?.orderLines ?? []).filter(row => orderId ? (row.orderId ?? row.orderNo) === orderId && (row.customerId ?? "") === (line?.customerId ?? row.customerId ?? "") : (row.id ?? row.orderLineId) === lineId)
+      .filter(row => !fulfillmentsByLine.get(row.id ?? row.orderLineId)?.physicalOutboundAt)
+      .map(row => ({ ...row, zone: fulfillmentsByLine.get(row.id ?? row.orderLineId)?.zone ?? row.zone }));
+    const customerName = fulfillment.customerSnapshot?.name ?? fulfillment.customerName ?? line?.customerName;
+    const html = buildStockPickingSlipHtml(buildStockPickingSlip({ orderLines: siblings.length ? siblings : [{ ...line, zone: fulfillment.zone }], customerName, orderNo: orderId, pickerName: pickupNote ? pickerName.trim() : "" }));
+    if (!html) { setNotice("本订单没有待出库的现货，不用打备货小票。"); return; }
+    const opened = await printStockPickingSlip(html);
+    if (mounted.current && !opened) setNotice("打印窗口没有打开，请再点一次「打印备货小票」。");
+  }
   const packages = parseActualPackageQuantities(packageText);
   const packTotal = packages?.reduce((sum, qty) => sum + qty, 0) ?? 0;
   const orderType = fulfillment.orderType ?? line?.orderType;
@@ -183,6 +198,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
     <h3>出库办理</h3>
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
+      {can("fulfillment.print") && stockOrder && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>备货小票</legend><p>现货先打小票给库房配货，备好后再打正式出库单。小票不带价钱，列出本订单所有现货。</p><button type="button" onClick={() => void printSlip()}>打印备货小票</button></fieldset>}
       {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p><details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details>{pickupNote ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}<button type="button" onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button></fieldset>}
       {can("fulfillment.paper.handoff") && ["已打印", "已重打"].includes(paper?.status) && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
       {can("fulfillment.warehouse.execute") && (fulfillment.warehouseTaskVisible || paper?.status === "已交库房") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
