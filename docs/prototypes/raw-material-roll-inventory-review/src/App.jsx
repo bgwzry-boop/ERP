@@ -51,6 +51,9 @@ import { ReceiptWorkspace } from "./ReceiptWorkspace.jsx";
 import { CollectionFeedback, EmptyWorkspace, WorkspaceErrorBoundary } from "./WorkspaceFeedback.jsx";
 import "./workspace-feedback.css";
 import { GlobalSearch } from "./GlobalSearch.jsx";
+// 应用内确认框（例如卷标打印后的“确认打印结果”）。没挂这个时会退回浏览器自带的小弹窗，
+// 那个弹窗出现在浏览器最上面、很容易看漏；挂上后改为屏幕正中间、背景变暗的确认框。
+import { ConfirmDialogHost } from "../../../../src/shared/ui/ConfirmDialogHost.jsx";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
@@ -466,5 +469,6 @@ export function App({ permissionContext = defaultPermissionContext }) {
       currentUser={resolvedPermissionContext.user}
       onClose={() => setColorMappingOpen(false)}
     /> : null}
+    <ConfirmDialogHost />
   </div>;
 }
