@@ -34,6 +34,12 @@ import {
 } from "../../../shared/payrollPositionCatalog.js";
 import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 import { YearEndSettlementDialog } from "./YearEndSettlementDialog.jsx";
+import {
+  payrollReadinessBlockerLabels,
+  payrollReadinessFacts,
+  payrollReadinessStatusSentence,
+  positionRatePublished,
+} from "./payrollReadinessCopy.js";
 
 const runStatusLabels = Object.freeze({ draft: "工资草稿", reviewed: "会计已复核", locked: "已锁定", paid: "已发薪" });
 
@@ -150,7 +156,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   }
 
   useEffect(() => {
-    if (view === "employees") refresh({ preserveSelection: false });
+    refresh({ preserveSelection: view !== "employees" });
   }, [month, view, authState, operatorId]);
 
   useEffect(() => {
@@ -465,12 +471,8 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
       </header>
       <nav aria-label="工资核算工作台" className="payroll-workbench-tabs"><button aria-pressed={view === "employees"} className={view === "employees" ? "active" : ""} onClick={() => setView("employees")} type="button">员工工资核算</button><button aria-pressed={view === "positions"} className={view === "positions" ? "active" : ""} onClick={() => setView("positions")} type="button">岗位工资标准</button></nav>
       {view === "employees" ? <>
-        <section className={`payroll-source-strip ${workbench?.sourceStatus?.configured ? "success" : "warning"}`}>
-          {workbench?.sourceStatus?.configured ? <CheckCircleOutlined /> : <WarningOutlined />}
-          <span>{workbench?.sourceStatus?.label || "正在确认考勤来源"}</span>
-          {workbench?.policyVersion ? <small>计薪版本：{workbench.policyVersion.versionLabel}</small> : <small>本月计薪规则未发布，暂不显示金额</small>}
-        </section>
-        {workbench?.formalReadiness?.ready === false ? <section className="payroll-source-strip warning" role="status"><WarningOutlined /><div><strong>正式工资尚未就绪 · 当前金额仅供预估</strong><p>{payrollDraftActionTitle(workbench)}</p></div></section> : null}
+        <PayrollReadinessStatus workbench={workbench} />
+        <PayrollReadinessAlert workbench={workbench} />
         <div className="payroll-review-filters">
           <label><SearchOutlined /><input aria-label="搜索员工工资" onChange={(event) => setQuery(event.target.value)} placeholder="搜索员工 / 编号 / 岗位 / 车间" value={query} /></label>
           <select aria-label="工资准备状态" onChange={(event) => setFilter(event.target.value)} value={filter}><option>全部状态</option><option>个人计薪输入齐全</option><option>资料待补齐</option></select>
@@ -491,8 +493,8 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
           </div>
         </div>
       </> : <>
-        <section className="payroll-source-strip success"><CheckCircleOutlined /><span>已读取《26年工资 (2).xlsx》的岗位与薪资构成</span><small>9 类时薪 · 1 类日薪 · 发布前待会计确认生效日期</small></section>
-        {workbench?.formalReadiness?.ready === false ? <section className="payroll-source-strip warning" role="status"><WarningOutlined /><div><strong>正式工资尚未就绪 · 当前金额仅供预估</strong><p>{payrollDraftActionTitle(workbench)}</p></div></section> : null}
+        <PayrollReadinessStatus catalog workbench={workbench} />
+        <PayrollReadinessAlert workbench={workbench} />
         <div className="payroll-review-filters">
           <label><SearchOutlined /><input aria-label="搜索岗位工资" onChange={(event) => setPositionQuery(event.target.value)} placeholder="搜索岗位 / 编号 / 工序" value={positionQuery} /></label>
           <select aria-label="计薪方式" onChange={(event) => setPositionMode(event.target.value)} value={positionMode}><option>全部方式</option><option>按小时</option><option>按天</option></select>
@@ -515,7 +517,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
     </section>
 
     <aside className="payroll-review-detail">
-      {view === "positions" ? <PositionRateDetail position={selectedPosition} /> : selected ? <>
+      {view === "positions" ? <PositionRateDetail position={selectedPosition} workbench={workbench} /> : selected ? <>
         <header><span>{formatMonth(month)} · {selected.employeeId}</span><h2>{selected.name}</h2><StatusLabel warning={!selected.readyForDraft}>{selected.readyForDraft ? "个人计薪输入齐全" : "资料待补齐"}</StatusLabel></header>
         <div className="payroll-review-detail-scroll">
           <section className="payroll-estimate"><span>本月暂估工资</span><strong>{selected.estimate ? formatMoney(selected.estimate.netWage) : "—"}</strong><small>{selected.estimate ? `${formatHours(selected.estimate.totalWorkMinutes)} 已确认工时 · 非最终工资` : "发布计薪规则并补齐员工资料后计算"}</small></section>
@@ -558,17 +560,35 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   </div>;
 }
 
-function PositionRateDetail({ position }) {
+function PayrollReadinessStatus({ workbench, catalog = false }) {
+  const facts = payrollReadinessFacts(workbench);
+  const ready = facts.sourceConfigured && facts.policyPublished && facts.attendanceSynced;
+  const sentence = workbench ? payrollReadinessStatusSentence(workbench) : "正在确认考勤来源、计薪规则和整月同步";
+  return <section className={`payroll-source-strip ${workbench ? (ready ? "success" : "warning") : ""}`}>
+    {ready ? <CheckCircleOutlined /> : <WarningOutlined />}
+    <span>{catalog ? "已读取《26年工资 (2).xlsx》的岗位与薪资构成" : sentence}</span>
+    <small>{catalog ? sentence : (workbench?.policyVersion ? `计薪版本：${workbench.policyVersion.versionLabel}` : (workbench ? "金额随计薪规则发布后显示" : ""))}</small>
+  </section>;
+}
+
+function PayrollReadinessAlert({ workbench }) {
+  if (workbench?.formalReadiness?.ready !== false) return null;
+  const blockers = payrollReadinessBlockerLabels(workbench);
+  return <section className="payroll-source-strip warning" role="status"><WarningOutlined /><div><strong>正式工资尚未就绪 · 当前金额仅供预估</strong>{blockers.length ? <p>{blockers.join("；")}</p> : <p>{payrollReadinessStatusSentence(workbench)}</p>}</div></section>;
+}
+
+function PositionRateDetail({ position, workbench }) {
   if (!position) return <div className="payroll-review-empty"><strong>请选择岗位</strong><span>查看原工资表中的薪资构成。</span></div>;
   const isHourly = position.mode === "hourly";
+  const published = positionRatePublished(position, workbench);
   return <>
-    <header><span>原工资表岗位 · {position.key}</span><h2>{position.name}</h2><StatusLabel warning>待发布</StatusLabel></header>
+    <header><span>原工资表岗位 · {position.key}</span><h2>{position.name}</h2><StatusLabel warning={!published}>{published ? "已发布" : "待发布"}</StatusLabel></header>
     <div className="payroll-review-detail-scroll">
       <section className="payroll-position-current"><span>当前岗位标准</span><strong>{formatPositionTotal(position)}</strong><small>{isHourly ? `基础 ¥${position.baseRate}/时 ＋ 岗位补贴 ¥${position.allowanceRate}/时` : "按实际出勤天数计薪"}</small></section>
-      <section className="payroll-detail-section"><header><h3>岗位定义</h3><span>{position.people} 名表内员工</span></header><dl><div><dt>岗位编号</dt><dd>{position.key}</dd></div><div><dt>计薪方式</dt><dd>{isHourly ? "按小时" : "按天"}</dd></div><div><dt>工作范围</dt><dd>{position.machineScope}</dd></div><div><dt>来源状态</dt><dd>原表待发布</dd></div></dl></section>
+      <section className="payroll-detail-section"><header><h3>岗位定义</h3><span>{position.people} 名表内员工</span></header><dl><div><dt>岗位编号</dt><dd>{position.key}</dd></div><div><dt>计薪方式</dt><dd>{isHourly ? "按小时" : "按天"}</dd></div><div><dt>工作范围</dt><dd>{position.machineScope}</dd></div><div><dt>来源状态</dt><dd>{published ? "已发布" : "待发布"}</dd></div></dl></section>
       <section className="payroll-detail-section"><header><h3>薪资构成</h3><span>《26年工资 (2).xlsx》</span></header><dl><div><dt>{isHourly ? "基础时薪" : "日薪"}</dt><dd>{formatPositionRate(position.baseRate, position.mode)}</dd></div><div><dt>岗位补贴</dt><dd>{position.allowanceRate === null ? "不适用" : `¥${position.allowanceRate}/小时`}</dd></div><div><dt>综合绩效</dt><dd>按岗位默认，损耗可扣</dd></div><div><dt>工龄奖</dt><dd>按在厂工龄</dd></div></dl><p className="payroll-position-formula">{isHourly ? "工资＝工时 ×（基础时薪＋岗位补贴）＋综合绩效＋工龄奖" : "工资＝日薪 × 出勤天数＋综合绩效＋工龄奖"}</p></section>
       <section className="payroll-detail-section"><header><h3>工龄奖</h3><span>每多 1 年增加 ¥15</span></header><div className="payroll-seniority-grid">{seniorityAwardsFromWorkbook.map((item) => <span key={item.years}><small>满{item.years}年</small><strong>¥{item.amount}</strong></span>)}</div></section>
-      {position.note ? <section className="payroll-position-note"><WarningOutlined /><div><strong>原表存在历史变化</strong><p>{position.note}；正式发布时需要保留对应生效日期，不能覆盖历史月份。</p></div></section> : null}
+      {position.note ? <section className="payroll-position-note"><WarningOutlined /><div><strong>原表存在历史变化</strong><p>{position.note}。{published ? "已发布版本保留当时的生效日期，不覆盖历史月份。" : "正式发布时需要保留对应生效日期，不能覆盖历史月份。"}</p></div></section> : null}
     </div>
   </>;
 }
@@ -578,8 +598,9 @@ function formatPositionTotal(position) { return position.mode === "hourly" ? `¥
 
 function payrollDraftActionTitle(workbench) {
   if (workbench?.summary?.draftReady === true) return "生成本月工资草稿";
-  const formalBlockers = workbench?.formalReadiness?.blockingCriteria;
-  if (formalBlockers?.length) return `正式工资尚未就绪：${formalBlockers.map((item) => item.label).join("；")}`;
+  const blockers = payrollReadinessBlockerLabels(workbench);
+  if (blockers.length) return `正式工资尚未就绪：${blockers.join("；")}`;
+  if (workbench?.formalReadiness?.ready === false) return `正式工资尚未就绪：${payrollReadinessStatusSentence(workbench)}`;
   if (workbench?.summary?.payrollPeriodClosed === false) return "所选月份尚未结束；次月才能核对并生成上月工资草稿";
   if (workbench?.summary?.attendanceCoverageComplete !== true) return "需先完成所选自然月的整月真实考勤导入";
   return "需先完成员工打卡关联、资料和考勤异常复核";
