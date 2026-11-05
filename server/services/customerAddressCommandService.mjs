@@ -23,7 +23,76 @@ const ADDRESS_SOURCES = new Set(["order_entry", "office", "driver_delivery", "mi
 
 export function createCustomerAddressCommandService({ buildOperationLog, now = () => new Date() } = {}) {
   if (typeof buildOperationLog !== "function") throw new TypeError("buildOperationLog must be a function");
-  return { addDeliveryAddress, learnLocationFromDelivery, updateDeliveryAddress, readCustomerProfile, updateCustomerProfile, searchCustomers };
+  return { addDeliveryAddress, learnLocationFromDelivery, updateDeliveryAddress, readCustomerProfile, updateCustomerProfile, searchCustomers, createCustomer };
+
+  // 负责人 2026-11-05：开单时系统里没有这个客户，在开单页直接新建，不用放下录入去客户资料。
+  // 只要客户名称、电话、地址（名称必填）；同名客户已存在时不重复建，返回已有的。
+  async function createCustomer({ workspace, body = {}, operatorId }) {
+    const name = clean(body.name).replace(/\s+/gu, " ");
+    const contactName = clean(body.contactName).replace(/\s+/gu, " ");
+    const phone = clean(body.phone);
+    const address = clean(body.address).replace(/\s+/gu, " ");
+    if (name.length < 1 || name.length > 40) return businessError(422, "CUSTOMER_NAME_INVALID", "客户名称要填 1–40 个字。");
+    if (contactName.length > 20) return businessError(422, "CUSTOMER_CONTACT_INVALID", "联系人最多 20 个字。");
+    if (phone && !/^[0-9+\-\s()]{5,20}$/u.test(phone)) return businessError(422, "CUSTOMER_PHONE_INVALID", "电话只能填数字（可带 - 或 +），5–20 位。");
+    if (address && address.length < 2) return businessError(422, "CUSTOMER_ADDRESS_REQUIRED", "地址至少填 2 个字，或者先不填。");
+    if (address.length > DELIVERY_ADDRESS_MAX_LENGTH) return businessError(422, "CUSTOMER_ADDRESS_TOO_LONG", `地址最多 ${DELIVERY_ADDRESS_MAX_LENGTH} 个字。`);
+    const key = name.replace(/\s+/gu, "");
+    const existing = (workspace.customers ?? []).find((customer) => clean(customer.name).replace(/\s+/gu, "") === key && customer.enabled !== false);
+    if (existing) {
+      const profile = projectProfile(workspace, existing);
+      return { statusCode: 409, response: { code: "CUSTOMER_NAME_EXISTS", message: `已经有「${profile.name}」这个客户了，直接用已有的。`, customer: profile } };
+    }
+    const id = `C-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const customer = { id, bizNo: id, name, shortName: name.slice(0, 12), settlementCycle: "未设置", riskStatus: "正常", enabled: true };
+    const contact = phone || contactName
+      ? { id: `CC-${randomUUID()}`, customerId: id, contactName, phone, role: "", isDefault: true, remark: "开单时新建" }
+      : null;
+    const addressRecord = address
+      ? { id: `CA-${randomUUID()}`, customerId: id, contactId: contact?.id ?? "", address, area: "", defaultFulfillmentMethod: "送货", isDefault: true, remark: "开单时新建" }
+      : null;
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "customer",
+      targetId: id,
+      action: "create_customer",
+      operatorId,
+      before: null,
+      after: { name, contactName, phone, address },
+      reason: "开单时新建客户",
+      pageKey: "customer",
+    });
+    try {
+      const saved = await workspace.masterDataImportTransactionRepository.applyImportExecution({
+        workspace,
+        importExecution: {
+          executionId: `MDE-CUSTOMER-${id}`,
+          status: "ready_for_transaction_writer",
+          officialImportEnabled: true,
+          officialWriterKind: workspace.masterDataImportTransactionRepository?.kind || "local_transaction",
+          summary: { failedRowCount: 0 },
+          failedRows: [],
+          importPayload: { targetRecords: {
+            customers: [customer],
+            ...(contact ? { customerContacts: [contact] } : {}),
+            ...(addressRecord ? { customerAddresses: [addressRecord] } : {}),
+          } },
+          writeBatches: [],
+        },
+        operationLog,
+      });
+      return {
+        statusCode: 201,
+        response: {
+          customer: { customerId: id, name, shortName: customer.shortName, settlementCycle: "未设置", contactName, phone },
+          addressId: addressRecord?.id ?? "",
+          created: true,
+          operationLogId: clean(saved?.operationLogId),
+        },
+      };
+    } catch (error) {
+      return businessError(409, "CUSTOMER_CREATE_FAILED", clean(error?.message) || "新建客户没有保存，请稍后重试。");
+    }
+  }
 
   // 负责人 2026-11-05：开单时客户整单选一次（必填），选完自动带出联系人、电话、结算周期。
   // 按名称、简称、联系人、电话找；空着时列前面的客户。
@@ -31,7 +100,7 @@ export function createCustomerAddressCommandService({ buildOperationLog, now = (
     const words = clean(query).toLowerCase().split(/\s+/u).filter(Boolean);
     const max = Math.min(Math.max(Number(limit) || 20, 1), 50);
     const rows = (workspace.customers ?? [])
-      .filter((customer) => clean(customer.id ?? customer.customerId) && !["停用", "disabled", "inactive"].includes(clean(customer.status)))
+      .filter((customer) => clean(customer.id ?? customer.customerId) && customer.enabled !== false && !["停用", "disabled", "inactive"].includes(clean(customer.status)))
       .map((customer) => projectProfile(workspace, customer))
       .map((profile) => ({ profile, haystack: [profile.name, profile.shortName, profile.contactName, profile.phone, profile.customerId].join(" ").toLowerCase() }))
       .filter(({ haystack }) => words.every((word) => haystack.includes(word)))

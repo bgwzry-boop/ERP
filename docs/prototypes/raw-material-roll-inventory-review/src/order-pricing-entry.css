@@ -394,3 +394,19 @@
   .pricing-line-more { padding-left: 6px; }
   .pricing-line-more > .pricing-line-fields { grid-template-columns: minmax(0, 1fr); }
 }
+/* 新建客户（负责人 2026-11-05）：开单页直接建，只填名称、电话、地址。 */
+.pricing-customer-options li.pricing-customer-new { color: var(--erp-info); font-weight: 600; border-top: 1px solid var(--erp-border-subtle); cursor: pointer; }
+.order-pricing-entry button.pricing-link-button { min-height: 0; padding: 0 2px; margin-left: 6px; border: 0; background: none; color: var(--erp-info); font-weight: 600; text-decoration: underline; }
+.review-modal.pricing-new-customer { width: min(520px, calc(100vw - 32px)); }
+.pricing-new-customer header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.pricing-new-customer h2 { margin: 0; font-size: 18px; }
+.pricing-new-customer header p { margin: 4px 0 0; color: var(--ink-soft); font-size: 13px; }
+.pricing-new-customer-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pricing-new-customer-form label { display: grid; gap: 5px; font-size: 13px; }
+.pricing-new-customer-form label.wide { grid-column: 1 / -1; }
+.pricing-new-customer-form em { font-style: normal; color: var(--erp-warning); font-size: 12px; }
+.pricing-new-customer-form input { min-height: 36px; }
+.pricing-new-customer-error { color: var(--erp-danger); margin: 12px 0 0; }
+.pricing-new-customer-existing { margin: 12px 0 0; color: var(--erp-warning); }
+.pricing-new-customer-actions { display: flex; gap: 8px; margin-top: 16px; }
+@media (max-width: 760px) { .pricing-new-customer-form { grid-template-columns: minmax(0, 1fr); } }

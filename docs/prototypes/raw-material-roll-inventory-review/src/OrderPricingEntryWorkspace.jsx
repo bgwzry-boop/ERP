@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { addOfficeCustomerDeliveryAddress, getOfficeCustomerDeliveryAddresses, getOfficeCustomerProfile, getOfficeDraft, searchOfficeCustomers } from "../../../../src/services/officeOrderApiClient.js";
+import { addOfficeCustomerDeliveryAddress, createOfficeCustomer, getOfficeCustomerDeliveryAddresses, getOfficeCustomerProfile, getOfficeDraft, searchOfficeCustomers } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType, normalizeOrderType } from "../../../../shared/orderRouting.js";
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
+import { ReviewDialog } from "./ReviewDialog.jsx";
+import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
 
 const unresolvedWrites = new Map();
@@ -249,9 +251,12 @@ function OrderPricingEditor({
   const [pickedCustomer, setPickedCustomer] = useState(
     initial?.pickedCustomer ?? null,
   );
+  // 消息开头或结尾写的客户名字（识别回执带回）；系统里没有时提示新建。
+  const [customerHint, setCustomerHint] = useState(initial?.customerHint ?? null);
   const pickCustomer = (customer) => {
     if (frozenRequest.current || splitPlan || !customer?.customerId) return;
     setPickedCustomer({ customerId: customer.customerId, name: customer.name });
+    setCustomerHint(null);
     if (!rows.length) return;
     invalidate();
     setRows((current) => current.map((line) => ({ ...line, customerId: customer.customerId, customer: customer.name, customerName: customer.name })));
@@ -294,6 +299,7 @@ function OrderPricingEditor({
         shortageNote,
         shortageAsked,
         pickedCustomer,
+        customerHint,
       }),
     };
     frozenRequest.current = request;
@@ -377,6 +383,7 @@ function OrderPricingEditor({
         setRows(pickedCustomer?.customerId
           ? result.rows.map((line) => line.customerId ? line : { ...line, customerId: pickedCustomer.customerId, customer: pickedCustomer.name, customerName: pickedCustomer.name })
           : result.rows);
+        setCustomerHint(result.recognition?.customerHint?.name ? result.recognition.customerHint : null);
         setDraftId(draftIdentity(result.draft));
         setRevision(nextRevision);
         setOverrides({});
@@ -663,6 +670,7 @@ function OrderPricingEditor({
             rows={rows}
             picked={pickedCustomer}
             onPick={pickCustomer}
+            hint={customerHint}
             fulfillment={commonValue(rows, "fulfillment", "自提")}
             latest={commonValue(rows, "latest", "")}
             onFulfillment={(value) => updateAll("fulfillment", value)}
@@ -1328,7 +1336,7 @@ function lineStatusTags(line, rows, lineOverride) {
   const lacks = missingQuoteFields(line).filter((item) => item !== "客户");
   if (lacks.length) tags.push({ tone: "warn", text: `${lacks.join("、")}待填` });
   if (isLocalShortage(line)) tags.push({ tone: "warn", text: "库存不够" });
-  else if (isStockOrderType(line.orderType) && String(line.inventory ?? "").trim() && !lacks.length) tags.push({ tone: "ok", text: String(line.inventory).trim() });
+  else if (isStockOrderType(line.orderType) && !["", "待确认"].includes(String(line.inventory ?? "").trim()) && !lacks.length) tags.push({ tone: "ok", text: String(line.inventory).trim() });
   if (privatePrint(line) && ["", "待确认"].includes(String(line.printColor ?? "").trim())) tags.push({ tone: "info", text: "印刷颜色待填" });
   if (lineOverride?.enabled) tags.push({ tone: "info", text: "本单改价" });
   const fulfillment = commonValue(rows, "fulfillment", "自提");
@@ -1339,8 +1347,52 @@ function lineStatusTags(line, rows, lineOverride) {
   return tags;
 }
 
+// 负责人 2026-11-05：系统里没有的客户，开单页直接新建，不用放下录入去客户资料。只填名称、电话、地址。
+function NewCustomerDialog({ authState, operatorId, initialName = "", onClose, onCreated }) {
+  const [form, setForm] = useState({ name: initialName, contactName: "", phone: "", address: "" });
+  const [state, setState] = useState({ busy: false, error: "", existing: null });
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  const change = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  async function submit(event) {
+    event.preventDefault();
+    if (state.busy) return;
+    if (!form.name.trim()) { setState({ busy: false, error: "请填写客户名称。", existing: null }); return; }
+    setState({ busy: true, error: "", existing: null });
+    const result = await createOfficeCustomer({ ...form, authState, operatorId }, { serverRequired: true });
+    if (!live.current) return;
+    if (result.blocked) { setState({ busy: false, error: result.error?.message || "新建客户没有保存。", existing: null }); return; }
+    if (result.existing) { setState({ busy: false, error: "", existing: result.customer }); return; }
+    onCreated(result.customer);
+  }
+  return (
+    <ReviewDialog labelledBy="new-customer-title" className="finance-dialog pricing-new-customer" onClose={() => { if (!state.busy) onClose(); }}>
+      <header><div><h2 id="new-customer-title">新建客户</h2><p>先填个大概，以后在客户资料里补全。</p></div><button type="button" aria-label="关闭新建客户" disabled={state.busy} onClick={onClose}>×</button></header>
+      <form className="finance-dialog-content" onSubmit={submit}>
+        <div className="pricing-new-customer-form">
+          <label className="wide"><span>客户名称 <em>必填</em></span><input autoFocus maxLength={40} value={form.name} onChange={change("name")} disabled={state.busy} placeholder="如 张大姐、宁晋华强超市" /></label>
+          <label>联系人<input maxLength={20} value={form.contactName} onChange={change("contactName")} disabled={state.busy} placeholder="可不填" /></label>
+          <label>电话<input inputMode="tel" maxLength={20} value={form.phone} onChange={change("phone")} disabled={state.busy} placeholder="可不填" /></label>
+          <label className="wide">地址<input maxLength={120} value={form.address} onChange={change("address")} disabled={state.busy} placeholder="送货客户填收货地址，可不填" /></label>
+        </div>
+        {state.error ? <p role="alert" className="pricing-new-customer-error">{state.error}</p> : null}
+        {state.existing ? (
+          <p role="status" className="pricing-new-customer-existing">
+            已经有「{state.existing.name}」这个客户了{state.existing.phone ? `（${state.existing.phone}）` : ""}。
+            <button type="button" className="pricing-link-button" onClick={() => onCreated(state.existing)}>直接用这个客户</button>
+          </p>
+        ) : null}
+        <div className="pricing-new-customer-actions">
+          <button className="primary-button" type="submit" disabled={state.busy}>{state.busy ? "保存中…" : "保存并选用"}</button>
+          <button type="button" disabled={state.busy} onClick={onClose}>取消</button>
+        </div>
+      </form>
+    </ReviewDialog>
+  );
+}
+
 // 负责人 2026-11-05：客户整单选一次（必填）；选完自动带出联系人、电话、结算周期。交付、需要日期也整单填一次。
-function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, onPick, fulfillment, latest, onFulfillment, onLatest }) {
+function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, onPick, hint, fulfillment, latest, onFulfillment, onLatest }) {
   const ids = customerIdsOf(rows);
   const someMissing = rows.some((line) => !line.customerId);
   const currentId = rows.length ? (ids.length === 1 && !someMissing ? ids[0] : "") : picked?.customerId ?? "";
@@ -1351,6 +1403,7 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
   const [editing, setEditing] = useState(false);
   const [found, setFound] = useState({ loading: false, items: [], error: "" });
   const [profile, setProfile] = useState(null);
+  const [creating, setCreating] = useState(null);
   useEffect(() => {
     if (!editing) return undefined;
     let live = true;
@@ -1399,7 +1452,7 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
           <ul id="pricing-customer-options" role="listbox" className="pricing-customer-options">
             {found.loading && !found.items.length ? <li className="muted">正在查找…</li> : null}
             {found.error ? <li className="muted">{found.error}</li> : null}
-            {!found.loading && !found.error && !found.items.length ? <li className="muted">没有找到这个客户。新客户请先在客户资料里添加。</li> : null}
+            {!found.loading && !found.error && !found.items.length ? <li className="muted">系统里没有{query.trim() ? `「${query.trim()}」` : "这个客户"}。</li> : null}
             {found.items.map((customer) => (
               <li key={customer.customerId} role="option" aria-selected={customer.customerId === currentId}
                 onMouseDown={(event) => { event.preventDefault(); choose(customer); }}>
@@ -1407,7 +1460,28 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
                 <span>{[customer.contactName, customer.phone, customer.settlementCycle !== "未设置" ? customer.settlementCycle : ""].filter(Boolean).join(" · ")}</span>
               </li>
             ))}
+            <li className="pricing-customer-new" role="option" aria-selected="false"
+              onMouseDown={(event) => { event.preventDefault(); setEditing(false); setCreating({ name: query.trim() }); }}>
+              ＋ 新建客户{query.trim() ? `「${query.trim()}」` : ""}
+            </li>
           </ul>
+        ) : null}
+        {!currentId && !editing && hint?.name ? (
+          <p className="pricing-customer-info warn" role="status">
+            {hint.ambiguous?.length
+              ? <>消息里写的「{hint.name}」对应多个客户：{hint.ambiguous.join("、")}，请在上面选一个。</>
+              : <>消息里写的客户「{hint.name}」系统里没有。是否新建？
+                <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => setCreating({ name: hint.name })}>新建客户「{hint.name}」</button></>}
+          </p>
+        ) : null}
+        {creating ? (
+          <NewCustomerDialog
+            authState={authState}
+            operatorId={operatorId}
+            initialName={creating.name}
+            onClose={() => setCreating(null)}
+            onCreated={(customer) => { setCreating(null); onPick(customer); }}
+          />
         ) : null}
         {currentId && profile ? (
           <p className="pricing-customer-info" aria-label="客户信息">

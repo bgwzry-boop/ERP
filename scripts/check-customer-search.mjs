@@ -12,7 +12,7 @@ const workspace = {
   ],
   customerContacts: [{ customerId: "C1", contactName: "李姐", phone: "13800000001", isDefault: true }],
 };
-const service = createCustomerAddressCommandService({ buildOperationLog: () => ({}) });
+const service = createCustomerAddressCommandService({ buildOperationLog: (_workspace, log) => log });
 const names = query => service.searchCustomers({ workspace, query }).response.items.map(item => item.customerId);
 
 assert.deepEqual(names("").sort(), ["C1", "C2", "C4"], "empty search lists customers, not disabled ones");
@@ -43,3 +43,54 @@ await call("/api/master-data/customers?q=", false);
 assert.deepEqual(sent.at(-1), { status: 403, permission: "order.draft.save" });
 
 console.log("customer search ok: name, short name, contact and phone; disabled customers hidden; order-draft permission required.");
+
+// 开单时直接新建客户：名称必填，电话、地址可不填；同名不重复建。
+{
+  const applied = [];
+  const store = { customers: [...workspace.customers], customerContacts: [...workspace.customerContacts], customerAddresses: [] };
+  const ws = {
+    ...store,
+    masterDataImportTransactionRepository: {
+      kind: "local_transaction",
+      async applyImportExecution({ importExecution, operationLog }) {
+        applied.push({ importExecution, operationLog });
+        const records = importExecution.importPayload.targetRecords;
+        for (const key of ["customers", "customerContacts", "customerAddresses"]) ws[key].push(...(records[key] ?? []));
+        return { operationLogId: "LOG-1" };
+      },
+    },
+  };
+  const create = body => service.createCustomer({ workspace: ws, body, operatorId: "U-OFFICE-A" });
+  assert.equal((await create({ name: "" })).code, "CUSTOMER_NAME_INVALID");
+  assert.equal((await create({ name: "张大姐", phone: "abc" })).code, "CUSTOMER_PHONE_INVALID");
+  const made = await create({ name: " 张大姐 ", phone: "13600000009", address: "宁晋县河渠镇大召村东头" });
+  assert.equal(made.statusCode, 201);
+  assert.equal(made.response.customer.name, "张大姐");
+  assert.match(made.response.customer.customerId, /^C-[0-9A-F]{8}$/);
+  const records = applied[0].importExecution.importPayload.targetRecords;
+  assert.equal(records.customers[0].settlementCycle, "未设置");
+  assert.deepEqual([records.customerContacts[0].phone, records.customerContacts[0].isDefault], ["13600000009", true]);
+  assert.deepEqual([records.customerAddresses[0].address, records.customerAddresses[0].isDefault, records.customerAddresses[0].contactId], ["宁晋县河渠镇大召村东头", true, records.customerContacts[0].id]);
+  assert.equal(applied[0].operationLog.action, "create_customer");
+  const again = await create({ name: "张大姐" });
+  assert.deepEqual([again.statusCode, again.response.code, again.response.customer.customerId], [409, "CUSTOMER_NAME_EXISTS", made.response.customer.customerId], "same name is not created twice");
+  assert.equal(applied.length, 1);
+  const nameOnly = await create({ name: "李哥" });
+  assert.equal(nameOnly.statusCode, 201);
+  assert.deepEqual(Object.keys(applied[1].importExecution.importPayload.targetRecords), ["customers"], "name only: no empty contact or address rows");
+  assert.deepEqual(service.searchCustomers({ workspace: ws, query: "张大姐" }).response.items.map(item => item.phone), ["13600000009"], "the new customer is found right away");
+  console.log("create customer ok: name required, phone/address optional, same name returns the existing customer.");
+}
+
+// 消息开头或结尾写的客户名字。
+{
+  const { detectMessageCustomer } = await import("../shared/orderMessageCustomer.js");
+  const customers = [{ id: "C1", name: "宁晋华强超市", shortName: "华强" }, { id: "C3", name: "王五包装" }];
+  assert.deepEqual(detectMessageCustomer("王五包装 30*38红5000个 明天自提", customers), { name: "王五包装", customerId: "C3", matchedText: "王五包装" });
+  assert.equal(detectMessageCustomer("你好老板\n30*38红5000个\n35*27黄2000个\n华强", customers).customerId, "C1", "name on the last line");
+  assert.equal(detectMessageCustomer("30*38红5000个 明天自提 王五", customers).customerId, "C3", "name after the quantities on one line");
+  assert.deepEqual(detectMessageCustomer("张大姐\n30*38白1000个 送货", customers), { name: "张大姐", customerId: "" }, "unknown name: offered for a new customer");
+  assert.equal(detectMessageCustomer("30*38红5000个\n35*27黄2000个", customers), null, "no name written");
+  assert.equal(detectMessageCustomer("老板 30*38 白 3000个 印刷 明天要", customers), null, "greetings are not names");
+  console.log("message customer ok: name at the start or end of the message.");
+}
