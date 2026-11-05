@@ -94,7 +94,7 @@ function slipPagesHtml(slip) {
   return pages.map((items, pageIndex) => {
     const rows = items.map((item, rowIndex) => {
       const number = pageIndex * itemsPerPage + rowIndex + 1;
-      const spec = [item.size, item.color].filter(Boolean).map(escapeHtml).join("　");
+      const spec = [item.size, item.color].filter(Boolean).map(escapeHtml).join("\u3000");
       const detail = [item.handle, item.style !== item.product ? item.style : "", item.product, item.zone ? `库位 ${item.zone}` : "", item.note].filter(Boolean).map(escapeHtml).join(" · ");
       return `<li><span class="no">${number}</span><div class="goods"><b>${spec || escapeHtml(item.product)}</b><small>${detail}</small></div><span class="qty">${item.qty}<i>个</i></span><span class="tick"></span></li>`;
     }).join("");
@@ -102,9 +102,9 @@ function slipPagesHtml(slip) {
     return `<section class="page">
   <header><h1>备货小票</h1><span class="method">${escapeHtml(slip.method)}</span></header>
   <p class="customer">${escapeHtml(slip.customerName)}</p>
-  <p class="meta">${slip.pickerName ? `提货人：${escapeHtml(slip.pickerName)}　` : ""}${slip.orderNo ? `单号：${escapeHtml(slip.orderNo)}` : ""}</p>
+  <p class="meta">${slip.pickerName ? `提货人：${escapeHtml(slip.pickerName)}\u3000` : ""}${slip.orderNo ? `单号：${escapeHtml(slip.orderNo)}` : ""}</p>
   <ol>${rows}</ol>
-  <footer>${last ? `<span>共 ${slip.items.length} 样，合计 <b>${slip.totalQty}</b> 个</span>` : "<span>（续下页）</span>"}<span>${pages.length > 1 ? `${pageIndex + 1}/${pages.length}　` : ""}${escapeHtml(slip.printedAtText)}</span></footer>
+  <footer>${last ? `<span>共 ${slip.items.length} 样，合计 <b>${slip.totalQty}</b> 个</span>` : "<span>（续下页）</span>"}<span>${pages.length > 1 ? `${pageIndex + 1}/${pages.length}\u3000` : ""}${escapeHtml(slip.printedAtText)}</span></footer>
   ${last ? `<p class="hint">配好后告诉办公室；少货当面说明。本单不作出库凭证。</p>` : ""}
 </section>`;
   }).join("");
