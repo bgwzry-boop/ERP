@@ -5,6 +5,8 @@ import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiCl
 import { normalizeOrderType } from "../../../../shared/orderRouting.js";
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
+import { buildStockPickingSlipHtml, buildStockPickingSlips, selectConfirmedStockLines } from "../../../../src/domain/stockPickingSlip.js";
+import { printStockPickingSlip } from "../../../../src/features/fulfillment/printStockPickingSlip.js";
 import "./order-pricing-entry.css";
 
 const unresolvedWrites = new Map();
@@ -187,6 +189,8 @@ function OrderPricingEditor({
       recovered ? `${recovered.kind}结果待核对，请按原内容重试。` : "",
     ),
     [complete, setComplete] = useState(false);
+  // 备货小票（负责人 2026-11-05）：现货单确认后给库房打一张小票配货。
+  const [confirmedLineIds, setConfirmedLineIds] = useState([]);
   const splitTrigger = useRef(null);
   const requests = useRef({});
   const frozenRequest = useRef(recovered ?? null);
@@ -472,6 +476,7 @@ function OrderPricingEditor({
         )
           throw new Error("没有取得完整订单回执。");
         setComplete(true);
+        setConfirmedLineIds(result.confirmation.orderLines.map((line) => line.id).filter(Boolean));
         setNotice(shortageChoice === "ship_available" && shortageVisible
           ? "正式订单已生成：有货的照常下单，缺货的明细已按客户意见取消。"
           : "正式订单已生成，办公室仍需安排出库或生产排单。");
@@ -516,6 +521,22 @@ function OrderPricingEditor({
       if (mounted.current) setBusy("");
     }
   };
+  // The confirmed stock lines (空白袋、印花袋) exactly as the order pool shows them. Never the
+  // draft rows: the server may have cancelled short lines when it confirmed. Until the pool
+  // shows every confirmed line, the slip waits for the refresh instead of guessing.
+  const confirmedSlip = selectConfirmedStockLines({ poolLines: formal.data.orderLines || [], confirmedLineIds });
+  const printPickingSlip = async () => {
+    if (confirmedSlip.pending) {
+      setNotice("订单池还在刷新，刚确认的订单还没出现。请稍等几秒再点「打印备货小票」。");
+      void Promise.resolve(formal.actions.refreshAll()).catch(() => {});
+      return;
+    }
+    const customerNames = new Map((formal.data.customers || []).map((customer) => [customer.id ?? customer.customerId, customer.name ?? customer.customerName]));
+    const html = buildStockPickingSlipHtml(buildStockPickingSlips({ orderLines: confirmedSlip.lines, customerNames }));
+    if (!html) { setNotice("这张单子没有现货（空白袋、印花袋），不用打备货小票。"); return; }
+    const opened = await printStockPickingSlip(html);
+    if (mounted.current && !opened) setNotice("打印窗口没有打开，请再点一次「打印备货小票」。");
+  };
   const confirmSplit = () => execute(
     "拆单确认",
     { draftId, clientRevision: revision, rows, sourceText: source, splitPlanHash: splitPlan?.planHash,
@@ -537,6 +558,7 @@ function OrderPricingEditor({
       }
       setSplitPlan(null);
       setComplete(true);
+      setConfirmedLineIds(confirmation.orderLines.map((line) => line.id).filter(Boolean));
       const cancelledShort = shortageVisible && shortageChoice === "ship_available";
       setNotice(`已生成 ${confirmation.orderIds.length} 张正式订单：${confirmation.orderIds.join("、")}。${cancelledShort ? "缺货明细已按客户意见取消；" : ""}办公室仍需安排出库或生产排单。`);
       void Promise.resolve(formal.actions.refreshAll()).catch(() => setNotice("拆单已成功，请刷新订单池核对全部订单。"));
@@ -1020,6 +1042,11 @@ function OrderPricingEditor({
             {notice || "草稿不占用库存；确认下单后由办公室安排出库或生产。"}
           </p>
           <div>
+            {complete && (confirmedSlip.pending || confirmedSlip.lines.length) ? (
+              <button type="button" className="primary-button" onClick={() => void printPickingSlip()}>
+                打印备货小票
+              </button>
+            ) : null}
             <button
               type="button"
               disabled={
