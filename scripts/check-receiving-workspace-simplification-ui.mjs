@@ -143,7 +143,7 @@ async function checkDesktop(width) {
     }
     assert.equal(await page.getByRole("button", { name: "录入送货/退货单", exact: true }).count(), 1, "one primary capture entry remains above the receipt list");
     await pane.getByRole("heading", { name: "收货核对", exact: true }).waitFor();
-    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "米色"]);
+    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "（米色）"]);
     assert.equal(await pane.getByRole("button", { name: "这批都对，去打印", exact: true }).count(), 1);
     const history = pane.locator("details.raw-material-receipt-history");
     assert.equal(await history.evaluate(element => element.open), false, "history must initially remain collapsed");
@@ -186,7 +186,7 @@ async function checkDesktop(width) {
     await selectReceiptRow(page, delivery.id);
     await pane.locator(".raw-material-detail-facts").getByText(delivery.id, { exact: true }).waitFor();
     assert.equal(await pane.locator("details.raw-material-receipt-history").evaluate(element => element.open), false);
-    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "米色"], "viewing source/history must preserve both colour identities");
+    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "（米色）"], "viewing source/history must preserve both colour identities");
 
     // Both notes intentionally reuse their first OCR line id. An unsubmitted
     // edit must never become a different receipt's displayed or submitted facts.
@@ -226,7 +226,7 @@ async function checkPhone() {
     const rows = page.locator(".raw-material-mobile-review-list > article");
     await rows.first().waitFor();
     assert.equal(await rows.count(), 2);
-    assert.deepEqual(await rows.locator(".line-color").allTextContents(), ["海蓝（海兰）", "米色"]);
+    assert.deepEqual(await rows.locator(".line-color").allTextContents(), ["海蓝（海兰）", "（米色）"]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: `${output}/phone-review-390.png`, fullPage: true });
     report.checks.push({ width: 390, scope: "existing-phone-review", passed: true, sameReceiptAndTwoRows: true, originalColourNames: true, noHorizontalOverflow: true });
