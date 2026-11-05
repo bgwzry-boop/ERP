@@ -806,6 +806,19 @@ export async function updateOfficeCustomerDeliveryAddress(input = {}, options = 
   }
 }
 
+// 开单时选客户（负责人 2026-11-05）：按名称、简称、联系人、电话找。
+export async function searchOfficeCustomers(input = {}, options = {}) {
+  const query = String(input.query ?? "").trim().slice(0, 40);
+  try {
+    const response = await requestOrderApi(`/master-data/customers?q=${encodeURIComponent(query)}&limit=${Number(input.limit) || 20}`, { ...options, authState: input.authState, operatorId: input.operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toApiError(json, response.status, "客户列表读取失败。") };
+    return { source: "api", items: Array.isArray(json.items) ? json.items : [], total: Number(json.total) || 0 };
+  } catch (error) {
+    return { source: "api_error", blocked: true, items: [], error: { code: "CUSTOMER_SEARCH_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
 // 客户资料可编辑：名称、简称、结算周期、默认联系人和电话（负责人 2026-11-04）。
 export async function getOfficeCustomerProfile(input = {}, options = {}) {
   const customerId = String(input.customerId ?? "").trim();

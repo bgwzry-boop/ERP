@@ -23,7 +23,26 @@ const ADDRESS_SOURCES = new Set(["order_entry", "office", "driver_delivery", "mi
 
 export function createCustomerAddressCommandService({ buildOperationLog, now = () => new Date() } = {}) {
   if (typeof buildOperationLog !== "function") throw new TypeError("buildOperationLog must be a function");
-  return { addDeliveryAddress, learnLocationFromDelivery, updateDeliveryAddress, readCustomerProfile, updateCustomerProfile };
+  return { addDeliveryAddress, learnLocationFromDelivery, updateDeliveryAddress, readCustomerProfile, updateCustomerProfile, searchCustomers };
+
+  // 负责人 2026-11-05：开单时客户整单选一次（必填），选完自动带出联系人、电话、结算周期。
+  // 按名称、简称、联系人、电话找；空着时列前面的客户。
+  function searchCustomers({ workspace, query = "", limit = 20 }) {
+    const words = clean(query).toLowerCase().split(/\s+/u).filter(Boolean);
+    const max = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    const rows = (workspace.customers ?? [])
+      .filter((customer) => clean(customer.id ?? customer.customerId) && !["停用", "disabled", "inactive"].includes(clean(customer.status)))
+      .map((customer) => projectProfile(workspace, customer))
+      .map((profile) => ({ profile, haystack: [profile.name, profile.shortName, profile.contactName, profile.phone, profile.customerId].join(" ").toLowerCase() }))
+      .filter(({ haystack }) => words.every((word) => haystack.includes(word)))
+      .map(({ profile }) => profile)
+      .sort((a, b) => {
+        const first = words[0] ?? "";
+        const score = (p) => (first && (p.name.toLowerCase().startsWith(first) || p.shortName.toLowerCase().startsWith(first)) ? 0 : 1);
+        return score(a) - score(b) || a.name.localeCompare(b.name, "zh-CN");
+      });
+    return { statusCode: 200, response: { items: rows.slice(0, max), total: rows.length } };
+  }
 
   function readCustomerProfile({ workspace, customerId }) {
     const customer = (workspace.customers ?? []).find((item) => (item.id ?? item.customerId) === clean(customerId));

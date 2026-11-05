@@ -43,6 +43,9 @@ try {
   await expect(source).toHaveValue(message);
   await page.getByRole("button",{name:"识别客户消息",exact:true}).click();
   await expect(page.getByLabel("第1行数量",{exact:true})).toHaveValue("40");
+  // 2026-11-05 紧凑版：交付、需要日期（本行）、改价、拆行收在每行的「更多」里。
+  const openRow = async n => { const more=page.getByRole("button",{name:`第${n}行更多`,exact:true}); if (await more.count()) await more.click(); };
+  await openRow(1);
   await page.getByLabel("第1行需要日期",{exact:true}).fill("2099-11-02");
   const previewButton = page.getByRole("button",{name:"按客户/交付拆单",exact:true});
   await previewButton.click();
@@ -60,6 +63,7 @@ try {
   await page.getByRole("button",{name:"拆分第1行明细",exact:true}).click();
   await expect(page.getByLabel("第1行数量",{exact:true})).toHaveValue("20");
   await expect(page.getByLabel("第2行数量",{exact:true})).toHaveValue("20");
+  await openRow(1); await openRow(2);
   await expect(page.getByLabel("本行使用授权本单价",{exact:true}).nth(0)).not.toBeChecked();
   await expect(page.getByLabel("本行使用授权本单价",{exact:true}).nth(1)).not.toBeChecked();
   await expect(page.getByRole("button",{name:"确认下单",exact:true})).toBeDisabled();
