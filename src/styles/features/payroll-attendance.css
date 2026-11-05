@@ -41,10 +41,12 @@
 .payroll-workbench-tabs button.active { border-bottom-color: var(--blue); color: var(--blue); }
 .payroll-workbench-tabs button:focus-visible { outline: 2px solid var(--erp-focus); outline-offset: 2px; }
 
-.payroll-source-strip { min-height: 37px; display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.payroll-source-strip { min-height: 37px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--line); font-size: 11px; }
 .payroll-source-strip.warning { background: var(--erp-warning-bg); color: var(--erp-warning); }
 .payroll-source-strip.success { background: var(--erp-success-bg); color: var(--erp-success); }
-.payroll-source-strip small { margin-left: auto; color: var(--ink-soft); }
+.payroll-source-strip span { min-width: 0; }
+.payroll-source-strip small { margin-left: auto; color: var(--ink-soft); white-space: normal; text-align: right; }
+.payroll-source-strip p { margin: 0; }
 
 .payroll-review-filters { display: grid; grid-template-columns: minmax(260px, 1fr) 166px auto; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .payroll-review-filters label { min-width: 0; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-soft); color: var(--ink-soft); }

@@ -46,6 +46,10 @@ function FormalReceivingWorkspaceBody({ formal, notice = "", selectedId, setSele
   // Queue rows are summaries. Only the independently loaded detail may enter the command flow.
   const inbounds = selected ? [...(receiving?.items || []).filter((item) => item.id !== selectedId), selected] : [];
   const material = buildReceiptMaterialPresentation(selected || {});
+  const listedReceipt = (receiving?.items || []).find((item) => item.id === selected?.id);
+  const duplicateSummary = [selected?.duplicateSummary, selected?.duplicate, listedReceipt?.duplicateSummary, listedReceipt?.duplicate]
+    .map((value) => String(value ?? "").trim())
+    .find(Boolean) || "";
   const receipt = buildReceiptRowPresentation(selected || {});
   async function updateInbound(action, inboundId, options) {
     if (detailBlocked) {
@@ -109,6 +113,6 @@ function FormalReceivingWorkspaceBody({ formal, notice = "", selectedId, setSele
         onSaved={state.colorMappingContext ? state.applySavedSupplierColorMapping : undefined}
       />
     </Suspense> : null}
-    {selected ? <InboundDetail focusedReceipt headerFacts={<><div className="formal-receiving-state"><SemanticTag kind="state" value={getOperationalStateTagValue(selected.status)} label={selected.status} size="compact" /></div><dl className="receipt-facts raw-material-detail-facts" aria-label="原材料关键事实"><div><dt>供应商单号</dt><dd>{selected.deliveryNoteNo || "未提供"}</dd></div><div><dt>送货时间</dt><dd>{receipt.arrivalTime}</dd></div><div><dt>{selected.documentDirection === "supplier_return" ? "退回/重量" : "卷/重量"}</dt><dd>{receipt.countLabel} / {receipt.totalWeightLabel}</dd></div><div><dt>类型</dt><dd>{material.materialType}</dd></div><div><dt>宽幅</dt><dd>{material.widthLabel}</dd></div><div><dt>{selected.documentDirection === "supplier_return" ? "ERP 退货单" : "ERP 入库单"}</dt><dd title={selected.id}>{selected.id}</dd></div></dl></>} state={{ ...state, selectedStock: null, selectedOrderSupport: null, mobileOcrReviewActive: false }} /> : <div className="formal-receiving-empty"><DataState title={detailState.loading ? "正在读取单据" : detailState.error ? "这张单据暂时无法读取" : "选择一张单据开始核对"} detail={detailState.error || "从左侧队列选择单据，查看原单和逐卷明细。"} compact />{selectedId && !detailState.loading ? <button onClick={() => formal.actions.selectReceipt(selectedId)} type="button">重新读取</button> : null}</div>}
+    {selected ? <InboundDetail focusedReceipt headerFacts={<><div className="formal-receiving-state"><SemanticTag kind="state" value={getOperationalStateTagValue(selected.status)} label={selected.status} size="compact" /></div><dl className="receipt-facts raw-material-detail-facts" aria-label="原材料关键事实"><div><dt>供应商单号</dt><dd>{selected.deliveryNoteNo || "未提供"}</dd></div><div><dt>送货时间</dt><dd>{receipt.arrivalTime}</dd></div><div><dt>{selected.documentDirection === "supplier_return" ? "退回/重量" : "卷/重量"}</dt><dd>{receipt.countLabel} / {receipt.totalWeightLabel}</dd></div><div><dt>类型</dt><dd>{material.materialType}</dd></div><div><dt>宽幅</dt><dd>{material.widthLabel}</dd></div><div><dt>{selected.documentDirection === "supplier_return" ? "ERP 退货单" : "ERP 入库单"}</dt><dd title={selected.id}>{selected.id}</dd></div></dl>{duplicateSummary ? <p className="formal-receiving-duplicate" role="status">{duplicateSummary}</p> : null}</>} state={{ ...state, selectedStock: null, selectedOrderSupport: null, mobileOcrReviewActive: false }} /> : <div className="formal-receiving-empty"><DataState title={detailState.loading ? "正在读取单据" : detailState.error ? "这张单据暂时无法读取" : "选择一张单据开始核对"} detail={detailState.error || "从左侧队列选择单据，查看原单和逐卷明细。"} compact />{selectedId && !detailState.loading ? <button onClick={() => formal.actions.selectReceipt(selectedId)} type="button">重新读取</button> : null}</div>}
   </div>;
 }
