@@ -5,8 +5,7 @@ import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiCl
 import { normalizeOrderType } from "../../../../shared/orderRouting.js";
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
-import { isStockOrderType } from "../../../../shared/orderRouting.js";
-import { buildStockPickingSlipHtml, buildStockPickingSlips } from "../../../../src/domain/stockPickingSlip.js";
+import { buildStockPickingSlipHtml, buildStockPickingSlips, selectConfirmedStockLines } from "../../../../src/domain/stockPickingSlip.js";
 import { printStockPickingSlip } from "../../../../src/features/fulfillment/printStockPickingSlip.js";
 import "./order-pricing-entry.css";
 
@@ -522,17 +521,18 @@ function OrderPricingEditor({
       if (mounted.current) setBusy("");
     }
   };
-  // The confirmed stock lines (空白袋、印花袋) as the order pool shows them; before the pool
-  // refreshes, fall back to the rows just confirmed.
-  const confirmedStockLines = () => {
-    const ids = new Set(confirmedLineIds);
-    const fromPool = (formal.data.orderLines || []).filter((line) => ids.has(line.id ?? line.orderLineId));
-    const source = fromPool.length ? fromPool : rows.filter((row) => !row.excludedFromConfirmation);
-    return source.filter((line) => isStockOrderType(line.orderType));
-  };
+  // The confirmed stock lines (空白袋、印花袋) exactly as the order pool shows them. Never the
+  // draft rows: the server may have cancelled short lines when it confirmed. Until the pool
+  // shows every confirmed line, the slip waits for the refresh instead of guessing.
+  const confirmedSlip = selectConfirmedStockLines({ poolLines: formal.data.orderLines || [], confirmedLineIds });
   const printPickingSlip = async () => {
+    if (confirmedSlip.pending) {
+      setNotice("订单池还在刷新，刚确认的订单还没出现。请稍等几秒再点「打印备货小票」。");
+      void Promise.resolve(formal.actions.refreshAll()).catch(() => {});
+      return;
+    }
     const customerNames = new Map((formal.data.customers || []).map((customer) => [customer.id ?? customer.customerId, customer.name ?? customer.customerName]));
-    const html = buildStockPickingSlipHtml(buildStockPickingSlips({ orderLines: confirmedStockLines(), customerNames }));
+    const html = buildStockPickingSlipHtml(buildStockPickingSlips({ orderLines: confirmedSlip.lines, customerNames }));
     if (!html) { setNotice("这张单子没有现货（空白袋、印花袋），不用打备货小票。"); return; }
     const opened = await printStockPickingSlip(html);
     if (mounted.current && !opened) setNotice("打印窗口没有打开，请再点一次「打印备货小票」。");
@@ -1042,7 +1042,7 @@ function OrderPricingEditor({
             {notice || "草稿不占用库存；确认下单后由办公室安排出库或生产。"}
           </p>
           <div>
-            {complete && confirmedLineIds.length && confirmedStockLines().length ? (
+            {complete && (confirmedSlip.pending || confirmedSlip.lines.length) ? (
               <button type="button" className="primary-button" onClick={() => void printPickingSlip()}>
                 打印备货小票
               </button>

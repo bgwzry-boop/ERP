@@ -8,7 +8,8 @@ export const PICKING_SLIP_PAGE = Object.freeze({ widthMm: 80, heightMm: 100, ite
 
 const clean = value => String(value ?? "").trim();
 const isPlaceholder = value => !value || ["待确认", "非印刷", "-"].includes(value);
-const TERMINAL_STATUSES = new Set(["已作废", "已取消", "已交付", "已完成", "closed", "voided", "canceled"]);
+const TERMINAL_STATUSES = new Set(["已作废", "已取消", "已交付", "已完成", "closed", "voided", "canceled", "cancelled"]);
+const isCancelledLine = line => Boolean(line?.excludedFromConfirmation || clean(line?.cancellationStatus) || clean(line?.cancelledAt));
 
 function methodLabel(value) {
   const text = clean(value);
@@ -26,7 +27,7 @@ function methodLabel(value) {
 export function buildStockPickingSlip({ orderLines = [], customerName = "", orderNo = "", pickerName = "", printedAt = new Date() } = {}) {
   const items = orderLines
     .filter(line => line && isStockOrderType(line.orderType ?? line.order_type))
-    .filter(line => !TERMINAL_STATUSES.has(clean(line.lineStatus ?? line.status)))
+    .filter(line => !TERMINAL_STATUSES.has(clean(line.lineStatus ?? line.status)) && !isCancelledLine(line))
     .map(line => {
       const handle = clean(line.handle ?? line.handleType);
       const handleColor = clean(line.handleColor);
@@ -58,6 +59,24 @@ export function buildStockPickingSlip({ orderLines = [], customerName = "", orde
     items,
     totalQty: items.reduce((sum, item) => sum + item.qty, 0),
   };
+}
+
+/**
+ * The lines to put on the slip right after an order is confirmed: only the order lines the
+ * confirmation receipt names, read from the order pool. Draft rows are never used, because
+ * the server may have cancelled short lines (「有什么发什么，缺的取消」) or split rows when it
+ * confirmed. While the pool does not yet show every confirmed line, `pending` is true and
+ * nothing is printed.
+ */
+export function selectConfirmedStockLines({ poolLines = [], confirmedLineIds = [] } = {}) {
+  const ids = [...new Set(confirmedLineIds.map(clean).filter(Boolean))];
+  if (!ids.length) return { pending: false, lines: [] };
+  const byId = new Map(poolLines.map(line => [clean(line?.id ?? line?.orderLineId), line]));
+  if (ids.some(id => !byId.has(id))) return { pending: true, lines: [] };
+  const lines = ids.map(id => byId.get(id))
+    .filter(line => isStockOrderType(line.orderType ?? line.order_type))
+    .filter(line => !TERMINAL_STATUSES.has(clean(line.lineStatus ?? line.status)) && !isCancelledLine(line));
+  return { pending: false, lines };
 }
 
 const escapeHtml = value => clean(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
