@@ -16,7 +16,7 @@ import { EarlyShipmentPanel, ProductionScheduleControls } from "./ProductionSche
 import { buildDeliveryBatchFamily, describeBatchProgress } from "../../../../shared/deliveryBatches.js";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
-import { CompanyPrintProfilePanel } from "./CompanyPrintProfilePanel.jsx";
+import { CompanyPrintProfileButton } from "./CompanyPrintProfilePanel.jsx";
 import { DesktopFulfillmentOperations, operationsOwnStockPackingEntry } from "./DesktopFulfillmentOperations.jsx";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
@@ -148,9 +148,10 @@ function SemanticOrderTag({ kind, value }) {
   return <SharedSemanticTag kind={kind} label={value} size="compact" value={resolved} />;
 }
 
-function WorkbenchHeadingActions({ countLabel, onRefresh }) {
+function WorkbenchHeadingActions({ countLabel, onRefresh, extra = null }) {
   return <div className="business-heading-actions">
     {countLabel ? <span>{countLabel}</span> : null}
+    {extra}
     <button aria-label="刷新当前工作台" onClick={onRefresh} type="button"><ReloadOutlined />刷新</button>
   </div>;
 }
@@ -590,7 +591,7 @@ function GenericWorkspace({ config, onNavigate, detailExtra, focus = null }) {
 
   return <><div className="business-workbench source-grounded-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>{config.title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} /></header>
+      <header className="business-panel-heading"><h2>{config.title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} extra={config.headingExtra} /></header>
       {config.modes ? <div aria-label={`${config.title}区域`} className="business-subtabs" role="tablist">{config.modes.map((item) => <button aria-selected={mode === item} key={item} onClick={() => { setMode(item); setSelectedId(""); }} role="tab" type="button">{item}</button>)}</div> : null}
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索当前工作台" value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="business-table" role="table" aria-label={`${config.title}列表`}>
@@ -625,9 +626,11 @@ function FinanceOperationsWorkspace({ formal, navId, onNavigate }) {
     canRunPrimary: row => Boolean(identity(row)),
     onPrimary: row => setOpenedId(identity(row) || ""),
     onRefresh: formal.actions.refreshAll,
+    // 负责人 2026-11-04：单据抬头不常改，收成标题栏里的一个按钮，点开弹窗修改。
+    headingExtra: navId === "print-devices" ? <CompanyPrintProfileButton formal={formal} /> : null,
   };
   const Dialog = isStatement ? StatementDetailDialog : PrintJobDetailDialog;
-  return <>{navId === "print-devices" ? <CompanyPrintProfilePanel formal={formal} /> : null}<GenericWorkspace config={config} onNavigate={onNavigate} />{openedId ? <Dialog statementId={isStatement ? openedId : undefined} printJobId={isStatement ? undefined : openedId} authState={formal.authState} onClose={() => setOpenedId("")} onUpdated={() => formal.actions.refreshAll()} /> : null}</>;
+  return <><GenericWorkspace config={config} onNavigate={onNavigate} />{openedId ? <Dialog statementId={isStatement ? openedId : undefined} printJobId={isStatement ? undefined : openedId} authState={formal.authState} onClose={() => setOpenedId("")} onUpdated={() => formal.actions.refreshAll()} /> : null}</>;
 }
 
 function PeopleMachinesWorkspace({ formal, onNavigate }) {
