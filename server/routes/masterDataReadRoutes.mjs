@@ -27,6 +27,19 @@ export async function handleMasterDataReadRoutes({
     return true;
   }
 
+  // 负责人 2026-11-05：开单时选客户（整单一次，必填）。
+  if (url.pathname === "/api/master-data/customers" && customerAddressCommandService?.searchCustomers) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    let source = workspace;
+    if (workspace.coreWorkspaceReadRepository?.loadState) {
+      const state = await workspace.coreWorkspaceReadRepository.loadState();
+      if (Array.isArray(state?.customers)) source = { ...workspace, customers: state.customers, customerContacts: state.customerContacts ?? [] };
+    }
+    const result = customerAddressCommandService.searchCustomers({ workspace: source, query: url.searchParams.get("q") ?? "", limit: url.searchParams.get("limit") ?? 20 });
+    sendJson(response, 200, result.response);
+    return true;
+  }
+
   const profileMatch = url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/profile$/);
   if (profileMatch && customerAddressCommandService) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;

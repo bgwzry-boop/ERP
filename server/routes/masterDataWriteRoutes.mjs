@@ -105,6 +105,23 @@ export async function handleMasterDataWriteRoutes({
     return true;
   }
 
+  // 负责人 2026-11-05：开单时直接新建客户（客户名称、电话、地址）。
+  if (method === "POST" && url.pathname === "/api/master-data/customers" && customerAddressCommandService?.createCustomer) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    let source = workspace;
+    if (workspace.coreWorkspaceReadRepository?.loadState) {
+      const state = await workspace.coreWorkspaceReadRepository.loadState();
+      if (Array.isArray(state?.customers)) source = { ...workspace, customers: state.customers, customerContacts: state.customerContacts ?? [] };
+    }
+    const result = await customerAddressCommandService.createCustomer({
+      workspace: source === workspace ? workspace : { ...workspace, customers: source.customers, customerContacts: source.customerContacts },
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    sendCommandResponse(response, result, { useResultStatusCode: true });
+    return true;
+  }
+
   // 负责人 2026-11-04：客户资料可以随开单、送货、办公室事后补充。
   const addressMatch = method === "POST" && url.pathname.match(/^\/api\/master-data\/customers\/([^/]+)\/delivery-addresses$/);
   if (addressMatch && customerAddressCommandService) {

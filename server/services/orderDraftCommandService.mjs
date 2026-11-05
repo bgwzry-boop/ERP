@@ -9,6 +9,7 @@ import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "..
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { INCOMING_ROLLS_QTY_BASIS, incomingRollCountOf, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 import { customerWithAddresses, resolveDeliveryAddress } from "../../shared/deliveryAddress.js";
+import { detectMessageCustomer } from "../../shared/orderMessageCustomer.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
@@ -105,6 +106,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
       return businessError(422, "VALIDATION_ERROR", "sourceText or sourceMessages must contain at least one message");
     }
     let lines = recognition.orderRows;
+    // 负责人 2026-11-05：消息开头或结尾写了客户名字，没认出客户的明细自动用这个客户；不对再在开单页改。
+    const customerHint = body.customerId ? null : detectMessageCustomer(sourceText || recognition.sourceMessages.map((message) => message.text).join("\n"), workspace.customers ?? []);
+    if (customerHint?.customerId) {
+      lines = lines.map((line) => (line.customerId ? line : { ...line, customerId: customerHint.customerId, customer: customerHint.name }));
+    }
     const sourceHoldId = String(body.sourceHoldId ?? "").trim();
     const sourceIntentId = String(body.sourceIntentId ?? "").trim();
     let sourceHoldGuard = null;
@@ -125,6 +131,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       temporaryHolds: recognition.temporaryHolds,
       summary: recognition.summary,
       riskHints: recognition.riskHints,
+      ...(customerHint ? { customerHint } : {}),
     };
     const customerId = body.customerId ?? lines[0]?.customerId ?? "";
     const draft = buildDraftProjection(null, {

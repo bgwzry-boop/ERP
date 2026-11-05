@@ -347,3 +347,66 @@
 .pricing-delivery-address > label { display: grid; gap: 5px; }
 .pricing-delivery-address > .pricing-note { grid-column: 1 / -1; margin: 0; }
 .pricing-delivery-address > button { align-self: end; justify-self: start; }
+
+/* 负责人 2026-11-05：开单紧凑版。客户、交付、需要日期整单一次；明细一行一条，不常用的收进「更多」。 */
+.pricing-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pricing-order-head { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; margin-bottom: 18px; }
+.pricing-order-head > label, .pricing-customer { display: grid; gap: 5px; min-width: 0; position: relative; }
+.pricing-customer > label em { font-style: normal; color: var(--erp-warning); font-size: 12px; margin-left: 4px; }
+.order-pricing-entry .pricing-missing { border-color: var(--erp-warning-border); background: var(--erp-warning-bg); }
+.pricing-customer-options { position: absolute; z-index: 5; top: 64px; left: 0; right: 0; max-height: 280px; overflow: auto; margin: 0; padding: 4px 0; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px color-mix(in oklch, var(--ink) 16%, transparent); }
+.pricing-customer-options li { display: grid; gap: 1px; padding: 7px 12px; cursor: pointer; }
+.pricing-customer-options li:hover, .pricing-customer-options li[aria-selected="true"] { background: var(--erp-surface-hover); }
+.pricing-customer-options li span, .pricing-customer-options li.muted { color: var(--ink-soft); font-size: 12px; cursor: default; }
+.pricing-customer-info { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
+.pricing-customer-info.warn { color: var(--erp-warning); }
+.pricing-line-table { margin-top: 8px; border-top: 1px solid var(--line); }
+.pricing-line-head, .pricing-line-main { display: grid; grid-template-columns: 22px minmax(96px, 1.15fr) minmax(90px, 1.1fr) minmax(64px, .8fr) minmax(70px, .85fr) minmax(76px, .8fr) minmax(52px, .55fr) minmax(0, 1.3fr) 58px; gap: 6px; align-items: center; }
+.pricing-line-head { padding: 6px 4px; background: var(--erp-surface-subtle); color: var(--ink-soft); font-size: 12px; }
+.pricing-lines fieldset.pricing-line-row { margin: 0; padding: 4px; border: 0; border-bottom: 1px solid var(--erp-border-subtle); border-radius: 0; }
+.pricing-lines fieldset.pricing-line-row.open { background: var(--erp-accent-wash); }
+.pricing-line-no { color: var(--ink-soft); text-align: center; font-size: 12px; }
+.pricing-cell { display: grid; min-width: 0; }
+.pricing-qty-cell { display: grid; gap: 4px; min-width: 0; }
+.order-pricing-entry .pricing-line-main :is(input, select) { min-height: 32px; padding: 4px 6px; border-radius: 4px; width: 100%; }
+.order-pricing-entry .pricing-line-main input.pricing-qty { text-align: right; }
+.pricing-line-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.pricing-tag { font-weight: 500; font-size: 12px; line-height: 18px; padding: 0 8px; border-radius: 9px; white-space: nowrap; }
+.pricing-tag.warn { background: var(--erp-warning-bg); color: var(--erp-warning); }
+.pricing-tag.ok { background: var(--erp-success-bg); color: var(--erp-success); }
+.pricing-tag.info { background: var(--erp-info-bg); color: var(--erp-info); }
+.order-pricing-entry button.pricing-more { min-height: 28px; padding: 2px 4px; border: 0; background: none; color: var(--erp-info); font-size: 13px; white-space: nowrap; }
+.pricing-line-more { padding: 8px 6px 12px 28px; }
+.pricing-line-more > .pricing-line-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pricing-line-more .pricing-line-fields label { display: grid; gap: 5px; }
+.pricing-line-sum { margin: 10px 0 0; color: var(--ink-soft); }
+.pricing-line-sum b { color: var(--ink); font-size: 15px; }
+.pricing-precheck-title { margin: 8px 0 0 !important; font-size: 14px; }
+@media (max-width: 1100px) {
+  .pricing-order-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .pricing-customer { grid-column: 1 / -1; }
+}
+@media (max-width: 760px) {
+  .pricing-order-head { grid-template-columns: minmax(0, 1fr); }
+  .pricing-line-head { display: none; }
+  .pricing-line-main { grid-template-columns: 22px repeat(2, minmax(0, 1fr)); }
+  .pricing-line-tags, .pricing-more { grid-column: 2 / -1; }
+  .pricing-line-more { padding-left: 6px; }
+  .pricing-line-more > .pricing-line-fields { grid-template-columns: minmax(0, 1fr); }
+}
+/* 新建客户（负责人 2026-11-05）：开单页直接建，只填名称、电话、地址。 */
+.pricing-customer-options li.pricing-customer-new { color: var(--erp-info); font-weight: 600; border-top: 1px solid var(--erp-border-subtle); cursor: pointer; }
+.order-pricing-entry button.pricing-link-button { min-height: 0; padding: 0 2px; margin-left: 6px; border: 0; background: none; color: var(--erp-info); font-weight: 600; text-decoration: underline; }
+.review-modal.pricing-new-customer { width: min(520px, calc(100vw - 32px)); }
+.pricing-new-customer header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.pricing-new-customer h2 { margin: 0; font-size: 18px; }
+.pricing-new-customer header p { margin: 4px 0 0; color: var(--ink-soft); font-size: 13px; }
+.pricing-new-customer-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pricing-new-customer-form label { display: grid; gap: 5px; font-size: 13px; }
+.pricing-new-customer-form label.wide { grid-column: 1 / -1; }
+.pricing-new-customer-form em { font-style: normal; color: var(--erp-warning); font-size: 12px; }
+.pricing-new-customer-form input { min-height: 36px; }
+.pricing-new-customer-error { color: var(--erp-danger); margin: 12px 0 0; }
+.pricing-new-customer-existing { margin: 12px 0 0; color: var(--erp-warning); }
+.pricing-new-customer-actions { display: flex; gap: 8px; margin-top: 16px; }
+@media (max-width: 760px) { .pricing-new-customer-form { grid-template-columns: minmax(0, 1fr); } }

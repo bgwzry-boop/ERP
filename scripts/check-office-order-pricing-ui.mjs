@@ -302,6 +302,8 @@ try {
     .getByRole("status")
     .filter({ hasText: "缺少已确认材料批次价" })
     .waitFor();
+  // 2026-11-05 紧凑版：印刷内容、改价、拆行收在每行的「更多」里。
+  await page.getByRole("button", { name: "第1行更多", exact: true }).click();
   await page.getByLabel("本行使用授权本单价").check();
   await page.getByLabel("第1行袋子单价（元/个）", { exact: true }).fill("0.8");
   await page

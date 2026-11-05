@@ -806,6 +806,40 @@ export async function updateOfficeCustomerDeliveryAddress(input = {}, options = 
   }
 }
 
+// 开单时选客户（负责人 2026-11-05）：按名称、简称、联系人、电话找。
+export async function searchOfficeCustomers(input = {}, options = {}) {
+  const query = String(input.query ?? "").trim().slice(0, 40);
+  try {
+    const response = await requestOrderApi(`/master-data/customers?q=${encodeURIComponent(query)}&limit=${Number(input.limit) || 20}`, { ...options, authState: input.authState, operatorId: input.operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toApiError(json, response.status, "客户列表读取失败。") };
+    return { source: "api", items: Array.isArray(json.items) ? json.items : [], total: Number(json.total) || 0 };
+  } catch (error) {
+    return { source: "api_error", blocked: true, items: [], error: { code: "CUSTOMER_SEARCH_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+// 开单时直接新建客户（负责人 2026-11-05）：客户名称必填，电话、地址可不填。
+export async function createOfficeCustomer(input = {}, options = {}) {
+  try {
+    const response = await requestOrderApi("/master-data/customers", {
+      ...options,
+      method: "POST",
+      authState: input.authState,
+      operatorId: input.operatorId,
+      body: { name: input.name, contactName: input.contactName, phone: input.phone, address: input.address },
+    });
+    const json = await readJson(response);
+    if (response.status === 409 && json?.code === "CUSTOMER_NAME_EXISTS" && json.customer) {
+      return { source: "api", existing: true, customer: json.customer, message: json.message };
+    }
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "新建客户没有保存。") };
+    return { source: "api", created: true, customer: json.customer ?? null, addressId: json.addressId ?? "" };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_CREATE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
 // 客户资料可编辑：名称、简称、结算周期、默认联系人和电话（负责人 2026-11-04）。
 export async function getOfficeCustomerProfile(input = {}, options = {}) {
   const customerId = String(input.customerId ?? "").trim();
