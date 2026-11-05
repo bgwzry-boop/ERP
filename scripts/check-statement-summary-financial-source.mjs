@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium } from "playwright";
-import { getStatementCustomers } from "../server/seedData.mjs";
+import { getStatementCustomers, loadSeedWorkspace } from "../server/seedData.mjs";
 import { buildStatementDetail } from "../server/services/statementDetailProjectionService.mjs";
 import { listOfficeStatementCustomers } from "../src/services/officeStatementApiClient.js";
 import { mapStatementCustomerSummaryToLocal, normalizeStatementCustomerSummary, normalizeStatementDetail } from "../src/services/officeStatementSelectors.js";
@@ -56,6 +56,43 @@ try {
   assert.doesNotMatch(await page.locator(".business-facts").innerText(), /¥0/u);
   const zero = normalizeStatementCustomerSummary({ ...summary, currentReceivable: 0, currentReceived: 0, varianceAmount: 0, currentUnpaid: 0, historicalDebt: 0, cumulativeDebt: 0 });
   await render([zero]); assert.deepEqual((await page.locator(".business-table-body [role=cell]").allTextContents()).slice(1, 4), ["¥0", "¥0", "¥0"]);
+  const staleVariance = getStatementCustomers({
+    customers: [{ id: "C010", name: "月结客户", cycle: "月结", debt: 0 }],
+    statements: [{ id: "ST-0629-005", customerId: "C010", receivable: 1510, received: 0, variance: 5300, status: "有欠款", periodEnd: "2026-06-29" }],
+  })[0];
+  assert.equal(staleVariance.currentUnpaid, 1510);
+  assert.equal(staleVariance.varianceAmount, 1510, "a stored variance that is not 应收减实收 must not be shown as 本期差额");
+  assert.equal(staleVariance.historicalDebt, 0);
+  assert.equal(staleVariance.cumulativeDebt, 1510);
+  await render([staleVariance]);
+  assert.deepEqual((await page.locator(".business-table-body [role=cell]").allTextContents()).slice(1, 4), ["¥1,510", "¥0", "¥1,510"]);
+  assert.match(await page.locator(".business-facts").innerText(), /本期差额[\s\S]*¥1,510/);
+  assert.doesNotMatch(await page.locator(".business-facts").innerText(), /5,300/);
+  const separateDebt = getStatementCustomers({
+    customers: [{ id: "C010", name: "月结客户", cycle: "月结", debt: 5300 }],
+    statements: [{ id: "ST-0629-005", customerId: "C010", receivable: 1510, received: 0, variance: 1510, status: "有欠款" }],
+  })[0];
+  assert.equal(separateDebt.varianceAmount, 1510);
+  assert.equal(separateDebt.historicalDebt, 5300, "customer debt stays historical and is not copied into 本期差额");
+  assert.equal(separateDebt.cumulativeDebt, 6810);
+  const settledRounding = getStatementCustomers({
+    customers: [{ id: "C001", name: "张三服饰", cycle: "7天一结", debt: 0 }],
+    statements: [{ id: "ST-SETTLED", customerId: "C001", receivable: 273, received: 200, variance: 0, status: "已核销" }],
+  })[0];
+  assert.equal(settledRounding.currentUnpaid, 0);
+  assert.equal(settledRounding.varianceAmount, 0, "抹零结清后差额保持 0，不把应收减实收再显示成未结差额");
+  const seeded = loadSeedWorkspace();
+  const monthly = seeded.statements.find((row) => row.id === "ST-0629-005");
+  assert.equal(monthly.variance, 1510);
+  assert.deepEqual(monthly.lineIds, ["ORD-0629-028-01"]);
+  const monthlyDetail = buildStatementDetail({ ...seeded, paymentRecords: [], varianceRecords: [], statementLines: [], operationLogs: [] }, monthly);
+  assert.equal(monthlyDetail.variance, 1510);
+  assert.equal(monthlyDetail.currentUnpaid, 1510);
+  assert.equal(monthlyDetail.lines.length, 1);
+  assert.equal(monthlyDetail.lines[0].orderLineId, "ORD-0629-028-01");
+  assert.equal(monthlyDetail.lines[0].productName, "黑马三批");
+  assert.equal(monthlyDetail.lines[0].finalAmount, 1510);
+  assert.equal(monthlyDetail.lineSource, "linked_order");
   for (const invalid of [null, "", " ", "not-money", Infinity, true]) assert.equal(normalizeStatementCustomerSummary({ ...summary, currentReceived: invalid }).currentReceived, null);
   assert.deepEqual(workspace, snapshot, "read and presentation must never mutate source ledger facts");
 } finally { await page.close(); await browser.close(); }
