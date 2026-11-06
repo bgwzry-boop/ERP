@@ -4,7 +4,9 @@ import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { createFulfillmentReadProjectionService } from '../server/services/fulfillmentReadProjectionService.mjs';
 import { toMasterDataEmployeeAccountReview } from '../server/services/masterDataEmployeeAccountCommandService.mjs';
+import { mapApiFulfillmentToLocal } from '../src/services/officeFulfillmentSelectors.js';
 const result = await build({entryPoints:['docs/prototypes/raw-material-roll-inventory-review/src/DesktopFulfillmentOperations.jsx'],bundle:true,write:false,platform:'node',format:'cjs',jsx:'automatic',define:{'import.meta.env':'{}'},external:['react','react/jsx-runtime'],loader:{'.css':'empty'}});
 const module={exports:{}};new Function('require','module','exports',result.outputFiles[0].text)(createRequire(import.meta.url),module,module.exports);
 const {DesktopFulfillmentOperations,parseActualPackageQuantities}=module.exports;
@@ -30,6 +32,39 @@ assert.match(customHtml, /核对并登记包裹/);
 assert.doesNotMatch(render({...fulfillment,finalDeliveryAt:'2026-10-23T00:00:00Z'}),/<button/);
 assert.doesNotMatch(render(fulfillment,{...formal,permissionContext:{actionPermissions:[]}}),/<button/);
 console.log('Desktop fulfillment checks passed: stock mixed-package entry, custom mixing refused but independent packing form retained, driver role projection, permission and terminal gates.');
+
+const { projectFulfillment } = createFulfillmentReadProjectionService();
+const handoffContext = { ...formal, permissionContext: { actionPermissions: ['fulfillment.paper.handoff'] } };
+const handoffCases = [
+  { printStatus: 'printed', expectedStatus: '已打印待交库房', canHandoff: true },
+  { printStatus: 'reprinted', expectedStatus: '已打印待交库房', canHandoff: true },
+  { printStatus: 'submitted', expectedStatus: '待打印确认', canHandoff: false },
+  { printStatus: 'failed', expectedStatus: '待打印确认', canHandoff: false },
+  { printStatus: 'voided', expectedStatus: '待打印确认', canHandoff: false },
+  { printStatus: 'printed', documentStatus: '已作废', expectedStatus: '已作废待重打', canHandoff: false },
+  { printStatus: 'printed', documentStatus: '已交库房', expectedStatus: '已交库房', canHandoff: false },
+  { printStatus: 'printed', legacyStateReviewRequired: true, expectedStatus: '已打印待交库房', canHandoff: false },
+];
+for (const { printStatus, documentStatus = '待打印确认', legacyStateReviewRequired = false, expectedStatus, canHandoff } of handoffCases) {
+  const paper = {
+    paperOutboundDocumentId: 'POD-DESKTOP',
+    fulfillmentId: fulfillment.id,
+    printRecordId: 'PR-DESKTOP',
+    documentVersion: 1,
+    revision: 1,
+    status: documentStatus,
+  };
+  const workspace = {
+    paperOutboundDocuments: [paper],
+    printRecords: [{ printRecordId: paper.printRecordId, targetId: fulfillment.id, status: printStatus }],
+  };
+  const projected = projectFulfillment({ workspace, fulfillment: { ...fulfillment, legacyStateReviewRequired } });
+  assert.equal(projected.paperOutboundDocument.status, expectedStatus);
+  const local = mapApiFulfillmentToLocal(projected);
+  assert.equal(/确认纸单已交库房/.test(render(local, handoffContext)), canHandoff, `${printStatus} / ${documentStatus} / legacy=${legacyStateReviewRequired}`);
+  assert.doesNotMatch(render(local), /确认纸单已交库房/, 'only authorized staff can confirm paper handoff');
+}
+console.log('Paper handoff checks passed: server-confirmed print/reprint opens handoff, and invalid or already handed paper stays blocked.');
 
 for (const body of [{operationLogId:'LOG-FAKE'},{operationLogId:'LOG-FAKE',packingTaskId:'PKT-TEST',orderLineId:'OL-TEST',packageIds:['PKG-A'],fulfillmentId:'F-FOREIGN'}]) {
  const response=await completeOfficePackingTask({packingTaskId:'PKT-TEST',orderLineId:'OL-TEST',fulfillmentId:'F-TEST',actualPackedQty:10,packageCount:1,idempotencyKey:'receipt-test'}, {serverRequired:true,fetchImpl:async()=>new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})});

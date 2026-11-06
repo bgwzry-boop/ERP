@@ -102,11 +102,14 @@ assert.equal(remarkOf({ orderType: "custom_print", print: "是", printColor: "�
 const pickupTemplate = buildFulfillmentPrintTemplate({
   fulfillment: { id: "F-P", lineId: "OL-1", method: "自提", qty: 1000, customerSnapshot: { name: "客户甲" } },
   orderLine: { id: "OL-1", product: "印刷袋", orderType: "custom_print", qty: 1000 },
-  printRecord: { printRecordId: "PR-F-P-1", documentType: "pickup_note" }, documentType: "pickup_note", pricing, companyProfile, pickerName: "印刷工乙",
+  printRecord: { printRecordId: "PR-F-P-1", documentType: "pickup_note", status: "submitted", printedAt: "", createdAt: "2026-11-04T16:30:00Z" },
+  documentType: "pickup_note", pricing, companyProfile, pickerName: "印刷工乙",
 });
 assert.deepEqual([pickupTemplate.title, pickupTemplate.fields.pickerLabel, pickupTemplate.fields.pickerName], ["自提单", "提货人", "印刷工乙"]);
+assert.equal(pickupTemplate.fields.documentDateText, "2026-11-05", "a queued job's blank printedAt must fall back to its creation date in Beijing");
 const [pickupPage] = await pdfText(await buildFulfillmentNotePdf(pickupTemplate));
 assert.ok(pickupPage.includes("客户名称：客户甲") && pickupPage.includes("提货人：印刷工乙"), pickupPage);
+assert.ok(pickupPage.includes("日期：2026-11-05"), pickupPage);
 // The office picks from the people who picked up for this customer before (latest first), plus contacts marked 拿货人.
 const suggestions = listFulfillmentPickerSuggestions({ customerId: "A", workspace: {
   fulfillments: [

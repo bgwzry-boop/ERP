@@ -264,7 +264,9 @@ function hasSnapButton(orderLine) {
 }
 
 function documentDate(printRecord, input) {
-  const raw = input.documentDate ?? printRecord?.printedAt ?? printRecord?.createdAt ?? "";
+  // 排队时 printedAt 为空，单据快照日期取打印记录的创建时间。
+  const raw = [input.documentDate, printRecord?.printedAt, printRecord?.createdAt]
+    .find(value => String(value ?? "").trim());
   const time = Date.parse(raw);
   if (!Number.isFinite(time)) return "";
   // 单据日期按北京时间

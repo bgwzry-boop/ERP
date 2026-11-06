@@ -653,6 +653,8 @@ function PhysicalPackagesPanel({formal,fulfillmentId,orderLineId}) {
   const fulfillment = (formal.data?.fulfillments ?? []).find(item => (item.id || item.fulfillmentId) === fulfillmentId);
   const resolvedLineId = orderLineId || fulfillment?.orderLineId || fulfillment?.lineId;
   const line = (formal.data?.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === resolvedLineId);
+  const hasPhysicalPackages = Number(fulfillment?.actualPackageCount) > 0 || Boolean(fulfillment?.packageLabelRows?.length);
+  if ((fulfillment?.physicalOutboundAt || fulfillment?.finalDeliveryAt) && !hasPhysicalPackages) return null;
   if (fulfillment && operationsOwnStockPackingEntry(fulfillment, formal)) return null;
   if (!isStockOrderType(fulfillment?.orderType ?? line?.orderType)) return null;
   const initialStockRegistration = !fulfillment?.actualPackageCount && ["待出库", "待库房备货", "已备货", "待打印标签"].includes(fulfillment?.status);
