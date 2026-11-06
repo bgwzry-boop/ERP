@@ -173,14 +173,14 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
   </aside>;
 }
 
-function Topbar({ navOpen = false, onToggleNav, allowedNavIds, onCreateOrder, onSearchSelect, onSearchRequest, permissionContext, searchData, searchPending = false, searchError = "", unhandledTodoCount = null }) {
+function Topbar({ navOpen = false, onToggleNav, allowedNavIds, onCreateOrder, createOrderDisabled = false, onSearchSelect, onSearchRequest, permissionContext, searchData, searchPending = false, searchError = "", unhandledTodoCount = null }) {
   const account = permissionContext.user ?? defaultPermissionContext.user;
   const canCreateOrder = hasEffectivePermission(permissionContext, "order.create");
   return <header className="topbar">
     <button aria-controls="erp-main-sidebar" aria-expanded={navOpen} aria-label={navOpen ? "收起菜单" : "打开菜单"} className="nav-drawer-toggle" onClick={onToggleNav} type="button"><MenuOutlined /><span>菜单</span></button>
     <GlobalSearch allowedNavIds={allowedNavIds} data={searchData} onSelect={onSearchSelect} onRequestData={onSearchRequest} pending={searchPending} error={searchError} />
     <div className="topbar-actions">
-      {canCreateOrder ? <button className="primary top-new-order" onClick={onCreateOrder} type="button"><PlusOutlined />新建订单</button> : null}
+      {canCreateOrder ? <button className="primary top-new-order" disabled={createOrderDisabled} onClick={onCreateOrder} type="button"><PlusOutlined />新建订单</button> : null}
       <button aria-label={unhandledTodoCount === null ? "查看公共待办" : unhandledTodoCount > 0 ? `通知：${unhandledTodoCount} 条未处理待办` : "通知：没有未处理待办"} className="notification" type="button"><BellOutlined />{unhandledTodoCount > 0 ? <b>{unhandledTodoCount}</b> : null}</button>
       <div aria-label={`当前账号：${account.displayName}，${account.roleLabel || "按账号权限"}`} className="account" role="status"><span><strong>{account.displayName}</strong><small>{account.roleLabel || "按账号权限"}</small></span></div>
     </div>
@@ -408,6 +408,9 @@ export function App({ permissionContext = defaultPermissionContext }) {
       return next;
     });
   };
+  const openNewOrder = async () => {
+    if (await formal.actions.startNewOrderDraft()) navigate("order-entry");
+  };
   const openReceive = async () => {
     setReceiveError(""); setReceiveOpen(true); setReceiveBusy(true);
     try { const result = await formal.actions.readCollection("rawMaterialInbounds"); if (result.source !== "api") setReceiveError("送货单位暂时无法读取，请关闭后重试。"); }
@@ -438,7 +441,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
 
   return <div className={`app-shell${navOpen ? " nav-open" : ""}`} data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
     {navOpen ? <div aria-hidden="true" className="nav-drawer-backdrop" onClick={() => setNavOpen(false)} /> : null}
-    <Sidebar navOpen={navOpen} activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar navOpen={navOpen} onToggleNav={() => setNavOpen((open) => !open)} allowedNavIds={allowedNavIds} onCreateOrder={() => navigate("order-entry")} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} onSearchRequest={formal.actions.ensureSearchData} searchData={formal.data} searchPending={formal.meta.search.loading} searchError={formal.meta.search.error} unhandledTodoCount={unhandledTodoCount} />
+    <Sidebar navOpen={navOpen} activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar navOpen={navOpen} onToggleNav={() => setNavOpen((open) => !open)} allowedNavIds={allowedNavIds} createOrderDisabled={formal.orderEntryWritePending || formal.orderEntryEditorBlocked} onCreateOrder={openNewOrder} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} onSearchRequest={formal.actions.ensureSearchData} searchData={formal.data} searchPending={formal.meta.search.loading} searchError={formal.meta.search.error} unhandledTodoCount={unhandledTodoCount} />
     <main className={`page${isRawMaterialView ? "" : " business-page"}${activeView === "收货录入" ? " receiving-main-page" : ""}`}>
       {activeView !== "收货录入" ? <CollectionFeedback state={{ loading: formal.meta.loading, error: Object.keys(formal.meta.errors).length > 0, hasLoaded: formal.meta.hasLoaded }} label={activeView} onRetry={() => void formal.actions.refreshAll()} /> : null}
       {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">本次操作结果正在核对，请先确认结果；结果未明时按原内容重试。</div> : null}

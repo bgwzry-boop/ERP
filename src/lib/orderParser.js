@@ -3,6 +3,15 @@ import { isStockOrderType, normalizeOrderType, inferOrderType } from "../../shar
 
 const colorWords = ["米白", "浅蓝", "牛仔蓝", "大红", "红", "黑", "白", "蓝", "绿", "黄", "粉"];
 const colorPattern = colorWords.join("|");
+const compactInkPattern = new RegExp(`(${colorPattern})色?印(${colorPattern})色?`);
+const compactHandlePattern = new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`);
+const calendarDateShape = String.raw`\d{4}-\d{2}-\d{2}`;
+const calendarDateToken = new RegExp(String.raw`(?<![\w-])${calendarDateShape}(?![\w-])`, "gu");
+const orderNumberPrefix = /(?:单号|编号|订单|\border(?:\s+(?:id|no\.?))?|\bpo)\s*(?:为|是)?\s*[:：=#]?\s*$/iu;
+const negatedPrintSide = /(?:不(?:需要?|用|要|做)?|无需)\s*(?:[双两单一]面\s*(?:印刷?)?|印刷?\s*[双两单一]面)/gu;
+const noPrinting = /(?:不(?:需要?|用|要|做)?|无需|非|免|无)\s*印(?:刷|字|花|图案?|标志|logo)?/giu;
+// Calendar-shaped text must not supply a quantity, even when its date is invalid.
+export const orderQuantityDigitsPattern = String.raw`(?!${calendarDateShape}(?!\d))\d{1,6}`;
 const sizeAliases = [
   { words: ["中号横款", "中号横版"], size: "40*30*10" },
   { words: ["小号横款", "小号横版"], size: "35*27*10" },
@@ -47,11 +56,16 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
     const quantities = detectQuantities(chunk);
     const product = detectProduct(chunk);
     const fulfillment = detectFulfillment(chunk);
-    const print = chunk.includes("印") || chunk.includes("美的") || chunk.includes("图") || chunk.includes("logo") ? "是" : "否";
+    const printSideText = chunk.replace(negatedPrintSide, " ");
+    const printText = printSideText.replace(noPrinting, " ");
+    // An explicit blank-bag instruction overrides loose hints, while a separate
+    // affirmative print instruction still applies to the line.
+    const prints = printText === printSideText ? /印|美的|图|logo/u.test(printSideText) : printText.includes("印");
+    const print = prints ? "是" : "否";
     const handle = chunk.includes("长提") || chunk.includes("加长") ? "加长提" : "普通提";
     const latest = detectLatest(chunk);
-    const printColor = print === "是" ? detectPrintColor(chunk) : "非印刷";
-    const printSide = print === "是" ? detectPrintSide(chunk) : "非印刷";
+    const printColor = prints ? detectPrintColor(printText) : "非印刷";
+    const printSide = prints ? detectPrintSide(printText) : "非印刷";
     const artworkStatus = print === "是" ? "待上传" : "非印刷";
     const handleColor = detectHandleColor(chunk);
     const note = detectNote(chunk, { handle });
@@ -128,7 +142,7 @@ function detectSize(chunk) {
 
 function detectQuantities(chunk) {
   const matches = [];
-  const colorQtyRegExp = new RegExp(`(${colorPattern})色?\\s*(\\d{1,6})(?:\\s*个)?`, "g");
+  const colorQtyRegExp = new RegExp(`(${colorPattern})色?\\s*(${orderQuantityDigitsPattern})(?:\\s*个)?`, "g");
   for (const match of chunk.matchAll(colorQtyRegExp)) {
     const before = chunk.slice(Math.max(0, match.index - 3), match.index);
     const after = chunk.slice(Number(match.index) + match[0].length);
@@ -138,7 +152,7 @@ function detectQuantities(chunk) {
 
   if (matches.length) return matches;
 
-  const qty = chunk.match(/(\d{1,6})\s*个/);
+  const qty = chunk.replace(calendarDateToken, " ").match(/(\d{1,6})\s*个/);
   return [{ color: detectColor(chunk), qty: qty ? Number(qty[1]) : 0 }];
 }
 
@@ -167,23 +181,26 @@ function detectProduct(chunk) {
 }
 
 function detectFulfillment(chunk) {
-  if (chunk.includes("快运") || chunk.includes("快递")) return "快递快运";
-  if (chunk.includes("送货") || chunk.includes("送到")) return "送货";
-  if (chunk.includes("自提") || chunk.includes("来取") || chunk.includes("拿货")) return "自提";
+  if (/快运|快递/.test(chunk)) return "快递快运";
+  if (/送货|送到/.test(chunk)) return "送货";
+  if (/自提|来取|拿货/.test(chunk)) return "自提";
   return "待确认";
 }
 
 function detectLatest(chunk) {
+  let date;
+  for (const match of chunk.matchAll(calendarDateToken)) {
+    if (orderNumberPrefix.test(chunk.slice(0, match.index))) continue;
+    if (date && date !== match[0]) return "待确认";
+    date = match[0];
+  }
+  if (date) return new Date(date).toJSON()?.startsWith(date) ? date : "待确认";
   if (chunk.includes("今天") && chunk.includes("下午")) return "今天下午";
-  if (chunk.includes("今天")) return "今天";
-  if (chunk.includes("明天")) return "明天";
-  if (chunk.includes("后天")) return "后天";
-  if (chunk.includes("周五")) return "周五";
-  return "待确认";
+  return ["今天", "明天", "后天", "周五"].find((value) => chunk.includes(value)) ?? "待确认";
 }
 
 function detectPrintColor(chunk) {
-  const compactColorPrint = chunk.match(new RegExp(`(${colorPattern})色?印(${colorPattern})色?`));
+  const compactColorPrint = chunk.match(compactInkPattern);
   if (compactColorPrint) return normalizeColor(compactColorPrint[2]);
 
   const printColorField = chunk.match(new RegExp(`印色\\s*[:：]?\\s*(${colorPattern})色?`));
@@ -199,13 +216,13 @@ function detectPrintColor(chunk) {
 }
 
 function detectBagColor(chunk) {
-  const compactColorPrint = chunk.match(new RegExp(`(${colorPattern})色?印(${colorPattern})色?`));
+  const compactColorPrint = chunk.match(compactInkPattern);
   if (compactColorPrint) return normalizeColor(compactColorPrint[1]);
 
   const explicitBlankBag = chunk.match(new RegExp(`(${colorPattern})色?\\s*空白袋`));
   if (explicitBlankBag) return normalizeColor(explicitBlankBag[1]);
 
-  const compactBagHandle = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
+  const compactBagHandle = chunk.match(compactHandlePattern);
   if (compactBagHandle) return normalizeColor(compactBagHandle[1]);
 
   const explicitBag = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
@@ -215,7 +232,7 @@ function detectBagColor(chunk) {
 }
 
 function detectHandleColor(chunk) {
-  const compactBagHandle = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
+  const compactBagHandle = chunk.match(compactHandlePattern);
   if (compactBagHandle) return normalizeColor(compactBagHandle[2]);
 
   const colorBeforeHandle = chunk.match(new RegExp(`(${colorPattern})色?\\s*(?:提手|手提|提)(?!货|醒|示)`));
@@ -239,8 +256,8 @@ function detectNote(chunk, { handle }) {
 }
 
 function detectPrintSide(chunk) {
-  if (chunk.includes("双面") || chunk.includes("两面")) return "双面";
-  if (chunk.includes("单面") || chunk.includes("一面")) return "单面";
+  if (/[双两]面/.test(chunk)) return "双面";
+  if (/[单一]面/.test(chunk)) return "单面";
   return "待确认";
 }
 

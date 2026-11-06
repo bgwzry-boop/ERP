@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { addOfficeCustomerDeliveryAddress, createOfficeCustomer, getOfficeCustomerDeliveryAddresses, getOfficeCustomerProfile, getOfficeDraft, searchOfficeCustomers } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
@@ -10,6 +10,7 @@ import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
 
 const unresolvedWrites = new Map();
+const emptyPricingInputs = JSON.stringify([{}, [], "", "", false]);
 
 const money = (value) =>
   typeof value === "number" && Number.isFinite(value)
@@ -42,13 +43,14 @@ export default function OrderPricingEntryWorkspace({
   loadDraft = getOfficeDraft,
 }) {
   const selectedId = formal.entryDraftId || "";
+  const newEntry = !selectedId && formal.entryCreationId > 0;
   const session = formal.authState?.session?.accessToken || "";
   // Keep the accepted default draft stable while editing or showing its receipt.
   // Refreshing the queue can remove a confirmed draft; it must not silently
   // remount the editor on a different draft and erase the successful result.
   const defaultDraft = useRef({ session, draft: null });
   if (defaultDraft.current.session !== session) defaultDraft.current = { session, draft: null };
-  if (!selectedId && !defaultDraft.current.draft && formal.data.orderDrafts?.[0]) {
+  if (!selectedId && !newEntry && !defaultDraft.current.draft && formal.data.orderDrafts?.[0]) {
     defaultDraft.current.draft = editableDraft(formal.data.orderDrafts[0]);
   }
   const selectionKey = `${session}:${selectedId}`;
@@ -120,8 +122,8 @@ export default function OrderPricingEntryWorkspace({
   }, [selectionKey, selectedId, session, needsRead, loadDraft, readAttempt]);
   const selected = selectedId
     ? cachedDraft || editableDraft(queued)
-    : defaultDraft.current.draft;
-  const identity = `${session}:${selectedId || draftIdentity(selected)}`;
+    : newEntry ? null : defaultDraft.current.draft;
+  const identity = `${session}:${selectedId || (newEntry ? `new-${formal.entryCreationId}` : draftIdentity(selected))}`;
   if (selectedId && !selected) {
     if (direct?.status === "error")
       return (
@@ -169,6 +171,7 @@ function OrderPricingEditor({
   const [rows, setRows] = useState(
     initial?.rows ?? selected?.lines ?? selected?.rows ?? [],
   );
+  const [savedRows, setSavedRows] = useState(initial?.savedRows ?? rows);
   const [draftId, setDraftId] = useState(
     initial?.draftId ?? draftIdentity(selected),
   );
@@ -184,6 +187,8 @@ function OrderPricingEditor({
     [reason, setReason] = useState(initial?.reason ?? ""),
     [sameBatch, setSameBatch] = useState(initial?.sameBatch ?? false),
     [affected, setAffected] = useState(initial?.affected ?? []);
+  const pricingInputs = JSON.stringify([overrides, supplementIds, batch, reason, sameBatch]);
+  const [savedPricingInputs, setSavedPricingInputs] = useState(initial?.savedPricingInputs ?? emptyPricingInputs);
   const [splitPlan, setSplitPlan] = useState(initial?.splitPlan ?? null);
   // Owner decision 2026-10-29: when stock is short the office records what this customer wants.
   const [shortageChoice, setShortageChoice] = useState(initial?.shortageChoice ?? ""),
@@ -201,7 +206,8 @@ function OrderPricingEditor({
   const mounted = useRef(false);
   const inFlight = useRef(false);
   const [pendingKind, setPendingKind] = useState(recovered?.kind ?? "");
-  const editingLocked = !!busy || complete || !!pendingKind || !!splitPlan;
+  const newOrderBlocked = Boolean(busy || pendingKind || splitPlan);
+  const editingLocked = complete || newOrderBlocked;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -262,6 +268,13 @@ function OrderPricingEditor({
   const [pickedCustomer, setPickedCustomer] = useState(
     initial?.pickedCustomer ?? null,
   );
+  const hasUnsavedChanges = !complete && Boolean(
+    draftSource !== savedSource || rows !== savedRows || pricingInputs !== savedPricingInputs
+    || (!rows.length && pickedCustomer) || shortageChoice || shortageNote.trim() || affected.length,
+  );
+  const registerOrderEntryEditor = formal.actions.registerOrderEntryEditor;
+  useLayoutEffect(() => registerOrderEntryEditor?.({ dirty: hasUnsavedChanges, blocked: newOrderBlocked }),
+    [registerOrderEntryEditor, hasUnsavedChanges, newOrderBlocked]);
   // 消息开头或结尾写的客户名字（识别回执带回）；系统里没有时提示新建。
   const [customerHint, setCustomerHint] = useState(initial?.customerHint ?? null);
   const pickCustomer = (customer) => {
@@ -297,6 +310,8 @@ function OrderPricingEditor({
         source,
         savedSource,
         rows,
+        savedRows,
+        savedPricingInputs,
         draftId,
         revision,
         quote,
@@ -392,7 +407,8 @@ function OrderPricingEditor({
           throw new Error("没有取得完整识别回执。");
         invalidate();
         // 先选了客户再识别：识别出来没写客户的明细，用选好的客户。
-        setRows(pickedCustomer?.customerId
+        setSavedRows(result.rows);
+        setRows(pickedCustomer?.customerId && result.rows.some(line => !line.customerId)
           ? result.rows.map((line) => line.customerId ? line : { ...line, customerId: pickedCustomer.customerId, customer: pickedCustomer.name, customerName: pickedCustomer.name })
           : result.rows);
         setCustomerHint(result.recognition?.customerHint?.name ? result.recognition.customerHint : null);
@@ -404,6 +420,7 @@ function OrderPricingEditor({
         setBatch("");
         setReason("");
         setSameBatch(false);
+        setSavedPricingInputs(emptyPricingInputs);
         setNotice("已识别，请核对类型、规格、颜色和交期。");
       },
     );
@@ -432,6 +449,7 @@ function OrderPricingEditor({
         setDraftId(result.draftId);
         setRevision(nextRevision);
         setSavedSource(result.draft?.sourceText ?? draftSource);
+        setSavedRows(rows);
         setNotice("草稿已保存，请生成正式报价后确认。");
       },
     );
@@ -483,6 +501,8 @@ function OrderPricingEditor({
         setQuote(result.quote);
         setRevision(result.quote.clientRevision);
         setSavedSource(draftSource);
+        setSavedRows(rows);
+        setSavedPricingInputs(pricingInputs);
         setAffected([]);
         requests.current.confirm = null;
         setNotice("正式报价已保存。请核对金额和受影响原单，再确认下单。");
@@ -639,7 +659,7 @@ function OrderPricingEditor({
           <button
             type="button"
             className="secondary-button"
-            disabled={editingLocked}
+            disabled={newOrderBlocked}
             onClick={() => onNavigate("order-pool")}
           >
             查看订单池
