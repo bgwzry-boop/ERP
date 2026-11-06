@@ -161,6 +161,11 @@ function OrderPricingEditor({
   const [source, setSource] = useState(
     initial?.source ?? selected?.sourceText ?? "",
   );
+  const [savedSource, setSavedSource] = useState(
+    initial?.savedSource ?? selected?.sourceText ?? "",
+  );
+  // An empty paste box must not erase the original on a subsequent draft write.
+  const draftSource = source.trim() ? source : savedSource;
   const [rows, setRows] = useState(
     initial?.rows ?? selected?.lines ?? selected?.rows ?? [],
   );
@@ -189,6 +194,7 @@ function OrderPricingEditor({
       recovered ? `${recovered.kind}结果待核对，请按原内容重试。` : "",
     ),
     [complete, setComplete] = useState(false);
+  const sourceInput = useRef(null);
   const splitTrigger = useRef(null);
   const requests = useRef({});
   const frozenRequest = useRef(recovered ?? null);
@@ -231,6 +237,11 @@ function OrderPricingEditor({
     setAffected([]);
     setSplitPlan(null);
     requests.current = {};
+  };
+  const updateSource = (value) => {
+    if (editingLocked || inFlight.current || frozenRequest.current) return;
+    invalidate();
+    setSource(value);
   };
   const update = (index, key, value) => {
     if (frozenRequest.current || splitPlan) return;
@@ -284,6 +295,7 @@ function OrderPricingEditor({
       uncertain: false,
       state: structuredClone({
         source,
+        savedSource,
         rows,
         draftId,
         revision,
@@ -386,6 +398,7 @@ function OrderPricingEditor({
         setCustomerHint(result.recognition?.customerHint?.name ? result.recognition.customerHint : null);
         setDraftId(draftIdentity(result.draft));
         setRevision(nextRevision);
+        setSavedSource(result.draft.sourceText ?? source);
         setOverrides({});
         setSupplementIds([]);
         setBatch("");
@@ -401,7 +414,7 @@ function OrderPricingEditor({
         draftId,
         clientRevision: revision,
         rows,
-        sourceText: source,
+        sourceText: draftSource,
         idempotencyKey: nextKey("save"),
       },
       (input) => formal.actions.saveOrderDraft(input),
@@ -418,6 +431,7 @@ function OrderPricingEditor({
         invalidate();
         setDraftId(result.draftId);
         setRevision(nextRevision);
+        setSavedSource(result.draft?.sourceText ?? draftSource);
         setNotice("草稿已保存，请生成正式报价后确认。");
       },
     );
@@ -428,7 +442,7 @@ function OrderPricingEditor({
         draftId,
         clientRevision: revision,
         rows,
-        sourceText: source,
+        sourceText: draftSource,
         idempotencyKey: nextKey("quote"),
         overrides: Object.entries(overrides)
           .filter(([, v]) => v.enabled)
@@ -468,6 +482,7 @@ function OrderPricingEditor({
           throw new Error("没有取得完整报价回执。");
         setQuote(result.quote);
         setRevision(result.quote.clientRevision);
+        setSavedSource(draftSource);
         setAffected([]);
         requests.current.confirm = null;
         setNotice("正式报价已保存。请核对金额和受影响原单，再确认下单。");
@@ -480,7 +495,7 @@ function OrderPricingEditor({
         draftId,
         clientRevision: revision,
         rows,
-        sourceText: source,
+        sourceText: draftSource,
         pricingQuoteId: quote?.quoteId,
         confirmedAffectedOrderLineIds: affected,
         shortageDecision: currentShortageDecision(),
@@ -529,7 +544,7 @@ function OrderPricingEditor({
     inFlight.current = true;
     setBusy("拆单预览");
     try {
-      const result = await formal.actions.previewOrderDraftSplit({ draftId, clientRevision: revision, rows, sourceText: source });
+      const result = await formal.actions.previewOrderDraftSplit({ draftId, clientRevision: revision, rows, sourceText: draftSource });
       if (!mounted.current) return;
       if (result.source !== "api" || result.blocked || !result.splitPlan?.planHash ||
           result.splitPlan.draftId !== draftId || result.splitPlan.revision !== revision || !Array.isArray(result.splitPlan.groups)) {
@@ -546,7 +561,7 @@ function OrderPricingEditor({
   };
   const confirmSplit = () => execute(
     "拆单确认",
-    { draftId, clientRevision: revision, rows, sourceText: source, splitPlanHash: splitPlan?.planHash,
+    { draftId, clientRevision: revision, rows, sourceText: draftSource, splitPlanHash: splitPlan?.planHash,
       pricingQuoteId: quote?.quoteId, confirmedAffectedOrderLineIds: affected,
       shortageDecision: currentShortageDecision(), idempotencyKey: nextKey("splitConfirm") },
     (input) => formal.actions.confirmOrderDraftSplit(input),
@@ -631,15 +646,28 @@ function OrderPricingEditor({
           </button>
         </header>
         <section className="pricing-source">
-          <label htmlFor="pricing-source">客户订单原文</label>
+          <div>
+            <label htmlFor="pricing-source">客户订单原文</label>
+            <button
+              type="button"
+              className="secondary-button"
+              aria-controls="pricing-source"
+              disabled={editingLocked || !source}
+              onClick={() => {
+                updateSource("");
+                sourceInput.current?.focus();
+              }}
+            >
+              清空消息
+            </button>
+          </div>
           <textarea
             id="pricing-source"
+            ref={sourceInput}
             value={source}
+            placeholder="粘贴客户消息"
             disabled={editingLocked}
-            onChange={(event) => {
-              invalidate();
-              setSource(event.target.value);
-            }}
+            onChange={(event) => updateSource(event.target.value)}
           />
           <div>
             <span>

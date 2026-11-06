@@ -235,6 +235,15 @@ try {
     ),
   );
   await page.getByLabel("第1行数量", { exact: true }).fill("5001");
+  const sourceField = page.getByLabel("客户订单原文", { exact: true });
+  const clearMessage = page.getByRole("button", { name: "清空消息", exact: true });
+  await clearMessage.click();
+  assert.equal(await sourceField.inputValue(), "");
+  assert.equal(await sourceField.evaluate((element) => element === document.activeElement), true);
+  assert.equal(await clearMessage.isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "识别客户消息", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByLabel("第1行数量", { exact: true }).inputValue(), "5001");
+  await sourceField.fill(selected.sourceText);
   await page.evaluate(() => {
     window.formal.data.orderDrafts = [];
     window.render();
@@ -250,6 +259,7 @@ try {
     .getByRole("status")
     .filter({ hasText: "没有取得完整报价回执" })
     .waitFor();
+  assert.equal(await clearMessage.isDisabled(), true);
   assert.equal(
     await page.getByLabel("第1行规格", { exact: true }).isDisabled(),
     true,
@@ -287,6 +297,8 @@ try {
       .isEnabled(),
     true,
   );
+  await clearMessage.click();
+  assert.equal(await sourceField.inputValue(), "");
   await page
     .getByLabel("第1行订单分类", { exact: true })
     .selectOption("custom_special");
@@ -379,6 +391,7 @@ try {
   assert.deepEqual(confirmAttempts[1].body, confirmAttempts[2].body);
   assert.equal(confirmAttempts[0].key, confirmAttempts[1].key);
   assert.deepEqual(confirmAttempts[0].body, confirmAttempts[1].body);
+  assert.equal(confirmAttempts[0].body.sourceText, selected.sourceText);
   assert.deepEqual(confirmAttempts[0].body.shortageDecision, {
     choice: "split_produce",
     note: "客户同意先发有的",
@@ -395,6 +408,7 @@ try {
     { headers: { authorization: `Bearer ${token}` } },
   );
   assert.ok(/已生成|已确认/u.test(detail.body.items[0].status));
+  assert.equal(detail.body.items[0].sourceText, selected.sourceText);
   // Cross-order supplementation is exercised through the actual controls and
   // the same authenticated service, including explicit prior-line review.
   const api = (path, body) =>
