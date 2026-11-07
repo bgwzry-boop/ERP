@@ -19,8 +19,10 @@ export class PageErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    console.error("[PageErrorBoundary]", this.props.scope ?? "page", error, info?.componentStack);
-    this.props.onError?.(error, info);
+    // 2026-11-07：错误编号必须一起进日志，否则用户报编号时对不上具体异常。
+    const errorRef = this.state.errorRef;
+    console.error(`[PageErrorBoundary] ${errorRef}`, this.props.scope ?? "page", error, info?.componentStack);
+    this.props.onError?.({ errorRef, error, info });
   }
 
   componentDidUpdate(previousProps) {

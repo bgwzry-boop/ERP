@@ -134,6 +134,8 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
   const boundary = read("src/shared/ui/PageErrorBoundary.jsx");
   assert.ok(!/\{message\}/u.test(boundary), "page error boundary must not render the raw exception message");
   assert.match(boundary, /errorRef/u, "page error boundary must show a reference code instead");
+  assert.match(boundary, /console\.error\(`\[PageErrorBoundary\] \$\{errorRef\}`/u,
+    "error reference must be written to the console log alongside the exception");
 }
 
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");
