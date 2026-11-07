@@ -161,4 +161,11 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
   );
 }
 
+// 2026-11-07：还没接数据源的页面不能复用"暂无业务记录"的措辞。
+{
+  const workspaces = read("docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx");
+  assert.match(workspaces, /config\.emptyDescription \?\? "有新的业务记录后，会显示在这里。"/u);
+  assert.match(workspaces, /这一页还没有接上发布状态数据源/u);
+}
+
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");
