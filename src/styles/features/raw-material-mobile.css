@@ -2318,6 +2318,28 @@
     white-space: nowrap;
   }
 
+  .raw-material-mobile-review-line-summary > .line-spec {
+    /* 常见规格 78g*90宽*1500m 约需 120px，允许换行而不是省略 */
+    min-width: 96px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 18px;
+  }
+
+  .raw-material-mobile-review-line-summary > .line-color {
+    min-width: 72px;
+  }
+
+  .raw-material-mobile-review-line-summary > .line-weight {
+    min-width: 56px;
+    white-space: nowrap;
+  }
+
+  /* 手机核对行的颜色字号：厂内色 12px、供应商票面色 14px（既有既定规范） */
+  .raw-material-mobile-review-line-summary .line-color .raw-material-factory-color { font-size: 12px; }
+  .raw-material-mobile-review-line-summary .line-color .raw-material-ticket-color { font-size: 14px; }
+
+
   .raw-material-mobile-review-line-summary .line-actions .line-confirm {
     background: var(--raw-review-green);
     color: var(--erp-mobile-field-accent-ink);
@@ -2636,27 +2658,6 @@
   .raw-material-mobile-review-line-summary > button {
     font-size: 14px;
   }
-
-  .raw-material-mobile-review-line-summary > .line-spec {
-    /* 常见规格 78g*90宽*1500m 约需 120px，允许换行而不是省略 */
-    min-width: 96px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    line-height: 18px;
-  }
-
-  .raw-material-mobile-review-line-summary > .line-color {
-    min-width: 72px;
-  }
-
-  .raw-material-mobile-review-line-summary > .line-weight {
-    min-width: 56px;
-    white-space: nowrap;
-  }
-
-  /* 手机核对行的颜色字号：厂内色 12px、供应商票面色 14px（既有既定规范） */
-  .raw-material-mobile-review-line-summary .line-color .raw-material-factory-color { font-size: 12px; }
-  .raw-material-mobile-review-line-summary .line-color .raw-material-ticket-color { font-size: 14px; }
 
   .raw-material-mobile-review-line-summary .line-status,
   .raw-material-mobile-review-line-summary .line-edit,
