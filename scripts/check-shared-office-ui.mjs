@@ -129,4 +129,14 @@ assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
 assert.equal(toFiniteNumber("12.5"), 12.5);
 assert.equal(toFiniteNumber("not-a-number"), 0);
 
+// 2026-11-07：不认识的地址必须改回真实页面，不能让 URL 和内容不一致。
+{
+  const reviewApp = read("docs/prototypes/raw-material-roll-inventory-review/src/App.jsx");
+  assert.match(
+    reviewApp,
+    /history\.replaceState\(null, "", `#\$\{activeNavId\}`\)/u,
+    "review shell must rewrite unknown hashes to the active view",
+  );
+}
+
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");

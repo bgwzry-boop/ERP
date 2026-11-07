@@ -365,6 +365,17 @@ export function App({ permissionContext = defaultPermissionContext }) {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [visibleViews, formal.orderEntryWritePending, activeNavId]);
+  // 2026-11-07：地址栏写了不认识的页面时，之前只是"不动"，于是 URL 说 A、页面显示 B。
+  // 现在把地址改回当前真实页面，地址和内容始终一致。
+  useEffect(() => {
+    if (formal.orderEntryWritePending) return undefined;
+    const hashNavId = window.location.hash.replace(/^#/, "");
+    const resolved = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
+    if (resolved && visibleViews.includes(resolved)) return undefined;
+    if (!activeNavId) return undefined;
+    window.history.replaceState(null, "", `#${activeNavId}`);
+    return undefined;
+  }, [activeNavId, visibleViews, formal.orderEntryWritePending]);
   const toggleGroup = (groupId) => {
     setExpandedGroups((current) => {
       const next = new Set(current);
