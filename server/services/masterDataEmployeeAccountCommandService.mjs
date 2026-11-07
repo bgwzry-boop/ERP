@@ -23,6 +23,7 @@ import {
 import { normalizeMasterDataMachines } from "../masterDataMachineConfigurationRepository.mjs";
 import { resolveConfiguredMasterDataMachine } from "../../shared/masterDataMachineIdentity.js";
 import { findPayrollPosition } from "../../shared/payrollPositionCatalog.js";
+import { findSensitivePermissionEscalation } from "../../shared/auth/roleCatalog.js";
 
 const employeeAssignmentModes = new Set(["fixed_machine", "general_worker", "unassigned"]);
 
@@ -652,7 +653,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     });
   }
 
-  async function enableEmployeeAccount({ workspace, employeeId, body = {}, operatorId }) {
+  async function enableEmployeeAccount({ workspace, employeeId, body = {}, operatorId, operatorPermissions }) {
     const reviewedAt = cleanText(body.reviewedAt) || now().toISOString();
     const stagedWorkspace = stageWorkspace(workspace);
     const staged = stageEmployeeAccountEnable({
@@ -660,6 +661,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       employeeId,
       body,
       operatorId,
+      operatorPermissions,
       reviewedAt,
     });
     if (staged.result) return staged.result;
@@ -751,7 +753,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     });
   }
 
-  function stageEmployeeAccountEnable({ stagedWorkspace, employeeId, body, operatorId, reviewedAt }) {
+  function stageEmployeeAccountEnable({ stagedWorkspace, employeeId, body, operatorId, operatorPermissions, reviewedAt }) {
     const context = getEmployeeContext(stagedWorkspace, employeeId);
     if (context.result) return { result: context.result };
     const { before, employeeIndex } = context;
@@ -763,9 +765,8 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       body.roleKey || existingUser?.defaultRole,
       before.roleName,
     );
-    const requestedRoleInputs = body.roleKeys === undefined
-      ? (existingUser?.roles?.length ? existingUser.roles : before.roleKeys ?? before.roleName)
-      : body.roleKeys;
+    const requestedRoleInputs = body.roleKeys ?? body.roleKey
+      ?? (existingUser?.roles?.length ? existingUser.roles : before.roleKeys ?? before.roleName);
     const invalidRoleInputs = getInvalidEmployeeAccountRoleInputs(requestedRoleInputs);
     if (invalidRoleInputs.length) {
       return {
@@ -775,6 +776,25 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
           `Unknown employee account roles: ${invalidRoleInputs.join(", ")}.`,
         ),
       };
+    }
+    // 2026-11-07：员工账号复核也是"发权限"的入口。
+    // 单数 roleKey 同样能改岗位，不再拿 roleKeys !== undefined 当开关；
+    // 一律按归一化之后的最终岗位核对。
+    {
+      const escalation = findSensitivePermissionEscalation({
+        roles: normalizeEmployeeAccountRoleKeys(requestedRoleInputs, roleKey, before.roleName),
+        operatorPermissions,
+      });
+      if (escalation.length) {
+        return {
+          result: businessError(
+            403,
+            "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED",
+            "所选岗位自带的权限超出你自身的权限范围；不能给员工开更高权限的账号。",
+            { permissionKeys: escalation },
+          ),
+        };
+      }
     }
     const roleKeys = normalizeEmployeeAccountRoleKeys(
       requestedRoleInputs,
@@ -877,9 +897,26 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     employeeId,
     body = {},
     operatorId,
+    operatorPermissions,
   }) {
     const context = getEmployeeContext(workspace, employeeId);
     if (context.result) return context.result;
+    // 2026-11-07：发临时密码等于接管账号，目标岗位权限不得高于操作者。
+    if (Array.isArray(operatorPermissions)) {
+      const targetUser = resolveEmployeeRuntimeUser(workspace, context.before);
+      const escalation = findSensitivePermissionEscalation({
+        roles: targetUser?.roles?.length ? targetUser.roles : (context.before.roleKeys ?? context.before.roleName),
+        operatorPermissions,
+      });
+      if (escalation.length) {
+        return businessError(
+          403,
+          "MASTER_DATA_EMPLOYEE_ACCOUNT_PASSWORD_ESCALATION_BLOCKED",
+          "目标账号权限高于你自己，不能发放临时密码；请由更高权限管理员处理。",
+          { permissionKeys: escalation },
+        );
+      }
+    }
     const { before, employeeIndex } = context;
     const existingUser = resolveEmployeeRuntimeUser(workspace, before);
     const effectiveBefore = buildEffectiveEmployeeAccount(before, existingUser);
