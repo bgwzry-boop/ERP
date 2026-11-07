@@ -456,6 +456,26 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
   assert.equal(batchWorkspace.employees.every((employee) => employee.accountEnabled), true);
   assert.equal(batchWorkspace.operationLogs.filter((log) => log.action === "master_data_employee_account_enabled").length, 2);
 
+  // 2026-11-07：批量启用也是发权限入口。只有 employee_account.review、
+  // 没有财务权限的操作者，不能批量启用"管理岗"员工。
+  {
+    const techBatchWorkspace = createWorkspace();
+    techBatchWorkspace.employees = techBatchWorkspace.employees.map((employee) => (
+      employee.id === "EMP-WORKER-001"
+        ? { ...employee, roleKeys: ["management"], roleName: "管理" }
+        : employee
+    ));
+    const techBatch = await service.enableEmployeeAccounts({
+      workspace: techBatchWorkspace,
+      body: { employeeIds: ["EMP-WORKER-001"], confirmed: true, reviewNote: "越权批量" },
+      operatorId: "U-TECH-1",
+      operatorPermissions: ["master_data.employee_account.review", "permission.manage"],
+    });
+    assert.equal(techBatch.statusCode, 409, JSON.stringify(techBatch));
+    assert.equal(techBatch.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_VALIDATION_FAILED");
+    assert.equal(techBatch.details.causeCode, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED");
+  }
+
   const replayedBatch = await service.enableEmployeeAccounts({
     workspace: batchWorkspace,
     body: { employeeIds: ["EMP-WORKER-001", "EMP-WORKER-002"], confirmed: true },
