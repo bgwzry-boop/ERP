@@ -662,6 +662,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(previous.status)) return businessError(409, "ORDER_DRAFT_ALREADY_CONFIRMED", "本草稿已生成正式订单，请在订单池核对，不能再次下单。");
+    // 2026-11-07：确认只能确认"已经保存并核过的那份草稿"。
+    // 这些字段不参与报价摘要，以前可以从请求体直接改掉、绕过保存直接进正式订单。
+    const unsavedConfirmChanges = findUnsavedConfirmFieldChanges(lines, previous.lines ?? []);
+    if (unsavedConfirmChanges.length) {
+      return {
+        ...businessError(409, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED",
+          "草稿里有未保存的改动（印刷方式、色数、来料卷数、备注、要求时间或交付方式），请先保存草稿并重新报价再确认。"),
+        details: { lines: unsavedConfirmChanges },
+      };
+    }
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
     if (["mini_program","wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) {
       return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
@@ -952,6 +962,15 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(previous.status)) return businessError(409, "ORDER_DRAFT_ALREADY_CONFIRMED", "本草稿已生成正式订单，请在订单池核对，不能再次下单。");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) {
       return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "The draft changed before split confirmation.");
+    }
+    // 拆单确认与整单确认同一把尺子：请求体不能改写已保存的、不参与报价摘要的字段。
+    const splitUnsavedChanges = findUnsavedConfirmFieldChanges(lines, previous.lines ?? []);
+    if (splitUnsavedChanges.length) {
+      return {
+        ...businessError(409, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED",
+          "草稿里有未保存的改动（印刷方式、色数、来料卷数、备注、要求时间或交付方式），请先保存草稿并重新报价再拆单确认。"),
+        details: { lines: splitUnsavedChanges },
+      };
     }
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
     if (["mini_program","wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) {
@@ -1829,6 +1848,60 @@ const SHORTAGE_DECISION_LABELS = Object.freeze({
 
 function cleanCommandText(value) {
   return String(value ?? "").trim();
+}
+
+
+const confirmGuardedLineFields = Object.freeze([
+  ["printMethod", "印刷方式"],
+  ["printColorCount", "印刷色数"],
+  ["incomingRollCount", "来料卷数"],
+  ["note", "备注"],
+  ["latest", "要求时间"],
+  ["fulfillment", "交付方式"],
+]);
+
+const BUSINESS_TIME_ZONE_OFFSET_MS = 8 * 3600000;
+
+function confirmFieldText(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
+
+function businessDateOf(text) {
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) return "";
+  return new Date(parsed + BUSINESS_TIME_ZONE_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// 2026-11-07：日期不能一律当字符串比。
+// 只有年月日的按业务日期；含时分的按统一时区；两者混写时按业务日期对齐。
+function sameConfirmFieldValue(key, left, right) {
+  const a = confirmFieldText(left);
+  const b = confirmFieldText(right);
+  if (a === b) return true;
+  if (key !== "latest" || !a || !b) return false;
+  const dateOnly = (text) => /^\d{4}-\d{2}-\d{2}$/u.test(text);
+  if (dateOnly(a) && dateOnly(b)) return a === b;
+  const leftDate = dateOnly(a) ? a : businessDateOf(a);
+  const rightDate = dateOnly(b) ? b : businessDateOf(b);
+  if (!leftDate || !rightDate) return false;
+  if (dateOnly(a) || dateOnly(b)) return leftDate === rightDate;
+  return Date.parse(a) === Date.parse(b);
+}
+
+function findUnsavedConfirmFieldChanges(lines, savedLines) {
+  const byId = new Map((savedLines ?? []).map((line) => [String(line.id ?? ""), line]));
+  const changes = [];
+  for (const line of lines ?? []) {
+    const saved = byId.get(String(line.id ?? ""));
+    if (!saved) continue;
+    // 只拦"把草稿里已保存的值改掉"。草稿本来就没填的字段由请求补上不算绕过。
+    const fields = confirmGuardedLineFields
+      .filter(([key]) => !sameConfirmFieldValue(key, line[key], saved[key]))
+      .map(([key, label]) => ({ field: key, label }));
+    if (fields.length) changes.push({ draftLineId: line.id, fields });
+  }
+  return changes;
 }
 
 function repositoryCommandError(error) {
