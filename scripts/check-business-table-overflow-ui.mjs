@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
@@ -52,9 +53,11 @@ window.renderFixture = (navId, items) => {
 };
 `;
 const bundle = await build({
-  absWorkingDir: new URL("../", import.meta.url).pathname,
-  stdin: { contents: entry, resolveDir: new URL("../", import.meta.url).pathname, loader: "jsx", sourcefile: "overflow-fixture.jsx" },
+  absWorkingDir: fileURLToPath(root),
+  stdin: { contents: entry, resolveDir: fileURLToPath(root), loader: "jsx", sourcefile: "overflow-fixture.jsx" },
   bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
+  // 根项目与预览项目可能分别安装依赖；组件和夹具渲染器必须使用同一份 React。
+  alias: { react: fileURLToPath(new URL("node_modules/react", root)), "react-dom": fileURLToPath(new URL("node_modules/react-dom", root)) },
   define: { "import.meta.env": "{}" }, loader: { ".css": "empty" },
 });
 
@@ -69,13 +72,16 @@ try {
       const errors = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await page.route("**/*", (route) => route.abort());
-      await page.setContent(`<style>${cssText}</style><div class="app-shell"><main class="page business-page"><div id="root"></div></main></div>`);
+      // 与完整评审页使用相同的网格槽位和高度约束；React 挂载节点不能把表格撑出面板。
+      await page.setContent(`<style>${cssText}</style><div class="app-shell"><aside class="sidebar"></aside><header class="topbar"></header><main class="page business-page"><div id="root" style="display:contents"></div></main></div>`);
       await page.addScriptTag({ content: bundle.outputFiles[0].text });
       await page.evaluate(({ navId, items }) => window.renderFixture(navId, items), {
         navId: target.navId,
         items: stock(target.category, 30),
       });
-      await page.waitForSelector("button.finished-inventory-row", { timeout: 15000 });
+      await page.waitForSelector("button.finished-inventory-row", { timeout: 15000 }).catch((error) => {
+        throw new Error(`真实库存组件未显示：${errors.join("; ") || error.message}`, { cause: error });
+      });
 
       const rows = await page.locator("button.finished-inventory-row").count();
       assert.equal(rows, 30, `${target.category} 应有 30 行，实际 ${rows}（夹具必须确定性，不依赖线上数据）`);
@@ -90,64 +96,76 @@ try {
         assert.equal(shape.empty, 0, "明细行每一格都必须有内容");
       }
 
-      // 图例四项：标签 + 精确数值 + 可见
-      const legend = await page.evaluate(() => [...document.querySelectorAll(".finished-inventory-row:not(.head) .inventory-allocation-legend > *")].slice(0, 4).map((item) => {
-        const match = item.textContent.replace(/\s+/g, " ").trim().match(/^(可用|占用|锁定|待处理)\s*([\d,]+)/u);
-        const box = item.getBoundingClientRect();
-        return {
-          label: match?.[1] ?? "",
-          value: Number((match?.[2] ?? "").replace(/,/gu, "")),
-          visible: box.width > 0 && box.height > 0,
-        };
-      }));
-      assert.equal(legend.length, 4, `${target.category} 图例应有 4 项，实际 ${JSON.stringify(legend)}`);
-      for (const expected of expectedLegend) {
-        const actual = legend.find((item) => item.label === expected.label);
-        assert.ok(actual, `${target.category} 图例缺少「${expected.label}」: ${JSON.stringify(legend)}`);
-        assert.equal(actual.value, expected.value, `${target.category}「${expected.label}」数值错误`);
-        assert.equal(actual.visible, true, `${target.category}「${expected.label}」不可见`);
-      }
-
-      // 横向滚动到每列，单元格不得被任何祖先裁切，表头与表体对齐
-      for (let column = 0; column < 6; column += 1) {
-        const result = await page.evaluate((col) => {
-          const scroller = document.querySelector(".finished-goods-table-scroll");
-          const head = document.querySelector(".finished-goods-table .finished-inventory-row.head");
-          const row = document.querySelector("button.finished-inventory-row");
-          const headCell = head.children[col];
-          const cell = row.children[col];
-          scroller.scrollLeft = Math.max(0, Math.round(cell.offsetLeft + cell.offsetWidth - scroller.clientWidth + 4));
-          const rect = cell.getBoundingClientRect();
-          let clippedBy = null;
-          for (let node = cell.parentElement; node; node = node.parentElement) {
-            const style = getComputedStyle(node);
-            const box = node.getBoundingClientRect();
-            if (rect.right > box.right + 1 && (style.overflowX === "hidden" || style.overflow === "hidden")) { clippedBy = node.className || node.tagName; break; }
-            if (rect.right > window.innerWidth + 1) { clippedBy = "viewport"; break; }
-          }
-          return { clippedBy, headerLeft: Math.round(headCell.getBoundingClientRect().left), cellLeft: Math.round(rect.left) };
-        }, column);
-        assert.equal(result.clippedBy, null, `${target.category} ${width} 第 ${column} 列被 ${result.clippedBy} 裁切`);
-        assert.equal(result.headerLeft, result.cellLeft, `${target.category} ${width} 第 ${column} 列滚动后表头与表体未对齐`);
-      }
-
-      // 首行与末行：表头必须始终固定可见，纵向滚动只发生在表体
       const headerBefore = await page.locator(".finished-inventory-row.head").boundingBox();
-      await page.evaluate(() => {
-        const body = document.querySelector(".finished-goods-table .business-table-body");
-        body.scrollTop = body.scrollHeight;
-      });
-      await page.waitForTimeout(200);
-      const headerAfter = await page.locator(".finished-inventory-row.head").boundingBox();
-      assert.ok(headerAfter, `${target.category} 末行滚动后表头消失`);
-      assert.ok(Math.abs(headerAfter.y - headerBefore.y) <= 1, `${target.category} 表头必须固定，不允许随长列表滚走`);
-      const lastRowVisible = await page.evaluate(() => {
-        const rowsEl = [...document.querySelectorAll("button.finished-inventory-row")];
-        const last = rowsEl.at(-1).getBoundingClientRect();
-        const body = document.querySelector(".finished-goods-table .business-table-body").getBoundingClientRect();
-        return last.bottom <= body.bottom + 2 && last.top >= body.top - 2;
-      });
-      assert.equal(lastRowVisible, true, `${target.category} 滚到底部后最后一行必须可见`);
+      assert.ok(headerBefore, "夹具必须渲染真实表头");
+      // 首行和末行都检查六列；先实际滚入可视区，再测量所有裁切祖先和浏览器视口。
+      for (const rowIndex of [0, 29]) for (let column = 0; column < 6; column += 1) {
+        const result = await page.evaluate(({ rowIndex, column }) => {
+          const head = document.querySelector(".finished-goods-table .finished-inventory-row.head");
+          const row = document.querySelectorAll("button.finished-inventory-row")[rowIndex];
+          const body = document.querySelector(".finished-goods-table .business-table-body");
+          const headCell = head.children[column];
+          const cell = row.children[column];
+          row.scrollIntoView({ block: "nearest", inline: "nearest" });
+          cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+          const clippedBy = (element, horizontal = true) => {
+            const rect = element.getBoundingClientRect();
+            const clipped = [];
+            if (rect.width <= 0 || rect.height <= 0) clipped.push("empty box");
+            for (let node = element.parentElement; node; node = node.parentElement) {
+              const style = getComputedStyle(node);
+              const box = node.getBoundingClientRect();
+              const left = box.left + node.clientLeft;
+              const top = box.top + node.clientTop;
+              const clipsX = ["hidden", "clip", "auto", "scroll"].includes(style.overflowX);
+              const clipsY = ["hidden", "clip", "auto", "scroll"].includes(style.overflowY);
+              if ((horizontal && clipsX && (rect.left < left - 1 || rect.right > left + node.clientWidth + 1))
+                || (clipsY && (rect.top < top - 1 || rect.bottom > top + node.clientHeight + 1))) {
+                clipped.push(node.className || node.tagName);
+              }
+            }
+            if ((horizontal && (rect.left < -1 || rect.right > innerWidth + 1)) || rect.top < -1 || rect.bottom > innerHeight + 1) clipped.push("viewport");
+            return clipped;
+          };
+          const rect = cell.getBoundingClientRect();
+          const headerRect = headCell.getBoundingClientRect();
+          const hiddenScroll = [...row.closest(".business-list-panel").querySelectorAll("*")].filter((node) => {
+            const style = getComputedStyle(node);
+            return (node.scrollLeft && ["hidden", "clip"].includes(style.overflowX)) || (node.scrollTop && ["hidden", "clip"].includes(style.overflowY));
+          }).map((node) => node.className || node.tagName);
+          const legend = [...cell.querySelectorAll(".inventory-allocation-legend > *")].map((item) => {
+            const match = item.textContent.replace(/\s+/g, " ").trim().match(/^(可用|占用|锁定|待处理)\s*([\d,]+)/u);
+            return { label: match?.[1] ?? "", value: Number((match?.[2] ?? "").replace(/,/gu, "")), clippedBy: clippedBy(item) };
+          });
+          return {
+            cellClip: clippedBy(cell), headerCellClip: clippedBy(headCell),
+            rowClip: clippedBy(row, false), headerClip: clippedBy(head, false),
+            leftDelta: rect.left - headerRect.left, rightDelta: rect.right - headerRect.right,
+            headerTop: head.getBoundingClientRect().top, hiddenScroll, legend,
+            bodyScrollTop: body.scrollTop, bodyClientHeight: body.clientHeight, bodyScrollHeight: body.scrollHeight,
+          };
+        }, { rowIndex, column });
+        const context = `${target.category} ${width} 第 ${rowIndex + 1} 行第 ${column + 1} 列`;
+        assert.deepEqual(result.cellClip, [], `${context} 单元格被裁切`);
+        assert.deepEqual(result.rowClip, [], `${context} 行未完整进入纵向可视区`);
+        assert.deepEqual(result.headerClip, [], `${context} 表头离开可视区`);
+        assert.deepEqual(result.headerCellClip, [], `${context} 表头列被裁切`);
+        assert.deepEqual(result.hiddenScroll, [], `${context} 不得靠程序滚动隐藏容器制造假可见`);
+        assert.ok(Math.abs(result.leftDelta) <= 1 && Math.abs(result.rightDelta) <= 1, `${context} 表头与表体左右边界未对齐`);
+        assert.ok(Math.abs(result.headerTop - headerBefore.y) <= 1, `${context} 表头必须固定`);
+        if (column === 5) {
+          assert.equal(result.legend.length, 4, `${context} 图例必须有四项`);
+          for (const expected of expectedLegend) {
+            const actual = result.legend.find((item) => item.label === expected.label);
+            assert.ok(actual, `${context} 图例缺少「${expected.label}」`);
+            assert.equal(actual.value, expected.value, `${context}「${expected.label}」数值错误`);
+            assert.deepEqual(actual.clippedBy, [], `${context}「${expected.label}」被裁切`);
+          }
+        }
+        if (rowIndex === 29) {
+          assert.ok(result.bodyScrollHeight > result.bodyClientHeight && result.bodyScrollTop > 0, `${context} 必须真实触发表体纵向滚动，不能用撑高表体通过验收`);
+        }
+      }
       assert.deepEqual(errors, [], `不得有页面错误: ${JSON.stringify(errors)}`);
       await page.close();
       console.log(`ok ${target.category} ${width}: 30 行 / 6 格 / 图例四项精确 / 表头固定`);
