@@ -78,6 +78,25 @@ const escalation = await service.updateSubaccount({
 });
 assert.equal(escalation.code, "SUBACCOUNT_PERMISSION_ESCALATION_BLOCKED");
 
+// 2026-11-07 授权矩阵：改岗位（不只是加权限）同样不能越权。
+const roleEscalationOnUpdate = await service.updateSubaccount({
+  workspace,
+  userId: created.response.subaccount.userId,
+  operatorId: "U-TECH-A",
+  operatorPermissions: ["permission.manage"],
+  body: {
+    displayName: "库房李师傅",
+    employeeId: "EMP-001",
+    roleKeys: ["management"],
+    expectedRevision: 1,
+    reason: "改造岗位越权",
+  },
+});
+assert.equal(roleEscalationOnUpdate.statusCode, 403);
+assert.equal(roleEscalationOnUpdate.code, "SUBACCOUNT_ROLE_ESCALATION_BLOCKED");
+
+
+
 const updated = await service.updateSubaccount({
   workspace,
   userId: created.response.subaccount.userId,
@@ -207,5 +226,19 @@ const allowedReset = await service.issueTemporaryPassword({
   body: { reason: "同级账号重置" },
 });
 assert.equal(allowedReset.statusCode === 403, false, JSON.stringify(allowedReset));
+
+// 正面对照：技术运维开一个打包岗账号应当成功（岗位权限不超出他本人）。
+const lowRoleCreate = await service.createSubaccount({
+  workspace,
+  operatorId: "U-TECH-A",
+  operatorPermissions: ["permission.manage"],
+  body: {
+    displayName: "打包临时账号",
+    loginName: "tech.packing",
+    roleKeys: ["packing"],
+    reason: "正面对照",
+  },
+});
+assert.equal(lowRoleCreate.statusCode, 201, JSON.stringify(lowRoleCreate));
 
 console.log("master-data subaccount command service checks passed");
