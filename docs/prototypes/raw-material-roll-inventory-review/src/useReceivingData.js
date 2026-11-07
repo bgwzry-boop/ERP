@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getOfficeRawMaterialInbound, listOfficeRawMaterialInbounds } from "../../../../src/services/officeRawMaterialApiClient.js";
 import { createReadGenerationGuard } from "./read-complete-collection.js";
 import { UNLOADED_READ, beginRead, finishRead, invalidateRead, normalizeReceiptQuery, validateReceiptPage } from "./formal-workspace-read-state.js";
+import { inboundReviewGuard } from "./inboundReviewGuard.js";
 
 const options = Object.freeze({ serverRequired: true });
 const queryKey = query => JSON.stringify(query);
@@ -124,6 +125,9 @@ export function useReceivingData({ authState, active, operatorId }) {
   }, []);
   const selectReceipt = useCallback(id => {
     const next = String(id || "");
+    if (!inboundReviewGuard.shouldSwitch({ nextId: next, currentId: selectionRef.current })) {
+      return Promise.resolve({ source: "blocked_by_unsaved_review" });
+    }
     selectionRef.current = next;
     setSelectedId(next);
     return next ? readDetail(next) : Promise.resolve({ source: "api" });
