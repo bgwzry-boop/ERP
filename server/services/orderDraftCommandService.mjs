@@ -1902,12 +1902,6 @@ function buildQueueScope(body = {}) {
   return `QB-${createHash("sha256").update(seed).digest("hex").slice(0, 12).toUpperCase()}`;
 }
 
-function ownDraftLineId(candidate, draftId) {
-  const id = cleanCommandText(candidate);
-  const scope = cleanCommandText(draftId);
-  if (!id || !scope) return "";
-  return id.includes(scope) ? id : "";
-}
 
 
 // 只为"确实没有编号"的新行分配编号，且绝不占用已有/显式编号。

@@ -201,7 +201,6 @@ export async function checkOfficePricing() {
     ...first,
     id: "D-PRICE-02",
     draftLineId: "D-PRICE-02",
-    draftLineId: "D-PRICE-02",
     color: "白色",
     bagColor: "白色",
   });
@@ -362,7 +361,7 @@ export async function checkOfficePricing() {
       clientRevision: 1,
       recognitionContext: null,
       lines: [
-        { ...first, id: "EXPLICIT-NEW-SUP", draftLineId: "EXPLICIT-NEW-SUP", draftLineId: "EXPLICIT-NEW-SUP" },
+        { ...first, id: "EXPLICIT-NEW-SUP", draftLineId: "EXPLICIT-NEW-SUP" },
       ],
     },
   ];
@@ -415,7 +414,7 @@ export async function checkOfficePricing() {
       revision: 1,
       clientRevision: 1,
       recognitionContext: null,
-      lines: [{ ...first, id: "D-SUP-1", draftLineId: "D-SUP-1", draftLineId: "D-SUP-1" }],
+      lines: [{ ...first, id: "D-SUP-1", draftLineId: "D-SUP-1" }],
     },
   ];
   const sup = {
