@@ -329,7 +329,8 @@
     "stock-pickup-desktop:check": "node scripts/check-stock-pickup-desktop.mjs",
     "order-entry-recognition-feedback:check": "node scripts/check-order-entry-recognition-feedback-ui.mjs",
     "single-packing:check": "node scripts/check-single-packing-workbench-ui.mjs",
-    "receiving:ui-hardening:check": "node scripts/check-raw-material-inbound-review-consistency.mjs && node scripts/check-office-raw-material-inbound-flow.mjs && node scripts/check-receiving-queue-state.mjs && node scripts/check-receiving-draft-revision-ui.mjs && node scripts/check-receiving-print-cancel-and-footer-ui.mjs"
+    "receiving:ui-hardening:check": "node scripts/check-raw-material-inbound-review-consistency.mjs && node scripts/check-office-raw-material-inbound-flow.mjs && node scripts/check-receiving-queue-state.mjs && node scripts/check-receiving-draft-revision-ui.mjs && node scripts/check-receiving-print-cancel-and-footer-ui.mjs",
+    "mobile-draft-exit-dialog:check": "node scripts/check-mobile-draft-exit-dialog-ui.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",

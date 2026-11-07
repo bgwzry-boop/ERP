@@ -722,7 +722,7 @@ function SupplierReturnMaterialCategory({ onChange, value = "" }) {
   );
 }
 
-function DraftExitDecision({
+export function DraftExitDecision({
   discardDisabled = false,
   discardDisabledReason = "",
   discarding = false,
@@ -731,38 +731,52 @@ function DraftExitDecision({
   onDiscard,
   onKeep,
 }) {
-  // 2026-11-07：复用确认框的焦点模式——打开聚焦安全项、Tab 循环、Esc 关闭并还原焦点。
+  // 2026-11-07：复用确认框焦点模式——打开聚焦「继续核对」(安全项)，
+  // Tab 始终留在弹窗内，Esc 在提交中(discarding)时必须失效，避免绕过作废请求的禁用保护。
   const sectionRef = useRef(null);
+  const continueRef = useRef(null);
   const restoreFocusRef = useRef(null);
   useEffect(() => {
     restoreFocusRef.current = globalThis.document?.activeElement ?? null;
-    const first = sectionRef.current?.querySelector("button:not(:disabled)");
-    first?.focus();
+    if (continueRef.current && !continueRef.current.disabled) continueRef.current.focus();
+    else sectionRef.current?.focus();
     return () => {
       const previous = restoreFocusRef.current;
       restoreFocusRef.current = null;
       if (previous && typeof previous.focus === "function") previous.focus();
     };
   }, []);
+  useEffect(() => {
+    const onKeyDown = (event) => handleKeyDown(event);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  });
   const handleKeyDown = (event) => {
+    if (!sectionRef.current) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      // 放弃请求已发出（或草稿被禁用）时不允许关闭，保持与按钮禁用一致的等待语义。
+      if (discarding || discardDisabled) return;
       onContinue?.();
       return;
     }
     if (event.key !== "Tab") return;
     const focusables = [...(sectionRef.current?.querySelectorAll("button:not(:disabled)") ?? [])];
-    if (!focusables.length) return;
-    const index = focusables.indexOf(globalThis.document?.activeElement);
     event.preventDefault();
+    if (!focusables.length) {
+      // 全部按钮禁用时，焦点留在弹窗容器，绝不跑到背景页面
+      sectionRef.current?.focus();
+      return;
+    }
+    const index = focusables.indexOf(globalThis.document?.activeElement);
     const nextIndex = event.shiftKey
       ? (index <= 0 ? focusables.length - 1 : index - 1)
       : (index + 1) % focusables.length;
     focusables[nextIndex]?.focus();
   };
   return (
-    <div className="raw-material-mobile-exclusion-backdrop raw-material-mobile-draft-exit-backdrop" role="dialog" aria-modal="true" onKeyDown={handleKeyDown} aria-labelledby="raw-material-draft-exit-title">
-      <section ref={sectionRef}>
+    <div className="raw-material-mobile-exclusion-backdrop raw-material-mobile-draft-exit-backdrop" role="dialog" aria-modal="true" aria-labelledby="raw-material-draft-exit-title">
+      <section ref={sectionRef} tabIndex={-1}>
         <h2 id="raw-material-draft-exit-title">要换一张单据吗？</h2>
         <p>当前识别结果还没核对。若颜色或明细识别不对，放弃后它不会再出现在正常入库列表。</p>
         <small>原图和作废记录仍保留用于审计；不会形成库存、应付或供应商对账。</small>
@@ -775,7 +789,7 @@ function DraftExitDecision({
             title={discardDisabled ? discardDisabledReason : "放弃当前识别草稿并返回拍单首页"}
             type="button"
           >{discarding ? "正在放弃…" : "放弃这张，重新拍"}</button>
-          <button disabled={discarding} onClick={onContinue} type="button">继续核对</button>
+          <button disabled={discarding} onClick={onContinue} ref={continueRef} type="button">继续核对</button>
           <button className="keep" disabled={discarding} onClick={onKeep} type="button">保留草稿，返回首页</button>
         </div>
       </section>
