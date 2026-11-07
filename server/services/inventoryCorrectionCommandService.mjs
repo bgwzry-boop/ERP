@@ -265,9 +265,26 @@ export function createInventoryCorrectionCommandService({
       const closedTodo = openTodo
         ? { ...openTodo, status: "已处理", handled: true, handledBy: operatorId, handledAt: timestamp, handlingResult: reason, updatedAt: timestamp }
         : null;
+      // 2026-11-07：驳回也要落一条待办事件，供同进程与冷读看到。
+      const todoEvent = closedTodo
+        ? buildTodoEvent({
+          operationLog,
+          todoId: closedTodo.id,
+          eventType: "todo_source:inventory_correction_rejected",
+          eventPayload: {
+            correctionDraftId,
+            inventoryItemId: beforeDraft.inventoryItemId,
+            todo: closedTodo,
+            reason,
+          },
+          operatorId,
+          timestamp,
+        })
+        : null;
       return workspace.inventoryCorrectionTransactionRepository.rejectCorrectionDraft({
         workspace,
         correctionDraft: nextDraft,
+        todoEvent,
         // 条件用"旧版本"，写回用"新版本"；两者不能混。
         expectedDraftRevision: Number(beforeDraft.revision ?? 1),
         todo: closedTodo,
