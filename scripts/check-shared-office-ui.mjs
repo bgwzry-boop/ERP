@@ -1,3 +1,4 @@
+import { createInboundReviewGuard } from "../docs/prototypes/raw-material-roll-inventory-review/src/inboundReviewGuard.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { toFiniteNumber } from "../src/features/orders/entryPageModel.js";
@@ -128,5 +129,21 @@ assert.match(entrySource, /const currentStep =/);
 assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
 assert.equal(toFiniteNumber("12.5"), 12.5);
 assert.equal(toFiniteNumber("not-a-number"), 0);
+
+// 2026-11-07：收货核对切单据前必须拦住未保存修改。
+{
+  const guard = createInboundReviewGuard();
+  guard.register(() => true);
+  assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => false }), false, "dirty review must block switching when cancel is chosen");
+  assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => true }), true, "confirming discards must allow switching");
+  assert.equal(guard.shouldSwitch({ nextId: "A", currentId: "A", confirm: () => false }), true, "same receipt never prompts");
+  guard.register(() => false);
+  assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => false }), true, "clean review switches freely");
+
+  const receivingData = read("docs/prototypes/raw-material-roll-inventory-review/src/useReceivingData.js");
+  assert.match(receivingData, /inboundReviewGuard\.shouldSwitch/u, "receipt selection must consult the review guard");
+  const receivingWorkspace = read("docs/prototypes/raw-material-roll-inventory-review/src/FormalReceivingWorkspace.jsx");
+  assert.match(receivingWorkspace, /inboundReviewGuard\.register/u, "receiving workspace must register its dirty provider");
+}
 
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");
