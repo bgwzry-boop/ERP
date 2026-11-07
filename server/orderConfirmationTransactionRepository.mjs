@@ -348,7 +348,10 @@ locked_temporary_holds AS MATERIALIZED (
   FOR UPDATE OF reservation
 ),
 locked_inventory_items AS MATERIALIZED (
-  SELECT item.id, item.on_hand_qty, item.reserved_qty, delta.reserved_qty AS requested_qty
+  SELECT item.id, item.on_hand_qty, item.reserved_qty,
+    COALESCE(item.waiting_pickup_locked_qty, 0) AS waiting_pickup_locked_qty,
+    COALESCE(item.pending_handling_qty, 0) AS pending_handling_qty,
+    delta.reserved_qty AS requested_qty
   FROM inventory_items AS item
   JOIN inventory_deltas AS delta ON delta.inventory_item_id = item.id
   ORDER BY item.id
@@ -360,7 +363,8 @@ inventory_write_guard AS MATERIALIZED (
       AND NOT EXISTS (
         SELECT 1
         FROM locked_inventory_items
-        WHERE on_hand_qty - reserved_qty < requested_qty
+        -- 与库存意向/页面可用量同一口径：待提货锁定和待处理量都不是可用库存。
+        WHERE on_hand_qty - reserved_qty - waiting_pickup_locked_qty - pending_handling_qty < requested_qty
       ),
     'ERP_INVENTORY_CONCURRENCY_CONFLICT'
   ) AS inventory_ok,
