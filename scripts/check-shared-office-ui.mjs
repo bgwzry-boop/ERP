@@ -1,3 +1,4 @@
+import { createInboundReviewGuard } from "../docs/prototypes/raw-material-roll-inventory-review/src/inboundReviewGuard.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { toFiniteNumber } from "../src/features/orders/entryPageModel.js";
@@ -166,6 +167,46 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
   const workspaces = read("docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx");
   assert.match(workspaces, /config\.emptyDescription \?\? "有新的业务记录后，会显示在这里。"/u);
   assert.match(workspaces, /这一页还没有接上发布状态数据源/u);
+}
+
+{
+  const guard = createInboundReviewGuard();
+  const releaseDirty = guard.register(() => true);
+  const releaseClean = guard.register(() => false);
+  assert.equal(guard.isDirty(), true, "any dirty provider makes the guard dirty");
+  assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => false }), false, "dirty review must block switching when cancel is chosen");
+  assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => true }), true, "confirming discards must allow switching");
+  assert.equal(guard.shouldSwitch({ nextId: "A", currentId: "A", confirm: () => false }), true, "same receipt never prompts");
+  releaseDirty();
+  assert.equal(guard.isDirty(), false, "removing the dirty provider must restore a clean state (no singleton stomping)");
+  const releaseBroken = guard.register(() => { throw new Error("provider failed"); });
+  assert.equal(guard.isDirty(), true, "a failing provider must fail closed, not silently allow switching");
+  releaseBroken();
+  releaseClean();
+  assert.equal(guard.isDirty(), false);
+
+  const receivingData = read("docs/prototypes/raw-material-roll-inventory-review/src/useReceivingData.js");
+  // 两个实例的守卫必须互不影响（脏 A + 干净 B）。
+  {
+    const guardA = createInboundReviewGuard();
+    const guardB = createInboundReviewGuard();
+    const releaseA = guardA.register(() => true);
+    const releaseB = guardB.register(() => false);
+    assert.equal(guardA.isDirty(), true, "A 脏");
+    assert.equal(guardB.isDirty(), false, "B 干净");
+    assert.equal(guardB.shouldSwitch({ nextId: "N2", currentId: "B1", confirm: () => false }), true, "B 切换不得被 A 的脏状态拦住");
+    assert.equal(guardA.shouldSwitch({ nextId: "N1", currentId: "A1", confirm: () => false }), false, "A 自己切换仍要被拦");
+    releaseB();
+    assert.equal(guardB.isDirty(), false, "卸载 B 不能影响 A");
+    assert.equal(guardA.isDirty(), true, "卸载 B 后 A 仍然脏");
+    releaseA();
+    assert.equal(guardA.isDirty(), false);
+  }
+  assert.match(receivingData, /reviewGuard\.shouldSwitch/u, "receipt selection must consult its own review guard");
+  assert.match(receivingData, /createInboundReviewGuard\(\)/u, "each receiving data instance owns its guard");
+  assert.ok(!/import \{ inboundReviewGuard \}/u.test(receivingData), "no global singleton import in receiving data");
+  const receivingWorkspace = read("docs/prototypes/raw-material-roll-inventory-review/src/FormalReceivingWorkspace.jsx");
+  assert.match(receivingWorkspace, /formal\.receiving\?\.reviewGuard\?\.register/u, "receiving workspace must register on the instance guard");
 }
 
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");

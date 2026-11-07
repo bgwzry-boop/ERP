@@ -18,6 +18,23 @@ import { confirmInApp } from "../../shared/ui/confirmDialog.js";
 import { createRawMaterialLabelPrintFrame, isRawMaterialLabelPrintFrame, printRawMaterialLabelFrame } from "./runRawMaterialLabelPrint.js";
 
 
+
+// 2026-11-07：切单据前要知道核对区有没有没保存的改动。
+// 基准值就是 prepareOcrReviewDraft 会写回去的那份服务端原值。
+export function inboundReviewBaseline(inbound) {
+  return {
+    fields: Object.fromEntries((inbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value ?? field.recognizedValue ?? ""])),
+    lines: Object.fromEntries((inbound?.ocrLines ?? []).map((line) => [line.lineId, buildOcrLineReviewDraft(line, inbound.documentDirection)])),
+  };
+}
+
+export function isInboundReviewDirty({ fieldDraft, lineDraft, inbound } = {}) {
+  if (!inbound?.id) return false;
+  const baseline = inboundReviewBaseline(inbound);
+  return JSON.stringify(fieldDraft ?? {}) !== JSON.stringify(baseline.fields)
+    || JSON.stringify(lineDraft ?? {}) !== JSON.stringify(baseline.lines);
+}
+
 export function useInboundPageState({
   authState,
   currentUser,
@@ -700,6 +717,7 @@ export function useInboundPageState({
   }
 
   return {
+    isInboundReviewDirty: () => isInboundReviewDirty({ fieldDraft: ocrReviewDraft, lineDraft: ocrLineReviewDraft, inbound: selected }),
     authState,
     currentUser,
     onAction,

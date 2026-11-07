@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getOfficeRawMaterialInbound, listOfficeRawMaterialInbounds } from "../../../../src/services/officeRawMaterialApiClient.js";
 import { createReadGenerationGuard } from "./read-complete-collection.js";
 import { UNLOADED_READ, beginRead, finishRead, invalidateRead, normalizeReceiptQuery, validateReceiptPage } from "./formal-workspace-read-state.js";
+import { createInboundReviewGuard } from "./inboundReviewGuard.js";
 
 const options = Object.freeze({ serverRequired: true });
 const queryKey = query => JSON.stringify(query);
@@ -122,8 +123,15 @@ export function useReceivingData({ authState, active, operatorId }) {
     queryRef.current = next;
     setQuery(next);
   }, []);
+  // 每个数据实例一个守卫：脏判定只属于自己这套收货工作区。
+  const reviewGuardRef = useRef(null);
+  if (!reviewGuardRef.current) reviewGuardRef.current = createInboundReviewGuard();
+  const reviewGuard = reviewGuardRef.current;
   const selectReceipt = useCallback(id => {
     const next = String(id || "");
+    if (!reviewGuard.shouldSwitch({ nextId: next, currentId: selectionRef.current })) {
+      return Promise.resolve({ source: "blocked_by_unsaved_review" });
+    }
     selectionRef.current = next;
     setSelectedId(next);
     return next ? readDetail(next) : Promise.resolve({ source: "api" });
@@ -187,8 +195,12 @@ export function useReceivingData({ authState, active, operatorId }) {
     receiving: { ...pageState, ...query, query, items: matchesQuery ? pageState.items : [],
       total: matchesQuery ? pageState.total : null, stageCounts: matchesQuery ? pageState.stageCounts : null,
       previousItems: pageState.items, matchesQuery: Boolean(matchesQuery), selectedId,
-      selectedInbound: cache.current.get(selectedId) || null, detailState: details[selectedId] || UNLOADED_READ },
+      selectedInbound: cache.current.get(selectedId) || null, detailState: details[selectedId] || UNLOADED_READ,
+      // 本实例的守卫：formal.receiving.reviewGuard
+      reviewGuard },
     actions,
+    // 暴露本实例的守卫，供工作区注册脏判定（不要再有全局单例）。
+    reviewGuard,
     acceptInbound, lookupInbound, getDetailState,
   };
 }

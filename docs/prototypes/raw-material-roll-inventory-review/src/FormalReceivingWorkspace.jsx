@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useInboundPageState } from "../../../../src/features/raw-materials/useInboundPageState.js";
+
 import { InboundDetail } from "../../../../src/features/raw-materials/InboundDetail.jsx";
 import { RawMaterialLabelPrintSheet } from "../../../../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx";
 const RawMaterialSupplierColorMappingDialog = lazy(() => import("../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx").then(module => ({ default: module.RawMaterialSupplierColorMappingDialog })));
@@ -99,6 +100,11 @@ function FormalReceivingWorkspaceBody({ formal, notice = "", selectedId, setSele
     setSelectedId,
     statementReviews: formal.data.supplierStatementReviews,
   });
+  // 把"当前单据有没有没保存的核对修改"上报给选择动作（useReceivingData 里的 selectReceipt）。
+  useEffect(() => (typeof state.isInboundReviewDirty === "function"
+    ? formal.receiving?.reviewGuard?.register?.(() => state.isInboundReviewDirty())
+    : undefined), [state.isInboundReviewDirty]);
+
   return <div className="formal-receiving-workspace">
     {onBackToQueue ? <button className="formal-receiving-back" onClick={onBackToQueue} type="button">← 返回单据队列</button> : null}
     {notice ? <p className="receipt-flow-notice visible" role="status">{notice}</p> : null}
