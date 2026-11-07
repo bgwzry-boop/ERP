@@ -360,6 +360,17 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
   });
   assert.equal(roleDowngrade.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_REVIEW_LOCKED");
 
+  // 2026-11-07 授权矩阵：技术运维不能给管理岗账号发临时密码（等于接管）。
+  const passwordEscalation = await service.issueEmployeeTemporaryPassword({
+    workspace: multiRoleWorkspace,
+    employeeId: "EMP-OWNER-001",
+    body: { temporaryPassword: "TechTemp001" },
+    operatorId: "U-TECH-1",
+    operatorPermissions: ["permission.manage"],
+  });
+  assert.equal(passwordEscalation.statusCode, 403);
+  assert.equal(passwordEscalation.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_PASSWORD_ESCALATION_BLOCKED");
+
   const issued = await service.issueEmployeeTemporaryPassword({
     workspace: multiRoleWorkspace,
     employeeId: "EMP-OWNER-001",
