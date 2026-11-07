@@ -35,17 +35,21 @@ try {
       await scroller.waitFor({ timeout: 10000 });
       const columns = await page.evaluate(() => {
         const head = document.querySelector(".finished-goods-table .finished-inventory-row.head");
-        return [...head.querySelectorAll(":scope > span")].length;
+        return [...head.children].length;
       });
       assert.ok(columns >= 5, `${target.label} 列数异常: ${columns}`);
       for (let column = 0; column < columns; column += 1) {
         const result = await page.evaluate((col) => {
           const scrollerEl = document.querySelector(".finished-goods-table-scroll");
           const head = document.querySelector(".finished-goods-table .finished-inventory-row.head");
-          const headCell = head.querySelectorAll(":scope > span")[col];
-          const row = document.querySelector(".finished-goods-table .finished-inventory-row:not(.head)");
-          const cell = row ? row.querySelectorAll(":scope > span")[col] : null;
-          if (!cell) return null;
+          const headCell = head.children[col];
+          const row = document.querySelector(".finished-goods-table button.finished-inventory-row");
+          if (!row) throw new Error("没有明细行");
+          // 用 children：第 5 格是 <strong>、第 6 格是 <div>，用 span 会静默跳过
+          if (row.children.length !== 6) throw new Error(`明细行应为 6 格，实际 ${row.children.length}`);
+          const cell = row.children[col];
+          if (!cell) throw new Error(`第 ${col} 格不存在`);
+          const legendValues = [...cell.querySelectorAll("*")].map((el) => el.textContent.trim()).filter(Boolean);
           // 先把共享滚动容器滚到这一列完整可见，再测量
           scrollerEl.scrollLeft = Math.max(0, Math.round(cell.offsetLeft + cell.offsetWidth - scrollerEl.clientWidth + 4));
           const rect = cell.getBoundingClientRect();
@@ -62,9 +66,19 @@ try {
             headerLeft: Math.round(headCell.getBoundingClientRect().left),
             cellLeft: Math.round(rect.left),
             scrollLeft: Math.round(scrollerEl.scrollLeft),
+            legendValues,
+            cellText: cell.textContent.trim(),
           };
         }, column);
-        if (!result) continue;
+
+        assert.ok(result.cellText.length > 0, `${target.label} ${width} 第 ${column} 列不得为空`);
+        if (column === 5) {
+          const legendText = (result.legendValues || []).join(" ");
+          for (const keyword of ["可用", "占用", "锁定"]) {
+            assert.ok(legendText.includes(keyword), `${target.label} 图例缺少「${keyword}」: ${legendText}`);
+          }
+          assert.ok((legendText.match(/\d/u) || []).length >= 3, `${target.label} 图例四项数值必须都渲染: ${legendText}`);
+        }
         assert.equal(result.clippedBy, null, `${target.label} ${width} 第 ${column} 列被 ${result.clippedBy} 裁切: ${result.text}`);
         assert.equal(result.headerLeft, result.cellLeft, `${target.label} ${width} 第 ${column} 列滚动后表头与表体未对齐`);
       }
