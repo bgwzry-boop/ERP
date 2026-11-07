@@ -655,7 +655,7 @@ function OrderPricingEditor({
       className="order-pricing-entry source-grounded-workbench"
       aria-label="订单录入与正式报价"
     >
-      <main className="pricing-editor">
+      <section className="pricing-editor" aria-label="订单录入明细">
         <header className="pricing-heading">
           <div>
             <h2>订单录入</h2>
@@ -1234,7 +1234,7 @@ function OrderPricingEditor({
             </button>
           </div>
         </footer>
-      </main>
+      </section>
       {splitPlan ? <OrderEntrySplitDialog plan={splitPlan} rows={rows} quote={quote} locked={locked}
         busy={!!busy} pending={pendingKind === "拆单确认"} notice={pendingKind === "拆单确认" ? notice : ""}
         canConfirm={canConfirmOrder && !!splitPlan.canConfirm && !missing && (locked || (!!quote && acknowledge))}
