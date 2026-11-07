@@ -104,6 +104,9 @@ async function expectHandled(pathname, permission, kind, identifiers, fallback, 
       body: dependencies.body,
       ...identifiers,
       operatorId: "U-RESOLVED",
+      ...(["enable","assignment","profile","merge","depart","identity-confirmation","password","revoke","phone-registration-assign"].includes(kind)
+        ? { operatorPermissions: [] }
+        : {}),
     },
     {
       kind: "response",

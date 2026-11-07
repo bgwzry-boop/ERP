@@ -360,6 +360,17 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
   });
   assert.equal(roleDowngrade.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_REVIEW_LOCKED");
 
+  // 2026-11-07 授权矩阵：技术运维不能给管理岗账号发临时密码（等于接管）。
+  const passwordEscalation = await service.issueEmployeeTemporaryPassword({
+    workspace: multiRoleWorkspace,
+    employeeId: "EMP-OWNER-001",
+    body: { temporaryPassword: "TechTemp001" },
+    operatorId: "U-TECH-1",
+    operatorPermissions: ["permission.manage"],
+  });
+  assert.equal(passwordEscalation.statusCode, 403);
+  assert.equal(passwordEscalation.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_PASSWORD_ESCALATION_BLOCKED");
+
   const issued = await service.issueEmployeeTemporaryPassword({
     workspace: multiRoleWorkspace,
     employeeId: "EMP-OWNER-001",
@@ -737,6 +748,35 @@ await assert.rejects(
 assert.deepEqual(failedWorkspace.employees, failedSnapshot.employees);
 assert.deepEqual(failedWorkspace.users, failedSnapshot.users);
 assert.deepEqual(failedWorkspace.operationLogs, failedSnapshot.operationLogs);
+
+
+// 2026-11-07 缺陷回归：员工账号复核也是发权限的入口，技术运维不能借它开管理岗。
+{
+  const { resolvePermissionAssignment } = await import("../shared/auth/roleCatalog.js");
+  const tech = resolvePermissionAssignment({ roles: ["technical_operations"] });
+  const techPermissions = [...new Set([...tech.buttonPermissions, ...tech.actionPermissions])];
+  const escalationWorkspace = createWorkspace();
+  const blocked = await service.enableEmployeeAccount({
+    workspace: escalationWorkspace,
+    employeeId: "EMP-WORKER-001",
+    operatorId: "U-TECH-1",
+    operatorPermissions: techPermissions,
+    body: { roleKeys: ["management"] },
+  });
+  assert.equal(blocked.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED", JSON.stringify(blocked));
+  assert.equal(blocked.statusCode, 403);
+
+  // 单数 roleKey 同样不能绕过。
+  const singularWorkspace = createWorkspace();
+  const singularBlocked = await service.enableEmployeeAccount({
+    workspace: singularWorkspace,
+    employeeId: "EMP-WORKER-001",
+    operatorId: "U-TECH-1",
+    operatorPermissions: techPermissions,
+    body: { roleKey: "management" },
+  });
+  assert.equal(singularBlocked.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED", JSON.stringify(singularBlocked));
+}
 
 console.log(
   "Master-data employee account command checks passed: enable, password issue/revoke, restart recovery, and failed-persistence rollback are isolated.",
