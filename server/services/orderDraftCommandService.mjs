@@ -342,8 +342,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
   async function saveOrderDraft({ workspace, draftId, body = {}, operatorId }) {
     if(hasInvalidDraftQuantity(body.lines,{allowUnknown:true}))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","数量须为大于零的整数；尚未确认时可留空，不能自动取整保存。");
     const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    const duplicateLineIds = findDuplicateDraftLineIds(lines);
-    if (duplicateLineIds.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
+    {
+      const seenIds = new Set();
+      lines.forEach((line, index) => {
+        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
+        seenIds.add(line.id);
+      });
+    }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -389,15 +395,26 @@ export function createOrderDraftCommandService(dependencies = {}) {
       after: summarizeDraft(draft),
       reason: body.saveReason,
     });
-    const transaction = await workspace.orderDraftRepository.saveOrderDraft({
-      workspace,
-      draft,
-      expectedRevision,
-      todos,
-      operationLog,
-      idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
-    });
+    let transaction;
+    try {
+      transaction = await workspace.orderDraftRepository.saveOrderDraft({
+        workspace,
+        draft,
+        expectedRevision,
+        todos,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: { ...body, operatorId },
+      });
+    } catch (error) {
+      // 2026-11-07：明细编号若属于别的草稿，数据库会报 23505。
+      // 转成明确业务错误；事务整体回滚，不留半条明细，也不把 PG 原文回给前端。
+      if (String(error?.code ?? "") === "23505" && String(error?.constraint ?? "").includes("order_draft_lines")) {
+        return businessError(409, "ORDER_DRAFT_LINE_ID_OWNED_BY_OTHER_DRAFT",
+          "明细编号属于另一张草稿，请重新读取本草稿后核对。");
+      }
+      throw error;
+    }
 
     return success({
       draft: summarizeDraft(transaction.draft),
@@ -419,7 +436,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) || (await workspace.orderDraftRepository.getMiniappConfirmationSources?.({ workspace, draftId }))?.length) return businessError(409, "MINIAPP_PRICE_LOCKED", "小程序已锁定客户报价，办公室不能通过本单价覆盖。");
     const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body, draftId), previous.lines ?? [], operatorId, nowIso(now));
     if (!lines.length) return businessError(422, "ORDER_DRAFT_LINES_REQUIRED", "请先填写订单明细。");
-    if (findDuplicateDraftLineIds(lines).length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦报价。
+    {
+      const seenIds = new Set();
+      lines.forEach((line, index) => {
+        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
+        seenIds.add(line.id);
+      });
+    }
     const cancellation = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellation.error) return cancellation.error;
     if (!cancellation.activeLines.length) return businessError(422, "ORDER_DRAFT_NO_BILLABLE_LINES", "本草稿已无待下单明细，请核对取消记录，不能生成空报价。");
@@ -645,8 +669,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function confirmOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
     let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    const duplicateLineIds = findDuplicateDraftLineIds(lines);
-    if (duplicateLineIds.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
+    {
+      const seenIds = new Set();
+      lines.forEach((line, index) => {
+        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
+        seenIds.add(line.id);
+      });
+    }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -908,8 +938,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已更新，请重新读取后校验。");
     const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    const duplicateLineIds = findDuplicateDraftLineIds(lines);
-    if (duplicateLineIds.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
+    {
+      const seenIds = new Set();
+      lines.forEach((line, index) => {
+        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
+        seenIds.add(line.id);
+      });
+    }
     if (!lines.length || lines.some(line => !Number.isSafeInteger(line.qty) || line.qty <= 0)) return businessError(422, "VALIDATION_ERROR", "请填写有效的正整数数量。");
     const holdResolution = resolveTemporaryHoldConversions(workspace, lines);
     if (holdResolution.error) return holdResolution.error;
@@ -922,8 +958,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function previewOrderDraftSplit({ workspace, draftId, body = {} }) {
     const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    const duplicateLineIds = findDuplicateDraftLineIds(lines);
-    if (duplicateLineIds.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
+    {
+      const seenIds = new Set();
+      lines.forEach((line, index) => {
+        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
+        seenIds.add(line.id);
+      });
+    }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -944,8 +986,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function confirmSplitOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
     let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    const duplicateLineIds = findDuplicateDraftLineIds(lines);
-    if (duplicateLineIds.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
+    {
+      const seenIds = new Set();
+      lines.forEach((line, index) => {
+        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
+        seenIds.add(line.id);
+      });
+    }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -1296,7 +1344,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         // 2026-11-07：客户端带来的编号可能属于别的草稿（手工复制/误用）。
         // 只保留本草稿自己的编号，其余一律重新归属，避免撞库级主键；
         // 同一草稿同序号的编号是稳定的，所以保存/重试不会改号。
-        id: ownDraftLineId(line.draftLineId ?? line.id, draftId) ?? draftLineIdFor(draftId, index),
+        // 2026-11-07：已有编号一律原样保留（历史/批量/识别编号都不能改），
+        // 只有没有编号的新行才分配草稿内编号；空串按"没有编号"处理。
+        id: cleanCommandText(line.draftLineId ?? line.id) || draftLineIdFor(draftId, index),
         customerId,
         customer: line.customer ?? findCustomerName(workspace, customerId) ?? "待确认客户",
         product: line.productName ?? line.product ?? "",
