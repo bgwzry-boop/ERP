@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -114,6 +114,29 @@ async function checkLocalObjectStorage() {
   assert.equal(access.deliveryMode, "api_proxy");
   assert.equal(access.expiresAt, "2026-07-01T00:02:00.000Z");
   assert.match(access.accessUrl, /\/api\/attachments\/ATT-STORAGE-001\/content\?accessToken=/);
+// 2026-11-07：没有显式密钥时不能再用硬编码默认串，签名必须不可预测。
+{
+  const anonymousStorage = createLocalAttachmentObjectStorage({ storageRoot: join(tempRoot, "no-secret") });
+  const anonymousAccess = anonymousStorage.createAccessUrl({ attachmentId: "ATT-STORAGE-001", ttlSeconds: 60 });
+  const legacySecretForge = createHmac("sha256", "erp-p0-local-attachment-secret")
+    .update(`ATT-STORAGE-001|${new URL(anonymousAccess.accessUrl, "http://erp.test").searchParams.get("expiresAt")}`)
+    .digest("hex");
+  assert.notEqual(
+    new URL(anonymousAccess.accessUrl, "http://erp.test").searchParams.get("accessToken"),
+    legacySecretForge,
+    "default attachment token secret must not be the published constant",
+  );
+  // 空串/全空格同样不能变成可预测密钥。
+  for (const blankSecret of ["", "   "]) {
+    const blankStorage = createLocalAttachmentObjectStorage({ storageRoot: join(tempRoot, `blank-${blankSecret.length}`), tokenSecret: blankSecret });
+    const blankAccess = blankStorage.createAccessUrl({ attachmentId: "ATT-STORAGE-001", ttlSeconds: 60 });
+    const blankToken = new URL(blankAccess.accessUrl, "http://erp.test").searchParams.get("accessToken");
+    const forgedWithEmpty = createHmac("sha256", "")
+      .update(`ATT-STORAGE-001|${new URL(blankAccess.accessUrl, "http://erp.test").searchParams.get("expiresAt")}`)
+      .digest("hex");
+    assert.notEqual(blankToken, forgedWithEmpty, "blank attachment secret must not sign with an empty key");
+  }
+}
   const accessUrl = new URL(access.accessUrl, "http://127.0.0.1");
   const valid = storage.validateAccessToken({
     attachmentId: "ATT-STORAGE-001",
