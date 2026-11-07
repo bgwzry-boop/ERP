@@ -6,7 +6,7 @@ const dependencies = {
   response: {},
   workspace: {},
   body: { operatorId: "U-REQUESTED" },
-  permissionContext: { actionPermissions: [] },
+  permissionContext: { actionPermissions: ["employee_account.review"], buttonPermissions: ["master_data.employee_account.review"] },
   authContext: { userId: "U-AUTH" },
   writeActionPermissions: {
     createMasterDataImportConfirmationPlan: "master_data.import.plan.create",
@@ -102,6 +102,30 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleMasterDataWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/master-data/import-executions") }), false);
 assert.equal(await handleMasterDataWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/master-data/employee-account-reviews/EMP-1") }), false);
+
+// 2026-11-07：请求体里伪造 operatorPermissions 不得生效，路由只能传服务端解析出的权限。
+{
+  const forgedBody = { ...dependencies.body, operatorPermissions: ["payroll.export", "permission.manage"] };
+  const originalBody = dependencies.body;
+  dependencies.body = forgedBody;
+  calls.length = 0;
+  assert.equal(
+    await handleMasterDataWriteRoutes({
+      ...dependencies,
+      method: "POST",
+      url: new URL("http://erp.test/api/master-data/employee-account-reviews/batch-enable"),
+    }),
+    true,
+  );
+  dependencies.body = originalBody;
+  const employeeCall = calls.find((call) => call.kind === "batch-enable");
+  assert.ok(employeeCall, JSON.stringify(calls));
+  assert.deepEqual(
+    employeeCall.operatorPermissions,
+    ["master_data.employee_account.review", "employee_account.review"],
+    "路由必须使用服务端解析出的权限，忽略请求体伪造值",
+  );
+}
 
 console.log("master-data write routes checks passed: permissions, operators, direct command ownership, dynamic statuses, trusted error details, and thin API wiring are covered");
 

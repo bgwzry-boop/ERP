@@ -906,8 +906,13 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     // 2026-11-07：发临时密码等于接管账号，目标岗位权限不得高于操作者。
     {
       const targetUser = resolveEmployeeRuntimeUser(workspace, context.before);
+      // 目标账号的最终有效权限 = 岗位 + 额外允许 - 禁止。
+      // 只传岗位会漏掉额外允许（低权限操作者能重置带 payroll.export 的账号），
+      // 也会误拒"岗位大但已显式禁止该权限"的账号。
       const escalation = findSensitivePermissionEscalation({
         roles: targetUser?.roles?.length ? targetUser.roles : (context.before.roleKeys ?? context.before.roleName),
+        permissionAllowlist: targetUser?.permissionAllowlist ?? targetUser?.allowPermissions ?? [],
+        permissionDenylist: targetUser?.permissionDenylist ?? targetUser?.denyPermissions ?? [],
         operatorPermissions: Array.isArray(operatorPermissions) ? operatorPermissions : [],
       });
       if (escalation.length) {
