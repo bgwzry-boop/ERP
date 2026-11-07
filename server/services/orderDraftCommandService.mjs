@@ -107,6 +107,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         currentDraftStatus: body.currentDraftStatus,
         parseOrderText,
         now,
+        // 2026-11-07 实测缺陷：只传 sourceText 时消息 id 固定为 MSG-001，组 id 和明细 id
+        // 对每张草稿都一样，第二张草稿必然撞 order_draft_lines 主键。明细编号必须落在草稿内。
+        messageIdScope: `${draftId}-`,
       },
     );
     if (!recognition.sourceMessages.length) {
@@ -209,6 +212,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         currentDraftStatus: body.currentDraftStatus,
         parseOrderText,
         now,
+        // 2026-11-07：批量识别一次会生成多张草稿，整批共用批次作用域，
+        // 不同批次不撞，同批次回放稳定。
+        messageIdScope: `${buildQueueScope(body)}-`,
       },
     );
     if (!recognition.sourceMessages.length) {
@@ -335,7 +341,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function saveOrderDraft({ workspace, draftId, body = {}, operatorId }) {
     if(hasInvalidDraftQuantity(body.lines,{allowUnknown:true}))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","数量须为大于零的整数；尚未确认时可留空，不能自动取整保存。");
-    const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    const savedDraft = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
+    const knownLineIds = new Set((savedDraft?.lines ?? []).map((line) => cleanCommandText(line.id)));
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId, knownLineIds);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -381,15 +394,26 @@ export function createOrderDraftCommandService(dependencies = {}) {
       after: summarizeDraft(draft),
       reason: body.saveReason,
     });
-    const transaction = await workspace.orderDraftRepository.saveOrderDraft({
-      workspace,
-      draft,
-      expectedRevision,
-      todos,
-      operationLog,
-      idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
-    });
+    let transaction;
+    try {
+      transaction = await workspace.orderDraftRepository.saveOrderDraft({
+        workspace,
+        draft,
+        expectedRevision,
+        todos,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: { ...body, operatorId },
+      });
+    } catch (error) {
+      // 2026-11-07：明细编号若属于别的草稿，数据库会报 23505。
+      // 转成明确业务错误；事务整体回滚，不留半条明细，也不把 PG 原文回给前端。
+      if (String(error?.code ?? "") === "23505" && String(error?.constraint ?? "").includes("order_draft_lines")) {
+        return businessError(409, "ORDER_DRAFT_LINE_ID_OWNED_BY_OTHER_DRAFT",
+          "明细编号属于另一张草稿，请重新读取本草稿后核对。");
+      }
+      throw error;
+    }
 
     return success({
       draft: summarizeDraft(transaction.draft),
@@ -409,9 +433,13 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision) !== expectedRevision || /已生成|已确认/u.test(previous.status)) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已变化，请重新读取后报价。");
     if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) || (await workspace.orderDraftRepository.getMiniappConfirmationSources?.({ workspace, draftId }))?.length) return businessError(409, "MINIAPP_PRICE_LOCKED", "小程序已锁定客户报价，办公室不能通过本单价覆盖。");
-    const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body), previous.lines ?? [], operatorId, nowIso(now));
+    const knownLineIds = new Set((previous.lines ?? []).map((line) => cleanCommandText(line.id)));
+    const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body, draftId, knownLineIds), previous.lines ?? [], operatorId, nowIso(now));
     if (!lines.length) return businessError(422, "ORDER_DRAFT_LINES_REQUIRED", "请先填写订单明细。");
-    if (new Set(lines.map(line => line.id)).size !== lines.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名。
+    if (findDuplicateDraftLineIds(lines).length) {
+      return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    }
     const cancellation = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellation.error) return cancellation.error;
     if (!cancellation.activeLines.length) return businessError(422, "ORDER_DRAFT_NO_BILLABLE_LINES", "本草稿已无待下单明细，请核对取消记录，不能生成空报价。");
@@ -636,7 +664,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function confirmOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
-    let lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -897,7 +930,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已更新，请重新读取后校验。");
-    const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length || lines.some(line => !Number.isSafeInteger(line.qty) || line.qty <= 0)) return businessError(422, "VALIDATION_ERROR", "请填写有效的正整数数量。");
     const holdResolution = resolveTemporaryHoldConversions(workspace, lines);
     if (holdResolution.error) return holdResolution.error;
@@ -909,7 +947,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function previewOrderDraftSplit({ workspace, draftId, body = {} }) {
-    const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -929,7 +972,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function confirmSplitOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
-    let lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -1271,12 +1319,24 @@ export function createOrderDraftCommandService(dependencies = {}) {
     };
   }
 
-  function normalizeDraftRows(lines, workspace, body) {
+  function normalizeDraftRows(lines, workspace, body, draftId = "", knownLineIds = new Set()) {
+    // 先占位：已保存的合法编号 + 本次显式传入的编号，新行只能从未占用的号里取。
+    const reservedLineIds = new Set(knownLineIds);
+    for (const raw of lines) {
+      const explicit = cleanCommandText(raw?.draftLineId ?? raw?.id);
+      if (explicit) reservedLineIds.add(explicit);
+    }
     return lines.map((line, index) => {
       const customerId = line.customerId ?? body.customerId ?? "";
       const printFlag = line.printFlag ?? line.print === "是";
       return {
-        id: line.draftLineId ?? line.id ?? `DRAFT-LINE-${index + 1}`,
+        // 明细主键必须全局唯一：固定 DRAFT-LINE-N 会让第二张草稿撞上一张的主键。
+        // 2026-11-07：客户端带来的编号可能属于别的草稿（手工复制/误用）。
+        // 只保留本草稿自己的编号，其余一律重新归属，避免撞库级主键；
+        // 同一草稿同序号的编号是稳定的，所以保存/重试不会改号。
+        // 2026-11-07：已有编号一律原样保留（历史/批量/识别编号都不能改），
+        // 只有没有编号的新行才分配草稿内编号；空串按"没有编号"处理。
+        id: cleanCommandText(line.draftLineId ?? line.id) || allocateDraftLineId(draftId, index, reservedLineIds),
         customerId,
         customer: line.customer ?? findCustomerName(workspace, customerId) ?? "待确认客户",
         product: line.productName ?? line.product ?? "",
@@ -1831,7 +1891,75 @@ function cleanCommandText(value) {
   return String(value ?? "").trim();
 }
 
+// 2026-11-07 实测缺陷：明细编号固定为 DRAFT-LINE-N 时，第二张草稿会撞上第一张的
+// order_draft_lines 主键，识别接口直接 500。编号必须带上所属草稿。
+
+// 编号里带草稿身份才算本草稿的；其它一律视为外来编号。
+
+// 批次作用域：同一个幂等键/同一段原文 → 同一作用域，回放稳定；不同批次不同。
+function buildQueueScope(body = {}) {
+  const seed = cleanCommandText(body.idempotencyKey) || cleanCommandText(body.sourceText) || "queue";
+  return `QB-${createHash("sha256").update(seed).digest("hex").slice(0, 12).toUpperCase()}`;
+}
+
+
+
+// 只为"确实没有编号"的新行分配编号，且绝不占用已有/显式编号。
+function allocateDraftLineId(draftId, index, reserved) {
+  let attempt = index;
+  for (let guard = 0; guard < 10000; guard += 1) {
+    const candidate = draftLineIdFor(draftId, attempt);
+    if (!reserved.has(candidate)) {
+      reserved.add(candidate);
+      return candidate;
+    }
+    attempt += 1;
+  }
+  return draftLineIdFor(draftId, index);
+}
+
+function findDuplicateExplicitDraftLineIds(lines) {
+  return findDuplicateDraftLineIds(lines);
+}
+
+function draftLineIdFor(draftId, index) {
+  const scope = cleanCommandText(draftId);
+  return scope ? `${scope}-L${String(index + 1).padStart(2, "0")}` : `DRAFT-LINE-${index + 1}`;
+}
+
+function findDuplicateDraftLineIds(lines) {
+  const seen = new Set();
+  const duplicated = new Set();
+  for (const line of lines ?? []) {
+    if (seen.has(line.id)) duplicated.add(line.id);
+    seen.add(line.id);
+  }
+  return [...duplicated];
+}
+
+// 数据库约束错误不能把表名和约束名原样回给办公室。
+const POSTGRES_INTEGRITY_FAILURES = new Map([
+  ["23505", { statusCode: 409, code: "ORDER_DRAFT_DUPLICATE_RECORD", message: "同一笔记录已存在，请重新读取草稿后再试。" }],
+  ["23503", { statusCode: 409, code: "ORDER_DRAFT_REFERENCE_CONFLICT", message: "关联的数据不存在或已变更，请刷新后重试。" }],
+  ["23502", { statusCode: 422, code: "ORDER_DRAFT_REQUIRED_VALUE_MISSING", message: "缺少必填内容，请补全后重试。" }],
+  ["23514", { statusCode: 422, code: "ORDER_DRAFT_RULE_VIOLATION", message: "数据不满足业务规则，请核对后重试。" }],
+  ["40001", { statusCode: 409, code: "ORDER_DRAFT_SERIALIZATION_RETRY", message: "数据同时在改，请重试。" }],
+  ["40P01", { statusCode: 409, code: "ORDER_DRAFT_DEADLOCK_RETRY", message: "数据同时在改，请重试。" }],
+]);
+
+function isPostgresDriverError(error) {
+  return typeof error?.code === "string"
+    && /^[0-9A-Z]{5}$/.test(error.code)
+    && error.code !== "P0001"
+    && Boolean(error.severity || error.detail || error.table || error.constraint || error.routine);
+}
+
 function repositoryCommandError(error) {
+  if (isPostgresDriverError(error)) {
+    const mapped = POSTGRES_INTEGRITY_FAILURES.get(error.code);
+    if (mapped) return businessError(mapped.statusCode, mapped.code, mapped.message);
+    return businessError(409, "ORDER_DRAFT_WRITE_FAILED", "订单草稿保存失败，请重试；若持续失败请联系管理员。");
+  }
   const code = cleanCommandText(error?.code) || "ORDER_DRAFT_WRITE_FAILED";
   return businessError(Number(error?.statusCode ?? 409), code, error?.message || code);
 }

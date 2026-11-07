@@ -301,7 +301,10 @@ function parsePastedLine(line) {
 function normalizeSourceMessage(value, index, options) {
   const source = typeof value === "string" ? { text: value } : value ?? {};
   return {
-    id: cleanText(source.id ?? source.messageId) || `MSG-${String(index + 1).padStart(3, "0")}`,
+    // 2026-11-07：显式传进来的消息编号同样要落到草稿作用域里。
+    // 否则批量/手工跨草稿复用同一个消息 id 时，明细主键还是会撞。
+    id: `${cleanText(options.messageIdScope)}${cleanText(source.id ?? source.messageId)
+      || `MSG-${String(index + 1).padStart(3, "0")}`}`,
     conversationId: cleanText(source.conversationId ?? source.groupId ?? options.conversationId) || "manual-entry",
     customerId: cleanText(source.customerId ?? options.customerId),
     sender: cleanText(source.sender ?? source.senderName),

@@ -139,6 +139,7 @@ export const CHECK_GROUPS = Object.freeze({
     "db-client:check",
     "core-workspace-read:check",
     "order-draft-repository:check",
+    "order-draft-line-id:check",
     "order-confirmation-transaction:check",
     "bagwin-erp-integration:check",
     "erp-price-release:check",
