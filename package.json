@@ -8,6 +8,8 @@
     "npm": ">=10"
   },
   "scripts": {
+    "local-storage:audit": "node scripts/local-storage-hygiene.mjs",
+    "local-storage:check": "node --test scripts/local-storage-hygiene.test.mjs",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "review:dev": "node scripts/run-complete-review-dev.mjs",
     "review:check": "node scripts/check-complete-review-preview.mjs && node scripts/check-review-viewport-reversal.mjs && node scripts/check-review-viewport-live-readonly.mjs && node scripts/check-canonical-colour-conflict.mjs && node scripts/check-receipt-direction-color-ui.mjs && node scripts/check-raw-material-color-swatches-ui.mjs && node scripts/check-raw-material-receive-dialog-ui.mjs && node scripts/check-receiving-workspace-simplification-ui.mjs && node scripts/check-raw-material-stock-operations-dialog.mjs && node scripts/check-raw-material-cost-workspace.mjs",

@@ -348,6 +348,10 @@ Prototype-specific design decisions:
 
 Keep project-management context current:
 
+- Keep tool output bounded: check file size before reading unfamiliar logs or artifacts; use targeted `rg`, bounded reads and explicit output budgets. Never print whole session logs, base64 images, videos, databases, build bundles or complete browser recordings into a task. Save large evidence locally and reference paths plus a short result.
+- Persistent progress belongs in the existing status/decision documents and Git. Preserve `继续评估旧ERP出入库功能` (task `01a033fd-46b4-77f0-ac35-beaa103f08a4`) and its worktree. Frequent context compaction warrants a concise handoff for a new owner-requested task, not automatic deletion, raw-log surgery or worktree cleanup. Compressed session file size alone does not establish a broken context.
+- `npm run local-storage:audit` inspects metadata only. Explicit `--apply-obsolete-bundles --report` removes only old legacy local transport bundles whose refs are already canonical; never use it to remove sessions, release locks, finalization records, attachments, credentials, backups or worktrees. Keep release evidence and current transports.
+
 - Update `PROJECT_STATUS.md` when the project state changes materially.
 - Update `ROADMAP.md` when new product priorities are accepted.
 - Update `DECISIONS.md` when a durable product or technical decision is made.
