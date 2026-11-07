@@ -164,6 +164,11 @@ await assert.rejects(service.confirmCorrectionDraft({ workspace,
 { code: "BUSINESS_WRITE_CONFLICT", statusCode: 409 });
 assert.equal(JSON.stringify(workspace), staleSnapshot);
 workspace.inventories[0] = originalInventory;
+const bucketsBeforeConfirm = {
+  reserved: workspace.inventories[0].reserved,
+  locked: workspace.inventories[0].locked,
+  pending: workspace.inventories[0].pending,
+};
 const confirmed = await service.confirmCorrectionDraft({
   workspace,
   correctionDraftId: created.correctionDraft.correctionDraftId,
@@ -177,6 +182,16 @@ assert.equal(confirmed.inventoryItem.revision, 4);
 assert.equal(confirmed.inventoryLedger.qtyBefore, 500);
 assert.equal(confirmed.inventoryLedger.qtyChange, -20);
 assert.equal(confirmed.inventoryLedger.qtyAfter, 480);
+// 2026-11-07：库存修正只动在库，不得顺带完成订单或释放占用。
+assert.deepEqual(
+  {
+    reserved: confirmed.inventoryItem.reserved,
+    locked: confirmed.inventoryItem.locked,
+    pending: confirmed.inventoryItem.pending,
+  },
+  bucketsBeforeConfirm,
+  "correction must not touch reservations or locks",
+);
 assert.equal(confirmed.inventoryLedger.operatorId, "U-MANAGER");
 assert.equal(confirmed.todo.handledBy, "U-MANAGER");
 assert.equal(workspace.inventoryLedgers.length, 1);
