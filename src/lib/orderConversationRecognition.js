@@ -301,7 +301,8 @@ function parsePastedLine(line) {
 function normalizeSourceMessage(value, index, options) {
   const source = typeof value === "string" ? { text: value } : value ?? {};
   return {
-    id: cleanText(source.id ?? source.messageId) || `MSG-${String(index + 1).padStart(3, "0")}`,
+    id: cleanText(source.id ?? source.messageId)
+      || `${cleanText(options.messageIdScope)}MSG-${String(index + 1).padStart(3, "0")}`,
     conversationId: cleanText(source.conversationId ?? source.groupId ?? options.conversationId) || "manual-entry",
     customerId: cleanText(source.customerId ?? options.customerId),
     sender: cleanText(source.sender ?? source.senderName),
