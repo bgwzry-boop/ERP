@@ -115,5 +115,8 @@ try {
   const receipts = await Promise.all([confirm(same, "shared-confirm-key"), confirm(other, "shared-confirm-key")]);
   assert.deepEqual(receipts[0], receipts[1]);
   assert.equal((await pool.query("SELECT count(*)::int count FROM inventory_ledger_entries WHERE source_id=$1", [same.id])).rows[0].count, 1);
+  const { runInventoryCorrectionRejectSuite } = await import("./helpers/inventory-correction-reject-suite.mjs");
+  const rejectSuite = await runInventoryCorrectionRejectSuite({ pool });
+  console.log(`P1 inventory correction reject suite: ${rejectSuite.length}/${rejectSuite.length} passed (immediate detail+event, stale-version zero residue, same-key replay, body conflict, cold reload).`);
   console.log("P1 inventory correction PostgreSQL passed: evidence required; real row-lock quantity/owner/evidence conflicts roll back; independent concurrent confirmation has one ledger; old replay never restores stock.");
 } finally { await pool.end(); await stopLivePostgres(runtime); }

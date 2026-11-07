@@ -723,6 +723,11 @@ function toInventoryCorrectionDraft(row) {
     createdBy: clean(row.created_by),
     confirmedBy: clean(row.confirmed_by),
     confirmedAt: timestamp(row.confirmed_at),
+    // 2026-11-07：冷启动整库读也要带上驳回信息与可见优先级。
+    rejectedBy: clean(row.rejected_by),
+    rejectedAt: timestamp(row.rejected_at),
+    rejectReason: clean(row.reject_reason),
+    priority: clean(row.priority),
     todoId: clean(row.todo_id),
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),

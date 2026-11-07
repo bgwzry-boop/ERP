@@ -100,6 +100,7 @@ function buildDraftSummary({ workspace, draft }) {
   const users = buildUserMap(workspace.users);
   const operatorId = cleanText(source.operatorId ?? source.operator_id ?? source.createdBy ?? source.created_by);
   const confirmedBy = cleanText(source.confirmedBy ?? source.confirmed_by);
+  const rejectedBy = cleanText(source.rejectedBy ?? source.rejected_by);
   return {
     correctionDraftId,
     inventoryItemId,
@@ -128,6 +129,10 @@ function buildDraftSummary({ workspace, draft }) {
     operatorName: userDisplayName(users, operatorId),
     confirmedBy,
     confirmedByName: userDisplayName(users, confirmedBy),
+    rejectedBy,
+    rejectedByName: userDisplayName(users, rejectedBy),
+    rejectedAt: cleanText(source.rejectedAt ?? source.rejected_at),
+    rejectReason: cleanText(source.rejectReason ?? source.reject_reason),
     todoId: cleanText(source.todoId ?? source.todo_id),
     attachmentIds: textList(source.attachmentIds ?? source.attachment_ids),
     createdAt: cleanText(source.createdAt ?? source.created_at),

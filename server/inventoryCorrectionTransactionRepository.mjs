@@ -58,6 +58,34 @@ export function createLocalInventoryCorrectionTransactionRepository() {
       saveLocalIdempotencyResult(idempotencyResults, "inventory.correction.attachments.link", input, result);
       return result;
     },
+    async rejectCorrectionDraft(input = {}) {
+      // 2026-11-07：驳回只改草稿状态，绝不动库存。
+      const replay = readLocalIdempotencyResult(idempotencyResults, "inventory.correction.reject", input);
+      if (replay) return replay;
+      const draft = input.correctionDraft;
+      const current = findById(input.workspace.inventoryCorrectionDrafts, draft?.correctionDraftId ?? draft?.id, "correctionDraftId");
+      if (!current || current.status !== "待确认生效"
+        || Number(current.revision ?? 1) !== Number(input.expectedDraftRevision ?? 0)) {
+        throw correctionConflict();
+      }
+      input.workspace.inventoryCorrectionDrafts = upsertVersioned(input.workspace.inventoryCorrectionDrafts, draft, "correctionDraftId");
+      if (input.todo) input.workspace.todos = upsert(input.workspace.todos, input.todo, "id");
+      if (input.todoEvent) input.workspace.todoEvents = upsert(input.workspace.todoEvents, input.todoEvent, "eventId");
+      if (input.operationLog) input.workspace.operationLogs = upsert(input.workspace.operationLogs, input.operationLog, "id");
+      const result = {
+        correctionDraft: draft,
+        todo: input.todo,
+        operationLogId: input.operationLog?.id ?? "",
+        todoEventId: input.todoEvent?.eventId ?? "",
+      };
+      saveLocalIdempotencyResult(idempotencyResults, "inventory.correction.reject", input, result);
+      return result;
+    },
+
+    readRejectionReplay(input = {}) {
+      return readLocalIdempotencyResult(idempotencyResults, "inventory.correction.reject", input);
+    },
+
     async confirmCorrectionDraft(input = {}) {
       const replay = readLocalIdempotencyResult(idempotencyResults, "inventory.correction.confirm", input);
       if (replay) return replay;
@@ -137,6 +165,11 @@ export function createPostgresInventoryCorrectionTransactionRepository(options =
         idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
       return saved ? normalizeConfirmResult(saved, {}) : null;
     },
+    async readRejectionReplay(input) {
+      const saved = await readPostgresIdempotencyReplay({ queryJson, scope: "inventory.correction.reject",
+        idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
+      return saved ?? null;
+    },
     async getCorrectionDraft({ correctionDraftId }) {
       const query = buildGetInventoryCorrectionDraftQuery(correctionDraftId);
       return normalizeCorrectionDraft(await queryJson(query.text, query.values));
@@ -201,6 +234,31 @@ export function createPostgresInventoryCorrectionTransactionRepository(options =
         correctionDraft: result.correctionDraft,
         operationLog: result.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
+      return result;
+    },
+    async rejectCorrectionDraft(input = {}) {
+      // 2026-11-07：驳回是"只改状态"的事务，库里不会碰 inventory_items。
+      const query = buildRejectInventoryCorrectionDraftTransactionQuery(input);
+      const raw = await idempotentTransactionJson(
+        buildPostgresIdempotencyRequest({
+          scope: "inventory.correction.reject",
+          idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+          payload: input.idempotencyPayload ?? { correctionDraft: input.correctionDraft },
+          operatorId: input.operationLog?.operatorId,
+          targetType: "inventory_correction",
+          targetId: input.correctionDraft?.correctionDraftId ?? input.correctionDraft?.id,
+          resourceLocks: [`inventory-correction:${input.correctionDraft?.correctionDraftId ?? input.correctionDraft?.id ?? ""}`],
+          query,
+        }),
+      );
+      const result = normalizeRejectionResult(raw, input);
+      if (!result.correctionDraft) throw new Error("PostgreSQL correction draft rejection returned invalid data");
+      input.workspace.inventoryCorrectionDrafts = upsertVersioned(input.workspace.inventoryCorrectionDrafts, result.correctionDraft, "correctionDraftId");
+      if (result.todo) input.workspace.todos = upsert(input.workspace.todos, result.todo, "id");
+      if (result.todoEventId && input.todoEvent) {
+        input.workspace.todoEvents = upsert(input.workspace.todoEvents ?? [], { ...input.todoEvent, eventId: result.todoEventId }, "eventId");
+      }
+      if (result.operationLogId && input.operationLog) input.workspace.operationLogs = upsert(input.workspace.operationLogs, input.operationLog, "id");
       return result;
     },
     async confirmCorrectionDraft(input = {}) {
@@ -389,6 +447,91 @@ COMMIT;
   };
 }
 
+export function buildRejectInventoryCorrectionDraftTransactionQuery(input = {}) {
+  const parameters = createPostgresParameterBinder();
+  const draft = input.correctionDraft ?? {};
+  const draftId = draft.correctionDraftId ?? draft.id ?? "";
+  const operationLog = input.operationLog ?? {};
+  return {
+    text: `
+BEGIN;
+WITH locked AS (
+  SELECT id, revision, status, todo_id FROM inventory_correction_drafts
+  WHERE id = ${parameters.text(draftId)}
+  FOR UPDATE
+),
+reject_guard AS MATERIALIZED (
+  SELECT erp_require(
+    EXISTS (
+      SELECT 1 FROM locked
+      WHERE status = '待确认生效'
+        AND revision = ${parameters.integer(input.expectedDraftRevision ?? 0)}
+        AND todo_id IS NOT DISTINCT FROM ${parameters.nullableText(draft.todoId ?? input.todo?.id)}
+    ),
+    'ERP_INVENTORY_CORRECTION_REJECT_CONCURRENCY_CONFLICT'
+  ) AS ok
+),
+rejected AS (
+  UPDATE inventory_correction_drafts AS target
+  SET status = '已驳回',
+      revision = target.revision + 1,
+      rejected_by = ${parameters.nullableText(draft.rejectedBy)},
+      rejected_at = ${parameters.nullableTimestamp(draft.rejectedAt)},
+      reject_reason = ${parameters.nullableText(draft.rejectReason)},
+      updated_at = now()
+  FROM locked, reject_guard AS guard
+  WHERE target.id = locked.id AND guard.ok
+  RETURNING ${correctionDraftJsonExpression("target")} AS result
+),
+closed_todo AS (
+  UPDATE todos SET status = '已处理',
+    handled_by = ${parameters.nullableText(draft.rejectedBy)},
+    handled_at = ${parameters.nullableTimestamp(draft.rejectedAt)},
+    handling_result = ${parameters.nullableText(draft.rejectReason)},
+    updated_at = now()
+  WHERE id = ${parameters.text(input.todo?.id ?? "")} AND EXISTS (SELECT 1 FROM rejected)
+  RETURNING to_jsonb(todos.*) AS row
+),
+written_log AS (
+  INSERT INTO operation_logs (id, target_type, target_id, action, before_json, after_json, reason, operator_id, page_key, occurred_at, created_at)
+  SELECT ${parameters.text(operationLog.id ?? "")}, 'inventory_correction', ${parameters.text(draftId)},
+    ${parameters.text(operationLog.action ?? "reject_inventory_correction_draft")},
+    ${parameters.json(operationLog.before ?? {})}, ${parameters.json(operationLog.after ?? {})},
+    ${parameters.nullableText(operationLog.reason)},
+    ${parameters.nullableText(operationLog.operatorId)},
+    ${parameters.text(operationLog.pageKey ?? "inventory")},
+    ${parameters.timestamp(operationLog.occurredAt ?? new Date().toISOString())},
+    ${parameters.timestamp(operationLog.createdAt ?? new Date().toISOString())}
+  WHERE EXISTS (SELECT 1 FROM rejected)
+  ON CONFLICT (id) DO NOTHING
+  RETURNING id
+),
+written_event AS (
+  INSERT INTO todo_events (id, todo_id, event_type, event_payload, operator_id, occurred_at, created_at)
+  SELECT ${parameters.text(input.todoEvent?.eventId ?? `${operationLog.id ?? ""}-EV`)},
+    ${parameters.text(input.todo?.id ?? "")},
+    'todo_source:inventory_correction_rejected',
+    ${parameters.json(input.todoEvent?.eventPayload ?? {})},
+    ${parameters.nullableText(operationLog.operatorId)},
+    ${parameters.timestamp(operationLog.occurredAt ?? new Date().toISOString())},
+    ${parameters.timestamp(operationLog.createdAt ?? new Date().toISOString())}
+  WHERE EXISTS (SELECT 1 FROM rejected)
+  ON CONFLICT (id) DO NOTHING
+  RETURNING id AS event_id
+)
+SELECT json_build_object(
+  'correctionDraft', (SELECT result FROM rejected),
+  -- 同一语句里再查基表会读到旧快照，直接用 RETURNING 回来的完整行。
+  'todo', (SELECT row FROM closed_todo),
+  'operationLogId', (SELECT id FROM written_log),
+  'todoEventId', (SELECT event_id FROM written_event)
+) AS result;
+COMMIT;
+`.trim(),
+    values: parameters.values,
+  };
+}
+
 export function buildConfirmInventoryCorrectionDraftTransactionQuery(input = {}) {
   const draft = normalizeCorrectionDraft(input.correctionDraft);
   const inventoryItem = normalizeInventoryItem(input.inventoryItem);
@@ -559,7 +702,10 @@ function buildInsertOperationLogSql(log, dependency, parameters) {
 
 function normalizeCreateResult(value, input) {
   return {
-    correctionDraft: mergeRecord(input.correctionDraft, normalizeCorrectionDraft(value?.correctionDraft)),
+    correctionDraft: mergeRecord(input.correctionDraft, normalizeCorrectionDraft({
+      ...value?.correctionDraft,
+      id: value?.correctionDraft?.id ?? value?.correctionDraft?.correctionDraftId,
+    })),
     todo: mergeTodo(input.todo, value?.todo),
     todoEventId: text(value?.todoEventId),
     operationLogId: text(value?.operationLogId),
@@ -572,6 +718,22 @@ function normalizeConfirmResult(value, input) {
     inventoryItem: mergeRecord(input.inventoryItem, normalizeInventoryItem(value?.inventoryItem)),
     inventoryLedger: normalizeInventoryLedger(value?.inventoryLedger),
     todo: value?.todo ? mergeTodo(input.todo, value.todo) : null,
+    todoEventId: text(value?.todoEventId),
+    operationLogId: text(value?.operationLogId),
+  };
+}
+
+function normalizeRejectionResult(value, input) {
+  return {
+    correctionDraft: mergeRecord(input.correctionDraft, normalizeCorrectionDraft(value?.correctionDraft)),
+    todo: value?.todo ? mergeTodo(input.todo, {
+      ...value.todo,
+      refType: value.todo.refType ?? value.todo.ref_type,
+      refId: value.todo.refId ?? value.todo.ref_id,
+      handledBy: value.todo.handledBy ?? value.todo.handled_by,
+      handledAt: value.todo.handledAt ?? value.todo.handled_at,
+      handlingResult: value.todo.handlingResult ?? value.todo.handling_result,
+    }) : null,
     todoEventId: text(value?.todoEventId),
     operationLogId: text(value?.operationLogId),
   };
@@ -610,6 +772,9 @@ function normalizeCorrectionDraft(value) {
     createdBy: text(value.createdBy ?? value.created_by ?? value.operatorId),
     confirmedBy: text(value.confirmedBy ?? value.confirmed_by),
     confirmedAt: timestamp(value.confirmedAt ?? value.confirmed_at),
+    rejectedBy: text(value.rejectedBy ?? value.rejected_by),
+    rejectedAt: timestamp(value.rejectedAt ?? value.rejected_at),
+    rejectReason: text(value.rejectReason ?? value.reject_reason),
     createdAt: timestamp(value.createdAt ?? value.created_at) || new Date().toISOString(),
     updatedAt: timestamp(value.updatedAt ?? value.updated_at) || new Date().toISOString(),
     qtyBefore: value.qtyBefore ?? { onHand: expectedQty },
@@ -699,6 +864,7 @@ function correctionDraftJsonExpression(alias) {
     'reason', ${alias}.reason, 'remark', ${alias}.remark, 'attachmentIds', ${alias}.attachment_ids,
     'status', ${alias}.status, 'revision', ${alias}.revision, 'todoId', ${alias}.todo_id,
     'createdBy', ${alias}.created_by, 'confirmedBy', ${alias}.confirmed_by, 'confirmedAt', ${alias}.confirmed_at,
+    'rejectedBy', ${alias}.rejected_by, 'rejectedAt', ${alias}.rejected_at, 'rejectReason', ${alias}.reject_reason,
     'createdAt', ${alias}.created_at, 'updatedAt', ${alias}.updated_at
   )`;
 }
