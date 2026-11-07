@@ -55,6 +55,19 @@ for (const [serviceName, commandName, kind] of [
   };
 }
 
+const ROUTES_WITH_OPERATOR_PERMISSIONS = new Set([
+  "enable",
+  "batch-enable",
+  "assignment",
+  "profile",
+  "merge",
+  "depart",
+  "identity-confirmation",
+  "password",
+  "revoke",
+  "phone-registration-assign",
+]);
+
 const importOptions = { useResultStatusCode: true };
 const employeeOptions = { includeErrorDetails: true, useResultStatusCode: true };
 await expectHandled("/api/master-data/import-confirmation-plans", "master_data.import.plan.create", "plan", {}, "U-OFFICE-A", importOptions);
@@ -95,9 +108,14 @@ console.log("master-data write routes checks passed: permissions, operators, dir
 async function expectHandled(pathname, permission, kind, identifiers, fallback, responseOptions, method = "POST") {
   calls.length = 0;
   assert.equal(await handleMasterDataWriteRoutes({ ...dependencies, method, url: new URL(`http://erp.test${pathname}`) }), true);
-  // 路由是否额外携带 operatorPermissions 不影响本检查（权限语义由服务层用例覆盖）。
-  const normalizedCalls = calls.map(({ operatorPermissions, ...rest }) => rest);
-  assert.deepEqual(normalizedCalls, [
+  // 2026-11-07：operatorPermissions 是否透传正是越权漏洞的根因，必须精确断言，
+  // 不能从调用参数里剥掉再比。带权限的路由必须传出"服务端解析出的有效权限"。
+  const expectsPermissions = ROUTES_WITH_OPERATOR_PERMISSIONS.has(kind);
+  const effectivePermissions = [...new Set([
+    ...(dependencies.permissionContext?.buttonPermissions ?? []),
+    ...(dependencies.permissionContext?.actionPermissions ?? []),
+  ])];
+  assert.deepEqual(calls, [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback },
     {
@@ -106,6 +124,7 @@ async function expectHandled(pathname, permission, kind, identifiers, fallback, 
       body: dependencies.body,
       ...identifiers,
       operatorId: "U-RESOLVED",
+      ...(expectsPermissions ? { operatorPermissions: effectivePermissions } : {}),
     },
     {
       kind: "response",
