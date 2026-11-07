@@ -129,4 +129,12 @@ assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
 assert.equal(toFiniteNumber("12.5"), 12.5);
 assert.equal(toFiniteNumber("not-a-number"), 0);
 
+// 2026-11-07：完整评审壳的订单录入页曾出现两个 <main>，外层 App 已有主内容区。
+{
+  const reviewApp = read("docs/prototypes/raw-material-roll-inventory-review/src/App.jsx");
+  const reviewEntry = read("docs/prototypes/raw-material-roll-inventory-review/src/OrderPricingEntryWorkspace.jsx");
+  assert.equal((reviewApp.match(/<main[\s>]/gu) ?? []).length, 1, "review shell must expose exactly one <main>");
+  assert.equal((reviewEntry.match(/<main[\s>]/gu) ?? []).length, 0, "order pricing workspace must not nest another <main>");
+}
+
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");
