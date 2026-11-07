@@ -337,6 +337,14 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
 
   const { text, values } = calls[0];
   const sql = text;
+  // 2026-11-07：库存守卫必须和页面/留货同一口径——待提货锁定、待处理量都不算可用。
+  assert.match(
+    sql,
+    /on_hand_qty - reserved_qty - waiting_pickup_locked_qty - pending_handling_qty < requested_qty/u,
+    "confirmation inventory guard must subtract all four buckets",
+  );
+  assert.match(sql, /COALESCE\(item\.waiting_pickup_locked_qty, 0\) AS waiting_pickup_locked_qty/u);
+  assert.match(sql, /COALESCE\(item\.pending_handling_qty, 0\) AS pending_handling_qty/u);
   assert.equal(calls[0].scope, "order.confirm");
   assert.equal(calls[0].idempotencyKey, "idem-order-confirm-001");
   assert.ok(calls[0].resourceLocks.includes("order-draft:DRAFT-CONFIRM-001"));
