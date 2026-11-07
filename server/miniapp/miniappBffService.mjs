@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { MAX_PRINT_COLORS } from "../../shared/largeMachinePrintPricing.js";
 import { MiniappApiError } from "./miniappApiError.mjs";
 import { fingerprintWechatSubject } from "./miniappIdentityService.mjs";
 
@@ -84,8 +85,9 @@ function normalizeLine(rawLine, index) {
     artworkToken: text(rawLine.artworkToken),
     printContent: text(rawLine.printContent),
     printColor: text(rawLine.printColor),
-    printColors: Array.isArray(rawLine.printColors) ? rawLine.printColors.map((item) => text(item)).filter(Boolean).slice(0, 4) : [],
-    printColorCount: Math.min(4, Math.max(1, Number(rawLine.printColorCount) || 1)),
+    // 2026-11-07：上游也曾把色数截到 4，导致 5 色单在 BFF 就被打折，ERP 侧再改也没用。
+    printColors: Array.isArray(rawLine.printColors) ? rawLine.printColors.map((item) => text(item)).filter(Boolean).slice(0, MAX_PRINT_COLORS) : [],
+    printColorCount: Math.min(MAX_PRINT_COLORS, Math.max(1, Number(rawLine.printColorCount) || 1)),
     printSide: text(rawLine.printSide),
     printSideMode: text(rawLine.printSideMode),
     printPositionMode: text(rawLine.printPositionMode),
