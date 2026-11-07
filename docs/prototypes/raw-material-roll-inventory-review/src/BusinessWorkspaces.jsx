@@ -896,9 +896,12 @@ function FinishedGoodsInventoryWorkspace({ category, formal, onNavigate, title }
       <header className="business-panel-heading"><h2>{title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${categoryRecords.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <FinishedGoodsTypeFilters category={category} goodsType={goodsType} onGoodsTypeChange={selectType} />
       <div className="finished-goods-search"><label><SearchOutlined /><input aria-label={`${title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索类型 / 规格 / 颜色 / 图案 / 库位" value={query} /></label><button disabled={!query && goodsType === "全部类型"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
+      {/* 2026-11-07：成品库存表头与表体共用横向滚动容器，1181 窄屏不再被外层裁掉右侧数字 */}
+      <div className="finished-goods-table-scroll">
       <div className="finished-goods-table" role="table" aria-label="成品库存列表">
         <div className="finished-inventory-row head" role="row"><span>通货类型</span><span>规格（cm）</span><span>颜色 / 图案</span><span>库位</span><span>在库</span><span>库存结构</span></div>
         <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`finished-inventory-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" type="button"><span><SemanticOrderTag kind="business" value={row.goodsType} /></span><span className="finished-inventory-spec"><strong>{row.size}</strong></span><span className="finished-inventory-attributes"><FactoryColorLabel color={row.color} /><span>· {row.handle}{row.pattern !== "—" ? ` · ${row.pattern}` : ""}</span></span><span className="finished-inventory-location">{row.zone}</span><strong className="finished-inventory-total">{formatNumber(row.inStock)}</strong><InventoryAllocation stock={row} /></button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配的成品库存</strong><span>切换通货类型或调整搜索条件后重试。</span></div>}</div>
+      </div>
       </div>
     </section>
     <aside className="business-detail-panel finished-goods-detail finished-inventory-detail">
