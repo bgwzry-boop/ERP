@@ -32,6 +32,13 @@ assert.match(confirmQuery.text, /UPDATE inventory_correction_drafts/);
 assert.match(confirmQuery.text, /INSERT INTO inventory_ledger_entries/);
 assert.match(confirmQuery.text, /UPDATE todos/);
 assert.match(confirmQuery.text, /ERP_INVENTORY_CORRECTION_CONFIRM_CONCURRENCY_CONFLICT/);
+// 2026-11-07：确认时也要守住"在库不低于已占用+锁定+待处理"。
+assert.match(
+  confirmQuery.text,
+  /reserved_qty \+ waiting_pickup_locked_qty \+ pending_handling_qty/u,
+  "confirm guard must subtract all committed buckets",
+);
+assert.match(confirmQuery.text, /ERP_INVENTORY_CORRECTION_BELOW_COMMITTED_STOCK/u);
 
 const getQuery = buildGetInventoryCorrectionDraftQuery("ADJ-1");
 assert.match(getQuery.text, /FROM inventory_correction_drafts/);

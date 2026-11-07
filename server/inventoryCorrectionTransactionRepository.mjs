@@ -432,7 +432,10 @@ valid_evidence AS MATERIALIZED (
     AND link_purpose = 'inventory_correction_evidence'
 ),
 locked_inventory AS MATERIALIZED (
-  SELECT id, on_hand_qty, revision
+  SELECT id, on_hand_qty, revision,
+    COALESCE(reserved_qty, 0) AS reserved_qty,
+    COALESCE(waiting_pickup_locked_qty, 0) AS waiting_pickup_locked_qty,
+    COALESCE(pending_handling_qty, 0) AS pending_handling_qty
   FROM inventory_items
   WHERE id = ${parameters.text(inventoryItem.id)}
   FOR UPDATE
@@ -461,11 +464,24 @@ write_guard AS MATERIALIZED (
     'ERP_INVENTORY_CORRECTION_CONFIRM_CONCURRENCY_CONFLICT'
   ) AS ok
 ),
+inventory_commitment_guard AS MATERIALIZED (
+  -- 2026-11-07：盘亏不能把在库压到低于已占用+待提货锁定+待处理。
+  -- 单独 CTE 并依赖 write_guard，先走完原来的行锁等待再判这条。
+  SELECT erp_require(
+    (SELECT ok FROM write_guard)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_inventory
+        WHERE reserved_qty + waiting_pickup_locked_qty + pending_handling_qty
+          > ${parameters.integer(ledger.qtyAfter)}::integer
+      ),
+    'ERP_INVENTORY_CORRECTION_BELOW_COMMITTED_STOCK'
+  ) AS ok
+),
 updated_inventory AS (
   UPDATE inventory_items
   SET on_hand_qty = ${parameters.integer(ledger.qtyAfter)}, revision = inventory_items.revision + 1, updated_at = ${parameters.timestamp(draft.updatedAt)}
-  FROM locked_inventory, write_guard AS guard
-  WHERE inventory_items.id = locked_inventory.id AND guard.ok
+  FROM locked_inventory, write_guard AS guard, inventory_commitment_guard AS commitment
+  WHERE inventory_items.id = locked_inventory.id AND guard.ok AND commitment.ok
   RETURNING ${inventoryItemJsonExpression("inventory_items")} AS result
 ),
 updated_draft AS (
