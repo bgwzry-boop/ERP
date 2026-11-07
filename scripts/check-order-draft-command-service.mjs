@@ -315,6 +315,25 @@ async function checkFieldReviewConfirmationGate() {
   });
   assert.equal(blocked.statusCode, 409);
   assert.equal(blocked.code, "ORDER_DRAFT_FIELD_REVIEW_REQUIRED");
+
+  // 2026-11-07：请求体不能改写已保存、且不参与报价摘要的字段。
+  const staleWorkspace = buildWorkspace();
+  staleWorkspace.orderDrafts[0].lines = [{
+    id: "DRAFT-SERVICE-001-01",
+    fulfillment: "送货",
+    latest: "2026-11-10",
+    note: "已核过的备注",
+  }];
+  const stale = await service.confirmOrderDraft({
+    workspace: staleWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { expectedRevision: 1, lines: [{ ...buildRequestLine(), fulfillment: "自提" }] },
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.code, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED");
+  assert.deepEqual(stale.details.lines[0].fields.map((item) => item.field), ["note", "latest", "fulfillment"]);
+
   assert.equal(calls.confirmations.length, beforeConfirmationCount, "omitting persisted reviews must not bypass the gate");
 
   const confirmedWorkspace = buildWorkspace();
