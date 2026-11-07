@@ -6,7 +6,7 @@ const dependencies = {
   response: {},
   workspace: {},
   body: { operatorId: "U-REQUESTED" },
-  permissionContext: { actionPermissions: [] },
+  permissionContext: { actionPermissions: ["employee_account.review"], buttonPermissions: ["master_data.employee_account.review"] },
   authContext: { userId: "U-AUTH" },
   writeActionPermissions: {
     createMasterDataImportConfirmationPlan: "master_data.import.plan.create",
@@ -55,6 +55,19 @@ for (const [serviceName, commandName, kind] of [
   };
 }
 
+const ROUTES_WITH_OPERATOR_PERMISSIONS = new Set([
+  "enable",
+  "batch-enable",
+  "assignment",
+  "profile",
+  "merge",
+  "depart",
+  "identity-confirmation",
+  "password",
+  "revoke",
+  "phone-registration-assign",
+]);
+
 const importOptions = { useResultStatusCode: true };
 const employeeOptions = { includeErrorDetails: true, useResultStatusCode: true };
 await expectHandled("/api/master-data/import-confirmation-plans", "master_data.import.plan.create", "plan", {}, "U-OFFICE-A", importOptions);
@@ -90,11 +103,42 @@ assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleMasterDataWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/master-data/import-executions") }), false);
 assert.equal(await handleMasterDataWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/master-data/employee-account-reviews/EMP-1") }), false);
 
+// 2026-11-07：请求体里伪造 operatorPermissions 不得生效，路由只能传服务端解析出的权限。
+{
+  const forgedBody = { ...dependencies.body, operatorPermissions: ["payroll.export", "permission.manage"] };
+  const originalBody = dependencies.body;
+  dependencies.body = forgedBody;
+  calls.length = 0;
+  assert.equal(
+    await handleMasterDataWriteRoutes({
+      ...dependencies,
+      method: "POST",
+      url: new URL("http://erp.test/api/master-data/employee-account-reviews/batch-enable"),
+    }),
+    true,
+  );
+  dependencies.body = originalBody;
+  const employeeCall = calls.find((call) => call.kind === "batch-enable");
+  assert.ok(employeeCall, JSON.stringify(calls));
+  assert.deepEqual(
+    employeeCall.operatorPermissions,
+    ["master_data.employee_account.review", "employee_account.review"],
+    "路由必须使用服务端解析出的权限，忽略请求体伪造值",
+  );
+}
+
 console.log("master-data write routes checks passed: permissions, operators, direct command ownership, dynamic statuses, trusted error details, and thin API wiring are covered");
 
 async function expectHandled(pathname, permission, kind, identifiers, fallback, responseOptions, method = "POST") {
   calls.length = 0;
   assert.equal(await handleMasterDataWriteRoutes({ ...dependencies, method, url: new URL(`http://erp.test${pathname}`) }), true);
+  // 2026-11-07：operatorPermissions 是否透传正是越权漏洞的根因，必须精确断言，
+  // 不能从调用参数里剥掉再比。带权限的路由必须传出"服务端解析出的有效权限"。
+  const expectsPermissions = ROUTES_WITH_OPERATOR_PERMISSIONS.has(kind);
+  const effectivePermissions = [...new Set([
+    ...(dependencies.permissionContext?.buttonPermissions ?? []),
+    ...(dependencies.permissionContext?.actionPermissions ?? []),
+  ])];
   assert.deepEqual(calls, [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback },
@@ -104,6 +148,7 @@ async function expectHandled(pathname, permission, kind, identifiers, fallback, 
       body: dependencies.body,
       ...identifiers,
       operatorId: "U-RESOLVED",
+      ...(expectsPermissions ? { operatorPermissions: effectivePermissions } : {}),
     },
     {
       kind: "response",

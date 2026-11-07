@@ -3,6 +3,7 @@ import { createRuntimeSession } from "../authSeed.mjs";
 import { getWorkspaceSecurityPolicy } from "../apiSecurityPolicy.mjs";
 import { getEffectivePermissions } from "../seedData.mjs";
 import { resolveConfiguredMasterDataMachine } from "../../shared/masterDataMachineIdentity.js";
+import { findSensitivePermissionEscalation } from "../../shared/auth/roleCatalog.js";
 import {
   getEmployeeAccountDepartment,
   getInvalidEmployeeAccountRoleInputs,
@@ -279,7 +280,7 @@ export function createPhoneIdentityCommandService(dependencies = {}) {
       .sort((left, right) => cleanText(right.registeredAt).localeCompare(cleanText(left.registeredAt)));
   }
 
-  async function assignRegistration({ workspace, userId, body = {}, operatorId }) {
+  async function assignRegistration({ workspace, userId, body = {}, operatorId, operatorPermissions }) {
     const safeUserId = cleanText(userId);
     const runtimeUser = runtimeUsers(workspace).find(
       (user) => cleanText(user.userId ?? user.id) === safeUserId && cleanText(user.source) === phoneIdentitySource,
@@ -316,6 +317,16 @@ export function createPhoneIdentityCommandService(dependencies = {}) {
     }
     const defaultRole = normalizeEmployeeAccountRoleKey(body.roleKey, employee.roleName);
     const roles = normalizeEmployeeAccountRoleKeys(roleInputs, defaultRole, employee.roleName);
+    // 2026-11-07：注册复核分配岗位也是发权限的入口，敏感域不能超过操作者本人。
+    const roleEscalation = findSensitivePermissionEscalation({ roles, operatorPermissions });
+    if (roleEscalation.length) {
+      return businessError(
+        403,
+        "PERSONNEL_ROLE_ESCALATION_BLOCKED",
+        "所选岗位自带的权限超出你自身的权限范围；不能给员工分配更高权限的岗位。",
+        { permissionKeys: roleEscalation },
+      );
+    }
     const defaultWorkshop = cleanText(body.defaultWorkshop ?? employee.defaultWorkshop);
     const defaultMachineId = cleanText(body.defaultMachineId ?? employee.defaultMachineId);
     const machineError = validateWorkshopMachineAssignment(workspace, roles, defaultWorkshop, defaultMachineId);
