@@ -22,11 +22,12 @@ export function createLocalAttachmentObjectStorage(options = {}) {
   const storageRootPath = resolve(storageRoot);
   // 2026-11-07：不再用硬编码默认密钥。没配就走进程内随机密钥——
   // 重启后旧签名链接自动失效，但至少不能被任何人用公开常量伪造。
-  const tokenSecret = options.tokenSecret
-    ?? process.env.ERP_ATTACHMENT_TOKEN_SECRET
-    ?? `local-${randomBytes(32).toString("hex")}`;
-  if (!options.tokenSecret && !process.env.ERP_ATTACHMENT_TOKEN_SECRET) {
-    console.warn("[attachment] ERP_ATTACHMENT_TOKEN_SECRET 未配置，本次进程使用临时随机签名密钥。");
+  // 空串和全空格都算没配置——?? 只挡 null/undefined，挡不住 ""。
+  const configuredSecret = String(options.tokenSecret ?? process.env.ERP_ATTACHMENT_TOKEN_SECRET ?? "").trim();
+  const usingEphemeralSecret = !configuredSecret;
+  const tokenSecret = usingEphemeralSecret ? `local-${randomBytes(32).toString("hex")}` : configuredSecret;
+  if (usingEphemeralSecret) {
+    console.warn("[attachment] ERP_ATTACHMENT_TOKEN_SECRET 未配置或为空，本次进程使用临时随机签名密钥。");
   }
   const localKeyPrefix = normalizeObjectKeyPrefix(options.localKeyPrefix ?? "attachments");
 

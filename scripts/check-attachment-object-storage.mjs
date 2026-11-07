@@ -126,6 +126,16 @@ async function checkLocalObjectStorage() {
     legacySecretForge,
     "default attachment token secret must not be the published constant",
   );
+  // 空串/全空格同样不能变成可预测密钥。
+  for (const blankSecret of ["", "   "]) {
+    const blankStorage = createLocalAttachmentObjectStorage({ storageRoot: join(tempRoot, `blank-${blankSecret.length}`), tokenSecret: blankSecret });
+    const blankAccess = blankStorage.createAccessUrl({ attachmentId: "ATT-STORAGE-001", ttlSeconds: 60 });
+    const blankToken = new URL(blankAccess.accessUrl, "http://erp.test").searchParams.get("accessToken");
+    const forgedWithEmpty = createHmac("sha256", "")
+      .update(`ATT-STORAGE-001|${new URL(blankAccess.accessUrl, "http://erp.test").searchParams.get("expiresAt")}`)
+      .digest("hex");
+    assert.notEqual(blankToken, forgedWithEmpty, "blank attachment secret must not sign with an empty key");
+  }
 }
   const accessUrl = new URL(access.accessUrl, "http://127.0.0.1");
   const valid = storage.validateAccessToken({
