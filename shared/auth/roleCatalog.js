@@ -651,10 +651,10 @@ export function isSensitivePermissionGrant(permissionKey) {
   return sensitivePermissionPrefixes.some((prefix) => key.startsWith(prefix));
 }
 
-export function findSensitivePermissionEscalation({ roles = [], permissionAllowlist = [], operatorPermissions } = {}) {
+export function findSensitivePermissionEscalation({ roles = [], permissionAllowlist = [], permissionDenylist = [], operatorPermissions } = {}) {
   // 路由层一定会传权限集；没传的是服务内部调用或旧测试，按原行为放行。
   if (!Array.isArray(operatorPermissions)) return [];
-  const resolved = resolvePermissionAssignment({ roles, permissionAllowlist });
+  const resolved = resolvePermissionAssignment({ roles, permissionAllowlist, permissionDenylist });
   const operatorSet = new Set(operatorPermissions.map((key) => String(key ?? "").trim()).filter(Boolean));
   return [...new Set([...resolved.buttonPermissions, ...resolved.actionPermissions])]
     .filter((permissionKey) => !operatorSet.has(permissionKey))

@@ -176,6 +176,7 @@ export function createMasterDataSubaccountCommandService(dependencies = {}) {
     const targetEscalation = findSensitivePermissionEscalation({
       roles: context.before.roles ?? [],
       permissionAllowlist: context.before.allowPermissions ?? context.before.permissionAllowlist ?? [],
+      permissionDenylist: context.before.denyPermissions ?? context.before.permissionDenylist ?? [],
       operatorPermissions: [...operatorSet],
     });
     if (targetEscalation.length) {
@@ -311,6 +312,7 @@ function validateAssignment(body, operatorPermissions) {
   const roleEscalation = findSensitivePermissionEscalation({
     roles,
     permissionAllowlist: allowPermissions,
+    permissionDenylist: denyPermissions,
     operatorPermissions: [...operatorSet],
   });
   if (roleEscalation.length) {
