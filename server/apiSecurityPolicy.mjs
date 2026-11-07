@@ -1,6 +1,9 @@
 // Base64-backed evidence uploads may carry a 50 MiB source file (~66.7 MiB encoded).
 // Print artwork uses the dedicated binary/object-storage path and never relies on this ceiling.
 export const defaultMaxJsonBodyBytes = 72 * 1024 * 1024;
+// 2026-11-07 负责人实测：免登录可以，但公网任意匿名请求不能被当成办公室账号。
+// 免签身份只在本机预览 / 测试断言里放行；线上域名一律要求签名会话。
+export const defaultUnsignedIdentityHosts = ["127.0.0.1", "localhost", "[::1]", "::1"];
 const strictCorsRequestHeaders = ["content-type", "authorization", "idempotency-key"];
 const prototypeCorsRequestHeaders = [
   ...strictCorsRequestHeaders,
@@ -39,6 +42,9 @@ export function buildApiSecurityPolicy(options = {}, env = process.env) {
     ),
     corsAllowedOrigins: normalizeCorsAllowedOrigins(options.corsAllowedOrigins ?? env.ERP_CORS_ALLOWED_ORIGINS),
     maxJsonBodyBytes: resolveMaxJsonBodyBytes(options.maxJsonBodyBytes ?? env.ERP_API_MAX_JSON_BODY_BYTES),
+    unsignedIdentityHosts: normalizeUnsignedIdentityHosts(
+      options.unsignedIdentityHosts ?? env.ERP_UNSIGNED_IDENTITY_HOSTS,
+    ),
   };
 }
 
@@ -56,8 +62,34 @@ export function getWorkspaceSecurityPolicy(workspace = {}) {
       phoneRegistrationEnabled: false,
       corsAllowedOrigins: [],
       maxJsonBodyBytes: defaultMaxJsonBodyBytes,
+      unsignedIdentityHosts: defaultUnsignedIdentityHosts,
     }
   );
+}
+
+function normalizeUnsignedIdentityHosts(value) {
+  const values = Array.isArray(value) ? value : [value];
+  const hosts = values.flatMap((item) => String(item ?? "").split(/[;,\n]/))
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return hosts.length ? [...new Set(hosts)] : [...defaultUnsignedIdentityHosts];
+}
+
+// 免签身份（x-erp-user-id / 默认种子用户 / 权限覆盖头）只在两种情况下放行：
+//   1) 请求没有 Host（单元测试里的合成 request）；
+//   2) Host 命中本机白名单，且没有任何反向代理转发头。
+// 线上经过 nginx 的请求一定带 x-forwarded-for / x-real-ip，因此即使伪造 Host 也进不来。
+export function isUnsignedIdentityRequestAllowed(request, securityPolicy = {}) {
+  const headers = request?.headers ?? {};
+  const forwarded = headers["x-forwarded-for"] || headers["x-real-ip"] || headers["x-forwarded-host"];
+  if (forwarded) return false;
+  const rawHost = String(headers.host ?? headers[":authority"] ?? "").trim();
+  if (!rawHost) return true;
+  const host = rawHost.replace(/^\[([^\]]+)\](?::\d+)?$/, "[$1]").replace(/:(\d+)$/, "").toLowerCase();
+  const allowed = Array.isArray(securityPolicy.unsignedIdentityHosts) && securityPolicy.unsignedIdentityHosts.length
+    ? securityPolicy.unsignedIdentityHosts
+    : defaultUnsignedIdentityHosts;
+  return allowed.includes(host);
 }
 
 export function isCorsRequestAllowed(securityPolicy, origin) {

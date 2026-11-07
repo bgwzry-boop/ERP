@@ -100,6 +100,10 @@ export async function handleMasterDataWriteRoutes({
       userId,
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+      operatorPermissions: [...new Set([
+        ...(permissionContext?.buttonPermissions ?? []),
+        ...(permissionContext?.actionPermissions ?? []),
+      ])],
     });
     sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
     return true;
