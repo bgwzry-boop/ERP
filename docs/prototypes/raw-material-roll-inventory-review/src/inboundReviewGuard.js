@@ -1,21 +1,26 @@
 // 2026-11-07：切换收货单据前，先问一句"核对区的改动要不要留"。
-// 选中状态由 useReceivingData 持有，草稿在 WorkSpace 里，中间隔着好几层，
-// 所以用一个小注册表把"当前单据脏不脏"从工作区上报到选择动作，避免逐层透传。
+// 选中状态由 useReceivingData 持有，草稿在 WorkSpace 里，中间隔着几层，
+// 所以用一个小注册表把"当前单据脏不脏"从工作区上报到选择动作。
+//
+// 注册表必须按实例存：多个工作区同时挂载时，后注册的不能把先注册的盖掉。
 export function createInboundReviewGuard() {
-  let provider = null;
+  const providers = new Set();
   return {
     register(nextProvider) {
-      provider = typeof nextProvider === "function" ? nextProvider : null;
-      return () => {
-        if (provider === nextProvider) provider = null;
-      };
+      if (typeof nextProvider !== "function") return () => {};
+      providers.add(nextProvider);
+      return () => { providers.delete(nextProvider); };
     },
     isDirty() {
-      try {
-        return Boolean(provider?.());
-      } catch {
-        return false;
+      for (const provider of providers) {
+        try {
+          if (provider()) return true;
+        } catch {
+          // 判不出来时按"有未保存改动"处理：多问一句，总比悄悄丢掉强。
+          return true;
+        }
       }
+      return false;
     },
     shouldSwitch({ nextId, currentId, confirm = defaultConfirm } = {}) {
       const next = String(nextId ?? "");

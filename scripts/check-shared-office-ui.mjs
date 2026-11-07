@@ -130,15 +130,21 @@ assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
 assert.equal(toFiniteNumber("12.5"), 12.5);
 assert.equal(toFiniteNumber("not-a-number"), 0);
 
-// 2026-11-07：收货核对切单据前必须拦住未保存修改。
 {
   const guard = createInboundReviewGuard();
-  guard.register(() => true);
+  const releaseDirty = guard.register(() => true);
+  const releaseClean = guard.register(() => false);
+  assert.equal(guard.isDirty(), true, "any dirty provider makes the guard dirty");
   assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => false }), false, "dirty review must block switching when cancel is chosen");
   assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => true }), true, "confirming discards must allow switching");
   assert.equal(guard.shouldSwitch({ nextId: "A", currentId: "A", confirm: () => false }), true, "same receipt never prompts");
-  guard.register(() => false);
-  assert.equal(guard.shouldSwitch({ nextId: "B", currentId: "A", confirm: () => false }), true, "clean review switches freely");
+  releaseDirty();
+  assert.equal(guard.isDirty(), false, "removing the dirty provider must restore a clean state (no singleton stomping)");
+  const releaseBroken = guard.register(() => { throw new Error("provider failed"); });
+  assert.equal(guard.isDirty(), true, "a failing provider must fail closed, not silently allow switching");
+  releaseBroken();
+  releaseClean();
+  assert.equal(guard.isDirty(), false);
 
   const receivingData = read("docs/prototypes/raw-material-roll-inventory-review/src/useReceivingData.js");
   assert.match(receivingData, /inboundReviewGuard\.shouldSwitch/u, "receipt selection must consult the review guard");
