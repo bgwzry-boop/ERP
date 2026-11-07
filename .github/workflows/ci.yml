@@ -49,6 +49,7 @@ jobs:
           npm run receiving-review-guard-mounted:check
           node scripts/check-order-entry-dirty-leave-ui.mjs
           node scripts/check-deep-link-auth-ui.mjs
+          node scripts/check-route-guard-composition-ui.mjs
       - run: npm test
       - run: npm run test:raw-material
       - run: npm audit --audit-level=high
