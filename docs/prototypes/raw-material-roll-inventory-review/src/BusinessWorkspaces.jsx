@@ -537,6 +537,8 @@ function buildWorkspaceConfigs(formal) {
     rows: [],
     primaryAction: "查看发布状态",
     source: "正式发布状态接口尚未提供",
+    // 2026-11-07：这一页是"还没接数据源"，不是"业务上暂时没有记录"，措辞要分开。
+    emptyDescription: "这一页还没有接上发布状态数据源；接入后会显示每次上线检查的对象、版本和环境。",
   },
   };
 };
@@ -596,7 +598,7 @@ function GenericWorkspace({ config, onNavigate, detailExtra, focus = null }) {
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索当前工作台" value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="business-table" role="table" aria-label={`${config.title}列表`}>
         <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}>{config.columns.map((column) => <span data-numeric={isNumericColumn(column) ? "true" : undefined} key={column} role="columnheader">{column}</span>)}</div>
-        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`business-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button">{row.cells.map((cell, index) => <span className={index === (config.primaryCellIndex ?? 0) ? "business-primary-cell" : undefined} data-numeric={isNumericColumn(config.columns[index]) ? "true" : undefined} key={`${row.id}-${index}`} role="cell">{index === row.cells.length - 1 ? <StateText>{cell}</StateText> : cell}</span>)}</button>) : <EmptyWorkspace title={config.rows.length ? "没有匹配记录" : "暂无记录"} description={config.rows.length ? "调整关键词、状态或区域后重试。" : "有新的业务记录后，会显示在这里。"} actionLabel={config.rows.length ? "清除筛选" : undefined} onAction={config.rows.length ? reset : undefined} />}</div>
+        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`business-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button">{row.cells.map((cell, index) => <span className={index === (config.primaryCellIndex ?? 0) ? "business-primary-cell" : undefined} data-numeric={isNumericColumn(config.columns[index]) ? "true" : undefined} key={`${row.id}-${index}`} role="cell">{index === row.cells.length - 1 ? <StateText>{cell}</StateText> : cell}</span>)}</button>) : <EmptyWorkspace title={config.rows.length ? "没有匹配记录" : "暂无记录"} description={config.rows.length ? "调整关键词、状态或区域后重试。" : (config.emptyDescription ?? "有新的业务记录后，会显示在这里。")} actionLabel={config.rows.length ? "清除筛选" : undefined} onAction={config.rows.length ? reset : undefined} />}</div>
       </div>
     </section>
     <aside className="business-detail-panel">
