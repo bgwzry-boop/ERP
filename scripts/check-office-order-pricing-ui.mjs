@@ -572,6 +572,8 @@ try {
   assert.equal(holdDraft.status, 200, JSON.stringify(holdDraft.body));
   assert.equal(holdDraft.body.draft.recognitionContext?.queueItemId, undefined);
   await page.evaluate((id) => {
+    // An explicit hold draft must still win after starting earlier blank orders.
+    window.formal.entryCreationId = 2;
     window.formal.entryDraftId = id;
     window.formal.data.orderDrafts = [];
     window.render();

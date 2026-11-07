@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { addOfficeCustomerDeliveryAddress, createOfficeCustomer, getOfficeCustomerDeliveryAddresses, getOfficeCustomerProfile, getOfficeDraft, searchOfficeCustomers } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
@@ -10,6 +10,7 @@ import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
 
 const unresolvedWrites = new Map();
+const emptyPricingInputs = JSON.stringify([{}, [], "", "", false]);
 
 const money = (value) =>
   typeof value === "number" && Number.isFinite(value)
@@ -42,13 +43,14 @@ export default function OrderPricingEntryWorkspace({
   loadDraft = getOfficeDraft,
 }) {
   const selectedId = formal.entryDraftId || "";
+  const newEntry = !selectedId && formal.entryCreationId > 0;
   const session = formal.authState?.session?.accessToken || "";
   // Keep the accepted default draft stable while editing or showing its receipt.
   // Refreshing the queue can remove a confirmed draft; it must not silently
   // remount the editor on a different draft and erase the successful result.
   const defaultDraft = useRef({ session, draft: null });
   if (defaultDraft.current.session !== session) defaultDraft.current = { session, draft: null };
-  if (!selectedId && !defaultDraft.current.draft && formal.data.orderDrafts?.[0]) {
+  if (!selectedId && !newEntry && !defaultDraft.current.draft && formal.data.orderDrafts?.[0]) {
     defaultDraft.current.draft = editableDraft(formal.data.orderDrafts[0]);
   }
   const selectionKey = `${session}:${selectedId}`;
@@ -120,8 +122,8 @@ export default function OrderPricingEntryWorkspace({
   }, [selectionKey, selectedId, session, needsRead, loadDraft, readAttempt]);
   const selected = selectedId
     ? cachedDraft || editableDraft(queued)
-    : defaultDraft.current.draft;
-  const identity = `${session}:${selectedId || draftIdentity(selected)}`;
+    : newEntry ? null : defaultDraft.current.draft;
+  const identity = `${session}:${selectedId || (newEntry ? `new-${formal.entryCreationId}` : draftIdentity(selected))}`;
   if (selectedId && !selected) {
     if (direct?.status === "error")
       return (
@@ -169,6 +171,7 @@ function OrderPricingEditor({
   const [rows, setRows] = useState(
     initial?.rows ?? selected?.lines ?? selected?.rows ?? [],
   );
+  const [savedRows, setSavedRows] = useState(initial?.savedRows ?? rows);
   const [draftId, setDraftId] = useState(
     initial?.draftId ?? draftIdentity(selected),
   );
@@ -184,6 +187,8 @@ function OrderPricingEditor({
     [reason, setReason] = useState(initial?.reason ?? ""),
     [sameBatch, setSameBatch] = useState(initial?.sameBatch ?? false),
     [affected, setAffected] = useState(initial?.affected ?? []);
+  const pricingInputs = JSON.stringify([overrides, supplementIds, batch, reason, sameBatch]);
+  const [savedPricingInputs, setSavedPricingInputs] = useState(initial?.savedPricingInputs ?? emptyPricingInputs);
   const [splitPlan, setSplitPlan] = useState(initial?.splitPlan ?? null);
   // Owner decision 2026-10-29: when stock is short the office records what this customer wants.
   const [shortageChoice, setShortageChoice] = useState(initial?.shortageChoice ?? ""),
@@ -201,7 +206,8 @@ function OrderPricingEditor({
   const mounted = useRef(false);
   const inFlight = useRef(false);
   const [pendingKind, setPendingKind] = useState(recovered?.kind ?? "");
-  const editingLocked = !!busy || complete || !!pendingKind || !!splitPlan;
+  const newOrderBlocked = Boolean(busy || pendingKind || splitPlan);
+  const editingLocked = complete || newOrderBlocked;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -262,11 +268,18 @@ function OrderPricingEditor({
   const [pickedCustomer, setPickedCustomer] = useState(
     initial?.pickedCustomer ?? null,
   );
+  const hasUnsavedChanges = !complete && Boolean(
+    draftSource !== savedSource || rows !== savedRows || pricingInputs !== savedPricingInputs
+    || (!rows.length && pickedCustomer) || shortageChoice || shortageNote.trim() || affected.length,
+  );
+  const registerOrderEntryEditor = formal.actions.registerOrderEntryEditor;
+  useLayoutEffect(() => registerOrderEntryEditor?.({ dirty: hasUnsavedChanges, blocked: newOrderBlocked }),
+    [registerOrderEntryEditor, hasUnsavedChanges, newOrderBlocked]);
   // 消息开头或结尾写的客户名字（识别回执带回）；系统里没有时提示新建。
   const [customerHint, setCustomerHint] = useState(initial?.customerHint ?? null);
   const pickCustomer = (customer) => {
     if (frozenRequest.current || splitPlan || !customer?.customerId) return;
-    setPickedCustomer({ customerId: customer.customerId, name: customer.name });
+    setPickedCustomer({ customerId: customer.customerId, name: customer.name, selectionSource: "manual" });
     setCustomerHint(null);
     if (!rows.length) return;
     invalidate();
@@ -297,6 +310,8 @@ function OrderPricingEditor({
         source,
         savedSource,
         rows,
+        savedRows,
+        savedPricingInputs,
         draftId,
         revision,
         quote,
@@ -392,10 +407,21 @@ function OrderPricingEditor({
           throw new Error("没有取得完整识别回执。");
         invalidate();
         // 先选了客户再识别：识别出来没写客户的明细，用选好的客户。
-        setRows(pickedCustomer?.customerId
-          ? result.rows.map((line) => line.customerId ? line : { ...line, customerId: pickedCustomer.customerId, customer: pickedCustomer.name, customerName: pickedCustomer.name })
+        const manualCustomer = pickedCustomer?.selectionSource === "recognition" ? null : pickedCustomer;
+        setSavedRows(result.rows);
+        setRows(manualCustomer?.customerId && result.rows.some(line => !line.customerId)
+          ? result.rows.map((line) => line.customerId ? line : { ...line, customerId: manualCustomer.customerId, customer: manualCustomer.name, customerName: manualCustomer.name })
           : result.rows);
-        setCustomerHint(result.recognition?.customerHint?.name ? result.recognition.customerHint : null);
+        const nextCustomerHint = result.recognition?.customerHint?.name ? result.recognition.customerHint : null;
+        setPickedCustomer(current => {
+          if (current?.customerId && current.selectionSource !== "recognition") return current;
+          return nextCustomerHint?.customerId ? {
+            customerId: nextCustomerHint.customerId,
+            name: nextCustomerHint.name,
+            selectionSource: "recognition",
+          } : null;
+        });
+        setCustomerHint(nextCustomerHint);
         setDraftId(draftIdentity(result.draft));
         setRevision(nextRevision);
         setSavedSource(result.draft.sourceText ?? source);
@@ -404,7 +430,10 @@ function OrderPricingEditor({
         setBatch("");
         setReason("");
         setSameBatch(false);
-        setNotice("已识别，请核对类型、规格、颜色和交期。");
+        setSavedPricingInputs(emptyPricingInputs);
+        setNotice(result.rows.length
+          ? "已识别，请核对类型、规格、颜色和交期。"
+          : "未识别出订单明细，请检查原文后重新识别。");
       },
     );
   const save = () =>
@@ -432,6 +461,7 @@ function OrderPricingEditor({
         setDraftId(result.draftId);
         setRevision(nextRevision);
         setSavedSource(result.draft?.sourceText ?? draftSource);
+        setSavedRows(rows);
         setNotice("草稿已保存，请生成正式报价后确认。");
       },
     );
@@ -483,6 +513,8 @@ function OrderPricingEditor({
         setQuote(result.quote);
         setRevision(result.quote.clientRevision);
         setSavedSource(draftSource);
+        setSavedRows(rows);
+        setSavedPricingInputs(pricingInputs);
         setAffected([]);
         requests.current.confirm = null;
         setNotice("正式报价已保存。请核对金额和受影响原单，再确认下单。");
@@ -639,7 +671,7 @@ function OrderPricingEditor({
           <button
             type="button"
             className="secondary-button"
-            disabled={editingLocked}
+            disabled={newOrderBlocked}
             onClick={() => onNavigate("order-pool")}
           >
             查看订单池
@@ -1231,12 +1263,12 @@ function OrderPricingEditor({
                     </li>
                   ) : null;
                 })}
-                {!missing ? <li><span>{rows.length} 行明细都已齐全</span><strong>待报价</strong></li> : null}
+                {!missing ? <li><span>{rows.length} 行计价明细已齐全</span><strong>待报价</strong></li> : null}
               </ul>
               <p className="pricing-precheck-hint">
                 {missing
                   ? "先补全标出的字段，再生成正式报价。"
-                  : "明细已齐全。点「生成正式报价」后，这里显示每行单价和合计。"}
+                  : "可生成报价；下单前请核对交付方式和需要日期。"}
                 缺少发布价或已确认材料价时会保留草稿，由有权限的人填写本单价及原因。
               </p>
             </>
@@ -1496,7 +1528,10 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
         ) : null}
         {!currentId && !editing && hint?.name ? (
           <p className="pricing-customer-info warn" role="status">
-            {hint.ambiguous?.length
+            {hint.customerId
+              ? <>已找到客户「{hint.name}」。
+                <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(hint)}>选用这个客户</button></>
+              : hint.ambiguous?.length
               ? <>消息里写的「{hint.name}」对应多个客户：{hint.ambiguous.join("、")}，请在上面选一个。</>
               : <>消息里写的客户「{hint.name}」系统里没有。是否新建？
                 <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => setCreating({ name: hint.name })}>新建客户「{hint.name}」</button></>}

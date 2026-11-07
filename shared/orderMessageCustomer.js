@@ -39,7 +39,7 @@ export function messageCustomerNameCandidates(sourceText) {
     if (last) candidates.push(last);
   } else if (lines.length === 1) {
     // One line: a name after the last quantity, e.g. "30*38红5000个 明天自提 王五包装".
-    const tail = lines[0].replace(/^.*\d[^\d]*?(个|只|件|包|卷|条)?/u, "");
+    const tail = lines[0].replace(/^.*\d\s*(?:个|只|件|包|卷|条)?/u, "");
     const last = candidateName(tail);
     if (last && last !== first) candidates.push(last);
   }
@@ -51,13 +51,17 @@ function matchesCustomer(candidate, customer) {
   return names.some((name) => name === candidate || (candidate.length >= 2 && name.includes(candidate)) || (name.length >= 2 && candidate.includes(name)));
 }
 
+export function isActiveMessageCustomer(customer) {
+  return Boolean(clean(customer?.id ?? customer?.customerId)) && customer?.enabled !== false && clean(customer?.status) !== "停用";
+}
+
 /**
  * The customer named at the start or end of an order message.
  * Returns { name, customerId } when exactly one active customer matches, { name } when the
  * name is not in the system (the office may create it), or null when no name is written.
  */
 export function detectMessageCustomer(sourceText, customers = []) {
-  const active = customers.filter((customer) => clean(customer?.id ?? customer?.customerId) && customer?.enabled !== false && clean(customer?.status) !== "停用");
+  const active = customers.filter(isActiveMessageCustomer);
   for (const candidate of messageCustomerNameCandidates(sourceText)) {
     const exact = active.filter((customer) => [customer.name, customer.shortName].map(clean).includes(candidate));
     const matches = exact.length ? exact : active.filter((customer) => matchesCustomer(candidate, customer));

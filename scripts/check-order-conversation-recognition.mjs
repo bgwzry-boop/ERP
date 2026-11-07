@@ -4,6 +4,104 @@ import { customers, initialInventories } from "../src/data/fixtures.js";
 import { editableColors } from "../src/domain/officeRules.js";
 import { recognizeOrderConversation } from "../src/lib/orderConversationRecognition.js";
 
+const shorthandOptions = { customers: [...customers, { id: "TEST-HUANG", name: "黄松" }], inventories: initialInventories };
+for (const text of ["3037 红 500 个", "3037 红 500 个 黄松"]) {
+  const result = recognizeOrderConversation(text, shorthandOptions);
+  assert.equal(result.sourceMessages[0].intentType, "explicit_order", text);
+  assert.equal(result.orderRows.length, 1);
+  const [row] = result.orderRows;
+  assert.equal(row.size, "30*37*10");
+  assert.equal(row.color, "红色");
+  assert.equal(row.qty, 500);
+  assert.equal(row.source, text);
+  assert.equal(row.customerId, text.includes("黄松") ? "TEST-HUANG" : "");
+}
+for (const [text, expected] of [
+  ["3037 红500 黑300 黄松", [["红色", 500], ["黑色", 300]]],
+  ["3037 红500 黑色 黄松", [["红色", 500], ["黑色", 0]]],
+  ["3037 黄500个 黄松", [["黄色", 500]]],
+  ["3037 500个 黄松", [["待确认", 500]]],
+  ["3037 红500个 黄松 2026-11-10自提", [["红色", 500]]],
+]) {
+  const result = recognizeOrderConversation(text, shorthandOptions);
+  assert.deepEqual(result.orderRows.map(({ color, qty }) => [color, qty]), expected, text);
+  assert.ok(result.orderRows.every(row => row.customerId === "TEST-HUANG"));
+}
+for (const text of ["3037", "3037 红", "3037 个", "2026-11-10 500个", "13830375000 红500个", "订单号3037 红500个", "电话3037 红500个", "订单号：3037 红500个", "电话：3037 红500个",
+  "3037 红 13830375000", "3037 红13830375000个", "单号ABC3037 红500个", "3037 红500个 取消", "取消3037红500个", "3037 红500个 不要了", "3037 红500个 查库存", "3037 红500个 留一下",
+  "3037 红2026/11/10", "3037 红11月10日", "3037 红2026.11.10", "3037 红11/10", "3037 红500个 库存还有多少"]) {
+  assert.equal(recognizeOrderConversation(text, shorthandOptions).orderRows.length, 0, text);
+}
+const similarCustomers = [
+  { id: "HS", name: "东莞市黄松包装有限公司", shortName: "黄松" },
+  { id: "HSL", name: "黄松林" },
+];
+for (const [name, id, color] of [["黄松", "HS", "待确认"], ["黄松林", "HSL", "待确认"]]) {
+  const [row] = recognizeOrderConversation(`3037 500个 ${name}`, { customers: similarCustomers }).orderRows;
+  assert.equal(row.customerId, id);
+  assert.equal(row.color, color);
+}
+const ambiguousCustomers = [...similarCustomers, { id: "HS2", name: "黄松商贸", shortName: "黄松" }];
+const [ambiguous] = recognizeOrderConversation("3037 500个 黄松", { customers: ambiguousCustomers }).orderRows;
+assert.equal(ambiguous.customerId, "");
+assert.equal(ambiguous.color, "待确认");
+const [selectedCustomer] = recognizeOrderConversation("3037 红500个 黄松", { customers: similarCustomers, customerId: "HSL" }).orderRows;
+assert.equal(selectedCustomer.customerId, "HSL", "the office's explicit customer selection stays authoritative");
+for (const customer of [
+  { id: "DISABLED", name: "黄松", status: "停用" },
+  { id: "DISABLED", name: "黄松", enabled: false },
+  { id: "DISABLED", name: "黄松包装有限公司", shortName: "黄松", status: "停用" },
+]) {
+  const [row] = recognizeOrderConversation("3037 500个 黄松", { customers: [customer] }).orderRows;
+  assert.equal(row.customerId, "", "a disabled customer cannot be restored by legacy aliases");
+  assert.equal(row.color, "待确认", "a disabled customer's name is still a name");
+}
+
+for (const [text, intent] of [
+  ["3037 红500个有吗", "inventory_inquiry"],
+  ["3037 红有的话给我留500个", "temporary_hold"],
+  ["3037 红500个 整单取消", "shortage_cancellation"],
+]) {
+  const result = recognizeOrderConversation(text, shorthandOptions);
+  assert.equal(result.sourceMessages[0].intentType, intent, text);
+  assert.equal(result.orderRows.length, 0);
+}
+
+const datedPickup = recognizeOrderConversation("王五包装 30*38*10 红色40个 黑色20个 白色 2026-11-10自提", { customers, inventories: initialInventories });
+assert.deepEqual(datedPickup.orderRows.map(({ color, qty, latest, fulfillment }) => [color, qty, latest, fulfillment]), [
+  ["红色", 40, "2026-11-10", "自提"],
+  ["黑色", 20, "2026-11-10", "自提"],
+  ["白色", 0, "2026-11-10", "自提"],
+], "multi-colour recognition keeps the calendar date and leaves the white quantity unfilled");
+assert.equal(datedPickup.orderRows[2].confidence, "low");
+assert.ok(datedPickup.orderRows[2].reviewReasons.includes("白色数量待确认"));
+
+for (const [message, expected] of [
+  ["30*38*10 红色100个、黑色 送货", [["红色", 100], ["黑色", 0]]],
+  ["覆膜袋40*30*10 橘色100个 宝蓝色 送货", [["橘色", 100], ["宝蓝色", 0]]],
+  ["30*38*10 红色、黑色 共100个 送货", [["红色", 0], ["黑色", 0]]],
+  ["30*38*10 红色100个、黑色 送货，印刷颜色：蓝色", [["红色", 100], ["黑色", 0]]],
+  ["30*38*10 红色100个、黑色 送货，提手颜色：蓝色", [["红色", 100], ["黑色", 0]]],
+]) {
+  const result = recognizeOrderConversation(message, { customers, inventories: initialInventories });
+  assert.deepEqual(result.orderRows.map(({ color, qty }) => [color, qty]), expected, message);
+  for (const row of result.orderRows.filter(row => !row.qty)) {
+    assert.equal(row.confidence, "low");
+    assert.ok(row.reviewReasons.includes(`${row.color}数量待确认`));
+  }
+}
+
+for (const [message, expected] of [
+  ["30*38*10 红色100个，单面黑色印", [["红色", 100, "黑色", ""]]],
+  ["30*38*10 红色100个，黑色印刷", [["红色", 100, "黑色", ""]]],
+  ["30*38*10 红色100个，提手黑色", [["红色", 100, "非印刷", "黑色"]]],
+  ["30*38*10 白色印黑色100个", [["白色", 100, "黑色", ""]]],
+  ["30*38*10 红色100个、绿色，单面黑色印", [["红色", 100, "黑色", ""], ["绿色", 0, "黑色", ""]]],
+]) {
+  const result = recognizeOrderConversation(message, { customers, inventories: initialInventories });
+  assert.deepEqual(result.orderRows.map(({ color, qty, printColor, handleColor }) => [color, qty, printColor, handleColor]), expected, message);
+}
+
 for (const color of ["橘色", "宝蓝色", "焦糖色", "米色", "咖色", "米白色", "安哥拉红"]) {
   assert(editableColors.includes(color), `recognized business color ${color} must remain selectable in order entry`);
 }

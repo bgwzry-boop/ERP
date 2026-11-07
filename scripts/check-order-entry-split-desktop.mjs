@@ -19,12 +19,13 @@ try {
   const api = async path => (await requestJson(origin, `/api${path}`, {headers:{authorization:`Bearer ${login.session.accessToken}`},expectedStatus:200})).body;
   browser = await chromium.launch({headless:true});
   const page = await browser.newPage({viewport:{width:1440,height:980}});
-  const errors=[], writes=[], previews=[]; let quote, confirmation;
+  const errors=[], writes=[], previews=[]; let quote, confirmation, lastRecognizedDraft;
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", async route => {
     const req=route.request(), url=new URL(req.url()), headers={...req.headers()}; delete headers.host; delete headers.origin;
     const result=await fetch(origin+url.pathname+url.search,{method:req.method(),headers,body:["GET","HEAD"].includes(req.method())?undefined:req.postDataBuffer()});
     const body=Buffer.from(await result.arrayBuffer());
+    if (req.method() === "POST" && url.pathname.endsWith("/order-drafts/recognize") && result.ok) lastRecognizedDraft = JSON.parse(body).draft;
     if(req.method()==="POST" && url.pathname.endsWith("/price-quote") && result.ok)quote=JSON.parse(body).quote;
     if(req.method()==="POST" && url.pathname.endsWith("/split-preview") && result.ok)previews.push(JSON.parse(body).splitPlan);
     if(req.method()==="POST" && url.pathname.endsWith("/split-confirm")) {
@@ -36,6 +37,7 @@ try {
   });
   await page.goto("http://127.0.0.1:4174/?entrySplit=isolated&erpViewport=desktop#order-entry");
   const source = page.getByLabel("客户订单原文");
+  const newOrder = page.getByRole("button", { name: /新建订单$/u });
   await expect(source).toBeVisible();
   await expect(source).toHaveValue(/张三服饰/, { timeout: 15000 });
   const message = "王五包装 30*38*10 红色 40个 2099-11-02自提";
@@ -51,6 +53,7 @@ try {
   await previewButton.click();
   let dialog=page.getByRole("dialog",{name:"拆单预览与确认"});
   await expect(dialog).toContainText("当前只有一个交付组");
+  await expect(newOrder).toBeDisabled();
   await expect(dialog.getByRole("button",{name:"确认生成 1 张订单",exact:true})).toBeDisabled();
   await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0); await expect(previewButton).toBeFocused();
   await page.getByLabel("本行使用授权本单价",{exact:true}).check();
@@ -92,6 +95,7 @@ try {
   await dialog.getByRole("button",{name:"确认生成 2 张订单",exact:true}).click();
   const retry=dialog.getByRole("button",{name:"按原内容重试拆单",exact:true});
   await expect(retry).toBeEnabled();
+  await expect(newOrder).toBeDisabled();
   await expect(dialog.getByRole("button",{name:"返回修改",exact:true})).toBeDisabled();
   await page.keyboard.press("Escape"); await expect(dialog).toBeVisible();
   await retry.click(); await expect(retry).toBeEnabled();
@@ -109,8 +113,56 @@ try {
   assert.deepEqual(errors,[]);
   await page.setViewportSize({width:1440,height:980});
   await page.screenshot({path:join(output,"desktop-split-success.png"),fullPage:true});
-  await writeFile(join(output,"validation.json"),JSON.stringify({status:"passed",isolated:true,createdOrderCount:2,quantity:40,quotePreserved:true,retryRequests:3,uniqueRequestCount:1,previewCancellationWrites:0,pageErrors:errors,viewports:[1440,900]},null,2));
-  console.log("Order entry split desktop passed: row quantity conservation, stale quote invalidation, server grouping, reviewed quote/plan identity, no-write preview/cancel, compact dialog, focus, and lost-success/409 exact retry without duplicate orders.");
+  const openPool = page.getByRole("button", { name: "查看订单池", exact: true });
+  await expect(openPool).toBeEnabled();
+  await openPool.click();
+  await expect(page).toHaveURL(/#order-pool$/u);
+  await newOrder.click();
+  await expect(source).toHaveValue("");
+  const quantity = page.getByLabel("第1行数量", { exact: true });
+  await expect(quantity).toHaveCount(0);
+  await expect(page.getByText("尚未建立草稿", { exact: true })).toBeVisible();
+  await source.fill("王五包装 30*38*10 红色 10个 明天自提");
+  await page.getByRole("button", { name: "识别客户消息", exact: true }).click();
+  await expect(quantity).toHaveValue("10");
+  const previousDraft = lastRecognizedDraft;
+  const discard = page.getByRole("alertdialog", { name: "放弃当前修改？", exact: true });
+  await quantity.fill("11");
+  await newOrder.click();
+  await expect(discard).toBeVisible();
+  await discard.getByRole("button", { name: "继续编辑", exact: true }).click();
+  await expect(discard).toHaveCount(0);
+  await expect(quantity).toHaveValue("11");
+  await expect(source).toHaveValue(/10个/u);
+  await newOrder.click();
+  await discard.getByRole("button", { name: "放弃并新建", exact: true }).click();
+  await expect(source).toHaveValue("");
+  await expect(quantity).toHaveCount(0);
+  const previousDraftRead = await api(`/order-drafts?draftId=${encodeURIComponent(previousDraft.draftId)}`);
+  assert.equal(previousDraftRead.items[0].sourceText, previousDraft.sourceText);
+  assert.equal(previousDraftRead.items[0].clientRevision, previousDraft.clientRevision);
+
+  await source.fill("合成未识别原文");
+  await newOrder.click();
+  await expect(discard).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(discard).toHaveCount(0);
+  await expect(source).toHaveValue("合成未识别原文");
+
+  await source.fill("王五包装 30*38*10 红色 12个 明天自提");
+  await page.getByRole("button", { name: "识别客户消息", exact: true }).click();
+  await expect(quantity).toHaveValue("12");
+  await quantity.fill("13");
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(page.getByText("草稿已保存，请生成正式报价后确认。", { exact: true })).toBeVisible();
+  await newOrder.click();
+  await expect(source).toHaveValue("");
+  await expect(quantity).toHaveCount(0);
+  await expect(discard).toHaveCount(0);
+  assert.deepEqual(errors, []);
+  await page.screenshot({path:join(output,"desktop-next-order.png"),fullPage:true});
+  await writeFile(join(output,"validation.json"),JSON.stringify({status:"passed",isolated:true,createdOrderCount:2,quantity:40,quotePreserved:true,retryRequests:3,uniqueRequestCount:1,previewCancellationWrites:0,postSuccessPool:true,newOrderBlank:true,unsavedChangesGuard:true,oldDraftPreserved:true,savedDraftStartsBlank:true,pageErrors:errors,viewports:[1440,900]},null,2));
+  console.log("Order entry split desktop passed: quantity and quote conservation, server grouping, exact retry, post-success order-pool access, and new-order guards for unsaved rows, unrecognized text, saved drafts and split preview.");
 } finally {
   await browser?.close(); if(server)await closeTestServer(server); await rm(storage,{recursive:true,force:true});
 }

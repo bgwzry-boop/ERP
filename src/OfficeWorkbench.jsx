@@ -99,6 +99,7 @@ function OfficeWorkbenchRuntime({
   const {
     customers,
     defaultSelections,
+    initialDraftRows,
     initialFulfillments,
     initialInventories,
     initialOrderLines,
@@ -135,6 +136,7 @@ function OfficeWorkbenchRuntime({
     currentUser,
     currentUserId,
     defaultSelections,
+    initialDraftRows,
     initialFulfillments,
     initialInventories,
     initialOrderLines,
