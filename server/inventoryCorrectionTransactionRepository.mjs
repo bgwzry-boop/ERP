@@ -430,8 +430,7 @@ COMMIT;
   };
 }
 
-export 
-function buildRejectInventoryCorrectionDraftTransactionQuery(input = {}) {
+export function buildRejectInventoryCorrectionDraftTransactionQuery(input = {}) {
   const parameters = createPostgresParameterBinder();
   const draft = input.correctionDraft ?? {};
   const draftId = draft.correctionDraftId ?? draft.id ?? "";
@@ -492,7 +491,7 @@ COMMIT;
   };
 }
 
-function buildConfirmInventoryCorrectionDraftTransactionQuery(input = {}) {
+export function buildConfirmInventoryCorrectionDraftTransactionQuery(input = {}) {
   const draft = normalizeCorrectionDraft(input.correctionDraft);
   const inventoryItem = normalizeInventoryItem(input.inventoryItem);
   const ledger = normalizeInventoryLedger(input.inventoryLedger);
