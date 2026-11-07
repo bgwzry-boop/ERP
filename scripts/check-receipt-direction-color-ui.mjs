@@ -182,8 +182,9 @@ try {
     assert.equal(mobileMetrics.text,'宝蓝（宝兰）');
     assert.equal(mobileMetrics.fitsText,true,'phone review colour column still clips 宝蓝（宝兰）');
     assert.ok(mobileMetrics.colorWidth>=92,'phone review colour column is narrower than 宝蓝（宝兰）');
-    assert.equal(mobileMetrics.factorySize,'14px');
-    assert.equal(mobileMetrics.ticketSize,'16px');
+    // 负责人既定规范：手机核对行同样使用厂内12px、票面14px。
+    assert.equal(mobileMetrics.factorySize,'12px');
+    assert.equal(mobileMetrics.ticketSize,'14px');
     assert.equal(mobileMetrics.sameFamily,true);
     assert.equal(mobileMetrics.sameWeight,true);
     assert.equal(mobileMetrics.nowrap,'nowrap');
