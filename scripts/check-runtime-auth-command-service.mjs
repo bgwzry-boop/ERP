@@ -71,6 +71,7 @@ assert.equal(failedChangeWorkspace.users[0].passwordHash, beforeFailedChangeHash
 assert.equal(failedChangeWorkspace.operationLogs.length, 0);
 assert.equal(failedChangeWorkspace.employees[0].passwordStatus, "temporary");
 
+const previousSessionVersion = workspace.users[0].sessionVersion;
 const changed = await service.changePassword({
   workspace,
   body: { currentPassword, newPassword: nextPassword, changedAt: "2050-01-01T00:00:00Z" },
@@ -81,6 +82,12 @@ assert.equal(changed.statusCode, 200);
 assert.equal(changed.response.changed, true);
 assert.equal(changed.response.user.passwordHash, undefined);
 assert.equal(changed.response.user.passwordStatus, "active");
+// 2026-11-07：改密后所有已签发会话必须失效（sessionVersion 递增）。
+assert.equal(
+  workspace.users[0].sessionVersion,
+  Number(previousSessionVersion) + 1,
+  "password change must bump sessionVersion so old tokens stop working",
+);
 assert.equal(changed.response.employeeAccountReview.passwordStatus, "active");
 assert.equal(workspace.operationLogs[0].action, "master_data_employee_account_password_changed");
 assert.equal(workspace.operationLogs[0].reason, "员工首次登录后修改临时密码");
