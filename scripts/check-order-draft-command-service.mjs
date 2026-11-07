@@ -301,8 +301,12 @@ async function checkFieldReviewConfirmationGate() {
     status: "pending",
   };
   const blockedWorkspace = buildWorkspace();
+  // 夹具补齐请求里也会带上的字段：确认校验现在是严格比对，
+  // 不能再靠"草稿缺字段"制造出假差异。
   blockedWorkspace.orderDrafts[0].lines = [{
     id: "DRAFT-SERVICE-001-01",
+    fulfillment: "自提",
+    latest: "明天",
     fieldReviews: [pendingReview],
     dimensionEvidence: { original: "40+30", suggested: "40*30*10", requiresConfirmation: true },
   }];
@@ -333,6 +337,8 @@ async function checkFieldReviewConfirmationGate() {
   assert.equal(stale.statusCode, 409);
   assert.equal(stale.code, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED");
   assert.deepEqual(stale.details.lines[0].fields.map((item) => item.field), ["note", "latest", "fulfillment"]);
+
+
 
   assert.equal(calls.confirmations.length, beforeConfirmationCount, "omitting persisted reviews must not bypass the gate");
 
