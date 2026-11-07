@@ -147,9 +147,11 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
   assert.equal(guard.isDirty(), false);
 
   const receivingData = read("docs/prototypes/raw-material-roll-inventory-review/src/useReceivingData.js");
-  assert.match(receivingData, /inboundReviewGuard\.shouldSwitch/u, "receipt selection must consult the review guard");
+  assert.match(receivingData, /reviewGuard\.shouldSwitch/u, "receipt selection must consult its own review guard");
+  assert.match(receivingData, /createInboundReviewGuard\(\)/u, "each receiving data instance owns its guard");
+  assert.ok(!/import \{ inboundReviewGuard \}/u.test(receivingData), "no global singleton import in receiving data");
   const receivingWorkspace = read("docs/prototypes/raw-material-roll-inventory-review/src/FormalReceivingWorkspace.jsx");
-  assert.match(receivingWorkspace, /inboundReviewGuard\.register/u, "receiving workspace must register its dirty provider");
+  assert.match(receivingWorkspace, /formal\.receiving\?\.reviewGuard\?\.register/u, "receiving workspace must register on the instance guard");
 }
 
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");

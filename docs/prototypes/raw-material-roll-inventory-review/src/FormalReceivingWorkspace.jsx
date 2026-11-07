@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useInboundPageState } from "../../../../src/features/raw-materials/useInboundPageState.js";
-import { inboundReviewGuard } from "./inboundReviewGuard.js";
+
 import { InboundDetail } from "../../../../src/features/raw-materials/InboundDetail.jsx";
 import { RawMaterialLabelPrintSheet } from "../../../../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx";
 const RawMaterialSupplierColorMappingDialog = lazy(() => import("../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx").then(module => ({ default: module.RawMaterialSupplierColorMappingDialog })));
@@ -102,7 +102,7 @@ function FormalReceivingWorkspaceBody({ formal, notice = "", selectedId, setSele
   });
   // 把"当前单据有没有没保存的核对修改"上报给选择动作（useReceivingData 里的 selectReceipt）。
   useEffect(() => (typeof state.isInboundReviewDirty === "function"
-    ? inboundReviewGuard.register(() => state.isInboundReviewDirty())
+    ? formal.receiving?.reviewGuard?.register?.(() => state.isInboundReviewDirty())
     : undefined), [state.isInboundReviewDirty]);
 
   return <div className="formal-receiving-workspace">

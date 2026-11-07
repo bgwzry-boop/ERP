@@ -36,4 +36,5 @@ function defaultConfirm() {
   return window.confirm("当前这张单还有没保存的核对修改，切换后会丢失。确定要切换吗？");
 }
 
-export const inboundReviewGuard = createInboundReviewGuard();
+// 2026-11-07：不再导出全局单例——多实例会互相覆盖判定结果。
+// 每个 useReceivingData 自己 createInboundReviewGuard() 并通过 formal.receiving.reviewGuard 暴露。
