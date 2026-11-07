@@ -196,6 +196,16 @@ export async function checkOfficePricing() {
   assert.equal("color" in printingGroupIdentity(first), false);
   assert.equal("bagColor" in printingGroupIdentity(first), false);
   assert.equal(printingGroupIdentity({ ...first, printColor: "待确认" }), null);
+  // 2026-11-07：油墨颜色顺序不同不能拆组，否则同一批被按更小的档位计价。
+  const twoColors = { ...first, printColor: "红/蓝" };
+  const reversed = { ...first, printColor: "蓝/红" };
+  assert.deepEqual(printingGroupIdentity(twoColors), printingGroupIdentity(reversed), "ink colour order must not split a printing batch");
+  assert.deepEqual(
+    buildOrderPrintingPriceGroups([twoColors, reversed], []).map((group) => group.draftLineIds.length),
+    [2],
+    "both lines belong to one printing group",
+  );
+
   // Different bag colours share one ladder when size, content and ink match.
   grouped.orderDrafts[0].lines.push({
     ...first,

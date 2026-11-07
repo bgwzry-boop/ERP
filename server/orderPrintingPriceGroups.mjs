@@ -33,9 +33,19 @@ export function normalizePrintingInkColor(value) {
   if (!compact || PRINTING_INK_PLACEHOLDERS.has(compact)) return "";
   return normalizeFactoryStandardColor(compact) || compact;
 }
+// 2026-11-07：油墨颜色是集合不是字符串。"红/蓝" 与 "蓝/红" 是同一批活，
+// 顺序不同不该拆成两组按更小的档位计价。
+export function normalizePrintingInkColorSet(value) {
+  const parts = String(value ?? "")
+    .normalize("NFKC")
+    .split(/[、,，/／+＋和与及&\s]+/u)
+    .map((part) => normalizePrintingInkColor(part))
+    .filter(Boolean);
+  return [...new Set(parts)].sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+}
 export function printingGroupIdentity(row) {
   const content = printingContent(row);
-  const inkColor = normalizePrintingInkColor(row.printColor);
+  const inkColor = normalizePrintingInkColorSet(row.printColor).join("、");
   // Bag-body colour is not part of a printing batch. Missing ink stays per-line.
   if (!content || !inkColor) return null;
   const side = /双|double/u.test(text(row.printSide)) ? "双面" : "单面";

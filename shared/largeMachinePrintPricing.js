@@ -14,7 +14,8 @@ export const LARGE_MACHINE_PRINT_TIERS = Object.freeze([
 ]);
 
 const PLACEHOLDERS = new Set(["", "待确认", "非印刷", "无印刷", "无", "不印刷", "未印刷"]);
-const MAX_COLORS = 8;
+export const MAX_PRINT_COLORS = 8;
+const MAX_COLORS = MAX_PRINT_COLORS;
 
 // 手工丝印（负责人 2026-11-03）：单面 0.09、双面 0.13 元/个，几色翻几倍，版费另收（办公室报价时填「其他费」）。
 // 印刷方式由客户定；没指定时 1000 个以下默认手工、1000 个及以上默认大机器（刚好 1000 个以后可让客户选）。

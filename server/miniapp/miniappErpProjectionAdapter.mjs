@@ -1,4 +1,4 @@
-import { printUnitPriceFor, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
+import { MAX_PRINT_COLORS, printUnitPriceFor, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 import { createPostgresPoolClient } from "../postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "../postgresSqlParameters.mjs";
 import { MiniappApiError } from "./miniappApiError.mjs";
@@ -89,7 +89,8 @@ export function findMiniappPriceItem(master, line, { requireUnique = false, styl
 export function quoteMiniappCatalogPrice(master, line, match, { preserveUnitPrecision = false } = {}) {
   const quantity = Math.max(1, Number(line.quantity) || 1);
   const bagUnitPrice = Number(match.item.bagPrice || 0) + (match.handleFallback ? 0.03 : 0);
-  const colorCount = Math.min(4, Math.max(1, Number(line.printColorCount) || 1));
+  // 2026-11-07：这里原本截到 4 色，5 色以上按 4 色收费。上限应与全厂一致。
+  const colorCount = Math.min(MAX_PRINT_COLORS, Math.max(1, Number(line.printColorCount) || 1));
   const printing = isPrintingRequired(line);
   const printingUnit = printing ? printUnitPrice(quantity, line.printSideMode || line.printSide, resolvePrintMethod(line, quantity)) * colorCount : 0;
   const requirements = Array.isArray(line.specialRequirements) ? line.specialRequirements : [];
