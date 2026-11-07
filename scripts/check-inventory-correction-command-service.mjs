@@ -164,6 +164,11 @@ await assert.rejects(service.confirmCorrectionDraft({ workspace,
 { code: "BUSINESS_WRITE_CONFLICT", statusCode: 409 });
 assert.equal(JSON.stringify(workspace), staleSnapshot);
 workspace.inventories[0] = originalInventory;
+const bucketsBeforeConfirm = {
+  reserved: workspace.inventories[0].reserved,
+  locked: workspace.inventories[0].locked,
+  pending: workspace.inventories[0].pending,
+};
 const confirmed = await service.confirmCorrectionDraft({
   workspace,
   correctionDraftId: created.correctionDraft.correctionDraftId,
@@ -177,6 +182,16 @@ assert.equal(confirmed.inventoryItem.revision, 4);
 assert.equal(confirmed.inventoryLedger.qtyBefore, 500);
 assert.equal(confirmed.inventoryLedger.qtyChange, -20);
 assert.equal(confirmed.inventoryLedger.qtyAfter, 480);
+// 2026-11-07：库存修正只动在库，不得顺带完成订单或释放占用。
+assert.deepEqual(
+  {
+    reserved: confirmed.inventoryItem.reserved,
+    locked: confirmed.inventoryItem.locked,
+    pending: confirmed.inventoryItem.pending,
+  },
+  bucketsBeforeConfirm,
+  "correction must not touch reservations or locks",
+);
 assert.equal(confirmed.inventoryLedger.operatorId, "U-MANAGER");
 assert.equal(confirmed.todo.handledBy, "U-MANAGER");
 assert.equal(workspace.inventoryLedgers.length, 1);
@@ -219,6 +234,73 @@ const invalid = await service.createCorrectionDraft({
   operatorId: "U-AUTH",
 });
 assert.equal(invalid.code, "VALIDATION_ERROR");
+
+
+// 2026-11-07：盘亏不能把在库压到低于已占用+待提货锁定+待处理。
+{
+  const committedWorkspace = {
+    ...workspace,
+    inventories: [{ id: "INV-1", inStock: 500, onHandQty: 500, reserved: 400, locked: 80, pending: 20 }],
+  };
+  // 负责人口径：实盘低于占用线也必须能登记，登记阶段不动库存，只把提醒升级。
+  const belowCommitted = await service.createCorrectionDraft({
+    workspace: committedWorkspace,
+    body: { ...createBody, actualQty: 450, idempotencyKey: "inventory-create-below-committed" },
+    operatorId: "U-AUTH",
+  });
+  assert.equal(belowCommitted.error, undefined, JSON.stringify(belowCommitted));
+  assert.equal(belowCommitted.correctionDraft.status, "待确认生效");
+  assert.equal(belowCommitted.todo.urgency, "紧急");
+  assert.equal(committedWorkspace.inventories[0].inStock, 500, "登记差异不得改动库存");
+}
+
+// 2026-11-07：驳回不动库存，且已确认的草稿不能再驳回。
+{
+  // 用一份独立状态，避免影响前面的断言（repository 挂在 workspace 上，不能直接 structuredClone）。
+  const rejectWorkspace = {
+    ...workspace,
+    inventories: workspace.inventories.map((item) => ({ ...item, attachments: [] })),
+    inventoryCorrectionDrafts: [],
+    inventoryLedgers: [],
+    todos: [],
+    todoEvents: [],
+    operationLogs: [],
+    attachments: [],
+  };
+  const draft = await service.createCorrectionDraft({
+    workspace: rejectWorkspace,
+    body: {
+      ...createBody,
+      expectedQty: rejectWorkspace.inventories[0].inStock,
+      actualQty: rejectWorkspace.inventories[0].inStock - 5,
+      idempotencyKey: "inventory-reject-create",
+    },
+    operatorId: "U-MANAGER",
+  });
+  const stockBeforeReject = rejectWorkspace.inventories[0].inStock;
+  const rejected = await service.rejectCorrectionDraft({
+    workspace: rejectWorkspace,
+    correctionDraftId: draft.correctionDraft.correctionDraftId,
+    body: { reason: "单据看不清，退回重拍", idempotencyKey: "inventory-reject-0001" },
+    operatorId: "U-MANAGER",
+  });
+  assert.equal(rejected.correctionDraft.status, "已驳回");
+  assert.equal(rejected.correctionDraft.rejectedBy, "U-MANAGER");
+  assert.equal(rejectWorkspace.inventories[0].inStock, stockBeforeReject, "驳回不得改动库存");
+  assert.equal(
+    rejectWorkspace.operationLogs.some((log) => log.action === "reject_inventory_correction_draft"),
+    true,
+    "驳回必须留下操作记录",
+  );
+
+  const rejectAgain = await service.rejectCorrectionDraft({
+    workspace: rejectWorkspace,
+    correctionDraftId: draft.correctionDraft.correctionDraftId,
+    body: { reason: "重复驳回", idempotencyKey: "inventory-reject-0002" },
+    operatorId: "U-MANAGER",
+  });
+  assert.equal(rejectAgain.code, "INVENTORY_CORRECTION_DRAFT_NOT_OPEN");
+}
 
 console.log("inventory correction command service checks passed");
 

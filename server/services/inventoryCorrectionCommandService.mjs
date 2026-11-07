@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 
+
+function committedStockQty(inventoryItem = {}) {
+  const pick = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
+  };
+  return pick(inventoryItem.reserved ?? inventoryItem.reservedQty)
+    + pick(inventoryItem.locked ?? inventoryItem.waitingPickupLockedQty ?? inventoryItem.waitingPickupLocked)
+    + pick(inventoryItem.pending ?? inventoryItem.pendingHandlingQty ?? inventoryItem.pendingHandling);
+}
+
 export function createInventoryCorrectionCommandService({
   buildOperationLog,
   buildTodo,
@@ -33,6 +44,11 @@ export function createInventoryCorrectionCommandService({
           "Inventory quantity changed before the correction draft was created.",
         );
       }
+      // 2026-11-07（负责人口径）：盘亏必须允许登记，登记阶段不改库存。
+      // 差异大小只决定要不要立即通知，不决定能不能登记；
+      // 真正改库存发生在有权限的人审核通过时。
+      const committedQty = committedStockQty(inventoryItem);
+      const exceedsCommittedStock = actualQty < committedQty;
       const attachmentIds = stringList(body.attachmentIds);
       if (attachmentIds.length) {
         return businessError(
@@ -63,9 +79,11 @@ export function createInventoryCorrectionCommandService({
         refId: correctionDraftId,
         ref: correctionDraftId,
         customerId: "",
-        summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`,
+        summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`
+          + (exceedsCommittedStock ? `；实盘已低于占用/锁定/待处理合计 ${committedQty}，先别出库` : ""),
         latest: "今天",
-        urgency: "关注",
+        // 差异大小只决定提醒强度：超出占用线要马上通知，但依然允许登记。
+        urgency: exceedsCommittedStock ? "紧急" : "关注",
         priority: "关注",
         status: "未处理",
         impact: "需有库存调整确认权限账号确认后才改库存",
@@ -198,6 +216,63 @@ export function createInventoryCorrectionCommandService({
         operationLog,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload: sanitizeIdempotencyPayload(body, { correctionDraftId, attachmentIds, operatorId }),
+      });
+    },
+
+    // 2026-11-07：审核不通过 → 草稿转为"已驳回"，库存一分不动。
+    async rejectCorrectionDraft({ workspace, correctionDraftId, body = {}, operatorId }) {
+      const replayInput = {
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: sanitizeIdempotencyPayload(body, { correctionDraftId, operatorId }),
+      };
+      const readReplay = () => workspace.inventoryCorrectionTransactionRepository.readRejectionReplay?.(replayInput);
+      const replay = await readReplay();
+      if (replay) return replay;
+      const beforeDraft = await workspace.inventoryCorrectionTransactionRepository.getCorrectionDraft({
+        workspace,
+        correctionDraftId,
+      });
+      if (!beforeDraft) return notFound("INVENTORY_CORRECTION_DRAFT_NOT_FOUND");
+      if (beforeDraft.status !== "待确认生效") {
+        // 事务可能刚刚提交：再读一次回执，避免把成功请求判成"不可驳回"。
+        const committedReplay = await readReplay();
+        if (committedReplay) return committedReplay;
+        return businessError(409, "INVENTORY_CORRECTION_DRAFT_NOT_OPEN", "只有待确认的盘点草稿可以驳回。");
+      }
+      const reason = cleanText(body.reason) || "审核不通过";
+      const timestamp = nowIso(now);
+      const nextDraft = {
+        ...beforeDraft,
+        status: "已驳回",
+        revision: Number(beforeDraft.revision ?? 1) + 1,
+        rejectedBy: operatorId,
+        rejectedAt: timestamp,
+        rejectReason: reason,
+        updatedAt: timestamp,
+      };
+      const operationLog = buildOperationLog(workspace, {
+        id: buildRecordId("LOG-ADJ", body.idempotencyKey, "reject"),
+        targetType: "inventory_correction",
+        targetId: correctionDraftId,
+        action: "reject_inventory_correction_draft",
+        operatorId,
+        before: { status: beforeDraft.status, revision: beforeDraft.revision },
+        after: { status: nextDraft.status, revision: nextDraft.revision, reason },
+        reason,
+      });
+      const openTodo = (workspace.todos ?? []).find((todo) => cleanText(todo.id) === cleanText(beforeDraft.todoId));
+      const closedTodo = openTodo
+        ? { ...openTodo, status: "已处理", handled: true, handledBy: operatorId, handledAt: timestamp, updatedAt: timestamp }
+        : null;
+      return workspace.inventoryCorrectionTransactionRepository.rejectCorrectionDraft({
+        workspace,
+        correctionDraft: nextDraft,
+        // 条件用"旧版本"，写回用"新版本"；两者不能混。
+        expectedDraftRevision: Number(beforeDraft.revision ?? 1),
+        todo: closedTodo,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: sanitizeIdempotencyPayload(body, { correctionDraftId, operatorId }),
       });
     },
 
