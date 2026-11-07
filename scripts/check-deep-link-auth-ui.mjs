@@ -47,15 +47,31 @@ try {
     await page.locator(`[data-nav-id="${target.navId}"][aria-current="page"]`).waitFor({ timeout: 20000 });
     await page.waitForTimeout(800);
     assert.equal(await page.evaluate(() => window.location.hash), target.hash, `${target.hash} 认证后地址仍是目标`);
-    assert.match(await page.locator("main").innerText(), target.title, `${target.navId} 内容必须是目标页`);
+    assert.match(await page.locator("main").first().innerText(), target.title, `${target.navId} 内容必须是目标页`);
     assert.deepEqual(blocked, [], "不得业务写入");
     assert.deepEqual(errors, [], "不得报错");
     await context.close();
     console.log(`ok manager-only deep-link ${target.hash}`);
   }
 
-  // 2) 打开某页后再写未知 hash：仍按 #77 行为改写，且地址与选中页一致
+  // 3) 冷启动未知 hash：认证后必须改写为真实默认页（本 PR 自身保证，不依赖 #77）
   {
+    const { context, page, blocked, errors } = await openWithDelayedAuth("#definitely-unknown-route");
+    await page.waitForTimeout(700);
+    await page.getByText("管理A", { exact: true }).first().waitFor({ timeout: 45000 });
+    await page.waitForFunction(() => window.location.hash !== "#definitely-unknown-route", { timeout: 20000 });
+    const selected = await page.locator('[data-nav-id][aria-current="page"]').first().getAttribute("data-nav-id");
+    assert.equal(await page.evaluate(() => window.location.hash), `#${selected}`, "冷启动未知地址必须改写为选中页");
+    assert.deepEqual(blocked, []);
+    assert.deepEqual(errors, []);
+    await context.close();
+    console.log("ok cold unknown deep-link resolves to real default after auth");
+  }
+
+  // 2) 打开某页后再写未知 hash：依赖 #77 的运行时回写。
+  // 本 PR 不含 #77，默认跳过并在汇总里声明依赖；候选合并 #77 后用
+  // ERP_REQUIRE_RUNTIME_UNKNOWN=1 打开这一例，避免自欺式"通过"。
+  if (process.env.ERP_REQUIRE_RUNTIME_UNKNOWN === "1") {
     const { context, page, blocked, errors } = await openWithDelayedAuth("#roll-inventory");
     await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').waitFor({ timeout: 45000 });
     await page.evaluate(() => { window.location.hash = "definitely-unknown-route"; });
@@ -66,6 +82,8 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
     console.log("ok unknown hash after open reverts to current page");
+  } else {
+    console.log("skip runtime-unknown hash revert: 依赖 #77（候选合并后设 ERP_REQUIRE_RUNTIME_UNKNOWN=1 再验）");
   }
   console.log("Deep-link auth checks passed: manager-only targets preserved, unknown reverts after auth.");
 } finally {
