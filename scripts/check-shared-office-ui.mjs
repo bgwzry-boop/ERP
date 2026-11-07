@@ -137,6 +137,11 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
     /if \(resolved && visibleViews\.includes\(resolved\)\) return undefined;/u,
     "review shell must keep a hash normalizer that rewrites unknown routes",
   );
+  assert.match(
+    reviewApp,
+    /if \(nextView && visibleViews\.includes\(nextView\)\) \{ setView\(nextView\); return; \}/u,
+    "hashchange must normalize an unknown route immediately",
+  );
 }
 
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");

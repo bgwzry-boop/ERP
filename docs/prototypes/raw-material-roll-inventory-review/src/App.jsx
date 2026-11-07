@@ -360,7 +360,10 @@ export function App({ permissionContext = defaultPermissionContext }) {
       if (formal.orderEntryWritePending) { window.history.replaceState(null, "", `#${activeNavId}`); return; }
       const hashNavId = window.location.hash.replace(/^#/, "");
       const nextView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
-      if (nextView && visibleViews.includes(nextView)) setView(nextView);
+      if (nextView && visibleViews.includes(nextView)) { setView(nextView); return; }
+      // 2026-11-07：页面已经打开后再把地址改成非法值，也要立刻纠正回来，
+      // 不能等下一次渲染或刷新——否则地址说 A、内容还是 B。
+      if (activeNavId) window.history.replaceState(null, "", `#${activeNavId}`);
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
