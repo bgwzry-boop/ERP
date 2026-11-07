@@ -1,66 +1,122 @@
-// 窄桌面（1181/1280）下成品库存列表右侧数字必须真正可见：
-// 表头与表体在同一个滚动容器里，单独滚到每个数值项再测量其是否被任一祖先裁切，
-// 并校验滚动后表头与表体仍然对齐。
+// 成品库存列表（无纺布袋/覆膜袋）在窄桌面的几何回归。
+// 用组件夹具而不是线上 GET 数据：两类库存各 30 行，可用/占用/锁定/待处理四项都为正，
+// 断言 6 格齐全、图例四项数值精确、首行与末行时表头固定、横向滚动后不被祖先裁切。
 import assert from "node:assert/strict";
+import { build } from "esbuild";
 import { chromium } from "playwright";
+import { readFile } from "node:fs/promises";
 
-const origin = process.env.ERP_RECEIVING_CLEANUP_UI_BASE_URL || "http://127.0.0.1:4174/";
-const targets = [
-  { navId: "inventory-query", label: "无纺布袋" },
-  { navId: "laminated-inventory", label: "覆膜袋" },
+const root = new URL("../", import.meta.url);
+const read = (path) => readFile(new URL(path, root), "utf8");
+
+const quantities = { inStock: 10000, reserved: 2345, locked: 3456, pending: 1234 };
+const expectedLegend = [
+  { label: "可用", value: 2965 },
+  { label: "占用", value: 2345 },
+  { label: "锁定", value: 3456 },
+  { label: "待处理", value: 1234 },
 ];
+const stock = (category, count) => Array.from({ length: count }, (_, index) => ({
+  id: `INV-FIXTURE-${category}-${index}`,
+  inventoryItemId: `INV-FIXTURE-${category}-${index}`,
+  category,
+  goodsType: "纯色通货",
+  size: "30*38*10",
+  color: "红色",
+  handle: "普通提",
+  style: "空白袋",
+  zone: "A区",
+  pattern: "—",
+  ...quantities,
+  state: "仓库已清点",
+  trustLevel: "已清点",
+}));
+
+const css = [
+  "src/styles/tokens.css",
+  "src/styles/semantic-tags.css",
+  "docs/prototypes/raw-material-roll-inventory-review/src/styles.css",
+  "docs/prototypes/raw-material-roll-inventory-review/src/business-workspaces.css",
+  "docs/prototypes/raw-material-roll-inventory-review/src/brand-refresh.css",
+  "docs/prototypes/raw-material-roll-inventory-review/src/narrow-desktop.css",
+];
+const cssText = (await Promise.all(css.map(read))).join("\n");
+
+const entry = `
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { BusinessWorkspace } from "./docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx";
+window.renderFixture = (navId, items) => {
+  const root = createRoot(document.getElementById("root"));
+  root.render(<BusinessWorkspace formal={{ data: { inventoryItems: items, statements: [], orderLines: [] }, actions: { refreshAll: () => {} }, meta: {}, permissionContext: {} }} navId={navId} onNavigate={() => {}} />);
+};
+`;
+const bundle = await build({
+  absWorkingDir: new URL("../", import.meta.url).pathname,
+  stdin: { contents: entry, resolveDir: new URL("../", import.meta.url).pathname, loader: "jsx", sourcefile: "overflow-fixture.jsx" },
+  bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
+  define: { "import.meta.env": "{}" }, loader: { ".css": "empty" },
+});
+
 const browser = await chromium.launch();
 try {
   for (const width of [1181, 1280]) {
-    for (const target of targets) {
-      const context = await browser.newContext({ viewport: { width, height: 900 } });
-      const blocked = [];
-      await context.route("**/api/**", async (route) => {
-        const request = route.request();
-        const path = new URL(request.url()).pathname;
-        if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && !path.endsWith("/auth/prototype-login")) {
-          blocked.push(path);
-          return route.abort();
-        }
-        return route.continue();
-      });
-      const page = await context.newPage();
+    for (const target of [
+      { navId: "inventory-query", category: "无纺布袋" },
+      { navId: "laminated-inventory", category: "覆膜无纺布袋" },
+    ]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
       const errors = [];
       page.on("pageerror", (error) => errors.push(error.message));
-      await page.goto(`${origin}?erpViewport=desktop&overflow=${Date.now()}#${target.navId}`, { waitUntil: "load" });
-      await page.locator(`[data-nav-id="${target.navId}"][aria-current="page"]`).waitFor({ timeout: 45000 });
-      await page.waitForTimeout(1500);
-
-      const scroller = page.locator(".finished-goods-table-scroll").first();
-      await scroller.waitFor({ timeout: 10000 });
-      const columns = await page.evaluate(() => {
-        const head = document.querySelector(".finished-goods-table .finished-inventory-row.head");
-        return [...head.children].length;
+      await page.route("**/*", (route) => route.abort());
+      await page.setContent(`<style>${cssText}</style><div class="app-shell"><main class="page business-page"><div id="root"></div></main></div>`);
+      await page.addScriptTag({ content: bundle.outputFiles[0].text });
+      await page.evaluate(({ navId, items }) => window.renderFixture(navId, items), {
+        navId: target.navId,
+        items: stock(target.category, 30),
       });
-      assert.ok(columns >= 5, `${target.label} 列数异常: ${columns}`);
-      for (let column = 0; column < columns; column += 1) {
+      await page.waitForSelector("button.finished-inventory-row", { timeout: 15000 });
+
+      const rows = await page.locator("button.finished-inventory-row").count();
+      assert.equal(rows, 30, `${target.category} 应有 30 行，实际 ${rows}（夹具必须确定性，不依赖线上数据）`);
+
+      // 每行必须 6 格且都非空（含第 5 格 strong 与第 6 格 div）
+      const rowShapes = await page.evaluate(() => [...document.querySelectorAll("button.finished-inventory-row")].map((row) => ({
+        cells: [...row.children].length,
+        empty: [...row.children].filter((cell) => !cell.textContent.trim()).length,
+      })));
+      for (const shape of rowShapes) {
+        assert.equal(shape.cells, 6, "明细行必须是 6 格");
+        assert.equal(shape.empty, 0, "明细行每一格都必须有内容");
+      }
+
+      // 图例四项：标签 + 精确数值 + 可见
+      const legend = await page.evaluate(() => [...document.querySelectorAll(".finished-inventory-row:not(.head) .inventory-allocation-legend > *")].slice(0, 4).map((item) => {
+        const match = item.textContent.replace(/\s+/g, " ").trim().match(/^(可用|占用|锁定|待处理)\s*([\d,]+)/u);
+        const box = item.getBoundingClientRect();
+        return {
+          label: match?.[1] ?? "",
+          value: Number((match?.[2] ?? "").replace(/,/gu, "")),
+          visible: box.width > 0 && box.height > 0,
+        };
+      }));
+      assert.equal(legend.length, 4, `${target.category} 图例应有 4 项，实际 ${JSON.stringify(legend)}`);
+      for (const expected of expectedLegend) {
+        const actual = legend.find((item) => item.label === expected.label);
+        assert.ok(actual, `${target.category} 图例缺少「${expected.label}」: ${JSON.stringify(legend)}`);
+        assert.equal(actual.value, expected.value, `${target.category}「${expected.label}」数值错误`);
+        assert.equal(actual.visible, true, `${target.category}「${expected.label}」不可见`);
+      }
+
+      // 横向滚动到每列，单元格不得被任何祖先裁切，表头与表体对齐
+      for (let column = 0; column < 6; column += 1) {
         const result = await page.evaluate((col) => {
-          const scrollerEl = document.querySelector(".finished-goods-table-scroll");
+          const scroller = document.querySelector(".finished-goods-table-scroll");
           const head = document.querySelector(".finished-goods-table .finished-inventory-row.head");
+          const row = document.querySelector("button.finished-inventory-row");
           const headCell = head.children[col];
-          const row = document.querySelector(".finished-goods-table button.finished-inventory-row");
-          if (!row) throw new Error("没有明细行");
-          // 用 children：第 5 格是 <strong>、第 6 格是 <div>，用 span 会静默跳过
-          if (row.children.length !== 6) throw new Error(`明细行应为 6 格，实际 ${row.children.length}`);
           const cell = row.children[col];
-          if (!cell) throw new Error(`第 ${col} 格不存在`);
-          const legendItems = [...cell.querySelectorAll(".inventory-allocation-legend > *")].map((item) => {
-            const text = item.textContent.replace(/\s+/g, " ").trim();
-            const match = text.match(/^(可用|占用|锁定|待处理)\s*(.+)$/u);
-            const box = item.getBoundingClientRect();
-            return {
-              label: match ? match[1] : text,
-              value: match ? match[2].replace(/[（(].*$/u, "").trim() : "",
-              visible: box.width > 0 && box.height > 0,
-            };
-          });
-          // 先把共享滚动容器滚到这一列完整可见，再测量
-          scrollerEl.scrollLeft = Math.max(0, Math.round(cell.offsetLeft + cell.offsetWidth - scrollerEl.clientWidth + 4));
+          scroller.scrollLeft = Math.max(0, Math.round(cell.offsetLeft + cell.offsetWidth - scroller.clientWidth + 4));
           const rect = cell.getBoundingClientRect();
           let clippedBy = null;
           for (let node = cell.parentElement; node; node = node.parentElement) {
@@ -69,41 +125,35 @@ try {
             if (rect.right > box.right + 1 && (style.overflowX === "hidden" || style.overflow === "hidden")) { clippedBy = node.className || node.tagName; break; }
             if (rect.right > window.innerWidth + 1) { clippedBy = "viewport"; break; }
           }
-          return {
-            text: cell.textContent.replace(/\s+/g, " ").trim().slice(0, 24),
-            clippedBy,
-            headerLeft: Math.round(headCell.getBoundingClientRect().left),
-            cellLeft: Math.round(rect.left),
-            scrollLeft: Math.round(scrollerEl.scrollLeft),
-            legendItems,
-            cellText: cell.textContent.trim(),
-          };
+          return { clippedBy, headerLeft: Math.round(headCell.getBoundingClientRect().left), cellLeft: Math.round(rect.left) };
         }, column);
-
-        assert.ok(result.cellText.length > 0, `${target.label} ${width} 第 ${column} 列不得为空`);
-        if (column === 5) {
-          const legend = result.legendItems || [];
-          assert.ok(legend.length >= 4, `${target.label} 图例应有 4 项，实际 ${JSON.stringify(legend)}`);
-          const labels = legend.map((item) => item.label);
-          for (const keyword of ["可用", "占用", "锁定", "待处理"]) {
-            assert.ok(labels.includes(keyword), `${target.label} 图例缺少「${keyword}」: ${JSON.stringify(legend)}`);
-          }
-          for (const item of legend) {
-            assert.ok(item.value.length > 0, `${target.label} 图例「${item.label}」数值为空`);
-            assert.match(item.value, /^[\d,]+$/u, `${target.label} 图例「${item.label}」数值不完整: ${item.value}`);
-            assert.ok(item.visible, `${target.label} 图例「${item.label}」不可见`);
-          }
-        }
-        assert.equal(result.clippedBy, null, `${target.label} ${width} 第 ${column} 列被 ${result.clippedBy} 裁切: ${result.text}`);
-        assert.equal(result.headerLeft, result.cellLeft, `${target.label} ${width} 第 ${column} 列滚动后表头与表体未对齐`);
+        assert.equal(result.clippedBy, null, `${target.category} ${width} 第 ${column} 列被 ${result.clippedBy} 裁切`);
+        assert.equal(result.headerLeft, result.cellLeft, `${target.category} ${width} 第 ${column} 列滚动后表头与表体未对齐`);
       }
-      assert.deepEqual(blocked, [], `不得发生业务写入: ${JSON.stringify(blocked)}`);
-      assert.deepEqual(errors, [], `页面不得报错: ${JSON.stringify(errors)}`);
-      await context.close();
-      console.log(`ok ${target.label} ${width}: ${columns} 列可见且对齐`);
+
+      // 首行与末行：表头必须始终固定可见，纵向滚动只发生在表体
+      const headerBefore = await page.locator(".finished-inventory-row.head").boundingBox();
+      await page.evaluate(() => {
+        const body = document.querySelector(".finished-goods-table .business-table-body");
+        body.scrollTop = body.scrollHeight;
+      });
+      await page.waitForTimeout(200);
+      const headerAfter = await page.locator(".finished-inventory-row.head").boundingBox();
+      assert.ok(headerAfter, `${target.category} 末行滚动后表头消失`);
+      assert.ok(Math.abs(headerAfter.y - headerBefore.y) <= 1, `${target.category} 表头必须固定，不允许随长列表滚走`);
+      const lastRowVisible = await page.evaluate(() => {
+        const rowsEl = [...document.querySelectorAll("button.finished-inventory-row")];
+        const last = rowsEl.at(-1).getBoundingClientRect();
+        const body = document.querySelector(".finished-goods-table .business-table-body").getBoundingClientRect();
+        return last.bottom <= body.bottom + 2 && last.top >= body.top - 2;
+      });
+      assert.equal(lastRowVisible, true, `${target.category} 滚到底部后最后一行必须可见`);
+      assert.deepEqual(errors, [], `不得有页面错误: ${JSON.stringify(errors)}`);
+      await page.close();
+      console.log(`ok ${target.category} ${width}: 30 行 / 6 格 / 图例四项精确 / 表头固定`);
     }
   }
-  console.log("Business table overflow checks passed: finished-goods header/body share scroll, cells not clipped, aligned after scroll.");
+  console.log("Business table overflow checks passed: deterministic fixtures for both inventory types.");
 } finally {
   await browser.close();
 }
