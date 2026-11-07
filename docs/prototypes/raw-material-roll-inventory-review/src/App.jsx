@@ -315,6 +315,9 @@ export function App({ permissionContext = defaultPermissionContext }) {
     [resolvedPermissionContext],
   );
   const visibleRawMaterialViews = useMemo(() => getVisibleRawMaterialViews(resolvedPermissionContext), [resolvedPermissionContext]);
+  // 2026-11-07：冷启动先记住地址意图，等真实身份/权限就绪后再应用，不能先用默认 office 改写。
+  const deepLinkRef = useRef(window.location.hash.replace(/^#/, ""));
+  const authReady = Boolean(formal.authState?.authenticated);
   const [view, setView] = useState(() => {
     const hashNavId = window.location.hash.replace(/^#/, "");
     const hashView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
@@ -396,6 +399,24 @@ export function App({ permissionContext = defaultPermissionContext }) {
   };
   // 2026-11-07：订单录入有未保存内容时，离开（菜单/搜索/hash/关页）必须先确认。
   const commitNavigationRef = useRef(null);
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!authReady || deepLinkAppliedRef.current) return;
+    const raw = deepLinkRef.current;
+    const normalized = raw === "spec-inventory" ? "general-prices" : raw;
+    const targetView = normalized ? navViewMap[normalized] : null;
+    deepLinkAppliedRef.current = true;
+    if (targetView && visibleViews.includes(targetView)) {
+      deepLinkRef.current = "";
+      commitNavigationRef.current?.(normalized);
+      return;
+    }
+    // 未知或当前身份无权：回到真实默认页，绝不因为地址而放开权限。
+    const fallback = getDefaultWorkspaceView(resolvedPermissionContext);
+    if (fallback) {
+      window.history.replaceState(null, "", `#${Object.keys(navViewMap).find(key => navViewMap[key] === fallback) || normalized}`);
+    }
+  }, [authReady, visibleViews, resolvedPermissionContext]);
   const orderEntryDirtyRef = useRef(false);
   orderEntryDirtyRef.current = Boolean(formal.orderEntryDirty);
   const activeNavIdRef = useRef(activeNavId);
