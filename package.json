@@ -261,6 +261,7 @@
     "core-workspace-read:check": "node scripts/check-core-workspace-read-repository.mjs",
     "order-draft-repository:check": "node scripts/check-order-draft-repository.mjs",
     "order-draft-api:check": "node scripts/check-order-workflow-projection-service.mjs && node scripts/check-order-draft-api.mjs && node scripts/check-order-draft-split-api.mjs && node scripts/check-order-draft-queue-api.mjs && npm run order-draft-command:check",
+    "order-draft-line-id:check": "node scripts/check-order-draft-line-id-uniqueness.mjs",
     "order-pool-read:check": "node scripts/check-order-pool-read-repository.mjs",
     "fulfillment-action-transaction:check": "node scripts/check-fulfillment-action-transaction-repository.mjs && node scripts/check-fulfillment-pool-replay-cache.mjs && node scripts/check-fulfillment-inventory-conservation-local.mjs",
     "fulfillment-action-command:check": "node scripts/check-fulfillment-action-command-service.mjs",
