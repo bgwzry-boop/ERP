@@ -370,6 +370,14 @@ function statementStatusLabel(status) {
   return ({ current_period: "本期待对账", debt_or_variance: "有欠款/差异", payment_pending: "收款待确认", settled: "已结清" })[status] || status || "待确认";
 }
 
+// 2026-11-07：对账的"本期未收"直接取权威 currentUnpaid；缺失显示待核实，
+// 不再用历史 varianceAmount 顶替或自行推算。
+function statementUnpaid(statement = {}) {
+  const value = statement.currentUnpaid;
+  if (value === null || value === undefined || value === "") return "待核实";
+  return statementMoney(value);
+}
+
 function buildStatementRows(items = []) {
   return items.map((statement) => ({
   id: statement.statementId || statement.id,
@@ -378,7 +386,7 @@ function buildStatementRows(items = []) {
     `${customerName(statement)} · ${statement.settlementCycle || "账期待确认"}`,
     statementMoney(statement.currentReceivable),
     statementMoney(statement.currentReceived),
-    statementMoney(statement.varianceAmount),
+    statementUnpaid(statement),
     statementStatusLabel(statement.status),
   ],
   status: statementStatusLabel(statement.status),
@@ -388,8 +396,7 @@ function buildStatementRows(items = []) {
     ["结算周期", statement.settlementCycle || "待确认"],
     ["本期应收", statementMoney(statement.currentReceivable)],
     ["本期累计实收", statementMoney(statement.currentReceived)],
-    ["本期未收", statementMoney(statement.currentUnpaid)],
-    ["本期差额", statementMoney(statement.varianceAmount)],
+    ["本期未收", statementUnpaid(statement)],
     ["历史欠款", statementMoney(statement.historicalDebt)],
     ["累计欠款", statementMoney(statement.cumulativeDebt)],
     ["最近对账", statement.lastStatementAt || "待确认"],
@@ -503,9 +510,10 @@ function buildWorkspaceConfigs(formal) {
   "customer-statements": {
     title: "对账收款",
     description: "沿用 StatementPage 的客户账期、应收、实收、差额和订单明细。",
-    columns: ["客户 / 期间", "应收", "已收", "差额", "状态"],
+    columns: ["客户 / 期间", "应收", "已收", "本期未收", "状态"],
     rows: statementRows,
     primaryAction: "查看对账明细",
+    searchPlaceholder: "搜索客户 / 结算周期 / 对账单号",
     source: "正式对账 API",
   },
   "customer-records": {
@@ -593,7 +601,7 @@ function GenericWorkspace({ config, onNavigate, detailExtra, focus = null }) {
     <section className="business-list-panel">
       <header className="business-panel-heading"><h2>{config.title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} extra={config.headingExtra} /></header>
       {config.modes ? <div aria-label={`${config.title}区域`} className="business-subtabs" role="tablist">{config.modes.map((item) => <button aria-selected={mode === item} key={item} onClick={() => { setMode(item); setSelectedId(""); }} role="tab" type="button">{item}</button>)}</div> : null}
-      <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索当前工作台" value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
+      <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder={config.searchPlaceholder || "搜索当前工作台"} value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="business-table" role="table" aria-label={`${config.title}列表`}>
         <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}>{config.columns.map((column) => <span data-numeric={isNumericColumn(column) ? "true" : undefined} key={column} role="columnheader">{column}</span>)}</div>
         <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`business-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button">{row.cells.map((cell, index) => <span className={index === (config.primaryCellIndex ?? 0) ? "business-primary-cell" : undefined} data-numeric={isNumericColumn(config.columns[index]) ? "true" : undefined} key={`${row.id}-${index}`} role="cell">{index === row.cells.length - 1 ? <StateText>{cell}</StateText> : cell}</span>)}</button>) : <EmptyWorkspace title={config.rows.length ? "没有匹配记录" : "暂无记录"} description={config.rows.length ? "调整关键词、状态或区域后重试。" : "有新的业务记录后，会显示在这里。"} actionLabel={config.rows.length ? "清除筛选" : undefined} onAction={config.rows.length ? reset : undefined} />}</div>

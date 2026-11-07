@@ -66,7 +66,7 @@
 .business-filter-row {
   min-height: 54px;
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 146px 76px;
+  grid-template-columns: minmax(240px, 1fr) 146px max-content;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
@@ -488,6 +488,8 @@ button.business-row > span.business-primary-cell { font-weight: 650; }
   .employee-account-status { grid-template-columns: 1fr; }
   .employee-account-status > div:nth-child(odd) { padding-right: 0; }
 }
+.business-filter-row > button:last-child,
+.finished-goods-search > button:last-child { width: auto; min-width: 84px; padding-inline: 10px; white-space: nowrap; }
 .secondary-button { min-height: 36px; border: 1px solid var(--line); border-radius: 5px; background: white; color: var(--ink-soft); font-size: 12px; }
 
 .finished-goods-classification {
@@ -516,7 +518,7 @@ button.business-row > span.business-primary-cell { font-weight: 650; }
 .finished-goods-search {
   min-height: 48px;
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 76px;
+  grid-template-columns: minmax(260px, 1fr) max-content;
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
@@ -599,7 +601,7 @@ button.finished-inventory-row.selected,
 .inventory-allocation-segment.reserved { background: var(--inventory-occupied); }
 .inventory-allocation-segment.locked { background: var(--inventory-locked); }
 .inventory-allocation-segment.pending { background: var(--inventory-pending); }
-.inventory-allocation-legend { min-width: 0; display: flex; align-items: baseline; overflow: hidden; color: var(--erp-disabled-text); font-size: 11px; white-space: nowrap; }
+.inventory-allocation-legend { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 4px; overflow: visible; color: var(--erp-disabled-text); font-size: 11px; }
 .inventory-allocation-legend > * { min-width: 0; flex: 0 0 auto; }
 .inventory-allocation-legend > * + * { margin-left: 9px; padding-left: 9px; border-left: 1px solid var(--erp-border); }
 .inventory-allocation-legend .available { color: var(--inventory-available); font-size: 11px; font-weight: 760; }
