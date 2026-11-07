@@ -54,6 +54,7 @@ import { GlobalSearch } from "./GlobalSearch.jsx";
 // 应用内确认框（例如卷标打印后的“确认打印结果”）。没挂这个时会退回浏览器自带的小弹窗，
 // 那个弹窗出现在浏览器最上面、很容易看漏；挂上后改为屏幕正中间、背景变暗的确认框。
 import { ConfirmDialogHost } from "../../../../src/shared/ui/ConfirmDialogHost.jsx";
+import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
@@ -314,6 +315,9 @@ export function App({ permissionContext = defaultPermissionContext }) {
     [resolvedPermissionContext],
   );
   const visibleRawMaterialViews = useMemo(() => getVisibleRawMaterialViews(resolvedPermissionContext), [resolvedPermissionContext]);
+  // 2026-11-07：冷启动先记住地址意图，等真实身份/权限就绪后再应用，不能先用默认 office 改写。
+  const deepLinkRef = useRef(window.location.hash.replace(/^#/, ""));
+  const authReady = Boolean(formal.authState?.authenticated);
   const [view, setView] = useState(() => {
     const hashNavId = window.location.hash.replace(/^#/, "");
     const hashView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
@@ -359,26 +363,47 @@ export function App({ permissionContext = defaultPermissionContext }) {
     const handleHashChange = () => {
       if (formal.orderEntryWritePending) { window.history.replaceState(null, "", `#${activeNavId}`); return; }
       const hashNavId = window.location.hash.replace(/^#/, "");
-      const nextView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
-      if (nextView && visibleViews.includes(nextView)) { setView(nextView); return; }
-      // 2026-11-07：页面已经打开后再把地址改成非法值，也要立刻纠正回来，
-      // 不能等下一次渲染或刷新——否则地址说 A、内容还是 B。
-      if (activeNavId) window.history.replaceState(null, "", `#${activeNavId}`);
+      const normalized = hashNavId === "spec-inventory" ? "general-prices" : hashNavId;
+      if (!authReady) { deepLinkRef.current = normalized; return; }
+      const nextView = navViewMap[normalized];
+      if (!nextView || !visibleViews.includes(nextView)) {
+        if (activeNavId) window.history.replaceState(null, "", `#${activeNavId}`);
+        return;
+      }
+      if (activeNavIdRef.current === "order-entry" && normalized !== "order-entry") {
+        void requestLeaveOrderEntry(normalized).then((allowed) => {
+          if (!allowed) { window.history.replaceState(null, "", `#${activeNavIdRef.current}`); return; }
+          commitNavigationRef.current?.(normalized);
+        });
+        return;
+      }
+      commitNavigationRef.current?.(normalized);
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [visibleViews, formal.orderEntryWritePending, activeNavId]);
+  }, [visibleViews, authReady, formal.orderEntryWritePending, formal.orderEntryDirty, activeNavId]);
+  // 关闭/刷新页面时浏览器原生确认（无法自定义文案，但不会静默丢）。
+  useEffect(() => {
+    const onBeforeUnload = (event) => {
+      if (!orderEntryDirtyRef.current || activeNavIdRef.current !== "order-entry") return undefined;
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
   // 2026-11-07：地址栏写了不认识的页面时，之前只是"不动"，于是 URL 说 A、页面显示 B。
   // 现在把地址改回当前真实页面，地址和内容始终一致。
   useEffect(() => {
-    if (formal.orderEntryWritePending) return undefined;
+    if (!authReady || !deepLinkAppliedRef.current || formal.orderEntryWritePending) return undefined;
     const hashNavId = window.location.hash.replace(/^#/, "");
     const resolved = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
     if (resolved && visibleViews.includes(resolved)) return undefined;
     if (!activeNavId) return undefined;
     window.history.replaceState(null, "", `#${activeNavId}`);
     return undefined;
-  }, [activeNavId, visibleViews, formal.orderEntryWritePending]);
+  }, [activeNavId, visibleViews, authReady, formal.orderEntryWritePending]);
   const toggleGroup = (groupId) => {
     setExpandedGroups((current) => {
       const next = new Set(current);
@@ -387,20 +412,81 @@ export function App({ permissionContext = defaultPermissionContext }) {
       return next;
     });
   };
-  const navigate = (navId, focus = {}) => {
+  // 2026-11-07：订单录入有未保存内容时，离开（菜单/搜索/hash/关页）必须先确认。
+  const commitNavigationRef = useRef(null);
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!authReady || deepLinkAppliedRef.current) return;
+    const raw = deepLinkRef.current;
+    const normalized = raw === "spec-inventory" ? "general-prices" : raw;
+    const targetView = normalized ? navViewMap[normalized] : null;
+    deepLinkAppliedRef.current = true;
+    if (targetView && visibleViews.includes(targetView)) {
+      deepLinkRef.current = "";
+      commitNavigationRef.current?.(normalized);
+      return;
+    }
+    // 未知或当前身份无权：回到"按真实权限算出的默认页"，view 与地址都必须改，
+    // 不能只改 URL 让内容停在旧页；也绝不因为地址而放开权限。
+    const fallback = getDefaultWorkspaceView(resolvedPermissionContext);
+    if (fallback) {
+      const fallbackNavId = Object.entries(navViewMap).find(([, value]) => value === fallback)?.[0];
+      if (!fallbackNavId) return;
+      // commitNavigation 尚未赋值时（首帧）直接提交最小集合
+      if (commitNavigationRef.current) commitNavigationRef.current(fallbackNavId);
+      else {
+        setView(fallback);
+        window.history.replaceState(null, "", `#${fallbackNavId}`);
+      }
+    }
+  }, [authReady, visibleViews, resolvedPermissionContext]);
+  const orderEntryDirtyRef = useRef(false);
+  orderEntryDirtyRef.current = Boolean(formal.orderEntryDirty);
+  const activeNavIdRef = useRef(activeNavId);
+  activeNavIdRef.current = activeNavId;
+  const orderEntryEditorBlockedRef = useRef(false);
+  orderEntryEditorBlockedRef.current = Boolean(formal.orderEntryEditorBlocked);
+  // 2026-11-07：导航与 hash 共用同一个离开判定；提示单飞，重复导航合并到同一次确认。
+  const requestLeaveOrderEntry = (nextId) => {
+    if (activeNavIdRef.current !== "order-entry" || nextId === "order-entry") return Promise.resolve(true);
+    // 回执待核对、拆单预览/编辑器占用时一律不离开（未确认结果不能丢）。
+    if (formal.orderEntryWritePending) return Promise.resolve(false);
+    if (orderEntryEditorBlockedRef.current) return Promise.resolve(false);
+    if (!orderEntryDirtyRef.current) return Promise.resolve(true);
+    // 与"新建订单"共用同一个提示占用锁；占用的owner只提交一次意图。
+    const shared = formal.requestSharedConfirm?.("leave-order-entry", {
+      title: "离开订单录入？",
+      message: "当前订单还有未保存的原文或明细。离开会丢失这些未提交的修改。",
+      cancelLabel: "继续编辑",
+      confirmLabel: "放弃并离开",
+      tone: "danger",
+    });
+    return (shared ?? Promise.resolve({ granted: false, busy: true })).then((decision) => {
+      if (decision.busy) return false;
+      if (decision.granted) formal.discardOrderEntryLocalEdit?.();
+      return decision.granted;
+    });
+  };
+  // 2026-11-07：view / hash / focus 只有这一个提交入口，菜单与 hash 都走它。
+  const commitNavigation = (navId, focus = {}) => {
+    const nextView = navViewMap[navId];
+    if (!nextView || !visibleViews.includes(nextView)) return false;
+    setWorkspaceFocus(focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === navId ? focus.workspaceFocus : null);
+    setProductionFocusId(focus.productionTaskId || "");
+    setView(nextView);
+    const group = pcNavGroups.find(item => item.items.some(child => child.id === navId));
+    if (group) setExpandedGroups(current => new Set([...current, group.id]));
+    // 冻结意图只提交一次：地址必须跟着实际页面走
+    if (window.location.hash !== `#${navId}`) window.history.replaceState(null, "", `#${navId}`);
+    return true;
+  };
+  commitNavigationRef.current = commitNavigation;
+  const navigate = async (navId, focus = {}) => {
     if (formal.orderEntryWritePending) return;
     setNavOpen(false);
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
-    const nextView = navViewMap[normalizedNavId];
-    const allowed = Boolean(nextView && visibleViews.includes(nextView));
-    setWorkspaceFocus(allowed && focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === normalizedNavId ? focus.workspaceFocus : null);
-    setProductionFocusId(focus.productionTaskId || "");
-    if (allowed) {
-      setView(nextView);
-      const group = pcNavGroups.find(item => item.items.some(child => child.id === normalizedNavId));
-      if (group) setExpandedGroups(current => new Set([...current, group.id]));
-      window.history.replaceState(null, "", `#${normalizedNavId}`);
-    }
+    if (!(await requestLeaveOrderEntry(normalizedNavId))) return;
+    commitNavigation(normalizedNavId, focus);
   };
   const openSearchResult = (result) => {
     if (!result?.navId || formal.orderEntryWritePending) return;

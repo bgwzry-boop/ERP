@@ -47,6 +47,8 @@ jobs:
           node scripts/check-raw-material-stock-operations-dialog.mjs
           node scripts/check-raw-material-cost-workspace.mjs
           npm run receiving-review-guard-mounted:check
+          node scripts/check-order-entry-dirty-leave-ui.mjs
+          node scripts/check-deep-link-auth-ui.mjs
       - run: npm test
       - run: npm run test:raw-material
       - run: npm audit --audit-level=high

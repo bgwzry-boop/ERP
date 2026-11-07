@@ -50,7 +50,7 @@ export default function OrderPricingEntryWorkspace({
   // remount the editor on a different draft and erase the successful result.
   const defaultDraft = useRef({ session, draft: null });
   if (defaultDraft.current.session !== session) defaultDraft.current = { session, draft: null };
-  if (!selectedId && !newEntry && !defaultDraft.current.draft && formal.data.orderDrafts?.[0]) {
+  if (!selectedId && !newEntry && !formal.orderEntrySuppressDefaultDraft && !defaultDraft.current.draft && formal.data.orderDrafts?.[0]) {
     defaultDraft.current.draft = editableDraft(formal.data.orderDrafts[0]);
   }
   const selectionKey = `${session}:${selectedId}`;

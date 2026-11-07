@@ -99,37 +99,50 @@ export function useFormalDesktopWorkspace() {
   const [entryCreationId, setEntryCreationId] = useState(0);
   const [entryWriteGuard, setEntryWriteGuard] = useState({ pending: false, ownerKey: "", session: "" });
   const [orderEntryEditorBlocked, setOrderEntryEditorBlocked] = useState(false);
+  const [orderEntryDirty, setOrderEntryDirty] = useState(false);
+  // 2026-11-07：未保存内容离开订单录入要先确认；确认离开后不要自动灌回默认草稿。
+  const [orderEntrySuppressDefaultDraft, setOrderEntrySuppressDefaultDraft] = useState(false);
   const entryEditor = useRef(null);
-  const newOrderPromptOpen = useRef(false);
+  // 2026-11-07：新建订单/菜单导航/hash/搜索共用同一个"提示占用"锁，
+  // 同步加锁，后来者直接拒绝并回退地址，绝不复用前一个 true。
+  const promptOwner = useRef(null);
+  const requestSharedConfirm = useCallback(async (owner, request) => {
+    if (promptOwner.current) return { granted: false, busy: true };
+    promptOwner.current = owner;
+    try {
+      return { granted: Boolean(await confirmInApp(request)), busy: false };
+    } finally {
+      promptOwner.current = null;
+    }
+  }, []);
   const orderEntryWritePending = entryWriteGuard.pending && entryWriteGuard.session === authState?.session?.accessToken;
   const registerOrderEntryEditor = useCallback((editor) => {
     entryEditor.current = editor;
     setOrderEntryEditorBlocked(editor.blocked);
+    setOrderEntryDirty(Boolean(editor.dirty));
     return () => {
       if (entryEditor.current !== editor) return;
       entryEditor.current = null;
       setOrderEntryEditorBlocked(false);
+      setOrderEntryDirty(false);
     };
   }, []);
   const startNewOrderDraft = useCallback(async () => {
     const editor = entryEditor.current;
-    if (orderEntryWritePending || editor?.blocked || newOrderPromptOpen.current) return false;
+    if (orderEntryWritePending || editor?.blocked) return false;
+    if (promptOwner.current) return false;
     if (editor?.dirty) {
-      newOrderPromptOpen.current = true;
-      try {
-        const discard = await confirmInApp({
-          title: "放弃当前修改？",
-          message: "当前订单还有未保存的内容。放弃这些修改并新建订单？",
-          cancelLabel: "继续编辑",
-          confirmLabel: "放弃并新建",
-          tone: "danger",
-        });
-        if (!discard || entryEditor.current !== editor) return false;
-      } finally {
-        newOrderPromptOpen.current = false;
-      }
+      const decision = await requestSharedConfirm("new-order", {
+        title: "放弃当前修改？",
+        message: "当前订单还有未保存的内容。放弃这些修改并新建订单？",
+        cancelLabel: "继续编辑",
+        confirmLabel: "放弃并新建",
+        tone: "danger",
+      });
+      if (!decision.granted || decision.busy || entryEditor.current !== editor) return false;
     }
     focusOrderDraft("");
+    setOrderEntrySuppressDefaultDraft(false);
     setEntryCreationId(current => current + 1);
     return true;
   }, [orderEntryWritePending]);
@@ -516,6 +529,10 @@ export function useFormalDesktopWorkspace() {
   return {
     actions,
     entryDraftId,
+    orderEntryDirty,
+    requestSharedConfirm,
+    orderEntrySuppressDefaultDraft,
+    discardOrderEntryLocalEdit: () => setOrderEntrySuppressDefaultDraft(true),
     entryCreationId,
     orderEntryEditorBlocked,
     orderEntryWritePending,
