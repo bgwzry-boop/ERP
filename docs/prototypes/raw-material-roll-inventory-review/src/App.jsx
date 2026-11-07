@@ -411,10 +411,18 @@ export function App({ permissionContext = defaultPermissionContext }) {
       commitNavigationRef.current?.(normalized);
       return;
     }
-    // 未知或当前身份无权：回到真实默认页，绝不因为地址而放开权限。
+    // 未知或当前身份无权：回到"按真实权限算出的默认页"，view 与地址都必须改，
+    // 不能只改 URL 让内容停在旧页；也绝不因为地址而放开权限。
     const fallback = getDefaultWorkspaceView(resolvedPermissionContext);
     if (fallback) {
-      window.history.replaceState(null, "", `#${Object.keys(navViewMap).find(key => navViewMap[key] === fallback) || normalized}`);
+      const fallbackNavId = Object.entries(navViewMap).find(([, value]) => value === fallback)?.[0];
+      if (!fallbackNavId) return;
+      // commitNavigation 尚未赋值时（首帧）直接提交最小集合
+      if (commitNavigationRef.current) commitNavigationRef.current(fallbackNavId);
+      else {
+        setView(fallback);
+        window.history.replaceState(null, "", `#${fallbackNavId}`);
+      }
     }
   }, [authReady, visibleViews, resolvedPermissionContext]);
   const orderEntryDirtyRef = useRef(false);
