@@ -129,4 +129,19 @@ assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
 assert.equal(toFiniteNumber("12.5"), 12.5);
 assert.equal(toFiniteNumber("not-a-number"), 0);
 
+// 2026-11-07：不认识的地址必须改回真实页面，不能让 URL 和内容不一致。
+{
+  const reviewApp = read("docs/prototypes/raw-material-roll-inventory-review/src/App.jsx");
+  assert.match(
+    reviewApp,
+    /if \(resolved && visibleViews\.includes\(resolved\)\) return undefined;/u,
+    "review shell must keep a hash normalizer that rewrites unknown routes",
+  );
+  assert.match(
+    reviewApp,
+    /if \(nextView && visibleViews\.includes\(nextView\)\) \{ setView\(nextView\); return; \}/u,
+    "hashchange must normalize an unknown route immediately",
+  );
+}
+
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");
