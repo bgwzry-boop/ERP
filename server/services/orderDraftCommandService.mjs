@@ -341,15 +341,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function saveOrderDraft({ workspace, draftId, body = {}, operatorId }) {
     if(hasInvalidDraftQuantity(body.lines,{allowUnknown:true}))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","数量须为大于零的整数；尚未确认时可留空，不能自动取整保存。");
-    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
-    {
-      const seenIds = new Set();
-      lines.forEach((line, index) => {
-        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
-        seenIds.add(line.id);
-      });
-    }
+    const savedDraft = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
+    const knownLineIds = new Set((savedDraft?.lines ?? []).map((line) => cleanCommandText(line.id)));
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId, knownLineIds);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -434,15 +433,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision) !== expectedRevision || /已生成|已确认/u.test(previous.status)) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已变化，请重新读取后报价。");
     if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) || (await workspace.orderDraftRepository.getMiniappConfirmationSources?.({ workspace, draftId }))?.length) return businessError(409, "MINIAPP_PRICE_LOCKED", "小程序已锁定客户报价，办公室不能通过本单价覆盖。");
-    const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body, draftId), previous.lines ?? [], operatorId, nowIso(now));
+    const knownLineIds = new Set((previous.lines ?? []).map((line) => cleanCommandText(line.id)));
+    const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body, draftId, knownLineIds), previous.lines ?? [], operatorId, nowIso(now));
     if (!lines.length) return businessError(422, "ORDER_DRAFT_LINES_REQUIRED", "请先填写订单明细。");
-    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦报价。
-    {
-      const seenIds = new Set();
-      lines.forEach((line, index) => {
-        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
-        seenIds.add(line.id);
-      });
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名。
+    if (findDuplicateDraftLineIds(lines).length) {
+      return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
     }
     const cancellation = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellation.error) return cancellation.error;
@@ -669,14 +665,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function confirmOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
     let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
-    {
-      const seenIds = new Set();
-      lines.forEach((line, index) => {
-        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
-        seenIds.add(line.id);
-      });
-    }
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -938,14 +931,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已更新，请重新读取后校验。");
     const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
-    {
-      const seenIds = new Set();
-      lines.forEach((line, index) => {
-        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
-        seenIds.add(line.id);
-      });
-    }
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length || lines.some(line => !Number.isSafeInteger(line.qty) || line.qty <= 0)) return businessError(422, "VALIDATION_ERROR", "请填写有效的正整数数量。");
     const holdResolution = resolveTemporaryHoldConversions(workspace, lines);
     if (holdResolution.error) return holdResolution.error;
@@ -958,14 +948,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function previewOrderDraftSplit({ workspace, draftId, body = {} }) {
     const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
-    {
-      const seenIds = new Set();
-      lines.forEach((line, index) => {
-        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
-        seenIds.add(line.id);
-      });
-    }
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -986,14 +973,11 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function confirmSplitOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
     let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
-    // 2026-11-07：同一请求里重复的临时编号按顺序补号，不丢行、不误拦。
-    {
-      const seenIds = new Set();
-      lines.forEach((line, index) => {
-        if (seenIds.has(line.id)) line.id = draftLineIdFor(draftId, index);
-        seenIds.add(line.id);
-      });
-    }
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -1335,7 +1319,13 @@ export function createOrderDraftCommandService(dependencies = {}) {
     };
   }
 
-  function normalizeDraftRows(lines, workspace, body, draftId = "") {
+  function normalizeDraftRows(lines, workspace, body, draftId = "", knownLineIds = new Set()) {
+    // 先占位：已保存的合法编号 + 本次显式传入的编号，新行只能从未占用的号里取。
+    const reservedLineIds = new Set(knownLineIds);
+    for (const raw of lines) {
+      const explicit = cleanCommandText(raw?.draftLineId ?? raw?.id);
+      if (explicit) reservedLineIds.add(explicit);
+    }
     return lines.map((line, index) => {
       const customerId = line.customerId ?? body.customerId ?? "";
       const printFlag = line.printFlag ?? line.print === "是";
@@ -1346,7 +1336,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         // 同一草稿同序号的编号是稳定的，所以保存/重试不会改号。
         // 2026-11-07：已有编号一律原样保留（历史/批量/识别编号都不能改），
         // 只有没有编号的新行才分配草稿内编号；空串按"没有编号"处理。
-        id: cleanCommandText(line.draftLineId ?? line.id) || draftLineIdFor(draftId, index),
+        id: cleanCommandText(line.draftLineId ?? line.id) || allocateDraftLineId(draftId, index, reservedLineIds),
         customerId,
         customer: line.customer ?? findCustomerName(workspace, customerId) ?? "待确认客户",
         product: line.productName ?? line.product ?? "",
@@ -1917,6 +1907,25 @@ function ownDraftLineId(candidate, draftId) {
   const scope = cleanCommandText(draftId);
   if (!id || !scope) return "";
   return id.includes(scope) ? id : "";
+}
+
+
+// 只为"确实没有编号"的新行分配编号，且绝不占用已有/显式编号。
+function allocateDraftLineId(draftId, index, reserved) {
+  let attempt = index;
+  for (let guard = 0; guard < 10000; guard += 1) {
+    const candidate = draftLineIdFor(draftId, attempt);
+    if (!reserved.has(candidate)) {
+      reserved.add(candidate);
+      return candidate;
+    }
+    attempt += 1;
+  }
+  return draftLineIdFor(draftId, index);
+}
+
+function findDuplicateExplicitDraftLineIds(lines) {
+  return findDuplicateDraftLineIds(lines);
 }
 
 function draftLineIdFor(draftId, index) {

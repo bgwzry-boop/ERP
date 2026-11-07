@@ -201,6 +201,7 @@ export async function checkOfficePricing() {
     ...first,
     id: "D-PRICE-02",
     draftLineId: "D-PRICE-02",
+    draftLineId: "D-PRICE-02",
     color: "白色",
     bagColor: "白色",
   });
@@ -256,6 +257,7 @@ export async function checkOfficePricing() {
     {
       ...first,
       id: "PRODUCT-NAME-ONLY-1",
+      draftLineId: "PRODUCT-NAME-ONLY-1",
       printContent: undefined,
       product: undefined,
       productName: "LOGO袋",
@@ -263,6 +265,7 @@ export async function checkOfficePricing() {
     {
       ...first,
       id: "PRODUCT-NAME-ONLY-2",
+      draftLineId: "PRODUCT-NAME-ONLY-2",
       printContent: " ",
       product: undefined,
       productName: "LOGO袋",
@@ -272,6 +275,7 @@ export async function checkOfficePricing() {
   const sameInkBags = ["黑色", "蓝色", "红色", "绿色"].map((bagColor, index) => ({
     ...first,
     id: `INK-BAG-${index + 1}`,
+    draftLineId: `INK-BAG-${index + 1}`,
     color: bagColor,
     bagColor,
     printColor: index === 3 ? "白" : "白色",
@@ -320,19 +324,19 @@ export async function checkOfficePricing() {
     [0.08, 0.08],
   );
   const aliasGroups = buildOrderPrintingPriceGroups([
-    { ...first, id: "ALIAS-1", color: "黑色", bagColor: "黑色", printColor: "大红", qty: 1500 },
-    { ...first, id: "ALIAS-2", color: "蓝色", bagColor: "蓝色", printColor: "红色", qty: 1500 },
+    { ...first, id: "ALIAS-1", draftLineId: "ALIAS-1", color: "黑色", bagColor: "黑色", printColor: "大红", qty: 1500 },
+    { ...first, id: "ALIAS-2", draftLineId: "ALIAS-2", color: "蓝色", bagColor: "蓝色", printColor: "红色", qty: 1500 },
   ]);
   assert.equal(aliasGroups.length, 1);
   assert.equal(aliasGroups[0].inkColor, "红色");
   assert.equal(aliasGroups[0].quantity, 3000);
   assert.equal(buildOrderPrintingPriceGroups([
-    { ...first, id: "NO-INK-1", printColor: "" },
-    { ...first, id: "NO-INK-2", printColor: "待确认" },
+    { ...first, id: "NO-INK-1", draftLineId: "NO-INK-1", printColor: "" },
+    { ...first, id: "NO-INK-2", draftLineId: "NO-INK-2", printColor: "待确认" },
   ]).length, 2);
   const differentInk = buildOrderPrintingPriceGroups([
-    { ...first, id: "INK-WHITE", color: "黑色", bagColor: "黑色", printColor: "白色", qty: 5000 },
-    { ...first, id: "INK-RED", color: "黑色", bagColor: "黑色", printColor: "红色", qty: 5000 },
+    { ...first, id: "INK-WHITE", draftLineId: "INK-WHITE", color: "黑色", bagColor: "黑色", printColor: "白色", qty: 5000 },
+    { ...first, id: "INK-RED", draftLineId: "INK-RED", color: "黑色", bagColor: "黑色", printColor: "红色", qty: 5000 },
   ]);
   assert.equal(differentInk.length, 2);
   assert.deepEqual(differentInk.map((group) => group.inkColor), ["白色", "红色"]);
@@ -358,7 +362,7 @@ export async function checkOfficePricing() {
       clientRevision: 1,
       recognitionContext: null,
       lines: [
-        { ...first, id: "EXPLICIT-NEW-SUP", draftLineId: "EXPLICIT-NEW-SUP" },
+        { ...first, id: "EXPLICIT-NEW-SUP", draftLineId: "EXPLICIT-NEW-SUP", draftLineId: "EXPLICIT-NEW-SUP" },
       ],
     },
   ];
@@ -411,7 +415,7 @@ export async function checkOfficePricing() {
       revision: 1,
       clientRevision: 1,
       recognitionContext: null,
-      lines: [{ ...first, id: "D-SUP-1", draftLineId: "D-SUP-1" }],
+      lines: [{ ...first, id: "D-SUP-1", draftLineId: "D-SUP-1", draftLineId: "D-SUP-1" }],
     },
   ];
   const sup = {
@@ -462,6 +466,7 @@ export async function checkOfficePricing() {
   bypass.orderDrafts[0].lines.push({
     ...bypass.orderDrafts[0].lines[0],
     id: "D-BYPASS-2",
+    draftLineId: "D-BYPASS-2",
   });
   assert.equal(
     (
