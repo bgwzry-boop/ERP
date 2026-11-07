@@ -49,7 +49,16 @@ try {
           if (row.children.length !== 6) throw new Error(`明细行应为 6 格，实际 ${row.children.length}`);
           const cell = row.children[col];
           if (!cell) throw new Error(`第 ${col} 格不存在`);
-          const legendValues = [...cell.querySelectorAll("*")].map((el) => el.textContent.trim()).filter(Boolean);
+          const legendItems = [...cell.querySelectorAll(".inventory-allocation-legend > *")].map((item) => {
+            const text = item.textContent.replace(/\s+/g, " ").trim();
+            const match = text.match(/^(可用|占用|锁定|待处理)\s*(.+)$/u);
+            const box = item.getBoundingClientRect();
+            return {
+              label: match ? match[1] : text,
+              value: match ? match[2].replace(/[（(].*$/u, "").trim() : "",
+              visible: box.width > 0 && box.height > 0,
+            };
+          });
           // 先把共享滚动容器滚到这一列完整可见，再测量
           scrollerEl.scrollLeft = Math.max(0, Math.round(cell.offsetLeft + cell.offsetWidth - scrollerEl.clientWidth + 4));
           const rect = cell.getBoundingClientRect();
@@ -66,18 +75,24 @@ try {
             headerLeft: Math.round(headCell.getBoundingClientRect().left),
             cellLeft: Math.round(rect.left),
             scrollLeft: Math.round(scrollerEl.scrollLeft),
-            legendValues,
+            legendItems,
             cellText: cell.textContent.trim(),
           };
         }, column);
 
         assert.ok(result.cellText.length > 0, `${target.label} ${width} 第 ${column} 列不得为空`);
         if (column === 5) {
-          const legendText = (result.legendValues || []).join(" ");
-          for (const keyword of ["可用", "占用", "锁定"]) {
-            assert.ok(legendText.includes(keyword), `${target.label} 图例缺少「${keyword}」: ${legendText}`);
+          const legend = result.legendItems || [];
+          assert.ok(legend.length >= 4, `${target.label} 图例应有 4 项，实际 ${JSON.stringify(legend)}`);
+          const labels = legend.map((item) => item.label);
+          for (const keyword of ["可用", "占用", "锁定", "待处理"]) {
+            assert.ok(labels.includes(keyword), `${target.label} 图例缺少「${keyword}」: ${JSON.stringify(legend)}`);
           }
-          assert.ok((legendText.match(/\d/u) || []).length >= 3, `${target.label} 图例四项数值必须都渲染: ${legendText}`);
+          for (const item of legend) {
+            assert.ok(item.value.length > 0, `${target.label} 图例「${item.label}」数值为空`);
+            assert.match(item.value, /^[\d,]+$/u, `${target.label} 图例「${item.label}」数值不完整: ${item.value}`);
+            assert.ok(item.visible, `${target.label} 图例「${item.label}」不可见`);
+          }
         }
         assert.equal(result.clippedBy, null, `${target.label} ${width} 第 ${column} 列被 ${result.clippedBy} 裁切: ${result.text}`);
         assert.equal(result.headerLeft, result.cellLeft, `${target.label} ${width} 第 ${column} 列滚动后表头与表体未对齐`);
