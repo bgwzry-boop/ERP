@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { createMiniappApiRuntime, createMiniappApiServer } from "../server/miniapp/miniappApiServer.mjs";
 import { createMiniappBffService } from "../server/miniapp/miniappBffService.mjs";
@@ -203,6 +204,14 @@ try {
   assert.ok(state.submissions[0].draftId.startsWith("DRAFT-"));
   assert.ok(!Object.hasOwn(state.submissions[0], "formalOrderId"), "miniapp intake must not create a formal order");
   assert.ok(adapterCalls.every((call) => call.customerId === "CUSTOMER-A"));
+
+  // 2026-11-07：色数上限不能再在 BFF 被提前截断，否则 ERP 侧按 8 色也没用。
+  {
+    const bffSource = readFileSync(new URL("../server/miniapp/miniappBffService.mjs", import.meta.url), "utf8");
+    assert.ok(!/\.slice\(0, 4\)/u.test(bffSource), "BFF must not cap printColors at 4");
+    assert.ok(!/Math\.min\(4,/u.test(bffSource), "BFF must not cap printColorCount at 4");
+    assert.match(bffSource, /MAX_PRINT_COLORS/u, "BFF must use the shared colour ceiling");
+  }
 
   console.log("Miniapp BFF checks passed: binding, scoped reads, server-side quote/inventory, idempotent draft intake, and cross-customer isolation are enforced.");
 } finally {
