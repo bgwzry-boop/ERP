@@ -30,7 +30,8 @@ export async function checkP1OrderConfirmationLive({ databaseUrl, pool, bagwinSe
   await handleOrderReadRoutes({ url: new URL('http://offline.invalid/api/order-drafts?queueOnly=true&page=1&pageSize=1&draftId='+draft.id), workspace, response: {}, sendJson: (_r,_s,data) => { queue=data; } });
   assert.equal(queue.total, 1); assert.equal(queue.items[0].id, draft.id);
   const service = createApiSharedServiceRegistry().orderDraftCommandService;
-  const lines = draft.lines.map(line => ({ ...line, draftLineId: line.id, productName: line.product, bagColor: line.color, handleType: line.handle, printFlag: line.print === '是', fulfillmentMethod: '自提', latestNeededAt: '2026-10-30' }));
+  // 2026-11-07：夹具必须用"已保存的真实值"，否则确认前的守卫会先拦下来。
+  const lines = draft.lines.map(line => ({ ...line, draftLineId: line.id, productName: line.product, bagColor: line.color, handleType: line.handle, printFlag: line.print === '是', fulfillmentMethod: line.fulfillment || line.fulfillmentMethod, latestNeededAt: line.latest ?? line.latestNeededAt }));
   const original = structuredClone(lines);
   await assert.rejects(service.confirmOrderDraft({workspace,draftId:draft.id,operatorId:'U-MINIAPP-PRICE-CREATOR',body:{expectedRevision:1,lines:lines.map(line => ({...line,qty:501}))}}), {code:'MINIAPP_LOCKED_ORDER_CHANGED'});
   const realConfirm = transactionRepository.confirmOrder.bind(transactionRepository);
