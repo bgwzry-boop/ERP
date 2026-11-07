@@ -134,8 +134,8 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
   const reviewApp = read("docs/prototypes/raw-material-roll-inventory-review/src/App.jsx");
   assert.match(
     reviewApp,
-    /history\.replaceState\(null, "", `#\$\{activeNavId\}`\)/u,
-    "review shell must rewrite unknown hashes to the active view",
+    /if \(resolved && visibleViews\.includes\(resolved\)\) return undefined;/u,
+    "review shell must keep a hash normalizer that rewrites unknown routes",
   );
 }
 
