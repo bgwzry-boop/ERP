@@ -220,7 +220,7 @@ async function checkDesktop(width) {
 }
 
 async function checkPhone() {
-  // 2026-11-07：三条真实路径的哈希路由回归。
+  // 2026-11-07：三条真实路径的哈希路由回归（断言具体页面，而不是拿当前状态自我对照）。
   {
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
     page.setDefaultTimeout(15000);
@@ -228,39 +228,43 @@ async function checkPhone() {
     page.on("pageerror", error => errors.push(error.message));
     await page.route("**/api/**", async route => {
       const request = route.request(), path = new URL(request.url()).pathname;
-      if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && path !== "/api/auth/prototype-login") return route.abort();
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && path !== "/api/auth/prototype-login") {
+        report.blockedWrites.push({ width: "hash-routing", method: request.method(), path });
+        return route.abort();
+      }
       if (await fulfillReceiptRead(route, records)) return;
       return route.continue();
     });
-    const currentHash = () => page.evaluate(() => window.location.hash.replace(/^#/u, ""));
-    const currentNav = () => page.locator('[data-nav-id][aria-current="page"]').first().getAttribute("data-nav-id");
-
-    // 路径 1：一开始就是未知 hash —— 必须改写成有效默认页，地址/导航/内容一致，查询参数保留。
     const url = new URL(origin);
     url.searchParams.set("receivingCleanupReview", `hash-${Date.now()}`);
     url.searchParams.set("keepMe", "1");
+    url.searchParams.set("erpViewport", "desktop");
     url.hash = "definitely-unknown-route";
     await page.goto(url.href);
-    await page.locator('[data-nav-id][aria-current="page"]').first().waitFor();
-    const defaultNav = await currentNav();
-    assert.ok(defaultNav, "未知 hash 必须回落到一个有效页面");
-    assert.equal(await currentHash(), defaultNav, "地址栏必须改写为实际页面");
+
+    // 路径 1：首屏未知 hash 必须落到固定默认页（卷料库存 + 物理卷料台账），查询参数保留。
+    await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').waitFor();
+    await page.getByRole("table", { name: "物理卷料台账", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.location.hash), "#roll-inventory", "未知 hash 必须改写为默认有效页");
     assert.equal(new URL(page.url()).searchParams.get("keepMe"), "1", "回写地址不得丢掉查询参数");
 
-    // 路径 2：打开有效页后把 hash 改成未知 —— 不刷新、不点菜单也要回到原页。
-    await page.evaluate(() => { window.location.hash = "still-unknown-route"; });
-    await page.waitForFunction(() => window.location.hash.replace(/^#/u, "") === document.querySelector('[data-nav-id][aria-current="page"]').dataset.navId);
-    assert.equal(await currentHash(), defaultNav, "未知 hash 必须回退到当前真实页面");
-    assert.equal(await currentNav(), defaultNav);
-
-    // 路径 3：点导航切换后，再写回另一个合法 hash，两者都要正确跟随。
-    await page.locator('[data-nav-id="roll-inventory"]').click();
-    await page.waitForFunction(() => window.location.hash === "#roll-inventory");
-    assert.equal(await currentNav(), "roll-inventory", "点导航后菜单必须选中");
+    // 路径 2：先到有效页 material-receiving，再改成未知 hash；不刷新不点菜单也必须自动回到收货页。
     await page.evaluate(() => { window.location.hash = "material-receiving"; });
-    await page.waitForFunction(() => window.location.hash === "#material-receiving");
-    assert.equal(await currentNav(), "material-receiving", "写回合法 hash 后菜单必须跟随");
-    assert.equal(await currentHash(), "material-receiving");
+    await page.locator('[data-nav-id="material-receiving"][aria-current="page"]').waitFor();
+    await page.getByRole("region", { name: "收货单据队列", exact: true }).waitFor();
+    await page.evaluate(() => { window.location.hash = "still-unknown-route"; });
+    await page.locator('[data-nav-id="material-receiving"][aria-current="page"]').waitFor();
+    await page.getByRole("region", { name: "收货单据队列", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.location.hash), "#material-receiving", "未知 hash 必须自动回退当前页");
+
+    // 路径 3：点导航切到卷料库存，再写回合法收货 hash，两个方向都要跟着变。
+    await page.locator('[data-nav-id="roll-inventory"]').click();
+    await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').waitFor();
+    await page.getByRole("table", { name: "物理卷料台账", exact: true }).waitFor();
+    await page.evaluate(() => { window.location.hash = "material-receiving"; });
+    await page.locator('[data-nav-id="material-receiving"][aria-current="page"]').waitFor();
+    await page.getByRole("region", { name: "收货单据队列", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.location.hash), "#material-receiving");
 
     assert.deepEqual(errors, [], "路由路径不得产生页面错误");
     report.pageErrors.push(...errors.map(message => ({ width: "hash-routing", message })));
