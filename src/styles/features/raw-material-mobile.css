@@ -2318,9 +2318,9 @@
     white-space: nowrap;
   }
 
-  .raw-material-mobile-review-line-summary > .line-spec {
-    /* 常见规格 78g*90宽*1500m 约需 120px，允许换行而不是省略 */
-    min-width: 96px;
+  /* 提高特异性压过通用 nowrap 规则，否则 120px 的常见规格仍被省略 */
+  .raw-material-mobile-review-line-summary > span.line-spec {
+    min-width: 120px;
     white-space: normal;
     overflow-wrap: anywhere;
     line-height: 18px;
