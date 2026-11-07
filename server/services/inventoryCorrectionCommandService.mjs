@@ -44,16 +44,11 @@ export function createInventoryCorrectionCommandService({
           "Inventory quantity changed before the correction draft was created.",
         );
       }
-      // 2026-11-07：盘亏不能把在库压到低于已占用 + 待提货锁定 + 待处理。
-      // 否则可用量变负，后续出库用 GREATEST(0,…) 把缺口抹平，实物短少在系统里消失。
+      // 2026-11-07（负责人口径）：盘亏必须允许登记，登记阶段不改库存。
+      // 差异大小只决定要不要立即通知，不决定能不能登记；
+      // 真正改库存发生在有权限的人审核通过时。
       const committedQty = committedStockQty(inventoryItem);
-      if (actualQty < committedQty) {
-        return businessError(
-          409,
-          "INVENTORY_CORRECTION_BELOW_COMMITTED_STOCK",
-          `实盘数量低于已占用/锁定/待处理合计 ${committedQty}，请先处理对应占用或按差异流程处理。`,
-        );
-      }
+      const exceedsCommittedStock = actualQty < committedQty;
       const attachmentIds = stringList(body.attachmentIds);
       if (attachmentIds.length) {
         return businessError(
@@ -84,9 +79,11 @@ export function createInventoryCorrectionCommandService({
         refId: correctionDraftId,
         ref: correctionDraftId,
         customerId: "",
-        summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`,
+        summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`
+          + (exceedsCommittedStock ? `；实盘已低于占用/锁定/待处理合计 ${committedQty}，先别出库` : ""),
         latest: "今天",
-        urgency: "关注",
+        // 差异大小只决定提醒强度：超出占用线要马上通知，但依然允许登记。
+        urgency: exceedsCommittedStock ? "紧急" : "关注",
         priority: "关注",
         status: "未处理",
         impact: "需有库存调整确认权限账号确认后才改库存",

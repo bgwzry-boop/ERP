@@ -227,13 +227,16 @@ assert.equal(invalid.code, "VALIDATION_ERROR");
     ...workspace,
     inventories: [{ id: "INV-1", inStock: 500, onHandQty: 500, reserved: 400, locked: 80, pending: 20 }],
   };
+  // 负责人口径：实盘低于占用线也必须能登记，登记阶段不动库存，只把提醒升级。
   const belowCommitted = await service.createCorrectionDraft({
     workspace: committedWorkspace,
-    body: { ...createBody, actualQty: 450 },
+    body: { ...createBody, actualQty: 450, idempotencyKey: "inventory-create-below-committed" },
     operatorId: "U-AUTH",
   });
-  assert.equal(belowCommitted.statusCode, 409);
-  assert.equal(belowCommitted.code, "INVENTORY_CORRECTION_BELOW_COMMITTED_STOCK");
+  assert.equal(belowCommitted.error, undefined, JSON.stringify(belowCommitted));
+  assert.equal(belowCommitted.correctionDraft.status, "待确认生效");
+  assert.equal(belowCommitted.todo.urgency, "紧急");
+  assert.equal(committedWorkspace.inventories[0].inStock, 500, "登记差异不得改动库存");
 }
 
 console.log("inventory correction command service checks passed");
