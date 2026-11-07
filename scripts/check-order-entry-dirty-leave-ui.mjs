@@ -61,6 +61,35 @@ try {
   assert.equal(await page.evaluate(() => window.location.hash), "#order-entry", "取消后地址必须回到订单录入");
   assert.equal(await input().inputValue(), "3037 蓝 300 个", "hash 取消同样保留原文");
 
+  // 4) 编辑器占用中（识别请求未回）时，hash 不得把页面带走
+  await input().fill("3037 红 500 个");
+  await page.route("**/api/order-drafts/recognize**", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return route.abort();
+  });
+  await page.getByRole("button", { name: /识别客户消息|按原内容重试识别/u }).click();
+  await page.waitForTimeout(200);
+  await page.evaluate(() => { window.location.hash = "order-pool"; });
+  await page.waitForTimeout(600);
+  assert.equal(await page.locator('[data-nav-id="order-entry"][aria-current="page"]').count(), 1, "编辑器占用时不得离开订单录入");
+  assert.equal(await modal().count(), 0, "占用状态不应弹确认框");
+  await page.waitForTimeout(1600);
+
+  // 5) 确认框打开后再改 hash：只允许一个提示，取消后地址回到原页
+  await page.unroute("**/api/order-drafts/recognize**").catch(() => {});
+  await openEntry();
+  await input().fill("3037 红 500 个 黄松");
+  await page.locator('[data-nav-id="order-pool"]').click();
+  await modal().waitFor({ timeout: 8000 });
+  await page.evaluate(() => { window.location.hash = "shared-todos"; });
+  await page.waitForTimeout(600);
+  assert.equal(await modal().count(), 1, "重复导航不得叠加第二个确认框");
+  await modal().getByRole("button", { name: /继续编辑/u }).click();
+  await page.waitForTimeout(600);
+  assert.equal(await modal().count(), 0, "取消后不得残留第二个确认框");
+  assert.equal(await page.evaluate(() => window.location.hash), "#order-entry", "取消后地址必须回到订单录入");
+  assert.equal(await input().inputValue(), "3037 红 500 个 黄松", "取消后原文仍在");
+
   assert.deepEqual(blockedWrites, [], `不得发生业务写入: ${JSON.stringify(blockedWrites)}`);
   assert.deepEqual(pageErrors, [], `页面不得报错: ${JSON.stringify(pageErrors)}`);
   void original;

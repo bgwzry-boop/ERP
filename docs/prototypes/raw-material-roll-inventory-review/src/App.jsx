@@ -363,19 +363,11 @@ export function App({ permissionContext = defaultPermissionContext }) {
       const normalized = hashNavId === "spec-inventory" ? "general-prices" : hashNavId;
       const nextView = navViewMap[normalized];
       if (!nextView || !visibleViews.includes(nextView)) return;
-      if (activeNavId === "order-entry" && normalized !== "order-entry" && formal.orderEntryDirty) {
-        void (async () => {
-          const discard = await confirmInApp({
-            title: "离开订单录入？",
-            message: "当前订单还有未保存的原文或明细。离开会丢失这些未提交的修改。",
-            cancelLabel: "继续编辑",
-            confirmLabel: "放弃并离开",
-            tone: "danger",
-          });
-          if (!discard) { window.history.replaceState(null, "", `#${activeNavId}`); return; }
-          formal.discardOrderEntryLocalEdit?.();
+      if (activeNavIdRef.current === "order-entry" && normalized !== "order-entry") {
+        void requestLeaveOrderEntry(normalized).then((allowed) => {
+          if (!allowed) { window.history.replaceState(null, "", `#${activeNavIdRef.current}`); return; }
           setView(nextView);
-        })();
+        });
         return;
       }
       setView(nextView);
@@ -407,27 +399,35 @@ export function App({ permissionContext = defaultPermissionContext }) {
   orderEntryDirtyRef.current = Boolean(formal.orderEntryDirty);
   const activeNavIdRef = useRef(activeNavId);
   activeNavIdRef.current = activeNavId;
-  const leaveOrderEntry = async (nextId) => {
-    if (activeNavIdRef.current !== "order-entry" || nextId === "order-entry") return true;
-    // 回执待核对优先：写操作未确认时一律不让离开。
-    if (formal.orderEntryWritePending) return false;
-    if (!orderEntryDirtyRef.current) return true;
-    const discard = await confirmInApp({
+  const orderEntryEditorBlockedRef = useRef(false);
+  orderEntryEditorBlockedRef.current = Boolean(formal.orderEntryEditorBlocked);
+  // 2026-11-07：导航与 hash 共用同一个离开判定；提示单飞，重复导航合并到同一次确认。
+  const leavePromptRef = useRef(null);
+  const requestLeaveOrderEntry = (nextId) => {
+    if (activeNavIdRef.current !== "order-entry" || nextId === "order-entry") return Promise.resolve(true);
+    // 回执待核对、拆单预览/编辑器占用时一律不离开（未确认结果不能丢）。
+    if (formal.orderEntryWritePending) return Promise.resolve(false);
+    if (orderEntryEditorBlockedRef.current) return Promise.resolve(false);
+    if (!orderEntryDirtyRef.current) return Promise.resolve(true);
+    if (leavePromptRef.current) return leavePromptRef.current;
+    const pending = confirmInApp({
       title: "离开订单录入？",
       message: "当前订单还有未保存的原文或明细。离开会丢失这些未提交的修改。",
       cancelLabel: "继续编辑",
       confirmLabel: "放弃并离开",
       tone: "danger",
-    });
-    if (!discard) return false;
-    formal.discardOrderEntryLocalEdit?.();
-    return true;
+    }).then((discard) => {
+      if (discard) formal.discardOrderEntryLocalEdit?.();
+      return discard;
+    }).finally(() => { leavePromptRef.current = null; });
+    leavePromptRef.current = pending;
+    return pending;
   };
   const navigate = async (navId, focus = {}) => {
     if (formal.orderEntryWritePending) return;
     setNavOpen(false);
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
-    if (!(await leaveOrderEntry(normalizedNavId))) return;
+    if (!(await requestLeaveOrderEntry(normalizedNavId))) return;
     const nextView = navViewMap[normalizedNavId];
     const allowed = Boolean(nextView && visibleViews.includes(nextView));
     setWorkspaceFocus(allowed && focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === normalizedNavId ? focus.workspaceFocus : null);
