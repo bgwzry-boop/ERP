@@ -366,11 +366,11 @@ export function App({ permissionContext = defaultPermissionContext }) {
       if (activeNavIdRef.current === "order-entry" && normalized !== "order-entry") {
         void requestLeaveOrderEntry(normalized).then((allowed) => {
           if (!allowed) { window.history.replaceState(null, "", `#${activeNavIdRef.current}`); return; }
-          setView(nextView);
+          commitNavigationRef.current?.(normalized);
         });
         return;
       }
-      setView(nextView);
+      commitNavigationRef.current?.(normalized);
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
@@ -395,6 +395,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
     });
   };
   // 2026-11-07：订单录入有未保存内容时，离开（菜单/搜索/hash/关页）必须先确认。
+  const commitNavigationRef = useRef(null);
   const orderEntryDirtyRef = useRef(false);
   orderEntryDirtyRef.current = Boolean(formal.orderEntryDirty);
   const activeNavIdRef = useRef(activeNavId);
@@ -422,21 +423,26 @@ export function App({ permissionContext = defaultPermissionContext }) {
       return decision.granted;
     });
   };
+  // 2026-11-07：view / hash / focus 只有这一个提交入口，菜单与 hash 都走它。
+  const commitNavigation = (navId, focus = {}) => {
+    const nextView = navViewMap[navId];
+    if (!nextView || !visibleViews.includes(nextView)) return false;
+    setWorkspaceFocus(focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === navId ? focus.workspaceFocus : null);
+    setProductionFocusId(focus.productionTaskId || "");
+    setView(nextView);
+    const group = pcNavGroups.find(item => item.items.some(child => child.id === navId));
+    if (group) setExpandedGroups(current => new Set([...current, group.id]));
+    // 冻结意图只提交一次：地址必须跟着实际页面走
+    if (window.location.hash !== `#${navId}`) window.history.replaceState(null, "", `#${navId}`);
+    return true;
+  };
+  commitNavigationRef.current = commitNavigation;
   const navigate = async (navId, focus = {}) => {
     if (formal.orderEntryWritePending) return;
     setNavOpen(false);
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
     if (!(await requestLeaveOrderEntry(normalizedNavId))) return;
-    const nextView = navViewMap[normalizedNavId];
-    const allowed = Boolean(nextView && visibleViews.includes(nextView));
-    setWorkspaceFocus(allowed && focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === normalizedNavId ? focus.workspaceFocus : null);
-    setProductionFocusId(focus.productionTaskId || "");
-    if (allowed) {
-      setView(nextView);
-      const group = pcNavGroups.find(item => item.items.some(child => child.id === normalizedNavId));
-      if (group) setExpandedGroups(current => new Set([...current, group.id]));
-      window.history.replaceState(null, "", `#${normalizedNavId}`);
-    }
+    commitNavigation(normalizedNavId, focus);
   };
   const openSearchResult = (result) => {
     if (!result?.navId || formal.orderEntryWritePending) return;

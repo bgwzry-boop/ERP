@@ -121,6 +121,23 @@ try {
   assert.equal(await page.evaluate(() => window.location.hash), "#order-entry", "取消后地址回到订单录入");
   assert.equal(await input().inputValue(), "3037 红 500 个 黄松", "取消后原文仍在");
 
+  // 8) 第一次 hash=订单池 弹确认，第二次 hash=卷料库存 被拒并回退；接受第一次后
+  //    view / hash / 内容必须都提交到"第一次冻结的目标"
+  await openEntry();
+  await input().fill("3037 红 500 个 黄松");
+  await page.evaluate(() => { window.location.hash = "order-pool"; });
+  await modal().waitFor({ timeout: 8000 });
+  await page.evaluate(() => { window.location.hash = "roll-inventory"; });
+  await page.waitForTimeout(400);
+  assert.equal(await modal().count(), 1, "第二次 hash 不得再开提示");
+  await page.waitForTimeout(300);
+  await modal().getByRole("button", { name: /放弃并离开/u }).click();
+  await page.locator('[data-nav-id="order-pool"][aria-current="page"]').waitFor({ timeout: 8000 });
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => window.location.hash), "#order-pool", "接受后地址必须提交到第一次的目标");
+  assert.equal(await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').count(), 0, "不得落在被拒绝的第二目标");
+  assert.match(await page.locator("main").innerText(), /订单池/u);
+
   assert.deepEqual(blockedWrites, [], `不得发生业务写入: ${JSON.stringify(blockedWrites)}`);
   assert.deepEqual(pageErrors, [], `页面不得报错: ${JSON.stringify(pageErrors)}`);
   void original;
