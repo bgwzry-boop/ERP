@@ -754,6 +754,17 @@ assert.deepEqual(failedWorkspace.operationLogs, failedSnapshot.operationLogs);
   });
   assert.equal(blocked.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED", JSON.stringify(blocked));
   assert.equal(blocked.statusCode, 403);
+
+  // 单数 roleKey 同样不能绕过。
+  const singularWorkspace = createWorkspace();
+  const singularBlocked = await service.enableEmployeeAccount({
+    workspace: singularWorkspace,
+    employeeId: "EMP-WORKER-001",
+    operatorId: "U-TECH-1",
+    operatorPermissions: techPermissions,
+    body: { roleKey: "management" },
+  });
+  assert.equal(singularBlocked.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED", JSON.stringify(singularBlocked));
 }
 
 console.log(
