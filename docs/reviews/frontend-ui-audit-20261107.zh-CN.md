@@ -16,7 +16,12 @@
 
 ## 2. 桌面 20 页（1440 + 1280，全部目视）
 
-证据：`contact-1440.png`、`contact-1280.png`（每张 20 格）；重点页单图在 `shots/`。
+> **更正（本轮）**：上一版 `contact-1440/1280.png` 有 3 页标错——`raw-material-cost`、
+> `payroll-attendance`、`launch-status` 实际都渲染成「卷料库存」。原因：冷启动深链在真实身份
+> 就绪前被默认 office 权限判定为不可见，于是回落默认页；截图脚本只看 hash 不看选中态与标题。
+>
+> 现在改为：等「管理A」出现 → **点击导航** → 断言 `aria-current`、页面标题与 URL 一致 → 再截图。
+> 新证据：`contact-ok-1440.png`、`contact-ok-1280.png`，单图 `shots/ok-1440-*.png`。
 
 | # | 页面 | 1440 | 1280 | 目视结论 |
 |---|---|---|---|---|
@@ -34,12 +39,14 @@
 | 12 | 覆膜袋 laminated-inventory | 空态 | 空态 | 空态文案合理 |
 | 13 | 对账收款 customer-statements | 有数据 | 有数据 | 「本期未收」列（PR#84） |
 | 14 | 供应商月结 supplier-month-end | 有数据 | 有数据 | 正常 |
-| 15 | 原料成本 raw-material-cost | 空态 | 空态 | 未见异常 |
-| 16 | 工资核算 payroll-attendance | 空态 | 空态 | 空态文案合理 |
+| 15 | 原料成本 raw-material-cost | 有数据 | 有数据 | 成本/工资入口卡片，正常 |
+| 16 | 工资核算 payroll-attendance | 有数据 | 有数据 | 工资核算表单，正常 |
 | 17 | 客户档案 customer-records | 有数据 | 有数据 | 列表+详情正常 |
 | 18 | 成品资料 general-prices | **近空白** | 近空白 | **P3 待查**：主区疑似无数据，未确认是空态还是读取失败 |
 | 19 | 员工机台 people-machines | 空态 | 空态 | 合理 |
-| 20 | 上线状态 launch-status | 信息面板 | 信息面板 | 正常 |
+| 20 | 上线状态 launch-status | 有数据 | 有数据 | 上线状态信息面板，正常 |
+
+**采集方法**：每页点击导航后校验 `aria-current`、标题、URL 三者一致才截图，避免再出现"hash 对、内容错"。
 
 **视觉结论**：深色导航、橙色主操作、字号层级在 1440/1280 一致；未发现新的裁切或溢出。
 逐项可疑点只有 `general-prices` 近空白，需后续确认（不作为已确认缺陷）。
