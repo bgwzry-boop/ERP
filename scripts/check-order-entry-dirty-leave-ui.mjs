@@ -90,6 +90,37 @@ try {
   assert.equal(await page.evaluate(() => window.location.hash), "#order-entry", "取消后地址必须回到订单录入");
   assert.equal(await input().inputValue(), "3037 红 500 个 黄松", "取消后原文仍在");
 
+  // 6) 菜单确认打开时改 hash，再接受：只允许一个意图提交（URL 与内容必须同页）
+  await openEntry();
+  await input().fill("3037 红 500 个 黄松");
+  await page.locator('[data-nav-id="order-pool"]').click();
+  await modal().waitFor({ timeout: 8000 });
+  await page.evaluate(() => { window.location.hash = "roll-inventory"; });
+  await page.waitForTimeout(400);
+  assert.equal(await modal().count(), 1, "hash 请求不得再开第二个提示");
+  await modal().getByRole("button", { name: /放弃并离开/u }).click();
+  await page.locator('[data-nav-id="order-pool"][aria-current="page"]').waitFor({ timeout: 8000 });
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => window.location.hash), "#order-pool", "接受后地址必须是第一个意图的目标");
+  assert.equal(await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').count(), 0, "不得落到第二个意图的页面");
+  assert.match(await page.locator("main").innerText(), /订单池/u);
+
+  // 7) 顶部新建订单确认打开时改 hash：取消后不得再排队一个离开确认
+  await page.locator('[data-nav-id="order-entry"]').click();
+  await page.locator('[data-nav-id="order-entry"][aria-current="page"]').waitFor({ timeout: 8000 });
+  await page.waitForTimeout(1200);
+  await input().fill("3037 红 500 个 黄松");
+  await page.getByRole("button", { name: /新建订单/u }).click();
+  await modal().waitFor({ timeout: 8000 });
+  await page.evaluate(() => { window.location.hash = "roll-inventory"; });
+  await page.waitForTimeout(400);
+  assert.equal(await modal().count(), 1, "标题栏新建订单确认打开时不得叠加第二个提示");
+  await modal().getByRole("button", { name: /继续编辑/u }).click();
+  await page.waitForTimeout(600);
+  assert.equal(await modal().count(), 0, "取消新建订单后不得残留第二个确认");
+  assert.equal(await page.evaluate(() => window.location.hash), "#order-entry", "取消后地址回到订单录入");
+  assert.equal(await input().inputValue(), "3037 红 500 个 黄松", "取消后原文仍在");
+
   assert.deepEqual(blockedWrites, [], `不得发生业务写入: ${JSON.stringify(blockedWrites)}`);
   assert.deepEqual(pageErrors, [], `页面不得报错: ${JSON.stringify(pageErrors)}`);
   void original;

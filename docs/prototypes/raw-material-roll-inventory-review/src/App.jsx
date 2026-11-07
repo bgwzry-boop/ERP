@@ -402,26 +402,25 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const orderEntryEditorBlockedRef = useRef(false);
   orderEntryEditorBlockedRef.current = Boolean(formal.orderEntryEditorBlocked);
   // 2026-11-07：导航与 hash 共用同一个离开判定；提示单飞，重复导航合并到同一次确认。
-  const leavePromptRef = useRef(null);
   const requestLeaveOrderEntry = (nextId) => {
     if (activeNavIdRef.current !== "order-entry" || nextId === "order-entry") return Promise.resolve(true);
     // 回执待核对、拆单预览/编辑器占用时一律不离开（未确认结果不能丢）。
     if (formal.orderEntryWritePending) return Promise.resolve(false);
     if (orderEntryEditorBlockedRef.current) return Promise.resolve(false);
     if (!orderEntryDirtyRef.current) return Promise.resolve(true);
-    if (leavePromptRef.current) return leavePromptRef.current;
-    const pending = confirmInApp({
+    // 与"新建订单"共用同一个提示占用锁；占用的owner只提交一次意图。
+    const shared = formal.requestSharedConfirm?.("leave-order-entry", {
       title: "离开订单录入？",
       message: "当前订单还有未保存的原文或明细。离开会丢失这些未提交的修改。",
       cancelLabel: "继续编辑",
       confirmLabel: "放弃并离开",
       tone: "danger",
-    }).then((discard) => {
-      if (discard) formal.discardOrderEntryLocalEdit?.();
-      return discard;
-    }).finally(() => { leavePromptRef.current = null; });
-    leavePromptRef.current = pending;
-    return pending;
+    });
+    return (shared ?? Promise.resolve({ granted: false, busy: true })).then((decision) => {
+      if (decision.busy) return false;
+      if (decision.granted) formal.discardOrderEntryLocalEdit?.();
+      return decision.granted;
+    });
   };
   const navigate = async (navId, focus = {}) => {
     if (formal.orderEntryWritePending) return;
