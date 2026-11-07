@@ -279,7 +279,7 @@ function OrderPricingEditor({
   const [customerHint, setCustomerHint] = useState(initial?.customerHint ?? null);
   const pickCustomer = (customer) => {
     if (frozenRequest.current || splitPlan || !customer?.customerId) return;
-    setPickedCustomer({ customerId: customer.customerId, name: customer.name });
+    setPickedCustomer({ customerId: customer.customerId, name: customer.name, selectionSource: "manual" });
     setCustomerHint(null);
     if (!rows.length) return;
     invalidate();
@@ -407,11 +407,21 @@ function OrderPricingEditor({
           throw new Error("没有取得完整识别回执。");
         invalidate();
         // 先选了客户再识别：识别出来没写客户的明细，用选好的客户。
+        const manualCustomer = pickedCustomer?.selectionSource === "recognition" ? null : pickedCustomer;
         setSavedRows(result.rows);
-        setRows(pickedCustomer?.customerId && result.rows.some(line => !line.customerId)
-          ? result.rows.map((line) => line.customerId ? line : { ...line, customerId: pickedCustomer.customerId, customer: pickedCustomer.name, customerName: pickedCustomer.name })
+        setRows(manualCustomer?.customerId && result.rows.some(line => !line.customerId)
+          ? result.rows.map((line) => line.customerId ? line : { ...line, customerId: manualCustomer.customerId, customer: manualCustomer.name, customerName: manualCustomer.name })
           : result.rows);
-        setCustomerHint(result.recognition?.customerHint?.name ? result.recognition.customerHint : null);
+        const nextCustomerHint = result.recognition?.customerHint?.name ? result.recognition.customerHint : null;
+        setPickedCustomer(current => {
+          if (current?.customerId && current.selectionSource !== "recognition") return current;
+          return nextCustomerHint?.customerId ? {
+            customerId: nextCustomerHint.customerId,
+            name: nextCustomerHint.name,
+            selectionSource: "recognition",
+          } : null;
+        });
+        setCustomerHint(nextCustomerHint);
         setDraftId(draftIdentity(result.draft));
         setRevision(nextRevision);
         setSavedSource(result.draft.sourceText ?? source);
@@ -421,7 +431,9 @@ function OrderPricingEditor({
         setReason("");
         setSameBatch(false);
         setSavedPricingInputs(emptyPricingInputs);
-        setNotice("已识别，请核对类型、规格、颜色和交期。");
+        setNotice(result.rows.length
+          ? "已识别，请核对类型、规格、颜色和交期。"
+          : "未识别出订单明细，请检查原文后重新识别。");
       },
     );
   const save = () =>
@@ -1251,12 +1263,12 @@ function OrderPricingEditor({
                     </li>
                   ) : null;
                 })}
-                {!missing ? <li><span>{rows.length} 行明细都已齐全</span><strong>待报价</strong></li> : null}
+                {!missing ? <li><span>{rows.length} 行计价明细已齐全</span><strong>待报价</strong></li> : null}
               </ul>
               <p className="pricing-precheck-hint">
                 {missing
                   ? "先补全标出的字段，再生成正式报价。"
-                  : "明细已齐全。点「生成正式报价」后，这里显示每行单价和合计。"}
+                  : "可生成报价；下单前请核对交付方式和需要日期。"}
                 缺少发布价或已确认材料价时会保留草稿，由有权限的人填写本单价及原因。
               </p>
             </>
@@ -1516,7 +1528,10 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
         ) : null}
         {!currentId && !editing && hint?.name ? (
           <p className="pricing-customer-info warn" role="status">
-            {hint.ambiguous?.length
+            {hint.customerId
+              ? <>已找到客户「{hint.name}」。
+                <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(hint)}>选用这个客户</button></>
+              : hint.ambiguous?.length
               ? <>消息里写的「{hint.name}」对应多个客户：{hint.ambiguous.join("、")}，请在上面选一个。</>
               : <>消息里写的客户「{hint.name}」系统里没有。是否新建？
                 <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => setCreating({ name: hint.name })}>新建客户「{hint.name}」</button></>}

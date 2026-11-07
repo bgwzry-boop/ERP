@@ -15,6 +15,12 @@ import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from 
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
 import { buildOfficeDraftPricingQuote, officeQuoteProjection, assertOfficeQuoteMatches } from "../orderDraftPricingQuote.mjs";
 
+async function readRecognitionCustomerWorkspace(workspace) {
+  if (!workspace.coreWorkspaceReadRepository?.loadState) return workspace;
+  const state = await workspace.coreWorkspaceReadRepository.loadState();
+  return Array.isArray(state?.customers) ? { ...workspace, customers: state.customers } : workspace;
+}
+
 export function createOrderDraftCommandService(dependencies = {}) {
   const {
     buildCustomerSnapshot,
@@ -87,11 +93,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
           inventoryIntents: prior.inventoryIntents, riskHints: [...buildDraftRiskHints(prior.draft.lines), ...(context.riskHints ?? [])], operationLogId: prior.operationLogId });
       }
     }
+    const customerWorkspace = await readRecognitionCustomerWorkspace(workspace);
     const sourceText = body.sourceText ?? body.text ?? "";
     const recognition = recognizeOrderConversation(
       Array.isArray(body.sourceMessages) && body.sourceMessages.length ? body.sourceMessages : sourceText,
       {
-        customers: workspace.customers,
+        customers: customerWorkspace.customers,
         inventories: workspace.inventories,
         standardColors: workspace.standardColors,
         colorAliases: workspace.colorAliases,
@@ -107,7 +114,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     }
     let lines = recognition.orderRows;
     // 负责人 2026-11-05：消息开头或结尾写了客户名字，没认出客户的明细自动用这个客户；不对再在开单页改。
-    const customerHint = body.customerId ? null : detectMessageCustomer(sourceText || recognition.sourceMessages.map((message) => message.text).join("\n"), workspace.customers ?? []);
+    const customerHint = body.customerId ? null : detectMessageCustomer(sourceText || recognition.sourceMessages.map((message) => message.text).join("\n"), customerWorkspace.customers ?? []);
     if (customerHint?.customerId) {
       lines = lines.map((line) => (line.customerId ? line : { ...line, customerId: customerHint.customerId, customer: customerHint.name }));
     }
@@ -141,7 +148,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       sourceChannel: body.sourceChannel ?? "manual",
       sourceMessageId: body.sourceMessageId ?? "",
       customerId,
-      customerName: findCustomerName(workspace, customerId),
+      customerName: findCustomerName(customerWorkspace, customerId),
       status: "待审核",
       lines,
       recognitionContext,
@@ -188,11 +195,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function recognizeOrderDraftQueue({ workspace, body = {}, operatorId }) {
+    const customerWorkspace = await readRecognitionCustomerWorkspace(workspace);
     const sourceText = body.sourceText ?? body.text ?? "";
     const recognition = recognizeOrderConversation(
       Array.isArray(body.sourceMessages) && body.sourceMessages.length ? body.sourceMessages : sourceText,
       {
-        customers: workspace.customers,
+        customers: customerWorkspace.customers,
         inventories: workspace.inventories,
         standardColors: workspace.standardColors,
         colorAliases: workspace.colorAliases,
@@ -245,7 +253,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       }
 
       const scopedRecognition = buildScopedQueueRecognition(recognition, item);
-      const customerId = item.customerId ?? item.rows[0]?.customerId ?? "";
+      const customerId = item.customerId || item.rows[0]?.customerId || "";
       const recognitionContext = {
         version: recognition.version,
         queueVersion: plan.version,
@@ -267,7 +275,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         sourceChannel: body.sourceChannel ?? "wechat_group_queue",
         sourceMessageId: item.sourceMessageIds[0] ?? "",
         customerId,
-        customerName: findCustomerName(workspace, customerId),
+        customerName: findCustomerName(customerWorkspace, customerId),
         status: item.status,
         lines: item.rows,
         recognitionContext,

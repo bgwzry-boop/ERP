@@ -5,6 +5,38 @@ import { parseOrderText } from "../src/lib/orderParser.js";
 
 assert.deepEqual(parseOrderText(""), [], "empty order input must not inject demo fixture rows");
 
+const namedCustomers = [...customers, { id: "TEST-HUANG", name: "黄松" }, { id: "TEST-LAN", name: "蓝天" }];
+for (const name of ["黄松", "蓝天"]) {
+  const [row] = parseOrderText(`3037 500 个 ${name} 自提`, { customers: namedCustomers });
+  assert.equal(row.customer, name);
+  assert.equal(row.color, "待确认", "a customer's name cannot supply the bag colour");
+  assert.equal(row.qty, 500);
+}
+const [namedYellow] = parseOrderText("3037 黄 500 个 黄松", { customers: namedCustomers });
+assert.equal(namedYellow.customerId, "TEST-HUANG");
+assert.equal(namedYellow.color, "黄色");
+assert.equal(namedYellow.qty, 500);
+assert.equal(namedYellow.source, "3037 黄 500 个 黄松", "the source remains the original message");
+for (const text of ["2026-11-10 3037 红500个", "订单号3038 3037 红500个", "电话3038 3037 红500个"]) {
+  assert.equal(parseOrderText(text)[0].size, "30*37*10", text);
+}
+for (const text of ["2026-11-10 红500个", "订单号3037 红500个", "电话3037 红500个"]) {
+  assert.equal(parseOrderText(text)[0].size, "待确认", text);
+}
+const shortNameCustomers = [
+  { id: "TEST-SHORT", name: "黄松包装有限公司", shortName: "黄松" },
+  { id: "TEST-LONG", name: "黄松林" },
+];
+assert.equal(parseOrderText("3037 500个 黄松", { customers: shortNameCustomers })[0].color, "待确认");
+assert.equal(parseOrderText("3037 红500个 黄松林", { customers: shortNameCustomers })[0].customerId, "TEST-LONG");
+for (const text of ["3037 红13830375000", "3037 红13830375000个", "3037 单号ABC500个", "3037 电话500个"]) {
+  assert.equal(parseOrderText(text)[0].qty, 0, text);
+}
+for (const date of ["2026/11/10", "11月10日", "2026.11.10", "11/10", "2026年11月10日"]) {
+  assert.equal(parseOrderText(`3037 红${date}`)[0].qty, 0, date);
+  assert.equal(parseOrderText(`3037 红500个 ${date}`)[0].qty, 500, date);
+}
+
 const redBlankBag = parseOrderText(
   "张三服饰，30*38*10红色空白袋10个，普通提，自提，明天下午",
   { customers, inventories: initialInventories },

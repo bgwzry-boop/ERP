@@ -92,5 +92,14 @@ console.log("customer search ok: name, short name, contact and phone; disabled c
   assert.deepEqual(detectMessageCustomer("张大姐\n30*38白1000个 送货", customers), { name: "张大姐", customerId: "" }, "unknown name: offered for a new customer");
   assert.equal(detectMessageCustomer("30*38红5000个\n35*27黄2000个", customers), null, "no name written");
   assert.equal(detectMessageCustomer("老板 30*38 白 3000个 印刷 明天要", customers), null, "greetings are not names");
+  const similar = [{ id: "HS", name: "黄松" }, { id: "HSL", name: "黄松林" }];
+  for (const source of ["3037 红500个黄松", "3037 红500 个 黄松", "3037 红500 个 黄松林"]) {
+    assert.equal(detectMessageCustomer(source, similar).customerId, source.endsWith("林") ? "HSL" : "HS", source);
+  }
+  const company = [{ id: "HS", name: "东莞市黄松包装有限公司", shortName: "黄松" }];
+  assert.equal(detectMessageCustomer("3037 红500个黄松", company).customerId, "HS");
+  const ambiguous = [...company, { id: "HS2", name: "黄松商贸", shortName: "黄松" }];
+  assert.equal(detectMessageCustomer("3037 红500个黄松", ambiguous).customerId, "");
+  assert.equal(detectMessageCustomer("3037 红500个黄松", ambiguous).ambiguous.length, 2);
   console.log("message customer ok: name at the start or end of the message.");
 }

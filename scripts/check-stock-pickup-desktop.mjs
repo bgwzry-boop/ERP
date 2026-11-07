@@ -24,7 +24,8 @@ const stock = {
 };
 const stockQty = 500;
 const quotedAmount = 170;
-const customerMessage = "王五包装 3037 红色空白袋500个 今天自提 备注：流程演练请勿发货";
+const customerMessage = "3037 红 500 个 黄松";
+const customer = { id: "C-SHORT-HS", name: "黄松", shortName: "黄松", settlementCycle: "现结", status: "启用" };
 const appId = "bagwin-complete-review-4174";
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const report = { commit, appId, customerMessage, isolated: true, physicalPrint: false, stage: "setup", pageErrors: [], writes: [], inventory: {} };
@@ -36,6 +37,7 @@ let server, browser, page;
 try {
   const seed = loadSeedWorkspace({ source: "synthetic", runtimeMode: "test" });
   const prices = buildPublishedOrderPriceFixture({ bagPrice: 0.34 });
+  let customers = seed.customers;
   server = createApiServer(withLocalRepositoryFixture({
     runtimeMode: "test",
     runtimeStorageRoot: storage,
@@ -50,10 +52,11 @@ try {
     printDriverAdapterOptions: { dryRunEnabled: true, systemPrinterEnabled: false },
     coreWorkspaceReadRepository: {
       kind: "local_memory",
-      loadState: () => ({ ...prices, inventories: [...seed.inventories, stock], employees: [executor] }),
+      loadState: () => ({ ...prices, customers, inventories: [...seed.inventories, stock], employees: [executor] }),
     },
   }));
   await server.ready;
+  customers = [...seed.customers, customer]; // A maintained customer added after startup must be recognized without a restart.
   await listenTestServer(server);
   const apiOrigin = getTestServerBaseUrl(server);
   assert.notEqual(new URL(apiOrigin).port, "8787");
@@ -85,7 +88,7 @@ try {
   page.setDefaultTimeout(12_000);
   page.on("pageerror", error => report.pageErrors.push(error.message));
 
-  let quote, confirmation, paperPrint;
+  let quote, confirmation, paperPrint, recognized;
   // Every browser API request goes to the per-run server. External resources and
   // direct requests to the ordinary local API are blocked before reaching them.
   await context.route("**/*", async route => {
@@ -104,6 +107,7 @@ try {
     const body = Buffer.from(await response.arrayBuffer());
     if (request.method() === "POST") {
       report.writes.push({ path: url.pathname, status: response.status });
+      if (response.ok && url.pathname.endsWith("/order-drafts/recognize")) recognized = JSON.parse(body);
       if (response.ok && url.pathname.endsWith("/price-quote")) quote = JSON.parse(body).quote;
       if (response.ok && /\/order-drafts\/[^/]+\/confirm$/u.test(url.pathname)) confirmation = JSON.parse(body);
       if (response.ok && /\/fulfillments\/[^/]+\/print$/u.test(url.pathname)) paperPrint = JSON.parse(body);
@@ -130,11 +134,40 @@ try {
   const source = page.getByLabel("客户订单原文", { exact: true });
   await expect(source).toHaveValue(/张三服饰/u);
   await page.getByRole("button", { name: /新建订单$/u }).click();
+  const customerInput = page.getByPlaceholder("输入客户名称、简称、联系人或电话搜索");
+  const checkShortLine = async () => {
+    await expect(page.getByLabel("第1行数量", { exact: true })).toHaveValue(String(stockQty));
+    await expect(page.getByLabel("第1行规格", { exact: true })).toHaveValue(stock.size);
+    await expect(page.getByLabel("第1行袋身颜色", { exact: true })).toHaveValue(stock.color);
+    assert.equal(recognized.lines.length, 1);
+    assert.equal(recognized.lines[0].qty, stockQty);
+  };
+  for (const message of ["3037 红 500 个", "3037 红 500个"]) {
+    await source.fill(message);
+    await button("识别客户消息").click();
+    await checkShortLine();
+    await expect(customerInput).toHaveValue("");
+    await expect(button("生成正式报价")).toBeDisabled();
+    assert.equal(recognized.lines[0].customerId, "");
+    assert.equal(recognized.draft.sourceText, message);
+  }
+  await screenshot("00-short-message-no-customer");
   await source.fill(customerMessage);
   await button("识别客户消息").click();
-  await expect(page.getByLabel("第1行数量", { exact: true })).toHaveValue(String(stockQty));
-  await expect(page.getByLabel("第1行规格", { exact: true })).toHaveValue(stock.size);
+  await checkShortLine();
   await expect(page.getByLabel("第1行是否印刷", { exact: true })).toHaveValue("否");
+  await expect(customerInput).toHaveValue(customer.name);
+  await expect(button("生成正式报价")).toBeEnabled();
+  await expect(page.getByText("1 行计价明细已齐全", { exact: true })).toBeVisible();
+  assert.equal(recognized.lines[0].customerId, customer.id);
+  assert.equal(recognized.draft.sourceText, customerMessage);
+  await expect(page.getByText(/系统里没有/u)).toHaveCount(0);
+  await screenshot("00-short-message-existing-customer");
+  report.recognition = { source: customerMessage, customerId: customer.id, size: stock.size, color: stock.color, qty: stockQty };
+  // The customer's short message does not specify delivery or deadline: the office
+  // supplies those explicitly instead of adding words to make recognition pass.
+  await page.getByLabel("整单交付方式", { exact: true }).selectOption("自提");
+  await page.getByLabel("整单需要日期", { exact: true }).fill("2099-11-07");
 
   report.stage = "quote-and-confirm";
   await button("生成正式报价").click();
@@ -157,7 +190,10 @@ try {
   report.quote = { quantity: stockQty, amount: quotedAmount };
   await readStock("afterOrder", 1000, stockQty);
   const readFulfillment = () => api(`/fulfillments/${report.fulfillmentId}`);
-  assert.equal((await readFulfillment()).status, "待出库");
+  const initialFulfillment = await readFulfillment();
+  assert.equal(initialFulfillment.status, "待出库");
+  assert.equal(initialFulfillment.customerId, customer.id);
+  assert.equal(initialFulfillment.customerName, customer.name);
 
   report.stage = "paper-create";
   await button("查看订单池").click();
@@ -286,6 +322,7 @@ async function verifyPickupPdf(template, documentDate) {
     const page = await pdf.getPage(1);
     const text = (await page.getTextContent()).items.map(item => item.str).join("").replace(/\s/gu, "");
     assert.match(text, /自提单/u);
+    assert.match(text, /客户名称：黄松/u);
     assert.match(text, /提货人：测试提货人/u);
     assert.ok(text.includes(`日期：${documentDate}`), "the pickup PDF must print the Beijing issue date");
     assert.match(text, /空白袋30\*37\*10红色5005000\.34170\.00/u, "one row must show the matching SKU, shipped and chargeable quantities and correct amount");

@@ -1,4 +1,4 @@
-import { enrichDraftRow, orderQuantityDigitsPattern, parseOrderText } from "./orderParser.js";
+import { detectCustomer, enrichDraftRow, findCompactOrderSize, isOrderReferencePrefix, orderQuantityDigitsPattern, parseOrderText, withoutCustomerColors } from "./orderParser.js";
 import { createDraftFieldReview } from "../../shared/orderDraftFieldReview.mjs";
 
 const unconfirmedDraftStatuses = new Set(["", "待录入", "识别中", "已识别待确认", "已调整待确认", "待审核", "待补充信息"]);
@@ -294,7 +294,7 @@ function parsePastedLine(line) {
   const timed = line.match(/^\[?((?:20\d{2}[-/]\d{1,2}[-/]\d{1,2}\s+)?\d{1,2}:\d{2})\]?\s+([^:：]{1,30})[:：]\s*(.+)$/);
   if (timed) return { sentAt: timed[1], sender: timed[2], text: timed[3] };
   const senderOnly = line.match(/^([^:：]{1,20})[:：]\s*(.+)$/);
-  if (senderOnly) return { sender: senderOnly[1], text: senderOnly[2] };
+  if (senderOnly && !isOrderReferencePrefix(senderOnly[1])) return { sender: senderOnly[1], text: senderOnly[2] };
   return { text: line };
 }
 
@@ -327,7 +327,7 @@ function classifyMessage(message, context) {
     return { type: "inventory_confirmation", label: "客户确认库存意向" };
   }
   if (followUpWords.test(compact)) return { type: "follow_up", label: "后续追加" };
-  if (looksLikeExplicitOrder(compact)) return { type: "explicit_order", label: "明确下单" };
+  if (looksLikeExplicitOrder(compact, message.text)) return { type: "explicit_order", label: "明确下单" };
   return { type: "ordinary_chat", label: "普通消息" };
 }
 
@@ -335,16 +335,21 @@ function isMerchantSender(value) {
   return /办公室|客服|商家|店铺|我方/.test(cleanText(value));
 }
 
-function looksLikeExplicitOrder(text) {
+function looksLikeExplicitOrder(text, source) {
   const hasQuantity = /\d{1,6}\s*(?:个|只|条|包)?/.test(text);
   const hasSpec = /\d{2}\s*[*xX×+]\s*\d{2}|袋|提(?:手)?|覆膜/.test(text);
-  return hasQuantity && (hasSpec || explicitOrderWords.test(text));
+  if (hasQuantity && (hasSpec || explicitOrderWords.test(text))) return true;
+  const size = findCompactOrderSize(source);
+  return Boolean(size && !/取消|不要了|查库存|留一下|库存.*(?:多少|吗|么|[？?])/u.test(source)
+    && parseOrderText(source.replace(size[0], " ")).some(row => row.qty > 0));
 }
 
 function parseMessageRows(message, colorLexicon, options) {
   const dimension = normalizeLikelyDimensionTypo(message.text);
-  const compoundAlias = resolveCompoundAlias(dimension.normalizedText, colorLexicon, message);
-  const bagColors = extractBagColorEntries(dimension.normalizedText, colorLexicon);
+  const customer = detectCustomer(dimension.normalizedText, options.customers ?? []);
+  const colorText = withoutCustomerColors(dimension.normalizedText, customer, options.customers);
+  const compoundAlias = resolveCompoundAlias(colorText, colorLexicon, message);
+  const bagColors = extractBagColorEntries(colorText, colorLexicon);
   const parser = options.parseOrderText ?? parseOrderText;
   let rows = [];
   if (bagColors.length > 1) {

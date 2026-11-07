@@ -19,7 +19,6 @@ import {
   createPrinterDeviceFieldTestChecks,
   createPrinterDeviceFieldTestEvidence,
 } from "../services/printerDeviceFieldTestClient.js";
-import { parseOrderText } from "../lib/orderParser.js";
 import { defaultOrderFilters } from "../domain/officeRules.js";
 import {
   createInitialProductionPackingState,
@@ -75,6 +74,7 @@ export function useOfficeWorkspace({
   currentUser,
   currentUserId,
   defaultSelections,
+  initialDraftRows = [],
   initialFulfillments,
   initialInventories,
   initialOrderLines,
@@ -132,7 +132,7 @@ export function useOfficeWorkspace({
     replaceOrderEntryDraft, resetOrderEntryDraft,
   } = useOrderEntryDraft(() => ({
     entryText: initialEntryText,
-    draftRows: parseOrderText(initialEntryText, { customers, inventories: initialWorkspaceRecords.inventories }),
+    draftRows: serverRequired ? [] : initialDraftRows,
     draftStatus: serverRequired ? "待录入" : "已识别待确认",
     draftApiMeta: { draftId: "", clientRevision: 0, source: initialSource },
     selectedDraftId: serverRequired ? "" : "DRAFT-2-1",

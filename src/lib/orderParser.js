@@ -1,5 +1,6 @@
-import { calculateLinePricing, p0BagPriceRows } from "../domain/priceTable.js";
-import { isStockOrderType, normalizeOrderType, inferOrderType } from "../../shared/orderRouting.js";
+import { enrichDraftRow } from "./orderDraftProjection.js";
+export { enrichDraftRow, estimateAmount } from "./orderDraftProjection.js";
+import { detectMessageCustomer, isActiveMessageCustomer } from "../../shared/orderMessageCustomer.js";
 
 const colorWords = ["米白", "浅蓝", "牛仔蓝", "大红", "红", "黑", "白", "蓝", "绿", "黄", "粉"];
 const colorPattern = colorWords.join("|");
@@ -7,11 +8,12 @@ const compactInkPattern = new RegExp(`(${colorPattern})色?印(${colorPattern})�
 const compactHandlePattern = new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`);
 const calendarDateShape = String.raw`\d{4}-\d{2}-\d{2}`;
 const calendarDateToken = new RegExp(String.raw`(?<![\w-])${calendarDateShape}(?![\w-])`, "gu");
+const quantityDateShape = String.raw`(?:\d{4}[-/.年])?\d{1,2}[-/.月]\d{1,2}日?`;
 const orderNumberPrefix = /(?:单号|编号|订单|\border(?:\s+(?:id|no\.?))?|\bpo)\s*(?:为|是)?\s*[:：=#]?\s*$/iu;
 const negatedPrintSide = /(?:不(?:需要?|用|要|做)?|无需)\s*(?:[双两单一]面\s*(?:印刷?)?|印刷?\s*[双两单一]面)/gu;
 const noPrinting = /(?:不(?:需要?|用|要|做)?|无需|非|免|无)\s*印(?:刷|字|花|图案?|标志|logo)?/giu;
 // Calendar-shaped text must not supply a quantity, even when its date is invalid.
-export const orderQuantityDigitsPattern = String.raw`(?!${calendarDateShape}(?!\d))\d{1,6}`;
+export const orderQuantityDigitsPattern = String.raw`(?<!\d)(?!${quantityDateShape}(?!\d))\d{1,6}(?!\d)`;
 const sizeAliases = [
   { words: ["中号横款", "中号横版"], size: "40*30*10" },
   { words: ["小号横款", "小号横版"], size: "35*27*10" },
@@ -53,7 +55,8 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
     if (customer) lastCustomer = customer;
 
     const size = detectSize(chunk);
-    const quantities = detectQuantities(chunk);
+    const colorText = withoutCustomerColors(chunk, customer, customers);
+    const quantities = detectQuantities(colorText);
     const product = detectProduct(chunk);
     const fulfillment = detectFulfillment(chunk);
     const printSideText = chunk.replace(negatedPrintSide, " ");
@@ -71,7 +74,7 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
     const note = detectNote(chunk, { handle });
 
     quantities.forEach((item, qtyIndex) => {
-      const color = item.color || detectColor(chunk);
+      const color = item.color || detectColor(colorText);
       const qty = Number(item.qty || 0);
       const baseRow = {
         id: `DRAFT-${index + 1}-${qtyIndex + 1}`,
@@ -100,40 +103,42 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
   return rows;
 }
 
-export function enrichDraftRow(row, inventories = []) {
-  const sizeParts = String(row.size ?? "").split(/[*×x]/).map(Number);
-  const standardSize = p0BagPriceRows.some(item => {
-    const parts = item.size.split("*").map(Number);
-    return sizeParts.length >= 2 && sizeParts.length <= 3 && sizeParts.every((value, index) => value === parts[index]);
-  });
-  row = { ...row, orderType: inferOrderType(row, { standardSize }) };
-  const amount = estimateAmount(row);
-  const inventory = estimateInventory(row, inventories);
-  const confidence = getConfidence(row, inventory);
-  return { ...row, amount, inventory, confidence };
+export function detectCustomer(chunk, customers, fallback) {
+  customers = customers.filter(isActiveMessageCustomer);
+  const hint = detectMessageCustomer(chunk, customers);
+  if (hint?.ambiguous) return undefined;
+  if (hint?.customerId) return customers.find(customer => customer.id === hint.customerId);
+  const fullNames = customers.filter(customer => chunk.includes(customer.name));
+  if (fullNames.length) return fullNames.length === 1 ? fullNames[0] : undefined;
+  const aliases = customers.filter(customer => (customerAliases[customer.id] ?? [customer.name.slice(0, 2)])
+    .some(alias => chunk.includes(alias)));
+  if (aliases.length > 1) return undefined;
+  return aliases[0] ?? fallback;
 }
 
-export function estimateAmount(rowOrQty, print = "否") {
-  const row = typeof rowOrQty === "object" && rowOrQty !== null ? rowOrQty : { qty: rowOrQty, print };
-  return calculateLinePricing(row).amount;
+export function withoutCustomerColors(text, customer, customers = []) {
+  const hint = customer ? null : detectMessageCustomer(text, customers);
+  const knownName = hint && customers.some(item => [item.name, item.shortName].includes(hint.name)) ? hint.name : "";
+  for (const name of [customer?.name, customer?.shortName, knownName, ...(customerAliases[customer?.id] ?? [customer?.name?.slice(0, 2)])]) {
+    if (name?.length > 1) text = text.split(name).join(" ".repeat(name.length));
+  }
+  return text;
 }
 
-function detectCustomer(chunk, customers, fallback) {
-  return (
-    customers.find((customer) => chunk.includes(customer.name)) ||
-    customers.find((customer) => {
-      const aliases = customerAliases[customer.id] ?? [customer.name.slice(0, 2)];
-      return aliases.some((alias) => chunk.includes(alias));
-    }) ||
-    fallback
-  );
+export function findCompactOrderSize(text) {
+  return [...text.matchAll(/(?<![\w./-])([2-5]\d)([2-5]\d)(?![\w./-])/gu)]
+    .find(match => !isOrderReferencePrefix(text.slice(0, match.index)));
+}
+
+export function isOrderReferencePrefix(text) {
+  return orderNumberPrefix.test(text.replace(/[A-Za-z_-]+$/u, "")) || /(?:电话|手机号?)\s*[:：]?\s*$/u.test(text);
 }
 
 function detectSize(chunk) {
   const explicit = chunk.match(/(\d{2})\s*[*xX×]\s*(\d{2})(?:\s*[*xX×]\s*(\d{1,2}))?/);
   if (explicit) return `${explicit[1]}*${explicit[2]}*${explicit[3] ?? "10"}`;
 
-  const compact = chunk.match(/(?:^|[^\d])([2-5]\d)([2-5]\d)(?:[^\d]|$)/);
+  const compact = findCompactOrderSize(chunk);
   if (compact) return `${compact[1]}*${compact[2]}*10`;
 
   const alias = sizeAliases.find((item) => item.words.some((word) => chunk.includes(word)));
@@ -146,13 +151,15 @@ function detectQuantities(chunk) {
   for (const match of chunk.matchAll(colorQtyRegExp)) {
     const before = chunk.slice(Math.max(0, match.index - 3), match.index);
     const after = chunk.slice(Number(match.index) + match[0].length);
-    if (before.includes("印") || /^\s*[*xX×]/.test(after)) continue;
+    if (before.includes("印") || /^\s*[*xX×]/.test(after) || isOrderReferencePrefix(chunk.slice(0, match.index))) continue;
     matches.push({ color: normalizeColor(match[1]), qty: Number(match[2]) });
   }
 
   if (matches.length) return matches;
 
-  const qty = chunk.replace(calendarDateToken, " ").match(/(\d{1,6})\s*个/);
+  const quantitySource = chunk.replace(new RegExp(quantityDateShape, "gu"), " ");
+  const qty = [...quantitySource.matchAll(/(?<!\d)(\d{1,6})\s*个/gu)]
+    .find(match => !isOrderReferencePrefix(quantitySource.slice(0, match.index)));
   return [{ color: detectColor(chunk), qty: qty ? Number(qty[1]) : 0 }];
 }
 
@@ -199,49 +206,30 @@ function detectLatest(chunk) {
   return ["今天", "明天", "后天", "周五"].find((value) => chunk.includes(value)) ?? "待确认";
 }
 
+function matchColor(chunk, pattern, group = 1) {
+  const match = chunk.match(pattern);
+  return match ? normalizeColor(match[group]) : "";
+}
+
 function detectPrintColor(chunk) {
-  const compactColorPrint = chunk.match(compactInkPattern);
-  if (compactColorPrint) return normalizeColor(compactColorPrint[2]);
-
-  const printColorField = chunk.match(new RegExp(`印色\\s*[:：]?\\s*(${colorPattern})色?`));
-  if (printColorField) return normalizeColor(printColorField[1]);
-
-  const colorAfterPrint = chunk.match(new RegExp(`印(?:刷)?\\s*(${colorPattern})色?`));
-  if (colorAfterPrint) return normalizeColor(colorAfterPrint[1]);
-
-  const colorBeforePrint = chunk.match(new RegExp(`(${colorPattern})色?\\s*印`));
-  if (colorBeforePrint) return normalizeColor(colorBeforePrint[1]);
-
-  return "待确认";
+  return matchColor(chunk, compactInkPattern, 2)
+    || matchColor(chunk, new RegExp(`印色\\s*[:：]?\\s*(${colorPattern})色?`))
+    || matchColor(chunk, new RegExp(`印(?:刷)?\\s*(${colorPattern})色?`))
+    || matchColor(chunk, new RegExp(`(${colorPattern})色?\\s*印`))
+    || "待确认";
 }
 
 function detectBagColor(chunk) {
-  const compactColorPrint = chunk.match(compactInkPattern);
-  if (compactColorPrint) return normalizeColor(compactColorPrint[1]);
-
-  const explicitBlankBag = chunk.match(new RegExp(`(${colorPattern})色?\\s*空白袋`));
-  if (explicitBlankBag) return normalizeColor(explicitBlankBag[1]);
-
-  const compactBagHandle = chunk.match(compactHandlePattern);
-  if (compactBagHandle) return normalizeColor(compactBagHandle[1]);
-
-  const explicitBag = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
-  if (explicitBag) return normalizeColor(explicitBag[1]);
-
-  return "";
+  return matchColor(chunk, compactInkPattern)
+    || matchColor(chunk, new RegExp(`(${colorPattern})色?\\s*空白袋`))
+    || matchColor(chunk, compactHandlePattern)
+    || matchColor(chunk, new RegExp(`(?<!空)(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
 }
 
 function detectHandleColor(chunk) {
-  const compactBagHandle = chunk.match(compactHandlePattern);
-  if (compactBagHandle) return normalizeColor(compactBagHandle[2]);
-
-  const colorBeforeHandle = chunk.match(new RegExp(`(${colorPattern})色?\\s*(?:提手|手提|提)(?!货|醒|示)`));
-  if (colorBeforeHandle) return normalizeColor(colorBeforeHandle[1]);
-
-  const colorAfterHandle = chunk.match(new RegExp(`(?:提手|手提)\\s*(${colorPattern})色?`));
-  if (colorAfterHandle) return normalizeColor(colorAfterHandle[1]);
-
-  return "";
+  return matchColor(chunk, compactHandlePattern, 2)
+    || matchColor(chunk, new RegExp(`(${colorPattern})色?\\s*(?:提手|手提|提)(?!货|醒|示)`))
+    || matchColor(chunk, new RegExp(`(?:提手|手提)\\s*(${colorPattern})色?`));
 }
 
 function detectNote(chunk, { handle }) {
@@ -259,31 +247,4 @@ function detectPrintSide(chunk) {
   if (/[双两]面/.test(chunk)) return "双面";
   if (/[单一]面/.test(chunk)) return "单面";
   return "待确认";
-}
-
-function estimateInventory(row, inventories) {
-  if (!row.customerId || row.size === "待确认" || row.color === "待确认" || !row.qty) return "待确认";
-  const orderType = normalizeOrderType(row?.orderType);
-  if (orderType && !isStockOrderType(orderType)) return orderType === "external_print" ? "外加工，不走通货库存" : "订单生产，不走通货库存";
-
-  const stock = inventories.find(
-    (item) =>
-      item.size === row.size &&
-      item.color === row.color &&
-      item.handle === row.handle &&
-      item.style === row.style &&
-      !String(item.state ?? "").includes("待处理"),
-  );
-
-  if (!stock) return "缺货";
-  const available = stock.inStock - stock.reserved - stock.locked - stock.pending;
-  if (available >= row.qty && !stock.estimated) return "可用";
-  if (available >= row.qty && stock.estimated) return "需复核";
-  return `缺货 ${row.qty - Math.max(0, available)}`;
-}
-
-function getConfidence(row, inventory) {
-  if (!row.customerId || row.size === "待确认" || row.color === "待确认" || !row.qty) return "low";
-  if (row.latest === "待确认" || inventory === "待确认" || inventory === "需复核" || inventory.startsWith("缺货")) return "medium";
-  return "high";
 }

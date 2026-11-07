@@ -1,6 +1,6 @@
 import { isStockOrderType } from "../../shared/orderRouting.js";
 import { makeFulfillment, makeOrderLine } from "./officeRecordFactories.js";
-import { enrichDraftRow } from "../lib/orderParser.js";
+import { enrichDraftRow } from "../lib/orderDraftProjection.js";
 import {
   findCustomerByName,
   findStockForDraft,
