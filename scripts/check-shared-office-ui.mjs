@@ -147,6 +147,22 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
   assert.equal(guard.isDirty(), false);
 
   const receivingData = read("docs/prototypes/raw-material-roll-inventory-review/src/useReceivingData.js");
+  // 两个实例的守卫必须互不影响（脏 A + 干净 B）。
+  {
+    const guardA = createInboundReviewGuard();
+    const guardB = createInboundReviewGuard();
+    const releaseA = guardA.register(() => true);
+    const releaseB = guardB.register(() => false);
+    assert.equal(guardA.isDirty(), true, "A 脏");
+    assert.equal(guardB.isDirty(), false, "B 干净");
+    assert.equal(guardB.shouldSwitch({ nextId: "N2", currentId: "B1", confirm: () => false }), true, "B 切换不得被 A 的脏状态拦住");
+    assert.equal(guardA.shouldSwitch({ nextId: "N1", currentId: "A1", confirm: () => false }), false, "A 自己切换仍要被拦");
+    releaseB();
+    assert.equal(guardB.isDirty(), false, "卸载 B 不能影响 A");
+    assert.equal(guardA.isDirty(), true, "卸载 B 后 A 仍然脏");
+    releaseA();
+    assert.equal(guardA.isDirty(), false);
+  }
   assert.match(receivingData, /reviewGuard\.shouldSwitch/u, "receipt selection must consult its own review guard");
   assert.match(receivingData, /createInboundReviewGuard\(\)/u, "each receiving data instance owns its guard");
   assert.ok(!/import \{ inboundReviewGuard \}/u.test(receivingData), "no global singleton import in receiving data");

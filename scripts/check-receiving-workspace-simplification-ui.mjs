@@ -1,4 +1,4 @@
-import { fulfillReceiptRead, selectReceiptRow, selectReceiptTab } from "./receipt-ui-read-fixtures.mjs";
+import { fulfillReceiptRead, openReceiptQueue, selectReceiptRow, selectReceiptTab } from "./receipt-ui-read-fixtures.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
@@ -194,6 +194,47 @@ async function checkDesktop(width) {
     await pane.getByLabel("本卷公斤", { exact: true }).fill("69");
     await pane.getByRole("button", { name: "保存这一卷", exact: true }).click();
     assert.match(await pane.locator(".office-roll-table").innerText(), /69kg/u);
+
+    // 2026-11-07：未保存的核对修改切换单据必须先确认；取消保留原单与修改。
+    {
+      const dirtyMsg = "当前这张单还有没保存的核对修改，切换后会丢失。确定要切换吗？";
+      await pane.locator(".office-roll-row").first().getByRole("button", { name: "改这一卷", exact: true }).click();
+      await pane.getByLabel("本卷公斤", { exact: true }).fill("77");
+      let dialogMessage = "";
+      let dismissCount = 0;
+      const onDismiss = async (dialog) => {
+        if (dialog.type() !== "confirm") { await dialog.accept(); return; }
+        dialogMessage = dialog.message();
+        dismissCount += 1;
+        await dialog.dismiss();
+      };
+      page.on("dialog", onDismiss);
+      // 直接点另一行（不能用会等待新目标的 helper，对话框会挡住导航）。
+      await openReceiptQueue(page);
+      await page.locator(`button.receipt-queue-item:has([title*="${other.id}"])`).click();
+      await page.waitForTimeout(300);
+      assert.equal(dismissCount, 1, "切换未保存单据必须弹一次确认");
+      assert.equal(dialogMessage, dirtyMsg, "确认文案应说明会丢失修改");
+      await pane.getByText(delivery.id, { exact: true }).first().waitFor();
+      assert.match(await pane.locator(".office-roll-table").innerText(), /77kg/u, "取消后必须保留未保存的修改");
+
+      // 接受确认 -> 真正切换，且不能把 77 带到另一张单。
+      let accepted = 0;
+      page.off("dialog", onDismiss);
+      const onAccept = async (dialog) => {
+        if (dialog.type() !== "confirm") { await dialog.accept(); return; }
+        accepted += 1;
+        await dialog.accept();
+      };
+      page.on("dialog", onAccept);
+      await openReceiptQueue(page);
+      await page.locator(`button.receipt-queue-item:has([title*="${other.id}"])`).click();
+      await pane.getByText(other.id, { exact: true }).first().waitFor();
+      assert.equal(accepted, 1, "接受确认后应只切一次");
+      assert.doesNotMatch(await pane.locator(".office-roll-table").innerText(), /77kg/u, "未保存修改不得带到另一张单");
+      page.off("dialog", onAccept);
+      await selectReceiptRow(page, delivery.id);
+    }
     await selectReceiptTab(page, "退货单 1");
     await selectReceiptRow(page, returned.id);
     await pane.getByRole("heading", { name: "退货核对", exact: true }).waitFor();
