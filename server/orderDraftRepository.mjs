@@ -241,7 +241,11 @@ LEFT JOIN LATERAL (
       'handleColor', COALESCE(line.handle_color, ''),
       'qty', COALESCE(line.qty, 0),
       'fulfillment', COALESCE(line.fulfillment_method, ''),
-      'latest', COALESCE(line.latest_needed_at::text, ''),
+      -- 2026-11-07：优先回放保存时的原始写法（例如纯日期），
+      -- 不要用 timestamptz 的格式化文本覆盖它，否则刷新后分不清
+      -- "原来只写了日期" 和 "原来写了 0 点"。
+      'latest', COALESCE(NULLIF(line.evidence_json->>'latest', ''), line.latest_needed_at::text, ''),
+      'latestText', COALESCE(NULLIF(line.evidence_json->>'latestText', ''), NULLIF(line.evidence_json->>'latest', ''), ''),
       'note', COALESCE(line.remark, ''),
       'confidence', COALESCE(line.confidence, ''),
       'recognitionEvidence', COALESCE(line.evidence_json, '{}'::jsonb)

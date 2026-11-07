@@ -143,6 +143,39 @@ await checkDeliveryAddressChoice();
 await checkBlockedConfirmation();
 await checkValidation();
 
+// 2026-11-07：确认阶段不能增删时分。
+await (async () => {
+  const droppedWorkspace = buildWorkspace();
+  droppedWorkspace.orderDrafts[0].lines = [{
+    id: "DRAFT-SERVICE-001-01",
+    latest: "2026-11-10T09:30:00+08:00",
+    latestText: "2026-11-10T09:30:00+08:00",
+    fulfillment: "自提",
+  }];
+  const dropped = await service.confirmOrderDraft({
+    workspace: droppedWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { expectedRevision: 1, lines: [{ ...buildRequestLine(), latestNeededAt: "2026-11-10" }] },
+  });
+  assert.equal(dropped.code, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED", JSON.stringify(dropped));
+
+  const addedWorkspace = buildWorkspace();
+  addedWorkspace.orderDrafts[0].lines = [{
+    id: "DRAFT-SERVICE-001-01",
+    latest: "2026-11-10",
+    latestText: "2026-11-10",
+    fulfillment: "自提",
+  }];
+  const added = await service.confirmOrderDraft({
+    workspace: addedWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { expectedRevision: 1, lines: [{ ...buildRequestLine(), latestNeededAt: "2026-11-10T18:00:00+08:00" }] },
+  });
+  assert.equal(added.code, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED", JSON.stringify(added));
+})();
+
 console.log(
   "Order draft command service checks passed: recognition, revisioned save, blocked confirmation, inventory/price confirmation inputs, authenticated identity, and transaction orchestration are covered.",
 );

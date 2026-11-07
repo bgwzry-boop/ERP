@@ -1315,7 +1315,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
         // 2026-11-07：latest_needed_at 是 timestamptz，纯日期存进去会变成 00:00:00+00，
         // 回读后分不清"原来只写了日期"和"原来写了 0 点"。保留原始写法用于确认比对。
-        latestText: confirmFieldText(line.latestText ?? line.latestNeededAt ?? line.latest),
+        // 只认真实传入的要求时间；客户端带来的 latestText 不参与判断。
+        latestText: confirmFieldText(line.latestNeededAt ?? line.latest),
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),
         printContent: String(line.printContent ?? "").trim(),
         specialRequirements: Array.isArray(line.specialRequirements) ? [...new Set(line.specialRequirements.map(String))].sort() : [],
@@ -1873,58 +1874,41 @@ function confirmFieldText(value) {
 function parseConfirmInstant(text) {
   const value = String(text ?? "").trim();
   if (!value) return NaN;
-  // PostgreSQL 回读是 "2026-11-10 00:00:00+00"，标准 Date.parse 对空格格式不稳。
-  return Date.parse(value.replace(/^(\d{4}-\d{2}-\d{2}) /u, "$1T"));
+  return Date.parse(
+    value
+      .replace(/^(\d{4}-\d{2}-\d{2}) /u, "$1T")
+      .replace(/([+-]\d{2})$/u, "$1:00")
+      .replace(/([+-]\d{2})(\d{2})$/u, "$1:$2"),
+  );
 }
 
-function businessDateOf(text) {
-  const parsed = parseConfirmInstant(text);
-  if (!Number.isFinite(parsed)) return "";
-  return new Date(parsed + BUSINESS_TIME_ZONE_OFFSET_MS).toISOString().slice(0, 10);
+function confirmDateShape(raw) {
+  const text = confirmFieldText(raw);
+  if (!text) return { kind: "empty", value: "" };
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(text)) return { kind: "date", value: text };
+  const instant = parseConfirmInstant(text);
+  if (Number.isFinite(instant)) return { kind: "datetime", value: instant };
+  return { kind: "text", value: text };
 }
 
-// 2026-11-07：日期不能一律当字符串比。
-// 只有年月日的按业务日期；含时分的按统一时区；两者混写时按业务日期对齐。
-const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/u;
-
-// 原始写法决定"精度"：只有年月日 = date，写了时分 = datetime。
-function confirmDatePrecision(value) {
-  const text = confirmFieldText(value);
-  if (!text) return "";
-  return dateOnlyPattern.test(text) ? "date" : "datetime";
-}
-
-function sameConfirmFieldValue(key, left, right, context = {}) {
-  const a = confirmFieldText(left);
-  const b = confirmFieldText(right);
+function sameConfirmFieldValue(key, savedValue, incomingValue, context = {}) {
+  const a = confirmFieldText(savedValue);
+  const b = confirmFieldText(incomingValue);
   if (a === b) return true;
   if (key !== "latest" || !a || !b) return false;
 
-  // 优先用保存时记下的原始写法；历史草稿没有该字段时退回展示值。
-  const savedRaw = confirmFieldText(context.savedRaw);
-  const requestRaw = confirmFieldText(context.requestRaw);
+  // 两侧各自确定"原始写法"，再分别归类比较；不跨侧套用归一化。
+  const savedRaw = confirmFieldText(context.savedRaw) || a;
+  const incomingRaw = confirmFieldText(context.incomingRaw) || b;
 
-  const leftPrecision = confirmDatePrecision(savedRaw || a);
-  const rightPrecision = confirmDatePrecision(requestRaw || b);
+  const savedShape = confirmDateShape(savedRaw);
+  const incomingShape = confirmDateShape(incomingRaw);
 
-  // 精度不同：不允许在确认阶段补上或抹掉时分。
-  // 唯一例外是历史草稿（没有原始写法）且存储值正好是 UTC 零点——那是纯日期被 timestamptz 展开的结果。
-  if (leftPrecision !== rightPrecision) {
-    // 历史草稿没有原始写法时，timestamptz 会把纯日期展开成 UTC 零点。
-    // 只有"存的是时刻、请求是日期、且该时刻正好是 UTC 零点"才按同一业务日放行；
-    // 反方向（存的是日期、请求补时分）一律视为改动。
-    const savedInstant = parseConfirmInstant(a);
-    const savedIsUtcMidnight = leftPrecision === "datetime"
-      && Number.isFinite(savedInstant)
-      && savedInstant === Date.parse(`${new Date(savedInstant).toISOString().slice(0, 10)}T00:00:00.000Z`);
-    if (!savedRaw && savedIsUtcMidnight && rightPrecision === "date") {
-      return businessDateOf(a) === b;
-    }
-    return false;
-  }
-
-  if (leftPrecision === "date") return a === b;
-  return parseConfirmInstant(a) === parseConfirmInstant(b);
+  // 精度/类型不同：一律视为改动（不能在确认阶段增删时分）。
+  if (savedShape.kind !== incomingShape.kind) return false;
+  if (savedShape.kind === "date") return savedShape.value === incomingShape.value;
+  if (savedShape.kind === "datetime") return savedShape.value === incomingShape.value;
+  return savedShape.value === incomingShape.value;
 }
 
 function findUnsavedConfirmFieldChanges(lines, savedLines) {
