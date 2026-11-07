@@ -216,7 +216,10 @@ async function checkDesktop(width) {
       assert.equal(dismissCount, 1, "切换未保存单据必须弹一次确认");
       assert.equal(dialogMessage, dirtyMsg, "确认文案应说明会丢失修改");
       await pane.getByText(delivery.id, { exact: true }).first().waitFor();
-      assert.match(await pane.locator(".office-roll-table").innerText(), /77kg/u, "取消后必须保留未保存的修改");
+      // 77 只存在本地编辑框里，不是已保存的行值；行里仍必须是 69。
+      assert.match(await pane.locator(".office-roll-table").innerText(), /69kg/u, "取消后已保存的行仍是 69");
+      assert.equal(await pane.getByLabel("本卷公斤", { exact: true }).inputValue(), "77", "取消后未提交的输入必须保留");
+      assert.ok((await pane.locator(".raw-material-detail-facts").innerText()).includes(delivery.id), "取消后仍是原来那张单");
 
       // 接受确认 -> 真正切换，且不能把 77 带到另一张单。
       let accepted = 0;
