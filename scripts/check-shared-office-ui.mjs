@@ -157,7 +157,7 @@ assert.equal(toFiniteNumber("not-a-number"), 0);
   );
   assert.match(
     reviewApp,
-    /if \(nextView && visibleViews\.includes\(nextView\)\) \{ setView\(nextView\); return; \}/u,
+    /if \(!nextView \|\| !visibleViews\.includes\(nextView\)\) \{\s+if \(activeNavId\) window\.history\.replaceState/u,
     "hashchange must normalize an unknown route immediately",
   );
 }
