@@ -41,6 +41,8 @@ jobs:
           ERP_COLOR_SWATCH_UI_OUTPUT: .erp-local-storage/ci/color-swatches
         run: node scripts/check-raw-material-color-swatches-ui.mjs
       - name: Verify receiving workflow and migrated operations
+        env:
+          ERP_REQUIRE_RUNTIME_UNKNOWN: "1"
         run: |
           node scripts/check-raw-material-receive-dialog-ui.mjs
           node scripts/check-receiving-workspace-simplification-ui.mjs
