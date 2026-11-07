@@ -755,8 +755,9 @@ export function DraftExitDecision({
     if (!sectionRef.current) return;
     if (event.key === "Escape") {
       event.preventDefault();
-      // 放弃请求已发出（或草稿被禁用）时不允许关闭，保持与按钮禁用一致的等待语义。
-      if (discarding || discardDisabled) return;
+      // 只有「放弃请求已发出」时才必须等待；无作废权限(discardDisabled)时
+      // 「继续核对」仍然可用，Esc 应当正常等同于继续核对。
+      if (discarding) return;
       onContinue?.();
       return;
     }

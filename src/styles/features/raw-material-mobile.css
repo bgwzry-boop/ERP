@@ -2304,12 +2304,14 @@
   }
 
   .raw-material-mobile-review-line-summary .line-actions button {
-    min-height: 32px;
+    /* 2026-11-07：手机触控区 44px；两行摘要下操作区单独一行，不再挤第六列 */
+    min-height: 44px;
+    min-width: 44px;
     border: 0;
     border-radius: 7px;
     background: transparent;
     color: var(--raw-review-green);
-    padding: 0 3px;
+    padding: 0 12px;
     font-size: 14px;
     font-weight: 700;
     line-height: 16px;
