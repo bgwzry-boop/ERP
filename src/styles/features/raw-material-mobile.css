@@ -2318,9 +2318,10 @@
     white-space: nowrap;
   }
 
-  /* 提高特异性压过通用 nowrap 规则，否则 120px 的常见规格仍被省略 */
+  /* 提高特异性压过通用 nowrap 规则；不在条目上撑最小宽度，
+     只在分到的轨道内换行，避免与「重量」列重叠。 */
   .raw-material-mobile-review-line-summary > span.line-spec {
-    min-width: 120px;
+    min-width: 0;
     white-space: normal;
     overflow-wrap: anywhere;
     line-height: 18px;
