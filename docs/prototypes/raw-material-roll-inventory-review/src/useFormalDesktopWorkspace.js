@@ -99,16 +99,21 @@ export function useFormalDesktopWorkspace() {
   const [entryCreationId, setEntryCreationId] = useState(0);
   const [entryWriteGuard, setEntryWriteGuard] = useState({ pending: false, ownerKey: "", session: "" });
   const [orderEntryEditorBlocked, setOrderEntryEditorBlocked] = useState(false);
+  const [orderEntryDirty, setOrderEntryDirty] = useState(false);
+  // 2026-11-07：未保存内容离开订单录入要先确认；确认离开后不要自动灌回默认草稿。
+  const [orderEntrySuppressDefaultDraft, setOrderEntrySuppressDefaultDraft] = useState(false);
   const entryEditor = useRef(null);
   const newOrderPromptOpen = useRef(false);
   const orderEntryWritePending = entryWriteGuard.pending && entryWriteGuard.session === authState?.session?.accessToken;
   const registerOrderEntryEditor = useCallback((editor) => {
     entryEditor.current = editor;
     setOrderEntryEditorBlocked(editor.blocked);
+    setOrderEntryDirty(Boolean(editor.dirty));
     return () => {
       if (entryEditor.current !== editor) return;
       entryEditor.current = null;
       setOrderEntryEditorBlocked(false);
+      setOrderEntryDirty(false);
     };
   }, []);
   const startNewOrderDraft = useCallback(async () => {
@@ -130,6 +135,7 @@ export function useFormalDesktopWorkspace() {
       }
     }
     focusOrderDraft("");
+    setOrderEntrySuppressDefaultDraft(false);
     setEntryCreationId(current => current + 1);
     return true;
   }, [orderEntryWritePending]);
@@ -516,6 +522,9 @@ export function useFormalDesktopWorkspace() {
   return {
     actions,
     entryDraftId,
+    orderEntryDirty,
+    orderEntrySuppressDefaultDraft,
+    discardOrderEntryLocalEdit: () => setOrderEntrySuppressDefaultDraft(true),
     entryCreationId,
     orderEntryEditorBlocked,
     orderEntryWritePending,

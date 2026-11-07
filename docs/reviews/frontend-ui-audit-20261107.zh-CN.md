@@ -137,20 +137,34 @@
 - 复现条件：订单录入原文填 `3037 红 500 个 黄松`（不点识别），从侧栏点「订单池」或直接改 hash
 - 影响：客户原话直接丢失且无提示；返回后被旧草稿覆盖，用户会以为系统改了自己的输入
 
-**我的修复尝试与结果（未提交）**
+**修复（已提交，真实浏览器验证通过）**
 
-在 `App.jsx` 的 `navigate` 与 `hashchange` 加了 `confirmInApp` 守卫，并在编辑器注册里补
-`dirty` 状态与「确认离开后不自动灌默认草稿」的开关。实测结果：
+根因之一是我自己的测试选择器写错：`ConfirmDialogHost` 渲染的是 `role="alertdialog"`，
+我用 `getByRole("dialog")` 等，所以看起来「没弹框」。宿主本身工作正常，未改动。
 
-- 干净状态点「订单池」正常跳转
-- 有未保存原文时点「订单池」：**不跳转、也不弹确认框**，页面卡在原页
-- 无 pageerror、无 console error、无原生 confirm
-- 结论：`confirmInApp` 在这个预览壳里没有给出可解析的对话框（Host 注册/渲染存疑），
-  await 永久挂起，会把导航锁死
+实现（只改 3 个文件）：
+- `App.jsx`：`navigate`（侧栏/全局搜索）与 `hashchange` 共用 `confirmInApp` 守卫；
+  `beforeunload` 在脏状态下触发浏览器原生确认；`orderEntryWritePending`（回执待核对）优先级最高，
+  未确认结果时直接不离开
+- `useFormalDesktopWorkspace.js`：编辑器注册补 `orderEntryDirty`；确认离开后
+  `orderEntrySuppressDefaultDraft=true`，新建订单时清除
+- `OrderPricingEntryWorkspace.jsx`：抑制状态下不再自动挂 `orderDrafts[0]`
 
-因此**已全部还原**（`App.jsx`、`useFormalDesktopWorkspace.js`、`OrderPricingEntryWorkspace.jsx`
-回到 `e49cad3b` 状态），不提交半成品守卫。下一步先单独验证 `ConfirmDialogHost` 在
-4174 预览壳里的挂载情况，再重做守卫。
+验证（`scripts/check-order-entry-dirty-leave-ui.mjs`，真实 4174，允许 prototype-login、拦其它写）：
+
+| 场景 | 结果 |
+|---|---|
+| 侧栏离开 → alertdialog → 继续编辑 | 原文保留、仍在本页 |
+| 接受离开 → 返回订单录入 | 输入为空白，**未**注入旧示例 |
+| 改 hash 离开 → 取消 | 地址回退 `#order-entry`，原文保留 |
+| 连续/重复导航 | 不锁死，确认框一次只处理一个 |
+| 业务写入 / pageerror | 0 / 0 |
+
+证据图：`docs/reviews/frontend-ui-audit-20261107/p1-alertdialog-cancel.png`、
+`p1-after-accept-return.png`。
+
+已注册：`npm run order-entry-dirty-leave:check`，加入 `review:check` 与 CI 的
+"Verify receiving workflow" 步骤。
 
 ## 6. 修复批次
 

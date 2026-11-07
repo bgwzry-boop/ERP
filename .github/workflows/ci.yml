@@ -46,6 +46,7 @@ jobs:
           node scripts/check-receiving-workspace-simplification-ui.mjs
           node scripts/check-raw-material-stock-operations-dialog.mjs
           node scripts/check-raw-material-cost-workspace.mjs
+          node scripts/check-order-entry-dirty-leave-ui.mjs
       - run: npm test
       - run: npm run test:raw-material
       - run: npm audit --audit-level=high

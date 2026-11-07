@@ -54,6 +54,7 @@ import { GlobalSearch } from "./GlobalSearch.jsx";
 // 应用内确认框（例如卷标打印后的“确认打印结果”）。没挂这个时会退回浏览器自带的小弹窗，
 // 那个弹窗出现在浏览器最上面、很容易看漏；挂上后改为屏幕正中间、背景变暗的确认框。
 import { ConfirmDialogHost } from "../../../../src/shared/ui/ConfirmDialogHost.jsx";
+import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
@@ -359,12 +360,40 @@ export function App({ permissionContext = defaultPermissionContext }) {
     const handleHashChange = () => {
       if (formal.orderEntryWritePending) { window.history.replaceState(null, "", `#${activeNavId}`); return; }
       const hashNavId = window.location.hash.replace(/^#/, "");
-      const nextView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
-      if (nextView && visibleViews.includes(nextView)) setView(nextView);
+      const normalized = hashNavId === "spec-inventory" ? "general-prices" : hashNavId;
+      const nextView = navViewMap[normalized];
+      if (!nextView || !visibleViews.includes(nextView)) return;
+      if (activeNavId === "order-entry" && normalized !== "order-entry" && formal.orderEntryDirty) {
+        void (async () => {
+          const discard = await confirmInApp({
+            title: "离开订单录入？",
+            message: "当前订单还有未保存的原文或明细。离开会丢失这些未提交的修改。",
+            cancelLabel: "继续编辑",
+            confirmLabel: "放弃并离开",
+            tone: "danger",
+          });
+          if (!discard) { window.history.replaceState(null, "", `#${activeNavId}`); return; }
+          formal.discardOrderEntryLocalEdit?.();
+          setView(nextView);
+        })();
+        return;
+      }
+      setView(nextView);
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [visibleViews, formal.orderEntryWritePending, activeNavId]);
+  }, [visibleViews, formal.orderEntryWritePending, formal.orderEntryDirty, activeNavId]);
+  // 关闭/刷新页面时浏览器原生确认（无法自定义文案，但不会静默丢）。
+  useEffect(() => {
+    const onBeforeUnload = (event) => {
+      if (!orderEntryDirtyRef.current || activeNavIdRef.current !== "order-entry") return undefined;
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
   const toggleGroup = (groupId) => {
     setExpandedGroups((current) => {
       const next = new Set(current);
@@ -373,10 +402,32 @@ export function App({ permissionContext = defaultPermissionContext }) {
       return next;
     });
   };
-  const navigate = (navId, focus = {}) => {
+  // 2026-11-07：订单录入有未保存内容时，离开（菜单/搜索/hash/关页）必须先确认。
+  const orderEntryDirtyRef = useRef(false);
+  orderEntryDirtyRef.current = Boolean(formal.orderEntryDirty);
+  const activeNavIdRef = useRef(activeNavId);
+  activeNavIdRef.current = activeNavId;
+  const leaveOrderEntry = async (nextId) => {
+    if (activeNavIdRef.current !== "order-entry" || nextId === "order-entry") return true;
+    // 回执待核对优先：写操作未确认时一律不让离开。
+    if (formal.orderEntryWritePending) return false;
+    if (!orderEntryDirtyRef.current) return true;
+    const discard = await confirmInApp({
+      title: "离开订单录入？",
+      message: "当前订单还有未保存的原文或明细。离开会丢失这些未提交的修改。",
+      cancelLabel: "继续编辑",
+      confirmLabel: "放弃并离开",
+      tone: "danger",
+    });
+    if (!discard) return false;
+    formal.discardOrderEntryLocalEdit?.();
+    return true;
+  };
+  const navigate = async (navId, focus = {}) => {
     if (formal.orderEntryWritePending) return;
     setNavOpen(false);
     const normalizedNavId = navId === "spec-inventory" ? "general-prices" : navId;
+    if (!(await leaveOrderEntry(normalizedNavId))) return;
     const nextView = navViewMap[normalizedNavId];
     const allowed = Boolean(nextView && visibleViews.includes(nextView));
     setWorkspaceFocus(allowed && focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === normalizedNavId ? focus.workspaceFocus : null);
