@@ -212,6 +212,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         currentDraftStatus: body.currentDraftStatus,
         parseOrderText,
         now,
+        // 2026-11-07：批量识别一次会生成多张草稿，整批共用批次作用域，
+        // 不同批次不撞，同批次回放稳定。
+        messageIdScope: `${buildQueueScope(body)}-`,
       },
     );
     if (!recognition.sourceMessages.length) {
@@ -1290,7 +1293,10 @@ export function createOrderDraftCommandService(dependencies = {}) {
       const printFlag = line.printFlag ?? line.print === "是";
       return {
         // 明细主键必须全局唯一：固定 DRAFT-LINE-N 会让第二张草稿撞上一张的主键。
-        id: line.draftLineId ?? line.id ?? draftLineIdFor(draftId, index),
+        // 2026-11-07：客户端带来的编号可能属于别的草稿（手工复制/误用）。
+        // 只保留本草稿自己的编号，其余一律重新归属，避免撞库级主键；
+        // 同一草稿同序号的编号是稳定的，所以保存/重试不会改号。
+        id: ownDraftLineId(line.draftLineId ?? line.id, draftId) ?? draftLineIdFor(draftId, index),
         customerId,
         customer: line.customer ?? findCustomerName(workspace, customerId) ?? "待确认客户",
         product: line.productName ?? line.product ?? "",
@@ -1847,6 +1853,22 @@ function cleanCommandText(value) {
 
 // 2026-11-07 实测缺陷：明细编号固定为 DRAFT-LINE-N 时，第二张草稿会撞上第一张的
 // order_draft_lines 主键，识别接口直接 500。编号必须带上所属草稿。
+
+// 编号里带草稿身份才算本草稿的；其它一律视为外来编号。
+
+// 批次作用域：同一个幂等键/同一段原文 → 同一作用域，回放稳定；不同批次不同。
+function buildQueueScope(body = {}) {
+  const seed = cleanCommandText(body.idempotencyKey) || cleanCommandText(body.sourceText) || "queue";
+  return `QB-${createHash("sha256").update(seed).digest("hex").slice(0, 12).toUpperCase()}`;
+}
+
+function ownDraftLineId(candidate, draftId) {
+  const id = cleanCommandText(candidate);
+  const scope = cleanCommandText(draftId);
+  if (!id || !scope) return "";
+  return id.includes(scope) ? id : "";
+}
+
 function draftLineIdFor(draftId, index) {
   const scope = cleanCommandText(draftId);
   return scope ? `${scope}-L${String(index + 1).padStart(2, "0")}` : `DRAFT-LINE-${index + 1}`;

@@ -97,6 +97,28 @@ try {
     assert.ok(line.id.includes(line.draft), `明细 ${line.id} 不属于草稿 ${line.draft}`);
   }
 
+  // 3.6 手工跨草稿借用明细编号：不得抛裸 23505，要么归属化要么明确拒绝且零残留。
+  const source = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId: second.response.draft.draftId });
+  const borrowed = source.lines.map((line, index) => ({
+    ...line,
+    id: index === 0 ? firstIds[0] : line.id,
+    draftLineId: index === 0 ? firstIds[0] : line.id,
+  }));
+  const beforeOther = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId: first.response.draft.draftId });
+  let borrowedOutcome;
+  try {
+    borrowedOutcome = await service.saveOrderDraft({
+      workspace, draftId: source.id, operatorId,
+      body: { expectedRevision: source.revision, lines: borrowed, idempotencyKey: "line-id-borrowed" },
+    });
+  } catch (error) {
+    assert.ok(!/23505|order_draft_lines_pkey/u.test(`${error.code ?? ""}${error.message ?? ""}`), "不得抛裸主键冲突");
+    throw error;
+  }
+  assert.ok(borrowedOutcome.response || [400, 409, 422].includes(borrowedOutcome.statusCode), JSON.stringify(borrowedOutcome));
+  const afterOther = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId: first.response.draft.draftId });
+  assert.deepEqual(afterOther.lines.map((line) => line.id), beforeOther.lines.map((line) => line.id), "借用编号不得改动原草稿");
+
   console.log(`ok order-draft-line-id-uniqueness: ${firstIds.length} + ${secondIds.length} 条明细，跨草稿主键唯一`);
 } finally {
   await closeSharedPostgresPools?.().catch(() => {});
