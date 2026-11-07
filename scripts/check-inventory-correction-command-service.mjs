@@ -220,6 +220,22 @@ const invalid = await service.createCorrectionDraft({
 });
 assert.equal(invalid.code, "VALIDATION_ERROR");
 
+
+// 2026-11-07：盘亏不能把在库压到低于已占用+待提货锁定+待处理。
+{
+  const committedWorkspace = {
+    ...workspace,
+    inventories: [{ id: "INV-1", inStock: 500, onHandQty: 500, reserved: 400, locked: 80, pending: 20 }],
+  };
+  const belowCommitted = await service.createCorrectionDraft({
+    workspace: committedWorkspace,
+    body: { ...createBody, actualQty: 450 },
+    operatorId: "U-AUTH",
+  });
+  assert.equal(belowCommitted.statusCode, 409);
+  assert.equal(belowCommitted.code, "INVENTORY_CORRECTION_BELOW_COMMITTED_STOCK");
+}
+
 console.log("inventory correction command service checks passed");
 
 function correctionAttachment(attachmentId, ownerId, overrides = {}) {

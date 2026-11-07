@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 
+
+function committedStockQty(inventoryItem = {}) {
+  const pick = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
+  };
+  return pick(inventoryItem.reserved ?? inventoryItem.reservedQty)
+    + pick(inventoryItem.locked ?? inventoryItem.waitingPickupLockedQty ?? inventoryItem.waitingPickupLocked)
+    + pick(inventoryItem.pending ?? inventoryItem.pendingHandlingQty ?? inventoryItem.pendingHandling);
+}
+
 export function createInventoryCorrectionCommandService({
   buildOperationLog,
   buildTodo,
@@ -31,6 +42,16 @@ export function createInventoryCorrectionCommandService({
           409,
           "INVENTORY_QUANTITY_CHANGED",
           "Inventory quantity changed before the correction draft was created.",
+        );
+      }
+      // 2026-11-07：盘亏不能把在库压到低于已占用 + 待提货锁定 + 待处理。
+      // 否则可用量变负，后续出库用 GREATEST(0,…) 把缺口抹平，实物短少在系统里消失。
+      const committedQty = committedStockQty(inventoryItem);
+      if (actualQty < committedQty) {
+        return businessError(
+          409,
+          "INVENTORY_CORRECTION_BELOW_COMMITTED_STOCK",
+          `实盘数量低于已占用/锁定/待处理合计 ${committedQty}，请先处理对应占用或按差异流程处理。`,
         );
       }
       const attachmentIds = stringList(body.attachmentIds);
