@@ -731,9 +731,38 @@ function DraftExitDecision({
   onDiscard,
   onKeep,
 }) {
+  // 2026-11-07：复用确认框的焦点模式——打开聚焦安全项、Tab 循环、Esc 关闭并还原焦点。
+  const sectionRef = useRef(null);
+  const restoreFocusRef = useRef(null);
+  useEffect(() => {
+    restoreFocusRef.current = globalThis.document?.activeElement ?? null;
+    const first = sectionRef.current?.querySelector("button:not(:disabled)");
+    first?.focus();
+    return () => {
+      const previous = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (previous && typeof previous.focus === "function") previous.focus();
+    };
+  }, []);
+  const handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onContinue?.();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusables = [...(sectionRef.current?.querySelectorAll("button:not(:disabled)") ?? [])];
+    if (!focusables.length) return;
+    const index = focusables.indexOf(globalThis.document?.activeElement);
+    event.preventDefault();
+    const nextIndex = event.shiftKey
+      ? (index <= 0 ? focusables.length - 1 : index - 1)
+      : (index + 1) % focusables.length;
+    focusables[nextIndex]?.focus();
+  };
   return (
-    <div className="raw-material-mobile-exclusion-backdrop raw-material-mobile-draft-exit-backdrop" role="dialog" aria-modal="true" aria-labelledby="raw-material-draft-exit-title">
-      <section>
+    <div className="raw-material-mobile-exclusion-backdrop raw-material-mobile-draft-exit-backdrop" role="dialog" aria-modal="true" onKeyDown={handleKeyDown} aria-labelledby="raw-material-draft-exit-title">
+      <section ref={sectionRef}>
         <h2 id="raw-material-draft-exit-title">要换一张单据吗？</h2>
         <p>当前识别结果还没核对。若颜色或明细识别不对，放弃后它不会再出现在正常入库列表。</p>
         <small>原图和作废记录仍保留用于审计；不会形成库存、应付或供应商对账。</small>

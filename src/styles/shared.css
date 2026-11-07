@@ -630,7 +630,8 @@ button:disabled,
 
 .modal-backdrop {
   position: fixed;
-  z-index: 20;
+  /* 2026-11-07：必须盖住手机底部导航（sticky 200），否则弹窗打开时点到的是背景导航 */
+  z-index: var(--erp-z-modal);
   inset: 0;
   display: grid;
   place-items: center;
