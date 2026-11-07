@@ -254,6 +254,54 @@ assert.equal(invalid.code, "VALIDATION_ERROR");
   assert.equal(committedWorkspace.inventories[0].inStock, 500, "登记差异不得改动库存");
 }
 
+// 2026-11-07：驳回不动库存，且已确认的草稿不能再驳回。
+{
+  // 用一份独立状态，避免影响前面的断言（repository 挂在 workspace 上，不能直接 structuredClone）。
+  const rejectWorkspace = {
+    ...workspace,
+    inventories: workspace.inventories.map((item) => ({ ...item, attachments: [] })),
+    inventoryCorrectionDrafts: [],
+    inventoryLedgers: [],
+    todos: [],
+    todoEvents: [],
+    operationLogs: [],
+    attachments: [],
+  };
+  const draft = await service.createCorrectionDraft({
+    workspace: rejectWorkspace,
+    body: {
+      ...createBody,
+      expectedQty: rejectWorkspace.inventories[0].inStock,
+      actualQty: rejectWorkspace.inventories[0].inStock - 5,
+      idempotencyKey: "inventory-reject-create",
+    },
+    operatorId: "U-MANAGER",
+  });
+  const stockBeforeReject = rejectWorkspace.inventories[0].inStock;
+  const rejected = await service.rejectCorrectionDraft({
+    workspace: rejectWorkspace,
+    correctionDraftId: draft.correctionDraft.correctionDraftId,
+    body: { reason: "单据看不清，退回重拍", idempotencyKey: "inventory-reject-0001" },
+    operatorId: "U-MANAGER",
+  });
+  assert.equal(rejected.correctionDraft.status, "已驳回");
+  assert.equal(rejected.correctionDraft.rejectedBy, "U-MANAGER");
+  assert.equal(rejectWorkspace.inventories[0].inStock, stockBeforeReject, "驳回不得改动库存");
+  assert.equal(
+    rejectWorkspace.operationLogs.some((log) => log.action === "reject_inventory_correction_draft"),
+    true,
+    "驳回必须留下操作记录",
+  );
+
+  const rejectAgain = await service.rejectCorrectionDraft({
+    workspace: rejectWorkspace,
+    correctionDraftId: draft.correctionDraft.correctionDraftId,
+    body: { reason: "重复驳回", idempotencyKey: "inventory-reject-0002" },
+    operatorId: "U-MANAGER",
+  });
+  assert.equal(rejectAgain.code, "INVENTORY_CORRECTION_DRAFT_NOT_OPEN");
+}
+
 console.log("inventory correction command service checks passed");
 
 function correctionAttachment(attachmentId, ownerId, overrides = {}) {

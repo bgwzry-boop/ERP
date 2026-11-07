@@ -87,6 +87,25 @@ export async function handleInventoryWriteRoutes({
     return true;
   }
 
+  const correctionRejectMatch = url.pathname.match(/^\/api\/inventory\/correction-drafts\/([^/]+)\/reject$/);
+  if (correctionRejectMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmInventoryCorrectionDraft)) return true;
+    const result = await inventoryCorrectionCommandService.rejectCorrectionDraft({
+      workspace,
+      correctionDraftId: decodeURIComponent(correctionRejectMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    if (sendCommandFailure(response, result, sendCommandResponse)) return true;
+    sendJson(response, 200, {
+      correctionDraftId: result.correctionDraft.correctionDraftId,
+      status: result.correctionDraft.status,
+      rejectedBy: result.correctionDraft.rejectedBy,
+      operationLogId: result.operationLogId,
+    });
+    return true;
+  }
+
   const correctionConfirmMatch = url.pathname.match(/^\/api\/inventory\/correction-drafts\/([^/]+)\/confirm$/);
   if (correctionConfirmMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmInventoryCorrectionDraft)) return true;

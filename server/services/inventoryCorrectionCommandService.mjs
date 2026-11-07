@@ -219,6 +219,51 @@ export function createInventoryCorrectionCommandService({
       });
     },
 
+    // 2026-11-07：审核不通过 → 草稿转为"已驳回"，库存一分不动。
+    async rejectCorrectionDraft({ workspace, correctionDraftId, body = {}, operatorId }) {
+      const beforeDraft = await workspace.inventoryCorrectionTransactionRepository.getCorrectionDraft({
+        workspace,
+        correctionDraftId,
+      });
+      if (!beforeDraft) return notFound("INVENTORY_CORRECTION_DRAFT_NOT_FOUND");
+      if (beforeDraft.status !== "待确认生效") {
+        return businessError(409, "INVENTORY_CORRECTION_DRAFT_NOT_OPEN", "只有待确认的盘点草稿可以驳回。");
+      }
+      const reason = cleanText(body.reason) || "审核不通过";
+      const timestamp = nowIso(now);
+      const nextDraft = {
+        ...beforeDraft,
+        status: "已驳回",
+        revision: Number(beforeDraft.revision ?? 1) + 1,
+        rejectedBy: operatorId,
+        rejectedAt: timestamp,
+        rejectReason: reason,
+        updatedAt: timestamp,
+      };
+      const operationLog = buildOperationLog(workspace, {
+        id: buildRecordId("LOG-ADJ", body.idempotencyKey, "reject"),
+        targetType: "inventory_correction",
+        targetId: correctionDraftId,
+        action: "reject_inventory_correction_draft",
+        operatorId,
+        before: { status: beforeDraft.status, revision: beforeDraft.revision },
+        after: { status: nextDraft.status, revision: nextDraft.revision, reason },
+        reason,
+      });
+      const openTodo = (workspace.todos ?? []).find((todo) => cleanText(todo.id) === cleanText(beforeDraft.todoId));
+      const closedTodo = openTodo
+        ? { ...openTodo, status: "已处理", handled: true, handledBy: operatorId, handledAt: timestamp, updatedAt: timestamp }
+        : null;
+      return workspace.inventoryCorrectionTransactionRepository.rejectCorrectionDraft({
+        workspace,
+        correctionDraft: nextDraft,
+        todo: closedTodo,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: sanitizeIdempotencyPayload(body, { correctionDraftId, operatorId }),
+      });
+    },
+
     async confirmCorrectionDraft({ workspace, correctionDraftId, body = {}, operatorId }) {
       if (body.correctionDraftId && cleanText(body.correctionDraftId) !== correctionDraftId) {
         return businessError(422, "VALIDATION_ERROR", "correctionDraftId in path and body must match");

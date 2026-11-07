@@ -58,6 +58,25 @@ export function createLocalInventoryCorrectionTransactionRepository() {
       saveLocalIdempotencyResult(idempotencyResults, "inventory.correction.attachments.link", input, result);
       return result;
     },
+    async rejectCorrectionDraft(input = {}) {
+      // 2026-11-07：驳回只改草稿状态，绝不动库存。
+      const draft = input.correctionDraft;
+      const current = findById(input.workspace.inventoryCorrectionDrafts, draft?.correctionDraftId ?? draft?.id, "correctionDraftId");
+      if (!current || current.status !== "待确认生效"
+        || Number(current.revision ?? 1) !== Number(draft.revision) - 1) {
+        throw correctionConflict();
+      }
+      input.workspace.inventoryCorrectionDrafts = upsertVersioned(input.workspace.inventoryCorrectionDrafts, draft, "correctionDraftId");
+      if (input.todo) input.workspace.todos = upsert(input.workspace.todos, input.todo, "id");
+      if (input.todoEvent) input.workspace.todoEvents = upsert(input.workspace.todoEvents, input.todoEvent, "eventId");
+      if (input.operationLog) input.workspace.operationLogs = upsert(input.workspace.operationLogs, input.operationLog, "id");
+      return {
+        correctionDraft: draft,
+        todo: input.todo,
+        operationLogId: input.operationLog?.id ?? "",
+      };
+    },
+
     async confirmCorrectionDraft(input = {}) {
       const replay = readLocalIdempotencyResult(idempotencyResults, "inventory.correction.confirm", input);
       if (replay) return replay;
@@ -201,6 +220,28 @@ export function createPostgresInventoryCorrectionTransactionRepository(options =
         correctionDraft: result.correctionDraft,
         operationLog: result.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
+      return result;
+    },
+    async rejectCorrectionDraft(input = {}) {
+      // 2026-11-07：驳回是"只改状态"的事务，库里不会碰 inventory_items。
+      const query = buildRejectInventoryCorrectionDraftTransactionQuery(input);
+      const raw = await idempotentTransactionJson(
+        buildPostgresIdempotencyRequest({
+          scope: "inventory.correction.reject",
+          idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+          payload: input.idempotencyPayload ?? { correctionDraft: input.correctionDraft },
+          operatorId: input.operationLog?.operatorId,
+          targetType: "inventory_correction",
+          targetId: input.correctionDraft?.correctionDraftId ?? input.correctionDraft?.id,
+          resourceLocks: [`inventory-correction:${input.correctionDraft?.correctionDraftId ?? input.correctionDraft?.id ?? ""}`],
+          query,
+        }),
+      );
+      const result = raw ?? {};
+      if (!result.correctionDraft) throw new Error("PostgreSQL correction draft rejection returned invalid data");
+      input.workspace.inventoryCorrectionDrafts = upsertVersioned(input.workspace.inventoryCorrectionDrafts, result.correctionDraft, "correctionDraftId");
+      if (result.todo) input.workspace.todos = upsert(input.workspace.todos, result.todo, "id");
+      if (result.operationLogId) input.workspace.operationLogs = upsert(input.workspace.operationLogs, input.operationLog, "id");
       return result;
     },
     async confirmCorrectionDraft(input = {}) {
@@ -389,7 +430,69 @@ COMMIT;
   };
 }
 
-export function buildConfirmInventoryCorrectionDraftTransactionQuery(input = {}) {
+export 
+function buildRejectInventoryCorrectionDraftTransactionQuery(input = {}) {
+  const parameters = createPostgresParameterBinder();
+  const draft = input.correctionDraft ?? {};
+  const draftId = draft.correctionDraftId ?? draft.id ?? "";
+  const operationLog = input.operationLog ?? {};
+  return {
+    text: `
+BEGIN;
+WITH locked AS (
+  SELECT id, revision, status FROM inventory_correction_drafts WHERE id = ${parameters.text(draftId)} FOR UPDATE
+),
+rejected AS (
+  UPDATE inventory_correction_drafts AS target
+  SET status = '已驳回',
+      revision = target.revision + 1,
+      rejected_by = ${parameters.nullableText(draft.rejectedBy)},
+      rejected_at = ${parameters.nullableTimestamp(draft.rejectedAt)},
+      reject_reason = ${parameters.nullableText(draft.rejectReason)},
+      updated_at = now()
+  FROM locked
+  WHERE target.id = locked.id AND locked.status = '待确认生效' AND locked.revision = ${parameters.integer(draft.revision)}
+  RETURNING json_build_object(
+    'correctionDraftId', target.id,
+    'id', target.id,
+    'status', target.status,
+    'revision', target.revision,
+    'rejectedBy', target.rejected_by,
+    'rejectedAt', target.rejected_at,
+    'rejectReason', target.reject_reason
+  ) AS result
+),
+closed_todo AS (
+  UPDATE todos SET status = '已处理', updated_at = now()
+  WHERE id = ${parameters.text(input.todo?.id ?? "")} AND EXISTS (SELECT 1 FROM rejected)
+  RETURNING id
+),
+written_log AS (
+  INSERT INTO operation_logs (id, target_type, target_id, action, before_json, after_json, reason, operator_id, page_key, occurred_at, created_at)
+  SELECT ${parameters.text(operationLog.id ?? "")}, 'inventory_correction', ${parameters.text(draftId)},
+    ${parameters.text(operationLog.action ?? "reject_inventory_correction_draft")},
+    ${parameters.json(operationLog.before ?? {})}, ${parameters.json(operationLog.after ?? {})},
+    ${parameters.nullableText(operationLog.reason)},
+    ${parameters.nullableText(operationLog.operatorId)},
+    ${parameters.text(operationLog.pageKey ?? "inventory")},
+    ${parameters.timestamp(operationLog.occurredAt ?? new Date().toISOString())},
+    ${parameters.timestamp(operationLog.createdAt ?? new Date().toISOString())}
+  WHERE EXISTS (SELECT 1 FROM rejected)
+  ON CONFLICT (id) DO NOTHING
+  RETURNING id
+)
+SELECT json_build_object(
+  'correctionDraft', (SELECT result FROM rejected),
+  'todo', (SELECT to_jsonb(t) FROM todos t WHERE t.id = (SELECT id FROM closed_todo)),
+  'operationLogId', (SELECT id FROM written_log)
+) AS result;
+COMMIT;
+`.trim(),
+    values: parameters.values,
+  };
+}
+
+function buildConfirmInventoryCorrectionDraftTransactionQuery(input = {}) {
   const draft = normalizeCorrectionDraft(input.correctionDraft);
   const inventoryItem = normalizeInventoryItem(input.inventoryItem);
   const ledger = normalizeInventoryLedger(input.inventoryLedger);
