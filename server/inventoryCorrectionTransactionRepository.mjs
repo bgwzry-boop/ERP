@@ -251,11 +251,14 @@ export function createPostgresInventoryCorrectionTransactionRepository(options =
           query,
         }),
       );
-      const result = raw ?? {};
+      const result = normalizeRejectionResult(raw, input);
       if (!result.correctionDraft) throw new Error("PostgreSQL correction draft rejection returned invalid data");
       input.workspace.inventoryCorrectionDrafts = upsertVersioned(input.workspace.inventoryCorrectionDrafts, result.correctionDraft, "correctionDraftId");
       if (result.todo) input.workspace.todos = upsert(input.workspace.todos, result.todo, "id");
-      if (result.operationLogId) input.workspace.operationLogs = upsert(input.workspace.operationLogs, input.operationLog, "id");
+      if (result.todoEventId && input.todoEvent) {
+        input.workspace.todoEvents = upsert(input.workspace.todoEvents ?? [], { ...input.todoEvent, eventId: result.todoEventId }, "eventId");
+      }
+      if (result.operationLogId && input.operationLog) input.workspace.operationLogs = upsert(input.workspace.operationLogs, input.operationLog, "id");
       return result;
     },
     async confirmCorrectionDraft(input = {}) {
@@ -478,15 +481,7 @@ rejected AS (
       updated_at = now()
   FROM locked, reject_guard AS guard
   WHERE target.id = locked.id AND guard.ok
-  RETURNING json_build_object(
-    'correctionDraftId', target.id,
-    'id', target.id,
-    'status', target.status,
-    'revision', target.revision,
-    'rejectedBy', target.rejected_by,
-    'rejectedAt', target.rejected_at,
-    'rejectReason', target.reject_reason
-  ) AS result
+  RETURNING ${correctionDraftJsonExpression("target")} AS result
 ),
 closed_todo AS (
   UPDATE todos SET status = '已处理',
@@ -707,7 +702,10 @@ function buildInsertOperationLogSql(log, dependency, parameters) {
 
 function normalizeCreateResult(value, input) {
   return {
-    correctionDraft: mergeRecord(input.correctionDraft, normalizeCorrectionDraft(value?.correctionDraft)),
+    correctionDraft: mergeRecord(input.correctionDraft, normalizeCorrectionDraft({
+      ...value?.correctionDraft,
+      id: value?.correctionDraft?.id ?? value?.correctionDraft?.correctionDraftId,
+    })),
     todo: mergeTodo(input.todo, value?.todo),
     todoEventId: text(value?.todoEventId),
     operationLogId: text(value?.operationLogId),
@@ -720,6 +718,22 @@ function normalizeConfirmResult(value, input) {
     inventoryItem: mergeRecord(input.inventoryItem, normalizeInventoryItem(value?.inventoryItem)),
     inventoryLedger: normalizeInventoryLedger(value?.inventoryLedger),
     todo: value?.todo ? mergeTodo(input.todo, value.todo) : null,
+    todoEventId: text(value?.todoEventId),
+    operationLogId: text(value?.operationLogId),
+  };
+}
+
+function normalizeRejectionResult(value, input) {
+  return {
+    correctionDraft: mergeRecord(input.correctionDraft, normalizeCorrectionDraft(value?.correctionDraft)),
+    todo: value?.todo ? mergeTodo(input.todo, {
+      ...value.todo,
+      refType: value.todo.refType ?? value.todo.ref_type,
+      refId: value.todo.refId ?? value.todo.ref_id,
+      handledBy: value.todo.handledBy ?? value.todo.handled_by,
+      handledAt: value.todo.handledAt ?? value.todo.handled_at,
+      handlingResult: value.todo.handlingResult ?? value.todo.handling_result,
+    }) : null,
     todoEventId: text(value?.todoEventId),
     operationLogId: text(value?.operationLogId),
   };
