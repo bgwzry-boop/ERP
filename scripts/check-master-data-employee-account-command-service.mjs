@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { resolvePermissionAssignment } from "../shared/auth/roleCatalog.js";
+
+const managerAssignment = resolvePermissionAssignment({ roles: ["management"] });
+const managerOperatorPermissions = [...new Set([...managerAssignment.buttonPermissions, ...managerAssignment.actionPermissions])];
 import { verifyRuntimeUserPassword } from "../server/authSeed.mjs";
 import { buildDefaultMasterDataMachines } from "../server/masterDataMachineConfigurationRepository.mjs";
 import { buildLegacyImportedMachineId } from "../shared/masterDataMachineIdentity.js";
@@ -66,6 +70,7 @@ assert.deepEqual(
     employeeId: "EMP-DEPART-001",
     body: { reason: "员工已离职" },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(missingConfirmation.code, "MASTER_DATA_EMPLOYEE_DEPARTURE_CONFIRMATION_REQUIRED");
 
@@ -74,6 +79,7 @@ assert.deepEqual(
     employeeId: "EMP-DEPART-001",
     body: { confirmed: true, reason: "员工已离职" },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(missingEffectiveDate.code, "MASTER_DATA_EMPLOYEE_DEPARTURE_EFFECTIVE_DATE_REQUIRED");
 
@@ -82,6 +88,7 @@ assert.deepEqual(
     employeeId: "EMP-DEPART-001",
     body: { confirmed: true, departureEffectiveDate: "2026-07-11", reason: "员工已离职" },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(departed.statusCode, 200);
   assert.equal(departed.response.employeeAccountReview.status, "departed");
@@ -111,6 +118,7 @@ assert.deepEqual(
     workspace: departureWorkspace,
     employeeId: "EMP-DEPART-001",
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(cannotEnable.code, "MASTER_DATA_EMPLOYEE_DEPARTED");
 }
@@ -135,6 +143,7 @@ assert.deepEqual(
       reason: "确认两条记录为同一员工",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(missingConfirmation.code, "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_CONFIRMATION_REQUIRED");
 
@@ -148,6 +157,7 @@ assert.deepEqual(
       reason: "确认两条记录为同一员工",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(merged.statusCode, 200);
   assert.equal(merged.response.retainedEmployee.employeeId, "EMP-CANONICAL-001");
@@ -175,6 +185,7 @@ assert.deepEqual(
       reason: "重复操作",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(replay.code, "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_ALREADY_RESOLVED");
 }
@@ -278,6 +289,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: missingMachineWorkspace,
     employeeId: "EMP-WORKER-001",
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(missingMachine.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_MACHINE_NOT_CONFIGURED");
   assert.equal(missingMachineWorkspace.employees[0].accountEnabled, false);
@@ -292,6 +304,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: legacyMachineWorkspace,
     employeeId: "EMP-WORKER-001",
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(legacyMachine.statusCode, 200);
   assert.equal(legacyMachineWorkspace.employees[0].defaultMachineId, "BAG-01");
@@ -301,6 +314,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: createWorkspace(),
     employeeId: "",
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(missingId.code, "MASTER_DATA_EMPLOYEE_ID_REQUIRED");
 
@@ -308,6 +322,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: createWorkspace(),
     employeeId: "EMP-MISSING",
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.deepEqual(notFound, {
     notFound: true,
@@ -330,6 +345,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "EMP-OWNER-001",
     body: { roleKey: "management", roleKeys: ["management", "unknown-role"] },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(invalidRole.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLES_INVALID");
   assert.equal(multiRoleWorkspace.employees[0].accountEnabled, false);
@@ -343,6 +359,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
       reviewNote: "负责人保留管理权限并兼任财务对账。",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(enabled.statusCode, 200);
   assert.deepEqual(enabled.response.employeeAccountReview.recommendedRoleKeys, ["management", "finance"]);
@@ -357,6 +374,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "EMP-OWNER-001",
     body: { roleKeys: ["management"] },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(roleDowngrade.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_REVIEW_LOCKED");
 
@@ -376,6 +394,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "EMP-OWNER-001",
     body: { temporaryPassword: "OwnerTemp001" },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(issued.statusCode, 200);
   assert.deepEqual(issued.response.employeeAccountReview.recommendedRoleKeys, ["management", "finance"]);
@@ -395,6 +414,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "EMP-MULTI-WORKSHOP",
     body: { roleKey: "management", roleKeys: ["management", "workshop"] },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(secondaryWorkshop.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_MACHINE_REQUIRED");
   assert.equal(secondaryWorkshopWorkspace.employees[0].accountEnabled, false);
@@ -411,6 +431,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: batchWorkspace,
     body: { employeeIds: ["EMP-WORKER-001"] },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(missingConfirmation.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_CONFIRMATION_REQUIRED");
 
@@ -422,6 +443,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
       reviewNote: "批量核对岗位和默认机台。",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(enabledBatch.statusCode, 200);
   assert.equal(enabledBatch.response.requestedCount, 2);
@@ -438,6 +460,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: batchWorkspace,
     body: { employeeIds: ["EMP-WORKER-001", "EMP-WORKER-002"], confirmed: true },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(replayedBatch.response.enabledCount, 0);
   assert.equal(replayedBatch.response.skippedCount, 2);
@@ -464,6 +487,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "ERP-0001",
     body: { reviewNote: "负责人保留管理并兼任财务。" },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(blockedOwner.statusCode, 409);
   assert.equal(blockedOwner.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_IDENTITY_CONFIRMATION_REQUIRED");
@@ -478,6 +502,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
       reason: "负责人本人确认",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(missingIdentityConfirmation.code, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_REQUIRED");
   const mismatchedName = await service.confirmEmployeeIdentity({
@@ -490,6 +515,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
       reason: "负责人本人确认",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(mismatchedName.code, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_NAME_MISMATCH");
   const identityConfirmation = await service.confirmEmployeeIdentity({
@@ -502,6 +528,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
       reason: "负责人本人当面确认该员工号和正式显示名。",
     },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(identityConfirmation.statusCode, 200);
   assert.equal(identityConfirmation.response.employeeAccountReview.identityConfirmed, true);
@@ -515,6 +542,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "ERP-0001",
     body: { reviewNote: "负责人保留管理并兼任财务。" },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(enabledOwner.statusCode, 200);
   assert.equal(enabledOwner.response.user.defaultRole, "management");
@@ -528,6 +556,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "ERP-0001",
     body: { temporaryPassword: "OwnerTemp001" },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(issuedOwner.statusCode, 200);
   assert.deepEqual(ownerWorkspace.users[0].roles, ["management", "finance"]);
@@ -564,6 +593,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: atomicWorkspace,
     body: { employeeIds: ["EMP-WORKER-ATOMIC", "ERP-0001"], confirmed: true },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(blockedBatch.statusCode, 409);
   assert.equal(blockedBatch.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_VALIDATION_FAILED");
@@ -586,6 +616,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     employeeId: "ERP-0099",
     body: { roleKeys: ["management", "unknown_role"] },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(invalidRole.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLES_INVALID");
   assert.equal(invalidRoleWorkspace.employees[0].accountEnabled, false);
@@ -607,6 +638,7 @@ assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
     workspace: atomicFailureWorkspace,
     body: { employeeIds: ["EMP-WORKER-001", "EMP-MISSING"], confirmed: true },
     operatorId: "U-MANAGER-A",
+    operatorPermissions: managerOperatorPermissions,
   });
   assert.equal(failedBatch.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_VALIDATION_FAILED");
   assert.deepEqual(failedBatch.details, {

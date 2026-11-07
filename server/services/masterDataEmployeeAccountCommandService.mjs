@@ -675,7 +675,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     });
   }
 
-  async function enableEmployeeAccounts({ workspace, body = {}, operatorId }) {
+  async function enableEmployeeAccounts({ workspace, body = {}, operatorId, operatorPermissions }) {
     if (body.confirmed !== true) {
       return businessError(
         400,
@@ -728,6 +728,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
         employeeId,
         body: { reviewNote },
         operatorId,
+        operatorPermissions,
         reviewedAt,
       });
       if (staged.result) {
@@ -783,7 +784,8 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     {
       const escalation = findSensitivePermissionEscalation({
         roles: normalizeEmployeeAccountRoleKeys(requestedRoleInputs, roleKey, before.roleName),
-        operatorPermissions,
+        // 缺少操作者权限时按"什么敏感权限都没有"处理，不能默许高权限变更。
+        operatorPermissions: Array.isArray(operatorPermissions) ? operatorPermissions : [],
       });
       if (escalation.length) {
         return {
@@ -902,11 +904,11 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     const context = getEmployeeContext(workspace, employeeId);
     if (context.result) return context.result;
     // 2026-11-07：发临时密码等于接管账号，目标岗位权限不得高于操作者。
-    if (Array.isArray(operatorPermissions)) {
+    {
       const targetUser = resolveEmployeeRuntimeUser(workspace, context.before);
       const escalation = findSensitivePermissionEscalation({
         roles: targetUser?.roles?.length ? targetUser.roles : (context.before.roleKeys ?? context.before.roleName),
-        operatorPermissions,
+        operatorPermissions: Array.isArray(operatorPermissions) ? operatorPermissions : [],
       });
       if (escalation.length) {
         return businessError(

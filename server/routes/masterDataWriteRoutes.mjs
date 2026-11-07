@@ -199,6 +199,7 @@ export async function handleMasterDataWriteRoutes({
     "/api/master-data/employee-account-reviews/batch-enable": {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
       fallbackOperatorId: "U-MANAGER-A",
+      passOperatorPermissions: true,
       run: (input) => masterDataEmployeeAccountCommandService.enableEmployeeAccounts(input),
       responseOptions: EMPLOYEE_RESPONSE_OPTIONS,
     },
@@ -210,6 +211,15 @@ export async function handleMasterDataWriteRoutes({
       workspace,
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, directRoute.fallbackOperatorId),
+      // 批量启用同样是"发权限"的入口，必须带上操作者的有效权限。
+      ...(directRoute.passOperatorPermissions
+        ? {
+            operatorPermissions: [...new Set([
+              ...(permissionContext?.buttonPermissions ?? []),
+              ...(permissionContext?.actionPermissions ?? []),
+            ])],
+          }
+        : {}),
     });
     sendCommandResponse(response, result, directRoute.responseOptions);
     return true;

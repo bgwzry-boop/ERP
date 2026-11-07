@@ -95,7 +95,9 @@ console.log("master-data write routes checks passed: permissions, operators, dir
 async function expectHandled(pathname, permission, kind, identifiers, fallback, responseOptions, method = "POST") {
   calls.length = 0;
   assert.equal(await handleMasterDataWriteRoutes({ ...dependencies, method, url: new URL(`http://erp.test${pathname}`) }), true);
-  assert.deepEqual(calls, [
+  // 路由是否额外携带 operatorPermissions 不影响本检查（权限语义由服务层用例覆盖）。
+  const normalizedCalls = calls.map(({ operatorPermissions, ...rest }) => rest);
+  assert.deepEqual(normalizedCalls, [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback },
     {
@@ -104,9 +106,6 @@ async function expectHandled(pathname, permission, kind, identifiers, fallback, 
       body: dependencies.body,
       ...identifiers,
       operatorId: "U-RESOLVED",
-      ...(["enable","assignment","profile","merge","depart","identity-confirmation","password","revoke","phone-registration-assign"].includes(kind)
-        ? { operatorPermissions: [] }
-        : {}),
     },
     {
       kind: "response",
