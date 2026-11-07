@@ -64,11 +64,31 @@ try {
   const overlap = firstIds.filter((id) => secondIds.includes(id));
   assert.deepEqual(overlap, [], `两张草稿复用了同一个明细主键：${overlap.join(", ")}`);
 
+  // 3.5 显式消息编号：批量/手工场景会传同一个 message id，也不能撞主键。
+  const recognizeExplicit = (key, text) => service.recognizeOrderDraft({
+    workspace,
+    operatorId,
+    body: {
+      sourceText: "",
+      sourceMessages: [{ id: "MSG-SAME-001", text }],
+      sourceChannel: "manual",
+      operatorId,
+      idempotencyKey: key,
+    },
+  });
+  const explicitFirst = await recognizeExplicit("line-id-explicit-a", "李四电商 30*38 红 100个");
+  assert.ok(explicitFirst.response, `显式编号第一笔失败：${JSON.stringify(explicitFirst)}`);
+  const explicitSecond = await recognizeExplicit("line-id-explicit-b", "王五服饰 30*38 蓝 200个");
+  assert.ok(explicitSecond.response, `显式编号第二笔撞主键：${JSON.stringify(explicitSecond)}`);
+  const explicitIds = [...explicitFirst.response.lines, ...explicitSecond.response.lines]
+    .map((line) => line.draftLineId ?? line.id);
+  assert.equal(new Set(explicitIds).size, explicitIds.length, "显式消息编号也必须按草稿隔离");
+
   // 4. 同一草稿重复识别按幂等回放，不新增第二份明细
   const replay = await recognize("3037 红 500个", "line-id-check-first");
   assert.ok(replay.response, `幂等回放失败：${JSON.stringify(replay)}`);
   const lineCount = (await pool.query("SELECT COUNT(*)::int AS n FROM order_draft_lines")).rows[0].n;
-  assert.equal(lineCount, firstIds.length + secondIds.length, "重复识别不应重复写入明细");
+  assert.equal(lineCount, firstIds.length + secondIds.length + explicitIds.length, "重复识别不应重复写入明细");
 
   // 5. 落库后的明细主键全局唯一，且编号能看出属于哪张草稿
   const persisted = (await pool.query("SELECT id, order_draft_id AS draft FROM order_draft_lines")).rows;
