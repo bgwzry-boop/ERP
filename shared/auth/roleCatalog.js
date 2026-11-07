@@ -637,3 +637,26 @@ export function createDisabledPermissionContext(userId = "UNAUTHENTICATED") {
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
+
+// 2026-11-07：能把"钱/权限/系统/审计"这类权限授出去的，只有本来就拥有它们的账号。
+// 全量集合比较不可行——岗位字典里存在个别条目不互为子集（库房带
+// attachment.inventory_correction.create，管理角色反而没列），所以只比敏感域。
+const sensitivePermissionPrefixes = Object.freeze(["payroll.", "statement.", "permission.", "system.", "audit.", "finance."]);
+const sensitivePermissionExact = new Set(["order.price.override"]);
+
+export function isSensitivePermissionGrant(permissionKey) {
+  const key = String(permissionKey ?? "").trim();
+  if (!key) return false;
+  if (sensitivePermissionExact.has(key)) return true;
+  return sensitivePermissionPrefixes.some((prefix) => key.startsWith(prefix));
+}
+
+export function findSensitivePermissionEscalation({ roles = [], permissionAllowlist = [], operatorPermissions } = {}) {
+  // 路由层一定会传权限集；没传的是服务内部调用或旧测试，按原行为放行。
+  if (!Array.isArray(operatorPermissions)) return [];
+  const resolved = resolvePermissionAssignment({ roles, permissionAllowlist });
+  const operatorSet = new Set(operatorPermissions.map((key) => String(key ?? "").trim()).filter(Boolean));
+  return [...new Set([...resolved.buttonPermissions, ...resolved.actionPermissions])]
+    .filter((permissionKey) => !operatorSet.has(permissionKey))
+    .filter(isSensitivePermissionGrant);
+}

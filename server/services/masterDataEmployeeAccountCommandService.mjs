@@ -23,6 +23,7 @@ import {
 import { normalizeMasterDataMachines } from "../masterDataMachineConfigurationRepository.mjs";
 import { resolveConfiguredMasterDataMachine } from "../../shared/masterDataMachineIdentity.js";
 import { findPayrollPosition } from "../../shared/payrollPositionCatalog.js";
+import { findSensitivePermissionEscalation } from "../../shared/auth/roleCatalog.js";
 
 const employeeAssignmentModes = new Set(["fixed_machine", "general_worker", "unassigned"]);
 
@@ -652,7 +653,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     });
   }
 
-  async function enableEmployeeAccount({ workspace, employeeId, body = {}, operatorId }) {
+  async function enableEmployeeAccount({ workspace, employeeId, body = {}, operatorId, operatorPermissions }) {
     const reviewedAt = cleanText(body.reviewedAt) || now().toISOString();
     const stagedWorkspace = stageWorkspace(workspace);
     const staged = stageEmployeeAccountEnable({
@@ -660,6 +661,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       employeeId,
       body,
       operatorId,
+      operatorPermissions,
       reviewedAt,
     });
     if (staged.result) return staged.result;
@@ -751,7 +753,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     });
   }
 
-  function stageEmployeeAccountEnable({ stagedWorkspace, employeeId, body, operatorId, reviewedAt }) {
+  function stageEmployeeAccountEnable({ stagedWorkspace, employeeId, body, operatorId, operatorPermissions, reviewedAt }) {
     const context = getEmployeeContext(stagedWorkspace, employeeId);
     if (context.result) return { result: context.result };
     const { before, employeeIndex } = context;
@@ -775,6 +777,24 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
           `Unknown employee account roles: ${invalidRoleInputs.join(", ")}.`,
         ),
       };
+    }
+    // 2026-11-07：员工账号复核也是"发权限"的一个入口。只有显式传了 roleKeys
+    // 才校验（批量启用沿用既有岗位，不改权限，不拦）。
+    if (body.roleKeys !== undefined) {
+      const escalation = findSensitivePermissionEscalation({
+        roles: normalizeEmployeeAccountRoleKeys(requestedRoleInputs, roleKey, before.roleName),
+        operatorPermissions,
+      });
+      if (escalation.length) {
+        return {
+          result: businessError(
+            403,
+            "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED",
+            "所选岗位自带的权限超出你自身的权限范围；不能给员工开更高权限的账号。",
+            { permissionKeys: escalation },
+          ),
+        };
+      }
     }
     const roleKeys = normalizeEmployeeAccountRoleKeys(
       requestedRoleInputs,

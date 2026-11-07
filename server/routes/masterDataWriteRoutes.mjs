@@ -82,6 +82,11 @@ export async function handleMasterDataWriteRoutes({
 
   if (method !== "POST") return false;
 
+  const operatorPermissionKeys = () => [...new Set([
+    ...(permissionContext?.buttonPermissions ?? []),
+    ...(permissionContext?.actionPermissions ?? []),
+  ])];
+
   const subaccountActionMatch = url.pathname.match(
     /^\/api\/master-data\/subaccounts\/([^/]+)\/(temporary-password|suspend|reactivate|disable)$/,
   );
@@ -220,6 +225,7 @@ export async function handleMasterDataWriteRoutes({
       userId: decodeURIComponent(registrationAssignmentMatch[1]),
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+      operatorPermissions: operatorPermissionKeys(),
     });
     sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
     return true;
@@ -284,6 +290,7 @@ export async function handleMasterDataWriteRoutes({
     employeeId,
     body,
     operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+    operatorPermissions: operatorPermissionKeys(),
   });
   sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
   return true;

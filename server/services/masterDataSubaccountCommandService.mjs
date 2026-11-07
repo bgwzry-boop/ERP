@@ -5,6 +5,7 @@ import {
   getPermissionCatalog,
   normalizeRoleKeys,
   resolvePermissionAssignment,
+  findSensitivePermissionEscalation,
   roleCatalog,
 } from "../../shared/auth/roleCatalog.js";
 import {
@@ -172,14 +173,11 @@ export function createMasterDataSubaccountCommandService(dependencies = {}) {
     if (context.userId === cleanText(operatorId)) return selfMutationError();
     // 2026-11-07：重置临时密码等于接管账号，目标账号权限不得高于操作者。
     const operatorSet = new Set((Array.isArray(operatorPermissions) ? operatorPermissions : []).map(cleanText));
-    const target = resolvePermissionAssignment({
+    const targetEscalation = findSensitivePermissionEscalation({
       roles: context.before.roles ?? [],
       permissionAllowlist: context.before.allowPermissions ?? context.before.permissionAllowlist ?? [],
-      permissionDenylist: context.before.denyPermissions ?? context.before.permissionDenylist ?? [],
+      operatorPermissions: [...operatorSet],
     });
-    const targetEscalation = unique([...target.buttonPermissions, ...target.actionPermissions])
-      .filter((permissionKey) => !operatorSet.has(permissionKey))
-      .filter(isSensitiveGrant);
     if (targetEscalation.length) {
       return businessError(403, "SUBACCOUNT_TARGET_PERMISSION_ESCALATION_BLOCKED", "目标账号权限高于你自己，不能重置它的临时密码；请由更高权限管理员处理。", { permissionKeys: targetEscalation });
     }
@@ -290,15 +288,6 @@ export function createMasterDataSubaccountCommandService(dependencies = {}) {
   }
 }
 
-// 只看"钱、权限、系统、审计"这几类。岗位字典里存在个别条目不互为子集
-// （例如库房角色带 attachment.inventory_correction.create，管理角色没列），
-// 一律按子集比会把正常授权也拦掉。
-function isSensitiveGrant(permissionKey) {
-    const key = cleanText(permissionKey);
-    if (key === "order.price.override") return true;
-    return ["payroll.", "statement.", "permission.", "system.", "audit.", "finance."].some((prefix) => key.startsWith(prefix));
-  }
-
 function validateAssignment(body, operatorPermissions) {
   const roles = normalizeRoleKeys(body.roleKeys).filter((roleKey) => humanRoleKeys.includes(roleKey));
   if (!roles.length) return { error: businessError(400, "SUBACCOUNT_ROLE_REQUIRED", "请至少选择一个岗位。") };
@@ -319,9 +308,11 @@ function validateAssignment(body, operatorPermissions) {
   }
   // 2026-11-07：岗位自带的权限包也要比一遍。只校验额外权限时，
   // 只有 permission.manage 的技术运维可以直接勾 management 岗位拿到全部财务/工资权限。
-  const roleEscalation = unique([...resolved.buttonPermissions, ...resolved.actionPermissions])
-    .filter((permissionKey) => !operatorSet.has(permissionKey))
-    .filter(isSensitiveGrant);
+  const roleEscalation = findSensitivePermissionEscalation({
+    roles,
+    permissionAllowlist: allowPermissions,
+    operatorPermissions: [...operatorSet],
+  });
   if (roleEscalation.length) {
     return { error: businessError(403, "SUBACCOUNT_ROLE_ESCALATION_BLOCKED", "所选岗位自带的权限超出你自身的权限范围；不能把更高权限的岗位授予他人。", { permissionKeys: roleEscalation }) };
   }

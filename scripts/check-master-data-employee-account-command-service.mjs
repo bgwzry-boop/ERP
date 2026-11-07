@@ -738,6 +738,24 @@ assert.deepEqual(failedWorkspace.employees, failedSnapshot.employees);
 assert.deepEqual(failedWorkspace.users, failedSnapshot.users);
 assert.deepEqual(failedWorkspace.operationLogs, failedSnapshot.operationLogs);
 
+
+// 2026-11-07 缺陷回归：员工账号复核也是发权限的入口，技术运维不能借它开管理岗。
+{
+  const { resolvePermissionAssignment } = await import("../shared/auth/roleCatalog.js");
+  const tech = resolvePermissionAssignment({ roles: ["technical_operations"] });
+  const techPermissions = [...new Set([...tech.buttonPermissions, ...tech.actionPermissions])];
+  const escalationWorkspace = createWorkspace();
+  const blocked = await service.enableEmployeeAccount({
+    workspace: escalationWorkspace,
+    employeeId: "EMP-WORKER-001",
+    operatorId: "U-TECH-1",
+    operatorPermissions: techPermissions,
+    body: { roleKeys: ["management"] },
+  });
+  assert.equal(blocked.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLE_ESCALATION_BLOCKED", JSON.stringify(blocked));
+  assert.equal(blocked.statusCode, 403);
+}
+
 console.log(
   "Master-data employee account command checks passed: enable, password issue/revoke, restart recovery, and failed-persistence rollback are isolated.",
 );
