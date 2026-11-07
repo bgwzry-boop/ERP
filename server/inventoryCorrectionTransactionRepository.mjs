@@ -489,9 +489,13 @@ rejected AS (
   ) AS result
 ),
 closed_todo AS (
-  UPDATE todos SET status = '已处理', updated_at = now()
+  UPDATE todos SET status = '已处理',
+    handled_by = ${parameters.nullableText(draft.rejectedBy)},
+    handled_at = ${parameters.nullableTimestamp(draft.rejectedAt)},
+    handling_result = ${parameters.nullableText(draft.rejectReason)},
+    updated_at = now()
   WHERE id = ${parameters.text(input.todo?.id ?? "")} AND EXISTS (SELECT 1 FROM rejected)
-  RETURNING id
+  RETURNING to_jsonb(todos.*) AS row
 ),
 written_log AS (
   INSERT INTO operation_logs (id, target_type, target_id, action, before_json, after_json, reason, operator_id, page_key, occurred_at, created_at)
@@ -522,7 +526,8 @@ written_event AS (
 )
 SELECT json_build_object(
   'correctionDraft', (SELECT result FROM rejected),
-  'todo', (SELECT to_jsonb(t) FROM todos t WHERE t.id = (SELECT id FROM closed_todo)),
+  -- 同一语句里再查基表会读到旧快照，直接用 RETURNING 回来的完整行。
+  'todo', (SELECT row FROM closed_todo),
   'operationLogId', (SELECT id FROM written_log),
   'todoEventId', (SELECT event_id FROM written_event)
 ) AS result;

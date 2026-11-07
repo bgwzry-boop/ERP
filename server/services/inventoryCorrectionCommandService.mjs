@@ -84,7 +84,8 @@ export function createInventoryCorrectionCommandService({
         latest: "今天",
         // 差异大小只决定提醒强度：超出占用线要马上通知，但依然允许登记。
         urgency: exceedsCommittedStock ? "紧急" : "关注",
-        priority: "关注",
+        // 2026-11-07：预警必须落到可见优先级上，不能只改 urgency。
+        priority: exceedsCommittedStock ? "紧急" : "关注",
         status: "未处理",
         impact: "需有库存调整确认权限账号确认后才改库存",
         createdBy: operatorId,
@@ -262,7 +263,7 @@ export function createInventoryCorrectionCommandService({
       });
       const openTodo = (workspace.todos ?? []).find((todo) => cleanText(todo.id) === cleanText(beforeDraft.todoId));
       const closedTodo = openTodo
-        ? { ...openTodo, status: "已处理", handled: true, handledBy: operatorId, handledAt: timestamp, updatedAt: timestamp }
+        ? { ...openTodo, status: "已处理", handled: true, handledBy: operatorId, handledAt: timestamp, handlingResult: reason, updatedAt: timestamp }
         : null;
       return workspace.inventoryCorrectionTransactionRepository.rejectCorrectionDraft({
         workspace,

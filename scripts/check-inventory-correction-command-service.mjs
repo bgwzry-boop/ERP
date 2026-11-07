@@ -302,6 +302,34 @@ assert.equal(invalid.code, "VALIDATION_ERROR");
   assert.equal(rejectAgain.code, "INVENTORY_CORRECTION_DRAFT_NOT_OPEN");
 }
 
+// 2026-11-07：驳回要把办理人/时间/结论写进待办，预警要体现在可见优先级上。
+{
+  const ws = {
+    ...workspace,
+    inventories: workspace.inventories.map((item, index) => (index === 0
+      ? { ...item, inStock: 500, onHandQty: 500, reserved: 400, locked: 80, pending: 20 }
+      : { ...item })),
+    inventoryCorrectionDrafts: [], inventoryLedgers: [], todos: [], todoEvents: [], operationLogs: [], attachments: [],
+  };
+  const draft = await service.createCorrectionDraft({
+    workspace: ws,
+    body: { ...createBody, expectedQty: 500, actualQty: 450, idempotencyKey: "reject-visible-priority" },
+    operatorId: "U-MANAGER",
+  });
+  assert.ok(draft.correctionDraft, JSON.stringify(draft));
+  assert.equal(draft.todo.priority, "紧急", "低于占用线时可见优先级必须升级");
+  const rejected = await service.rejectCorrectionDraft({
+    workspace: ws,
+    correctionDraftId: draft.correctionDraft.correctionDraftId,
+    body: { reason: "凭证不足", idempotencyKey: "reject-visible-priority-2" },
+    operatorId: "U-MANAGER",
+  });
+  assert.equal(rejected.todo.status, "已处理");
+  assert.equal(rejected.todo.handledBy, "U-MANAGER");
+  assert.ok(rejected.todo.handlingResult, "必须记录处理结论");
+  assert.equal(ws.inventories[0].inStock, draft.correctionDraft.qtyBefore.onHand, "驳回不得改动库存");
+}
+
 console.log("inventory correction command service checks passed");
 
 function correctionAttachment(attachmentId, ownerId, overrides = {}) {
