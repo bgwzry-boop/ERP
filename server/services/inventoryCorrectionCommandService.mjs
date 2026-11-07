@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 
+
+function committedStockQty(inventoryItem = {}) {
+  const pick = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
+  };
+  return pick(inventoryItem.reserved ?? inventoryItem.reservedQty)
+    + pick(inventoryItem.locked ?? inventoryItem.waitingPickupLockedQty ?? inventoryItem.waitingPickupLocked)
+    + pick(inventoryItem.pending ?? inventoryItem.pendingHandlingQty ?? inventoryItem.pendingHandling);
+}
+
 export function createInventoryCorrectionCommandService({
   buildOperationLog,
   buildTodo,
@@ -33,6 +44,11 @@ export function createInventoryCorrectionCommandService({
           "Inventory quantity changed before the correction draft was created.",
         );
       }
+      // 2026-11-07（负责人口径）：盘亏必须允许登记，登记阶段不改库存。
+      // 差异大小只决定要不要立即通知，不决定能不能登记；
+      // 真正改库存发生在有权限的人审核通过时。
+      const committedQty = committedStockQty(inventoryItem);
+      const exceedsCommittedStock = actualQty < committedQty;
       const attachmentIds = stringList(body.attachmentIds);
       if (attachmentIds.length) {
         return businessError(
@@ -63,9 +79,11 @@ export function createInventoryCorrectionCommandService({
         refId: correctionDraftId,
         ref: correctionDraftId,
         customerId: "",
-        summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`,
+        summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`
+          + (exceedsCommittedStock ? `；实盘已低于占用/锁定/待处理合计 ${committedQty}，先别出库` : ""),
         latest: "今天",
-        urgency: "关注",
+        // 差异大小只决定提醒强度：超出占用线要马上通知，但依然允许登记。
+        urgency: exceedsCommittedStock ? "紧急" : "关注",
         priority: "关注",
         status: "未处理",
         impact: "需有库存调整确认权限账号确认后才改库存",

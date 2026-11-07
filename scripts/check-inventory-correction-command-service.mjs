@@ -164,6 +164,11 @@ await assert.rejects(service.confirmCorrectionDraft({ workspace,
 { code: "BUSINESS_WRITE_CONFLICT", statusCode: 409 });
 assert.equal(JSON.stringify(workspace), staleSnapshot);
 workspace.inventories[0] = originalInventory;
+const bucketsBeforeConfirm = {
+  reserved: workspace.inventories[0].reserved,
+  locked: workspace.inventories[0].locked,
+  pending: workspace.inventories[0].pending,
+};
 const confirmed = await service.confirmCorrectionDraft({
   workspace,
   correctionDraftId: created.correctionDraft.correctionDraftId,
@@ -177,6 +182,16 @@ assert.equal(confirmed.inventoryItem.revision, 4);
 assert.equal(confirmed.inventoryLedger.qtyBefore, 500);
 assert.equal(confirmed.inventoryLedger.qtyChange, -20);
 assert.equal(confirmed.inventoryLedger.qtyAfter, 480);
+// 2026-11-07：库存修正只动在库，不得顺带完成订单或释放占用。
+assert.deepEqual(
+  {
+    reserved: confirmed.inventoryItem.reserved,
+    locked: confirmed.inventoryItem.locked,
+    pending: confirmed.inventoryItem.pending,
+  },
+  bucketsBeforeConfirm,
+  "correction must not touch reservations or locks",
+);
 assert.equal(confirmed.inventoryLedger.operatorId, "U-MANAGER");
 assert.equal(confirmed.todo.handledBy, "U-MANAGER");
 assert.equal(workspace.inventoryLedgers.length, 1);
@@ -219,6 +234,25 @@ const invalid = await service.createCorrectionDraft({
   operatorId: "U-AUTH",
 });
 assert.equal(invalid.code, "VALIDATION_ERROR");
+
+
+// 2026-11-07：盘亏不能把在库压到低于已占用+待提货锁定+待处理。
+{
+  const committedWorkspace = {
+    ...workspace,
+    inventories: [{ id: "INV-1", inStock: 500, onHandQty: 500, reserved: 400, locked: 80, pending: 20 }],
+  };
+  // 负责人口径：实盘低于占用线也必须能登记，登记阶段不动库存，只把提醒升级。
+  const belowCommitted = await service.createCorrectionDraft({
+    workspace: committedWorkspace,
+    body: { ...createBody, actualQty: 450, idempotencyKey: "inventory-create-below-committed" },
+    operatorId: "U-AUTH",
+  });
+  assert.equal(belowCommitted.error, undefined, JSON.stringify(belowCommitted));
+  assert.equal(belowCommitted.correctionDraft.status, "待确认生效");
+  assert.equal(belowCommitted.todo.urgency, "紧急");
+  assert.equal(committedWorkspace.inventories[0].inStock, 500, "登记差异不得改动库存");
+}
 
 console.log("inventory correction command service checks passed");
 
