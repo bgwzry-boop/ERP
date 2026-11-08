@@ -1,3 +1,4 @@
+import { looksLikePrintOrderLine } from "../../shared/printOrderLineParser.js";
 import { detectCustomer, enrichDraftRow, findCompactOrderSize, isOrderReferencePrefix, orderQuantityDigitsPattern, parseOrderText, withoutCustomerColors } from "./orderParser.js";
 import { createDraftFieldReview } from "../../shared/orderDraftFieldReview.mjs";
 
@@ -321,6 +322,8 @@ function classifyMessage(message, context) {
   if (message.senderRole === "merchant" || message.senderRole === "office" || isMerchantSender(message.sender)) {
     if (merchantReplyWords.test(compact)) return { type: "merchant_reply", label: "商家回复" };
   }
+  // 车间单写法（【印刷内容】尺寸 数量 … 客户简称）每行就是一张下单。
+  if (looksLikePrintOrderLine(message.text)) return { type: "explicit_order", label: "明确下单" };
   if (holdWords.test(compact)) return { type: "temporary_hold", label: "临时留货请求" };
   if (inquiryWords.test(compact)) return { type: "inventory_inquiry", label: "库存询问" };
   if (shortageCancelWords.test(compact) || wholeOrderCancelWords.test(compact)) {
@@ -355,7 +358,15 @@ function parseMessageRows(message, colorLexicon, options) {
   const bagColors = extractBagColorEntries(colorText, colorLexicon);
   const parser = options.parseOrderText ?? parseOrderText;
   let rows = [];
-  if (bagColors.length > 1) {
+  // 负责人 2026-11-08：车间单写法（【印刷内容】… 客户简称）整行交给专门的识别，袋色/字色/提手色在那里分开。
+  const printOrderLine = looksLikePrintOrderLine(message.text);
+  if (printOrderLine) {
+    rows = parser(message.text, {
+      customers: options.customers ?? [],
+      inventories: options.inventories ?? [],
+      ...(options.now ? { now: options.now } : {}),
+    });
+  } else if (bagColors.length > 1) {
     const commonText = stripColorQuantities(dimension.normalizedText, bagColors);
     rows = bagColors.flatMap((item) => {
       const parserText = `${commonText} ${item.qty ?? 0}个`;
@@ -378,12 +389,12 @@ function parseMessageRows(message, colorLexicon, options) {
   const reviewReasons = [];
   if (dimension.corrected) reviewReasons.push(`疑似尺寸输入错误：${dimension.originalSize}，候选 ${dimension.suggestedSize}`);
   if (compoundAlias?.needsReview) reviewReasons.push("颜色/提手短写需确认");
-  if (!compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText)) {
+  if (!printOrderLine && !compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText)) {
     reviewReasons.push("未匹配的颜色/提手短写需确认");
   }
   const normalizedRows = rows.map((row) => {
     const customer = (options.customers ?? []).find((item) => item.id === message.customerId);
-    const color = rows.length === 1 && bagColors.length === 1 && !compoundAlias ? bagColors[0].color : row.color;
+    const color = !printOrderLine && rows.length === 1 && bagColors.length === 1 && !compoundAlias ? bagColors[0].color : row.color;
     const fieldReviews = [];
     if (dimension.corrected) {
       fieldReviews.push(createDraftFieldReview({
@@ -395,7 +406,7 @@ function parseMessageRows(message, colorLexicon, options) {
         sourceMessageId: message.id,
       }));
     }
-    if (compoundAlias?.needsReview || (!compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText))) {
+    if (compoundAlias?.needsReview || (!printOrderLine && !compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText))) {
       fieldReviews.push(createDraftFieldReview({
         id: `${message.id}:color-handle`,
         field: "colorHandle",

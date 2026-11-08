@@ -963,13 +963,23 @@ function OrderPricingEditor({
                       <label>
                         印刷面
                         <select
-                          value={line.printSide || "单面"}
+                          className={["单面", "双面", "双面不同"].includes(line.printSide) ? undefined : "pricing-missing"}
+                          value={["单面", "双面", "双面不同"].includes(line.printSide) ? line.printSide : ""}
                           onChange={(e) =>
                             update(index, "printSide", e.target.value)
                           }
                         >
-                          <option>单面</option>
-                          <option>双面</option>
+                          {["单面", "双面", "双面不同"].includes(line.printSide) ? null : <option value="" disabled>请选择（双面要分相同还是不同）</option>}
+                          <option value="单面">单面印刷</option>
+                          <option value="双面">双面相同</option>
+                          <option value="双面不同">双面不同</option>
+                        </select>
+                      </label>
+                      {/* 负责人 2026-11-08：印刷工艺目前只有丝印，以后有别的工艺再加选项。 */}
+                      <label>
+                        印刷工艺
+                        <select aria-label={`第${index + 1}行印刷工艺`} value="丝印" onChange={() => {}}>
+                          <option value="丝印">丝印</option>
                         </select>
                       </label>
                       <label>
@@ -1273,6 +1283,12 @@ function OrderPricingEditor({
                     </li>
                   ) : null;
                 })}
+                {rows.map((line, index) => printSideMissing(line) ? (
+                  <li key={`side-${line.id ?? index}`} className="needs-attention">
+                    <span>第 {index + 1} 行 · 印刷面</span>
+                    <strong>请选双面相同还是双面不同（点「更多」）</strong>
+                  </li>
+                ) : null)}
                 {!missing ? <li><span>{rows.length} 行计价明细已齐全</span><strong>待报价</strong></li> : null}
               </ul>
               <p className="pricing-precheck-hint">
@@ -1408,6 +1424,7 @@ function lineStatusTags(line, rows, lineOverride) {
   if (isLocalShortage(line)) tags.push({ tone: "warn", text: "库存不够" });
   else if (isStockOrderType(line.orderType) && !["", "待确认"].includes(String(line.inventory ?? "").trim()) && !lacks.length) tags.push({ tone: "ok", text: String(line.inventory).trim() });
   if (privatePrint(line) && ["", "待确认"].includes(String(line.printColor ?? "").trim())) tags.push({ tone: "info", text: "印刷颜色待填" });
+  if (printSideMissing(line)) tags.push({ tone: "warn", text: "印刷面待选" });
   if (lineOverride?.enabled) tags.push({ tone: "info", text: "本单改价" });
   const fulfillment = commonValue(rows, "fulfillment", "自提");
   const latest = commonValue(rows, "latest", "");
@@ -1585,6 +1602,11 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
 }
 
 // 与「确认下单」前的缺字段判断保持一致（客户、规格、袋身颜色、数量）。
+// 负责人 2026-11-08：印刷面要选单面印刷、双面相同或双面不同；只写了「双面」的要提醒补全。
+function printSideMissing(line) {
+  return privatePrint(line) && !["单面", "双面", "双面不同"].includes(String(line.printSide ?? "").trim());
+}
+
 function missingQuoteFields(line) {
   const lacks = [];
   if (!line.customerId) lacks.push("客户");

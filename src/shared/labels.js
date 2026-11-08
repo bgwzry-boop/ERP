@@ -193,7 +193,7 @@ export function getStructuredRequirementTagValues(record = {}) {
   if (record.handle === "加长提" || record.handleType === "加长提") values.push("extended-handle");
   if (record.hasSnap === true || record.snap === true || record.snapRequirement === "按扣") values.push("snap");
   if (["customer_supplied", "supplied", "来料", "来料加工"].includes(record.materialSource)) values.push("supplied-material");
-  if (record.printSide === "双面" || record.printSide === "双面印") values.push("double-sided");
+  if (record.printSide === "双面" || record.printSide === "双面印" || record.printSide === "双面不同") values.push("double-sided");
   if (record.priority === "urgent" || record.priority === "加急") values.push("urgent");
   const printColorCount = Array.isArray(record.printColors) ? record.printColors.filter(Boolean).length : Number(record.printColorCount || 0);
   if (printColorCount === 2) values.push("dual-color");
