@@ -3,7 +3,7 @@ import { addOfficeCustomerDeliveryAddress, createOfficeCustomer, getOfficeCustom
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType, normalizeOrderType } from "../../../../shared/orderRouting.js";
-import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
+import { addDraftRow, removeDraftRow, splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
 import { findSimilarCustomers, resolveCustomerSelection } from "./customerSelection.js";
 import { ReviewDialog } from "./ReviewDialog.jsx";
@@ -567,6 +567,22 @@ function OrderPricingEditor({
         );
       },
     );
+  // 2026-11-08：识别后允许临时加行/删行（客户改主意时不用重新识别）。
+  const canEditLines = !editingLocked && !locked && canEditDraft && !splitPlan;
+  const addLine = () => {
+    if (!canEditLines || frozenRequest.current) return;
+    invalidate();
+    setRows((current) => addDraftRow(current, pickedCustomer));
+    setNotice("已添加一行空白明细，请填写规格、颜色和数量。");
+  };
+  const removeLine = (index) => {
+    if (!canEditLines || frozenRequest.current) return;
+    const removedId = rows[index]?.id;
+    invalidate();
+    setRows((current) => removeDraftRow(current, index));
+    if (removedId) setExpandedRows((current) => current.filter((rowId) => rowId !== removedId));
+    setNotice(`已删除第 ${index + 1} 行明细。`);
+  };
   const splitLine = (index) => {
     if (editingLocked || locked || !canEditDraft) return;
     const line = rows[index];
@@ -775,7 +791,10 @@ function OrderPricingEditor({
           />
           <header>
             <h3>订单明细</h3>
-            <span>{rows.length ? `${rows.length} 行 · 点「更多」填印刷内容、改价、拆行` : ""}</span>
+            <div className="pricing-lines-tools">
+              <span>{rows.length ? `${rows.length} 行 · 点「更多」填印刷内容、改价、拆行` : ""}</span>
+              <button type="button" className="pricing-add-line" disabled={!canEditLines} onClick={addLine}>＋ 添加一行</button>
+            </div>
           </header>
           {!rows.length ? (
             <p className="pricing-empty">
@@ -1103,6 +1122,10 @@ function OrderPricingEditor({
                       disabled={editingLocked || locked || !canEditDraft || !!splitLineBlockedReason(line)}
                       title={locked ? "小程序锁价明细保持原样" : splitLineBlockedReason(line) || "先对半拆成两行，再分别调整数量与交付"}
                       onClick={() => splitLine(index)}>拆分明细行</button>
+                    <button type="button" aria-label={`删除第${index + 1}行明细`}
+                      disabled={!canEditLines}
+                      title={locked ? "已锁价明细不能删除" : "删掉这一行；其余行保持不变"}
+                      onClick={() => removeLine(index)}>删除这一行</button>
                     {line.sourceHoldId ? <span>留货转单明细须保持原留货数量，不能拆行。</span> : null}
                   </div>
                 </div>
