@@ -93,9 +93,11 @@ export function parsePrintOrderLine(text, { now = new Date() } = {}) {
   if (/平口/u.test(working)) notes.push("平口");
   if (/有底无侧/u.test(working)) notes.push("有底无侧");
 
-  // 负责人 2026-11-08：印刷面三种——单面印刷、双面相同、双面不同（不写进备注）。没写清两面是否一样时按双面相同。
+  // 负责人 2026-11-08：印刷面三种——单面印刷、双面相同、双面不同（不写进备注）。
+  // 只写了双面、没说两面一不一样的，标「双面待确认」，开单页提醒办公室补全。
   const different = /(?:双面?|正反面?)\s*不同|不同版|不同内容|正反版|双不同/u.test(working);
-  const side = /单面/u.test(working) ? "单面" : different ? "双面不同" : "双面";
+  const same = /(?:双面?|正反面?)\s*(?:一样|相同)|同样内容|内容相同|相同内容/u.test(working);
+  const side = /单面/u.test(working) ? "单面" : different ? "双面不同" : same ? "双面" : "双面待确认";
   if (/满版|满印/u.test(working)) notes.push("满版");
   if (/超范围/u.test(working)) notes.push("超范围印刷");
   if (/不覆膜/u.test(working)) notes.push("不覆膜");

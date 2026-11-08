@@ -250,7 +250,10 @@ function detectNote(chunk, { handle }) {
 }
 
 function detectPrintSide(chunk) {
-  if (/[双两]面/.test(chunk)) return "双面";
+  // 负责人 2026-11-08：双面要分相同还是不同；没写清的标待确认，开单页提醒补全。
+  if (/(?:[双两]面?|正反面?)\s*不同|不同版|不同内容|正反版/u.test(chunk)) return "双面不同";
+  if (/(?:[双两]面?|正反面?)\s*(?:一样|相同)|同样内容|内容相同/u.test(chunk)) return "双面";
+  if (/[双两]面/.test(chunk)) return "双面待确认";
   if (/[单一]面/.test(chunk)) return "单面";
   return "待确认";
 }
