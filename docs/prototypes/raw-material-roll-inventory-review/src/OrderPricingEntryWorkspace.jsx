@@ -1456,7 +1456,9 @@ function NewCustomerDialog({ authState, operatorId, initialName = "", onClose, o
 function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, onPick, hint, fulfillment, latest, onFulfillment, onLatest }) {
   const ids = customerIdsOf(rows);
   const someMissing = rows.some((line) => !line.customerId);
-  const currentId = rows.length ? (ids.length === 1 && !someMissing ? ids[0] : "") : picked?.customerId ?? "";
+  // 识别文里带了客户名字时会写入 pickedCustomer；即使个别行还没带上客户，
+  // 输入框也必须显示已识别的客户，不能退回空白让人以为没选。
+  const currentId = (rows.length && ids.length === 1 && !someMissing ? ids[0] : "") || picked?.customerId || "";
   const currentName = rows.length
     ? currentId ? (rows[0].customer || rows[0].customerName || currentId) : ""
     : picked?.name ?? "";
@@ -1464,6 +1466,12 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
   const [editing, setEditing] = useState(false);
   // 输入了但还没选中时保留内容，明确提示"尚未选中"，不静默清空。
   const [pendingName, setPendingName] = useState("");
+  // 识别文里写了客户名、但没匹配到档案：把名字回填到输入框，配合下方"新建客户"提示。
+  useEffect(() => {
+    if (currentId) return;
+    const recognizedName = String(hint?.name ?? "").trim();
+    if (recognizedName) setPendingName((current) => current || recognizedName);
+  }, [currentId, hint?.name]);
   const [found, setFound] = useState({ loading: false, items: [], error: "" });
   const [profile, setProfile] = useState(null);
   const [creating, setCreating] = useState(null);
