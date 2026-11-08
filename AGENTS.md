@@ -2,6 +2,8 @@
 
 Development tasks open PRs only and do not merge them. The designated integration/release task reviews and combines approved PRs in dependency order on a clean candidate branch, tests and deploys that immutable candidate to staging, and advances `codex/staging-current` only after the server serves and verifies that exact release. The normal controlled finalize remains mandatory; merging a PR before the server switches is not allowed. Production requires separate explicit authorization.
 
+2026-11-08 owner instruction: all subsequent ERP deployments and version updates must be executed only in the existing Codex conversation `部署-更新` (local host, thread `019f9832-39ce-7431-bc65-e1d568ff15f9`). Other conversations prepare code, PRs, reviews and a release handoff; they do not execute deploy, finalize, server cutover or canonical promotion, even if an earlier message in that conversation authorized deployment. Send the reviewed PR/full commit, checks, current served baseline, release lock, transport/rollback evidence and remaining blockers to `部署-更新`. A changed candidate requires a new matching lock and validation there. This designation does not waive any controlled-release gate or authorize production; production still requires separate explicit owner authorization. See `docs/development/controlled-release-governance.zh-CN.md`.
+
 Do not change the GitHub repository's visibility based on a completed review or an earlier temporary-public arrangement. Change visibility only when the owner explicitly requests that change at the time.
 
 Run the local server yourself and open the preview in the in-app browser. Do not give the user server-start instructions when you can run it.
