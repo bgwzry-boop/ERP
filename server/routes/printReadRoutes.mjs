@@ -135,7 +135,13 @@ export async function handlePrintReadRoutes({
       sendJson(response, 422, { code: "PRINT_JOB_NOT_A_NOTE", message: "只有送货单、自提单能在这里打印。" });
       return true;
     }
-    const merged = mergeFulfillmentNoteTemplates(templates);
+    // 客户编号从出库记录里取，不信单据上的客户名字（会重名）。
+    const customerIds = jobs.map((job, index) => {
+      const fulfillmentId = String((job.targetType === "fulfillment" ? job.targetId : "") || templates[index]?.fields?.fulfillmentId || "").trim();
+      const fulfillment = (workspace.fulfillments ?? []).find((row) => (row.fulfillmentId ?? row.id) === fulfillmentId);
+      return String(fulfillment?.customerId ?? "").trim();
+    });
+    const merged = mergeFulfillmentNoteTemplates(templates, { customerIds });
     if (merged.error) { sendJson(response, 422, merged.error); return true; }
     try {
       const pdf = await buildFulfillmentNotePdf(merged.template);

@@ -15,6 +15,7 @@ import { createPostgresPrintJobRepository } from "../server/printJobRepository.m
 import { createPostgresFulfillmentActionTransactionRepository } from "../server/fulfillmentActionTransactionRepository.mjs";
 import { buildFulfillmentNotePdf } from "./fulfillment-note-pdf.mjs";
 import { mergeFulfillmentNoteTemplates } from "../shared/fulfillmentNoteMerge.js";
+import { handlePrintReadRoutes } from "../server/routes/printReadRoutes.mjs";
 
 const name = `erp-browser-note-${process.pid}-${Date.now()}`;
 const docker = args => { const r = spawnSync("docker", args, { encoding: "utf8" }); if (r.status !== 0) throw Error(r.stderr || r.stdout); return r.stdout.trim(); };
@@ -95,16 +96,53 @@ try {
   const second = structuredClone(template);
   second.fields.lineItems = second.fields.lineItems.map(item => ({ ...item, size: "45*37*10", color: "黑色", deliveredQtyText: "300", chargeableQtyText: "300", deliveredQty: 300, chargeableQty: 300, amount: 147, amountText: "147.00" }));
   second.fields.totalAmount = 147; second.fields.totalQuantity = 300; second.fields.documentNo = "PR-SECOND";
-  const merged = mergeFulfillmentNoteTemplates([template, second]);
+  const merged = mergeFulfillmentNoteTemplates([template, second], { customerIds: ["C001", "C001"] });
   assert.equal(merged.template.fields.lineItems.length, 2);
   assert.equal(merged.template.fields.totalAmount, Math.round((Number(template.fields.totalAmount) + 147) * 100) / 100);
   const text = await pdfText(await buildFulfillmentNotePdf(merged.template));
   assert.match(text, /45\*37\*10/u);
   assert.match(text, /印刷工乙/u);
-  const other = structuredClone(second); other.fields.customerName = "别的客户";
-  assert.equal(mergeFulfillmentNoteTemplates([template, other]).error.code, "PRINT_NOTE_CUSTOMERS_DIFFER");
+  // 判断同一个客户只看客户编号：名字一样、编号不同也不能合；编号缺了不合；同客户地址联系人不同也不合。
+  assert.equal(mergeFulfillmentNoteTemplates([template, second], { customerIds: ["C001", "C099"] }).error.code, "PRINT_NOTE_CUSTOMERS_DIFFER");
+  assert.equal(mergeFulfillmentNoteTemplates([template, second]).error.code, "PRINT_NOTE_CUSTOMER_UNKNOWN");
+  assert.equal(mergeFulfillmentNoteTemplates([template, second], { customerIds: ["C001", ""] }).error.code, "PRINT_NOTE_CUSTOMER_UNKNOWN");
+  const elsewhere = structuredClone(second); elsewhere.fields.address = "另一个仓库地址";
+  assert.equal(mergeFulfillmentNoteTemplates([template, elsewhere], { customerIds: ["C001", "C001"] }).error.code, "PRINT_NOTE_CONTACTS_DIFFER");
 
-  console.log(`PASS browser note print PG (${migrations.length} migrations): dot-matrix browser device and note templates seeded, job waits for office confirmation, confirmation marks record printed and paper ready for the warehouse, driver printers refused, one customer's notes merged into one sheet.`);
+  // 走真实的 PDF 接口复现测试站发现的问题：两个客户同名（都叫「张三服饰」）、编号不同，不能合成一张。
+  const callNotePdf = async (ids, extraJobs) => {
+    const workspace = await prepare();
+    workspace.printJobs = [...(workspace.printJobs ?? []), ...extraJobs];
+    const out = { status: 0, body: null, headers: {} };
+    const response = { writeHead(status, headers) { out.status = status; out.headers = headers; }, end(body) { out.body = body; } };
+    await handlePrintReadRoutes({
+      url: new URL(`http://test/api/print-jobs/note.pdf?ids=${ids.join(",")}`), response, workspace,
+      permissionContext: {}, authContext: {}, writeActionPermissions: { printFulfillment: "print.fulfillment" },
+      requireActionPermission: () => true, getPermissionOperatorId: () => "U-OFFICE-A",
+      sendJson: (_res, status, body) => { out.status = status; out.body = body; }, sendNotFound: (_res, code) => { out.status = 404; out.body = { code }; },
+      paginate: (items) => ({ items }), findPrintJob: services.printJobLifecycleService.findPrintJob ?? (async (w, id) => (w.printJobs ?? []).find(row => row.printJobId === id) ?? null),
+      findPrintDevice: async () => null, printDriverDiagnosticsService: {},
+    });
+    return out;
+  };
+  const baseJob = (await prepare()).printJobs.find(row => row.printJobId === jobId);
+  assert.ok(baseJob, "the queued note job is in the workspace");
+  const sameNameJob = structuredClone(baseJob);
+  sameNameJob.printJobId = "PJ-SAME-NAME"; sameNameJob.id = "PJ-SAME-NAME"; sameNameJob.targetId = "F-LIVE-EXPORT-001";
+  sameNameJob.payload.printTemplate.fields.fulfillmentId = "F-LIVE-EXPORT-001";
+  sameNameJob.payload.printTemplate.fields.documentNo = "PR-SAME-NAME";
+  assert.equal(sameNameJob.payload.printTemplate.fields.customerName, baseJob.payload.printTemplate.fields.customerName, "same name on the note");
+  const sameName = await callNotePdf([jobId, "PJ-SAME-NAME"], [sameNameJob]);
+  assert.deepEqual([sameName.status, sameName.body?.code], [422, "PRINT_NOTE_CUSTOMERS_DIFFER"], "same name, different customer numbers: refused");
+  const sameCustomerJob = structuredClone(baseJob);
+  sameCustomerJob.printJobId = "PJ-SAME-CUSTOMER"; sameCustomerJob.id = "PJ-SAME-CUSTOMER";
+  const sameCustomer = await callNotePdf([jobId, "PJ-SAME-CUSTOMER"], [sameCustomerJob]);
+  assert.equal(sameCustomer.status, 200, JSON.stringify(sameCustomer.body));
+  assert.equal(sameCustomer.headers["content-type"], "application/pdf");
+  const single = await callNotePdf([jobId], []);
+  assert.equal(single.status, 200, "one note prints on its own");
+
+  console.log(`PASS browser note print PG (${migrations.length} migrations): dot-matrix browser device and note templates seeded, job waits for office confirmation, confirmation marks record printed and paper ready for the warehouse, driver printers refused, one customer's notes merged into one sheet; customers with the same name but different numbers are never merged (checked through the real PDF route).`);
 } finally {
   await pool?.end().catch(() => {});
   spawnSync("docker", ["rm", "-f", name]);
