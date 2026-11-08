@@ -5,7 +5,7 @@ import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiCl
 import { isStockOrderType, normalizeOrderType } from "../../../../shared/orderRouting.js";
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
-import { resolveCustomerSelection } from "./customerSelection.js";
+import { findSimilarCustomers, resolveCustomerSelection } from "./customerSelection.js";
 import { ReviewDialog } from "./ReviewDialog.jsx";
 import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
@@ -1466,12 +1466,25 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
   const [editing, setEditing] = useState(false);
   // 输入了但还没选中时保留内容，明确提示"尚未选中"，不静默清空。
   const [pendingName, setPendingName] = useState("");
+  // 识别出的名字在系统里没有完全一致时，先查相似客户，判断是不是识别漏字。
+  const [hintCandidates, setHintCandidates] = useState([]);
   // 识别文里写了客户名、但没匹配到档案：把名字回填到输入框，配合下方"新建客户"提示。
   useEffect(() => {
     if (currentId) return;
     const recognizedName = String(hint?.name ?? "").trim();
     if (recognizedName) setPendingName((current) => current || recognizedName);
   }, [currentId, hint?.name]);
+  useEffect(() => {
+    const recognizedName = String(hint?.name ?? "").trim();
+    if (currentId || !recognizedName || hint?.customerId) { setHintCandidates([]); return undefined; }
+    let live = true;
+    const timer = setTimeout(() => {
+      void searchOfficeCustomers({ query: recognizedName, authState, operatorId }, { serverRequired: true })
+        .then((result) => { if (live) setHintCandidates(findSimilarCustomers(recognizedName, result.items ?? [])); })
+        .catch(() => { if (live) setHintCandidates([]); });
+    }, 200);
+    return () => { live = false; clearTimeout(timer); };
+  }, [authState, currentId, hint?.customerId, hint?.name, operatorId]);
   const [found, setFound] = useState({ loading: false, items: [], error: "" });
   const [profile, setProfile] = useState(null);
   const [creating, setCreating] = useState(null);
@@ -1567,6 +1580,12 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
                 <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(hint)}>选用这个客户</button></>
               : hint.ambiguous?.length
               ? <>消息里写的「{hint.name}」对应多个客户：{hint.ambiguous.join("、")}，请在上面选一个。</>
+              : hintCandidates.length
+              ? <>消息里写的「{hint.name}」没有完全一致的客户，可能是：
+                {hintCandidates.map((customer) => (
+                  <button key={customer.customerId} type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(customer)}>「{customer.name}」</button>
+                ))}
+                识别漏字的话请选上面对应的客户。</>
               : <>消息里写的客户「{hint.name}」系统里没有。是否新建？
                 <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => setCreating({ name: hint.name })}>新建客户「{hint.name}」</button></>}
           </p>

@@ -1,6 +1,6 @@
 // 客户输入框：输入≠选中。只有唯一同名才自动认定真实客户；否则保留输入并提示未选中。
 import assert from "node:assert/strict";
-import { resolveCustomerSelection, resolveRecognizedCustomer } from "../docs/prototypes/raw-material-roll-inventory-review/src/customerSelection.js";
+import { findSimilarCustomers, resolveCustomerSelection, resolveRecognizedCustomer } from "../docs/prototypes/raw-material-roll-inventory-review/src/customerSelection.js";
 
 const huang = { customerId: "C-HUANG", name: "黄松" };
 const other = { customerId: "C-OTHER", name: "黄松林" };
@@ -30,5 +30,12 @@ assert.deepEqual(
   "人工先选的客户不被识别结果覆盖",
 );
 assert.deepEqual(resolveRecognizedCustomer(null, null), { customer: null, pendingName: "" }, "没有客户名时保持空白待手选");
+
+// 识别漏字时先给相似客户，而不是直接提示新建。
+const directory = [{ customerId: "C-HUANG", name: "黄松" }, { customerId: "C-LIN", name: "黄松林" }, { customerId: "C-ZHANG", name: "张三服饰" }];
+assert.deepEqual(findSimilarCustomers("黄", directory).map((item) => item.name), ["黄松", "黄松林"], "少写一个字时应列出相似客户");
+assert.deepEqual(findSimilarCustomers("黄松", directory).map((item) => item.name), ["黄松", "黄松林"], "包含关系的也算相似");
+assert.deepEqual(findSimilarCustomers("王五", directory), [], "完全不沾边才建议新建");
+assert.deepEqual(findSimilarCustomers("", directory), [], "空名字不查");
 
 console.log("Customer selection checks passed: exact unique name binds; ambiguous/missing keeps input with pending hint.");
