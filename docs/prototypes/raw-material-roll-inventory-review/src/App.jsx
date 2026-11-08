@@ -473,6 +473,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
     if (!nextView || !visibleViews.includes(nextView)) return false;
     setWorkspaceFocus(focus.preserveWorkspaceFocus && focus.workspaceFocus?.navId === navId ? focus.workspaceFocus : null);
     setProductionFocusId(focus.productionTaskId || "");
+    if (navId === "material-receiving" && focus.receiptId) setReceiptFocusId(focus.receiptId);
     setView(nextView);
     const group = pcNavGroups.find(item => item.items.some(child => child.id === navId));
     if (group) setExpandedGroups(current => new Set([...current, group.id]));

@@ -195,9 +195,9 @@ try {
   assert.equal(initialFulfillment.customerName, customer.name);
 
   report.stage = "paper-create";
-  await button("查看订单池").click();
+  await button("查看订单跟踪").click();
   await expect(page).toHaveURL(/#order-pool$/u);
-  await button("出库交付").click();
+  await button("发货安排").click();
   await expect(page).toHaveURL(/#outbound-delivery$/u);
   await selectRow("出库交付", report.fulfillmentId, report.orderLineId);
   const panel = page.getByRole("region", { name: "出库办理", exact: true });
@@ -249,7 +249,7 @@ try {
   await button("返回列表", dialog).click();
 
   report.stage = "paper-handoff-and-warehouse";
-  await button("出库交付").click();
+  await button("发货安排").click();
   await selectRow("出库交付", report.fulfillmentId, report.orderLineId);
   await expect(handoff).toBeVisible();
   await screenshot("03-paper-ready-for-warehouse");
