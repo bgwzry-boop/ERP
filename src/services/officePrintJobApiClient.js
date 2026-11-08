@@ -253,3 +253,45 @@ function cleanText(value) {
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
+
+// 负责人 2026-11-08：送货单/自提单走办公室电脑的浏览器打印。几张同客户的合成一张 PDF。
+export async function fetchOfficeNotePdf(input = {}, options = {}) {
+  const ids = [...new Set((input.printJobIds ?? []).map(cleanText).filter(Boolean))];
+  if (!ids.length) return { source: "ui_error", blocked: true, error: { code: "PRINT_JOB_REQUIRED", message: "没有要打印的单据。" } };
+  try {
+    const response = await requestPrintJobApi(`/print-jobs/note.pdf?ids=${encodeURIComponent(ids.join(","))}`, {
+      ...options,
+      authState: input.authState,
+      operatorId: input.operatorId,
+      method: "GET",
+    });
+    if (!response.ok) {
+      const json = await readJson(response, {});
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "单据生成失败。") };
+    }
+    return { source: "api", blob: await response.blob() };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "PRINT_NOTE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+// 办公室看过纸单确实打出来后确认；只对浏览器打印的设备有效。
+export async function confirmOfficeBrowserPrint(input = {}, options = {}) {
+  const printJobId = cleanText(input.printJobId);
+  if (!printJobId) return invalidPrintJobInput("PRINT_JOB_REQUIRED", "打印作业不能为空。");
+  try {
+    const response = await requestPrintJobApi(`/print-jobs/${encodeURIComponent(printJobId)}/browser-printed`, {
+      ...options,
+      authState: input.authState,
+      operatorId: input.operatorId,
+      method: "POST",
+      idempotencyKey: input.idempotencyKey,
+      body: { confirmed: true, idempotencyKey: input.idempotencyKey },
+    });
+    const json = await readJson(response, {});
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "确认已打印没有保存。") };
+    return { source: "api", printJob: normalizePrintJob(json.printJob), alreadyConfirmed: json.alreadyConfirmed === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "PRINT_JOB_CONFIRM_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
