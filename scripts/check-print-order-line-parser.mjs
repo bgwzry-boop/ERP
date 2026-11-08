@@ -76,7 +76,11 @@ for (const [line, expected] of cases) {
   const actual = row(line);
   for (const [key, value] of Object.entries(expected)) assert.deepEqual(actual[key], value, `${key}: ${line}`);
 }
-assert.ok(row("【仁济六合耳鼻堂】满版印刷 31号发货 30*38*10 双面印刷 2000个 大红 白字 【双面不同】   元宝").notes.includes("双面不同"));
+// 印刷面三种：单面印刷、双面相同、双面不同（不写进备注）。
+assert.equal(row("【仁济六合耳鼻堂】满版印刷 31号发货 30*38*10 双面印刷 2000个 大红 白字 【双面不同】   元宝").side, "双面不同");
+assert.equal(row("【全优科创思维馆】35*27  紫袋黄字  双面不同版满版印2000个 腾腾  自己写30号发").side, "双面不同");
+assert.equal(row("【金菊】30*38*10 双面印刷 3000个 橘黄白字（双面一样） 等通知印刷  松").side, "双面");
+assert.ok(!row("【金菊】30*38*10 双面印刷 3000个 橘黄白字（双面一样） 等通知印刷  松").notes.some((note) => /双面/u.test(note)));
 assert.ok(row("【乐家美牙科】 不覆膜 30*37 玫红印白 双面满版印5000个 腾腾  加急28号发").notes.includes("不覆膜"));
 assert.ok(row("【子墨新】：1号发货40*32*10双面印刷5000个安哥拉红 白字 咖啡提【双面相同】 加长提手50cm   元宝").notes.includes("加长提50cm"));
 assert.ok(row("【科尔口腔 福清科尔福俱路】平口 25*35 双面印刷 2000个 橘黄 白字（双面不同）  松  自己写31号发").notes.includes("平口"));

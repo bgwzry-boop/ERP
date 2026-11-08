@@ -561,6 +561,7 @@ function mapPrintSideToLocal(value, printFlag) {
   const normalized = cleanText(value);
   if (normalized === "single") return "单面";
   if (normalized === "double") return "双面";
+  if (normalized === "double_different") return "双面不同";
   return normalized;
 }
 

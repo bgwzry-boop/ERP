@@ -937,13 +937,21 @@ function OrderPricingEditor({
                       <label>
                         印刷面
                         <select
-                          value={line.printSide || "单面"}
+                          value={["单面", "双面", "双面不同"].includes(line.printSide) ? line.printSide : "单面"}
                           onChange={(e) =>
                             update(index, "printSide", e.target.value)
                           }
                         >
-                          <option>单面</option>
-                          <option>双面</option>
+                          <option value="单面">单面印刷</option>
+                          <option value="双面">双面相同</option>
+                          <option value="双面不同">双面不同</option>
+                        </select>
+                      </label>
+                      {/* 负责人 2026-11-08：印刷工艺目前只有丝印，以后有别的工艺再加选项。 */}
+                      <label>
+                        印刷工艺
+                        <select aria-label={`第${index + 1}行印刷工艺`} value="丝印" onChange={() => {}}>
+                          <option value="丝印">丝印</option>
                         </select>
                       </label>
                       <label>

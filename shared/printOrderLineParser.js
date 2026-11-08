@@ -93,9 +93,9 @@ export function parsePrintOrderLine(text, { now = new Date() } = {}) {
   if (/平口/u.test(working)) notes.push("平口");
   if (/有底无侧/u.test(working)) notes.push("有底无侧");
 
-  const side = /单面/u.test(working) ? "单面" : /双面|双版|正反|个\s*双|\d\s*双(?!色)/u.test(working) ? "双面" : "双面";
-  if (/双面?\s*(?:一样|相同)|双面相同|同样内容|内容相同|正反(?:面)?\s*(?:一样|相同)/u.test(working)) notes.push("双面一样");
-  else if (/(?:双面?|正反面?)\s*不同|不同版|不同内容|正反版|双不同/u.test(working)) notes.push("双面不同");
+  // 负责人 2026-11-08：印刷面三种——单面印刷、双面相同、双面不同（不写进备注）。没写清两面是否一样时按双面相同。
+  const different = /(?:双面?|正反面?)\s*不同|不同版|不同内容|正反版|双不同/u.test(working);
+  const side = /单面/u.test(working) ? "单面" : different ? "双面不同" : "双面";
   if (/满版|满印/u.test(working)) notes.push("满版");
   if (/超范围/u.test(working)) notes.push("超范围印刷");
   if (/不覆膜/u.test(working)) notes.push("不覆膜");

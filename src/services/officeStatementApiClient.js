@@ -836,6 +836,7 @@ function buildLocalLineRemark(line, colorSpec = "") {
 function mapPrintSide(value) {
   if (value === "single") return "单面";
   if (value === "double") return "双面";
+  if (value === "double_different") return "双面不同";
   return value || "";
 }
 
