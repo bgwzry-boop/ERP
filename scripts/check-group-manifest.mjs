@@ -176,6 +176,7 @@ export const CHECK_GROUPS = Object.freeze({
     "controlled-release:check",
     "release:line:check",
     "v1-production-deployment-manifest:check",
+    "customer-selection:check",
     "v1-production-release-gate:check",
   ]),
   "batch-a": Object.freeze([

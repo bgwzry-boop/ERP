@@ -5,6 +5,7 @@ import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiCl
 import { isStockOrderType, normalizeOrderType } from "../../../../shared/orderRouting.js";
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
+import { findSimilarCustomers, resolveCustomerSelection } from "./customerSelection.js";
 import { ReviewDialog } from "./ReviewDialog.jsx";
 import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
@@ -1455,12 +1456,35 @@ function NewCustomerDialog({ authState, operatorId, initialName = "", onClose, o
 function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, onPick, hint, fulfillment, latest, onFulfillment, onLatest }) {
   const ids = customerIdsOf(rows);
   const someMissing = rows.some((line) => !line.customerId);
-  const currentId = rows.length ? (ids.length === 1 && !someMissing ? ids[0] : "") : picked?.customerId ?? "";
+  // 识别文里带了客户名字时会写入 pickedCustomer；即使个别行还没带上客户，
+  // 输入框也必须显示已识别的客户，不能退回空白让人以为没选。
+  const currentId = (rows.length && ids.length === 1 && !someMissing ? ids[0] : "") || picked?.customerId || "";
   const currentName = rows.length
     ? currentId ? (rows[0].customer || rows[0].customerName || currentId) : ""
     : picked?.name ?? "";
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState(false);
+  // 输入了但还没选中时保留内容，明确提示"尚未选中"，不静默清空。
+  const [pendingName, setPendingName] = useState("");
+  // 识别出的名字在系统里没有完全一致时，先查相似客户，判断是不是识别漏字。
+  const [hintCandidates, setHintCandidates] = useState([]);
+  // 识别文里写了客户名、但没匹配到档案：把名字回填到输入框，配合下方"新建客户"提示。
+  useEffect(() => {
+    if (currentId) return;
+    const recognizedName = String(hint?.name ?? "").trim();
+    if (recognizedName) setPendingName((current) => current || recognizedName);
+  }, [currentId, hint?.name]);
+  useEffect(() => {
+    const recognizedName = String(hint?.name ?? "").trim();
+    if (currentId || !recognizedName || hint?.customerId) { setHintCandidates([]); return undefined; }
+    let live = true;
+    const timer = setTimeout(() => {
+      void searchOfficeCustomers({ query: recognizedName, authState, operatorId }, { serverRequired: true })
+        .then((result) => { if (live) setHintCandidates(findSimilarCustomers(recognizedName, result.items ?? [])); })
+        .catch(() => { if (live) setHintCandidates([]); });
+    }, 200);
+    return () => { live = false; clearTimeout(timer); };
+  }, [authState, currentId, hint?.customerId, hint?.name, operatorId]);
   const [found, setFound] = useState({ loading: false, items: [], error: "" });
   const [profile, setProfile] = useState(null);
   const [creating, setCreating] = useState(null);
@@ -1488,6 +1512,22 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
     onPick(customer);
     setEditing(false);
     setQuery("");
+    setPendingName("");
+  };
+  // 失焦时按"输入≠选中"收尾：唯一同名直接认定；否则保留输入并提示未选中。
+  const finishEditing = () => {
+    if (currentId) { setEditing(false); return; }
+    const decision = resolveCustomerSelection(query, found.items);
+    if (decision.customer) { choose(decision.customer); return; }
+    setPendingName(decision.pendingName);
+    setEditing(false);
+  };
+  const handleCustomerKeyDown = (event) => {
+    if (event.key === "Escape") { setEditing(false); return; }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (found.items.length) choose(found.items[0]);
+    else finishEditing();
   };
   const multiple = ids.length > 1;
   return (
@@ -1503,10 +1543,12 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
           className={currentId ? undefined : "pricing-missing"}
           disabled={disabled}
           placeholder={multiple ? `这段消息里有 ${ids.length} 个客户，选一个会全部改成同一个` : "输入客户名称、简称、联系人或电话搜索"}
-          value={editing ? query : currentName}
+          value={editing ? query : (currentName || pendingName)}
           onFocus={() => { setEditing(true); setQuery(""); }}
-          onBlur={() => setTimeout(() => setEditing(false), 150)}
-          onChange={(event) => { setEditing(true); setQuery(event.target.value); }}
+          onBlur={() => setTimeout(finishEditing, 150)}
+          onKeyDown={handleCustomerKeyDown}
+          onChange={(event) => { setEditing(true); setQuery(event.target.value); setPendingName(""); }}
+          aria-invalid={!currentId && Boolean(pendingName)}
         />
         {editing ? (
           <ul id="pricing-customer-options" role="listbox" className="pricing-customer-options">
@@ -1526,13 +1568,29 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
             </li>
           </ul>
         ) : null}
+        {!currentId && !editing && pendingName ? (
+          <p className="pricing-customer-info warn" role="status">
+            「{pendingName}」还没选中：请从下拉里选这一位，或点「＋新建客户」建完再用。
+          </p>
+        ) : null}
         {!currentId && !editing && hint?.name ? (
           <p className="pricing-customer-info warn" role="status">
             {hint.customerId
               ? <>已找到客户「{hint.name}」。
                 <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(hint)}>选用这个客户</button></>
+              : hintCandidates.length
+              ? <>消息里写的「{hint.name}」对应多个客户，请选一个：
+                {hintCandidates.map((customer) => (
+                  <button key={customer.customerId} type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(customer)}>「{customer.name}」</button>
+                ))}</>
               : hint.ambiguous?.length
               ? <>消息里写的「{hint.name}」对应多个客户：{hint.ambiguous.join("、")}，请在上面选一个。</>
+              : hintCandidates.length
+              ? <>消息里写的「{hint.name}」没有完全一致的客户，可能是：
+                {hintCandidates.map((customer) => (
+                  <button key={customer.customerId} type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(customer)}>「{customer.name}」</button>
+                ))}
+                识别漏字的话请选上面对应的客户。</>
               : <>消息里写的客户「{hint.name}」系统里没有。是否新建？
                 <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => setCreating({ name: hint.name })}>新建客户「{hint.name}」</button></>}
           </p>

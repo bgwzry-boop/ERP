@@ -36,11 +36,16 @@ const similarCustomers = [
   { id: "HS", name: "东莞市黄松包装有限公司", shortName: "黄松" },
   { id: "HSL", name: "黄松林" },
 ];
-for (const [name, id, color] of [["黄松", "HS", "待确认"], ["黄松林", "HSL", "待确认"]]) {
+// 2026-11-08 负责人规则：不做主观判断。黄松 / 黄松林 同时存在时两者都算相关，
+// 一律不自动认定，交给录入人选择；只有唯一相关客户时才自动带出。
+for (const name of ["黄松", "黄松林"]) {
   const [row] = recognizeOrderConversation(`3037 500个 ${name}`, { customers: similarCustomers }).orderRows;
-  assert.equal(row.customerId, id);
-  assert.equal(row.color, color);
+  assert.equal(row.customerId, "", `${name} 存在相似客户时不得自动认定`);
+  assert.equal(row.color, "待确认");
 }
+const [onlyRelated] = recognizeOrderConversation("3037 500个 黄松", { customers: [similarCustomers[0]] }).orderRows;
+assert.equal(onlyRelated.customerId, "HS", "唯一相关客户时自动带出");
+assert.equal(onlyRelated.color, "待确认");
 const ambiguousCustomers = [...similarCustomers, { id: "HS2", name: "黄松商贸", shortName: "黄松" }];
 const [ambiguous] = recognizeOrderConversation("3037 500个 黄松", { customers: ambiguousCustomers }).orderRows;
 assert.equal(ambiguous.customerId, "");
