@@ -81,7 +81,7 @@ export function RawMaterialCostWorkspace({ formal }) {
 
   return <div className="raw-material-cost-workspace" aria-label="原料成本">
     <section className="raw-material-cost-list" aria-label="成本来源单据">
-      <header><h2>原料成本</h2><button disabled={formal.meta.loading || saving} onClick={() => void formal.actions.refreshAll()} type="button"><ReloadOutlined />刷新</button></header>
+      <header><h1>原料成本</h1><button disabled={formal.meta.loading || saving} onClick={() => void formal.actions.refreshAll()} type="button"><ReloadOutlined />刷新</button></header>
       <label className="raw-material-cost-search"><SearchOutlined aria-hidden="true" /><span className="sr-only">搜索供应商或单号</span><input onChange={(event) => { setKeyword(event.target.value); setSaveError(""); }} placeholder="搜索供应商 / 单号" value={keyword} /></label>
       {readError ? <p className="raw-material-cost-error" role="alert">{readError}</p> : null}
       <div className="raw-material-cost-records">

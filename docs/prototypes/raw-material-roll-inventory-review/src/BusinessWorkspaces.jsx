@@ -527,6 +527,7 @@ function buildWorkspaceConfigs(formal) {
   },
   "people-machines": {
     title: "员工机台",
+    emptyDescription: "还没有员工和机台资料。先在基础资料里维护员工与机台，再回来分配。",
     columns: ["序号", "员工", "岗位", "车间", "机台", "状态"],
     gridTemplateColumns: "52px minmax(120px, 1.15fr) minmax(124px, 1.2fr) minmax(84px, .78fr) minmax(104px, .92fr) minmax(92px, .8fr)",
     primaryCellIndex: 1,
@@ -602,7 +603,7 @@ function GenericWorkspace({ config, onNavigate, detailExtra, focus = null }) {
 
   return <><div className="business-workbench source-grounded-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>{config.title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} extra={config.headingExtra} /></header>
+      <header className="business-panel-heading"><h1>{config.title}</h1><WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} extra={config.headingExtra} /></header>
       {config.modes ? <div aria-label={`${config.title}区域`} className="business-subtabs" role="tablist">{config.modes.map((item) => <button aria-selected={mode === item} key={item} onClick={() => { setMode(item); setSelectedId(""); }} role="tab" type="button">{item}</button>)}</div> : null}
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder={config.searchPlaceholder || "搜索当前工作台"} value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       {/* 2026-11-07：表头与表体放进同一个横向滚动容器，窄屏才能一起滚、列不裁切 */}
@@ -704,7 +705,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
 
   return <div className="business-workbench fulfillment-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>出库交付</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>出库交付</h1><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label="出库交付搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索客户 / 订单 / 货品 / 交付方式" value={query} /></label><select aria-label="出库交付状态" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div aria-label="出库交付列表" className="business-table" role="table">
         <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">客户 / 订单</span><span role="columnheader">货品</span><span role="columnheader">方式</span><span role="columnheader">本次 / 包装</span><span role="columnheader">状态</span></div>
@@ -789,7 +790,7 @@ function SupplierSettlementWorkspace({ formal }) {
 
   return <div className="business-workbench supplier-settlement-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>供应商月结</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>供应商月结</h1><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       {formal.actions.precheckSupplierStatement ? <div className="supplier-upload-row"><SupplierStatementUpload formal={formal} onSaved={(review) => { setStatus("全部阶段"); setQuery(""); setSelectedId(review?.reviewId || ""); setNotice(`已保存对账单 ${review?.reviewId || ""}，请核对。`); }} /></div> : null}
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label="供应商月结搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索供应商 / 月份 / 文件 / 复核单" value={query} /></label><select aria-label="供应商月结阶段" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部阶段</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部阶段"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div aria-label="供应商月结列表" className="business-table" role="table">
@@ -895,14 +896,14 @@ function FinishedGoodsInventoryWorkspace({ category, formal, onNavigate, title }
   const authoritativeItem = formal.data.inventoryItems.find(item => item.id === selected?.id || item.inventoryItemId === selected?.id);
   return <div className="business-workbench finished-goods-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>{title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${categoryRecords.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>{title}</h1><WorkbenchHeadingActions countLabel={`${rows.length} / ${categoryRecords.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <FinishedGoodsTypeFilters category={category} goodsType={goodsType} onGoodsTypeChange={selectType} />
       <div className="finished-goods-search"><label><SearchOutlined /><input aria-label={`${title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索类型 / 规格 / 颜色 / 图案 / 库位" value={query} /></label><button disabled={!query && goodsType === "全部类型"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       {/* 2026-11-07：成品库存表头与表体共用横向滚动容器，1181 窄屏不再被外层裁掉右侧数字 */}
       <div className="finished-goods-table-scroll">
       <div className="finished-goods-table" role="table" aria-label="成品库存列表">
         <div className="finished-inventory-row head" role="row"><span>通货类型</span><span>规格（cm）</span><span>颜色 / 图案</span><span>库位</span><span>在库</span><span>库存结构</span></div>
-        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`finished-inventory-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" type="button"><span><SemanticOrderTag kind="business" value={row.goodsType} /></span><span className="finished-inventory-spec"><strong>{row.size}</strong></span><span className="finished-inventory-attributes"><FactoryColorLabel color={row.color} /><span>· {row.handle}{row.pattern !== "—" ? ` · ${row.pattern}` : ""}</span></span><span className="finished-inventory-location">{row.zone}</span><strong className="finished-inventory-total">{formatNumber(row.inStock)}</strong><InventoryAllocation stock={row} /></button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配的成品库存</strong><span>切换通货类型或调整搜索条件后重试。</span></div>}</div>
+        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`finished-inventory-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" type="button"><span><SemanticOrderTag kind="business" value={row.goodsType} /></span><span className="finished-inventory-spec"><strong>{row.size}</strong></span><span className="finished-inventory-attributes"><FactoryColorLabel color={row.color} /><span>· {row.handle}{row.pattern !== "—" ? ` · ${row.pattern}` : ""}</span></span><span className="finished-inventory-location">{row.zone}</span><strong className="finished-inventory-total">{formatNumber(row.inStock)}</strong><InventoryAllocation stock={row} /></button>) : <div className="business-empty"><SearchOutlined /><strong>{categoryRecords.length ? "没有匹配的成品库存" : `还没有${title.replace("库存", "")}库存记录`}</strong><span>{categoryRecords.length ? "切换通货类型或调整搜索条件后重试。" : "收货或生产入库后，成品会出现在这里。"}</span></div>}</div>
       </div>
       </div>
     </section>
@@ -932,7 +933,7 @@ function FinishedGoodsMasterWorkspace({ formal, onNavigate }) {
 
   return <div className="business-workbench finished-goods-workbench finished-master-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>成品资料</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${finishedGoodsMasterRecords.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>成品资料</h1><WorkbenchHeadingActions countLabel={`${rows.length} / ${finishedGoodsMasterRecords.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <FinishedGoodsClassificationFilters category={category} goodsType={goodsType} onCategoryChange={selectCategory} onGoodsTypeChange={selectType} />
       <div className="finished-goods-search"><label><SearchOutlined /><input aria-label="成品资料搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索袋类 / 类型 / 商品 / 图案 / 规格 / 系列 / 颜色" value={query} /></label><button disabled={!query && category === "全部成品" && goodsType === "全部类型"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="finished-goods-table" role="table" aria-label="成品资料列表">
@@ -992,7 +993,7 @@ export function TodoWorkspace({ formal, onNavigate }) {
 
   return <div className="business-workbench todo-source-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>公共待办</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${formal.data.todos.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>公共待办</h1><WorkbenchHeadingActions countLabel={`${rows.length} / ${formal.data.todos.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <div className="todo-source-tabs" role="tablist" aria-label="待办状态快捷筛选">{todoViews.map((item) => <button aria-selected={view === item} key={item} onClick={() => { setView(item); setSelectedId(""); }} role="tab" type="button"><span>{item}</span><strong>{queryMatched.filter((todo) => todoMatchesView(todo, item)).length}</strong></button>)}</div>
       <div className="todo-source-filter"><label><span>关键词</span><div><SearchOutlined /><input aria-label="公共待办关键词" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="待办 / 客户 / 业务编号 / 摘要" value={query} /></div></label><label><span>业务范围</span><select aria-label="公共待办业务范围" onChange={(event) => { setArea(event.target.value); setSelectedId(""); }} value={area}>{todoAreas.map((item) => <option key={item}>{item}</option>)}</select></label><button disabled={resetDisabled} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="todo-source-table" role="table" aria-label="公共待办列表">
@@ -1033,7 +1034,7 @@ function OrderPoolWorkspace({ formal, onNavigate, focus = null }) {
   const selected = rows.find((order) => order.id === selectedId) || rows[0] || officeOrders[0];
   return <div className="business-workbench order-pool-workbench source-grounded-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>订单池</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${officeOrders.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>订单池</h1><WorkbenchHeadingActions countLabel={`${rows.length} / ${officeOrders.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <div className="order-pool-tools"><div className="business-subtabs" role="tablist">{["全部订单", "待处理", "生产中", "待出库"].map((item) => <button aria-selected={tab === item} key={item} onClick={() => setTab(item)} role="tab" type="button">{item}</button>)}</div><label><SearchOutlined /><input aria-label="订单池搜索" onChange={(event) => setQuery(event.target.value)} placeholder="客户 / 货品 / 规格 / 订单号" value={query} /></label></div>
       <div className="order-ledger" role="table" aria-label="订单池明细"><div className="order-ledger-row head"><span>客户</span><span>货品与规格</span><span>数量</span><span>状态</span><span>交付</span><span>风险</span></div><div className="business-table-body">{rows.length ? rows.map((order) => <button aria-pressed={selected?.id === order.id} className={`order-ledger-row${selected?.id === order.id ? " selected" : ""}`} key={order.id} onClick={() => { setSelectedId(order.id); setNotice(""); }} type="button"><strong>{order.customer}</strong><span className="order-product-cell"><strong>{order.product}</strong><small>{order.size} · {getLineColorSpecLabel(order) || order.color} <SemanticOrderTag kind="business" value={order.business} />{order.requirement ? <SemanticOrderTag kind="requirement" value={order.requirement} /> : null}</small></span><strong>{order.qtyBasis === "incoming_rolls" ? <>{formatNumber(order.incomingRollCount)}<small>卷来料</small></> : <>{formatNumber(order.qty)}<small>个</small></>}</strong><span className="order-state-cell"><StateText>{order.status}</StateText>{/制袋中|丝印中|生产中/.test(order.status) ? <small>{order.machine}</small> : null}</span><span>{order.fulfillment}<small>{order.latest}</small></span><span>{order.risk === "—" ? "—" : <StateText>{order.risk}</StateText>}</span></button>) : <div className="business-empty"><FileTextOutlined /><strong>服务器暂无订单</strong><span>刷新后仍为空时，请先在订单录入中创建订单。</span></div>}</div></div>
     </section>
