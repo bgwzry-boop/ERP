@@ -129,7 +129,7 @@ export function PayrollAttendanceReview({ formal }) {
 
   return <div className="payroll-review-workbench">
     <section className="payroll-review-list">
-      <header className="payroll-review-heading"><div><h2>工资核算</h2><span>2026年8月 · 自然月工资草稿</span></div><div><button disabled title="真实打卡机接口尚未接入" type="button"><ReloadOutlined />同步考勤</button><button className="primary" onClick={() => setNotice("评审稿不会生成真实工资；正式版需先处理考勤异常并由会计复核。") } type="button">生成工资草稿</button></div></header>
+      <header className="payroll-review-heading"><div><h1>工资核算</h1><span>2026年8月 · 自然月工资草稿</span></div><div><button disabled title="真实打卡机接口尚未接入" type="button"><ReloadOutlined />同步考勤</button><button className="primary" onClick={() => setNotice("评审稿不会生成真实工资；正式版需先处理考勤异常并由会计复核。") } type="button">生成工资草稿</button></div></header>
       <section className="payroll-preview-disclosure"><InfoCircleOutlined /><p><strong>界面评审示例</strong>：以下打卡时间、工时、时薪和金额均非员工真实数据，不会保存或参与发薪。</p></section>
       <div className="payroll-review-filters"><label><SearchOutlined /><input aria-label="搜索员工工资草稿" onChange={(event) => setQuery(event.target.value)} placeholder="搜索员工 / 编号 / 岗位 / 车间" value={query} /></label><select aria-label="工资草稿状态" onChange={(event) => setStatus(event.target.value)} value={status}><option>全部状态</option><option>工资草稿</option><option>待考勤复核</option></select><span>{filteredRows.length} / {rows.length} 人</span></div>
       <div className="payroll-review-table" role="table" aria-label="工资核算列表">

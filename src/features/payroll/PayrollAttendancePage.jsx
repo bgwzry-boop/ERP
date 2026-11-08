@@ -459,7 +459,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   return <div className="payroll-review-workbench">
     <section className="payroll-review-list">
       <header className="payroll-review-heading">
-        <div><h2>工资核算</h2><span>{view === "positions" ? "按原工资表统一维护岗位和薪资构成" : `${formatMonth(month)} · 次月核对上月完整考勤后生成工资草稿`}</span></div>
+        <div><h1>工资核算</h1><span>{view === "positions" ? "按原工资表统一维护岗位和薪资构成" : `${formatMonth(month)} · 次月核对上月完整考勤后生成工资草稿`}</span></div>
         {view === "employees" ? <div>
           <input aria-label="工资月份" className="payroll-month-input" onChange={(event) => setMonth(event.target.value)} type="month" value={month} />
           {canSync ? <button disabled={loading || Boolean(actionLoading) || actionLoading === "sync" || actionLoading === "sync-precheck" || !workbench?.sourceStatus?.configured} onClick={handleSync} title={workbench?.sourceStatus?.configured ? "先只读预检，再同步真实打卡机数据" : "真实考勤来源尚未配置"} type="button"><ReloadOutlined />同步考勤</button> : null}

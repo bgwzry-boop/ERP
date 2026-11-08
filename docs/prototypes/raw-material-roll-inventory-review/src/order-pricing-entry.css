@@ -35,7 +35,7 @@
 .pricing-heading {
   margin-bottom: 20px;
 }
-.pricing-heading h2 {
+.pricing-heading h1, .pricing-heading h2 {
   margin: 0;
   font-size: 20px;
 }

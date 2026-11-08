@@ -30,8 +30,8 @@
   border-bottom: 1px solid var(--erp-border);
 }
 
-.raw-material-cost-list > header h2,
-.raw-material-cost-detail > header h2 { font-size: 17px; }
+.raw-material-cost-list > header h1, .raw-material-cost-list > header h2,
+.raw-material-cost-detail > header h1, .raw-material-cost-detail > header h2 { font-size: 17px; }
 .raw-material-cost-list > header button { display: inline-flex; align-items: center; gap: var(--erp-space-1); min-height: 32px; padding: 0 var(--erp-space-2); border: 0; border-radius: var(--erp-radius-sm); background: transparent; font-size: 12px; }
 .raw-material-cost-list > header button:hover { background: var(--erp-surface-subtle); }
 .raw-material-cost-workspace button:disabled { cursor: default; opacity: .55; }

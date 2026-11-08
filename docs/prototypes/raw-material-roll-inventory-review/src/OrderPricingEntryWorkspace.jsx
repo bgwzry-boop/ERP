@@ -716,7 +716,7 @@ function OrderPricingEditor({
       <section className="pricing-editor" aria-label="订单录入明细">
         <header className="pricing-heading">
           <div>
-            <h2>订单录入</h2>
+            <h1>订单录入</h1>
             <ol className="pricing-steps" aria-label="录单步骤">
               {entrySteps.map((step, index) => (
                 <li key={step.label} className={step.state} aria-current={step.state === "current" ? "step" : undefined}>
