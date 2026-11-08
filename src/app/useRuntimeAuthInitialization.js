@@ -16,7 +16,7 @@ export function useRuntimeAuthInitialization({ authOptions, authState, serverReq
     let cancelled = false;
     const expectedAuthState = currentAuthStateRef.current;
     const expectedSession = readStoredSeedSession();
-    initializeSeedAuth({ ...(authOptions ?? {}), serverRequired }).then((nextAuthState) => {
+    initializeRuntimeAuthSnapshot({ ...(authOptions ?? {}), serverRequired }, expectedSession).then((nextAuthState) => {
       if (cancelled) return;
       const applied = applyRuntimeAuthInitializationResult({
         expectedAuthState,
@@ -36,6 +36,19 @@ export function useRuntimeAuthInitialization({ authOptions, authState, serverReq
       cancelled = true;
     };
   }, [authOptions, serverRequired, setAuthState]);
+}
+
+// The auth service may replace/clear its storage while restoring a preview
+// session. Keep those writes private until the original session/state CAS wins.
+export function initializeRuntimeAuthSnapshot(options = {}, expectedSession = null) {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  writeStoredSeedSession(expectedSession, storage);
+  return initializeSeedAuth({ ...options, storage });
 }
 
 export function applyRuntimeAuthInitializationResult({
@@ -69,10 +82,10 @@ export function applyRuntimeAuthInitializationResult({
 
 function isCompatibleInitializationResult(expectedSession, nextAuthState) {
   if (
-    !hasSessionToken(expectedSession) &&
     nextAuthState?.authenticated === true &&
     nextAuthState?.source === "api_seed" &&
     nextAuthState?.reason === "login_seed_session" &&
+    sessionType(nextAuthState.session) === "seed" &&
     hasSessionToken(nextAuthState.session)
   ) {
     return true;
