@@ -170,10 +170,22 @@ button.business-row.selected { background: var(--erp-neutral-bg); box-shadow: in
 button.business-row > span.business-primary-cell { font-weight: 650; }
 
 .business-state { font-size: 12px; font-weight: 680; white-space: nowrap; }
-.business-state.success { color: var(--green); }
-.business-state.info { color: var(--info); }
-.business-state.warning { color: var(--amber); }
-.business-state.danger { color: var(--red); }
+/* 2026-11-08：状态四级（旧 success/info/warning/danger 保留一版，避免遗漏处变无色） */
+.business-state.success, .business-state.tone-done { color: var(--green); }
+.business-state.info, .business-state.tone-doing { color: var(--info); }
+.business-state.warning, .business-state.tone-todo { color: var(--amber); }
+.business-state.danger, .business-state.tone-blocked { color: var(--red); }
+.business-state.tone-neutral { color: var(--erp-text-muted); }
+.business-state.tone-blocked::before, .business-state.tone-todo::before { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; content: ""; vertical-align: middle; }
+.business-state.tone-blocked::before { background: currentColor; }
+.business-state.tone-todo::before { border: 1px solid currentColor; }
+.status-tone-legend { display: inline-flex; align-items: center; gap: 4px; color: var(--erp-text-muted); font-size: var(--erp-text-xs); }
+.status-tone-legend i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.status-tone-legend.tone-blocked { color: var(--red); }
+.status-tone-legend.tone-todo { color: var(--amber); }
+.status-tone-legend.tone-doing { color: var(--info); }
+.status-tone-legend.tone-done { color: var(--green); }
+.status-tone-legend + .status-tone-legend { margin-left: 10px; }
 
 .business-empty,
 .business-missing {
@@ -905,3 +917,4 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .customer-profile-form label { display: grid; gap: 5px; font-size: 12px; }
 .customer-profile-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
 .customer-profile-panel p { margin: 0; color: var(--ink-soft); font-size: 12px; }
+.status-tone-legend-row { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 4px 14px 0; }

@@ -10,6 +10,7 @@ import {getOfficeProductionTaskDetail} from "../../../../src/services/officeProd
 import {refreshAfterProductionPhotoReview} from "./production-review-refresh.js";
 import {resolveTodoWorkspaceLink} from "./todo-workspace-link.js";
 import { TodoReminderForm } from "../../../../src/features/todos/TodoReminderForm.jsx";
+import { STATUS_TONE_LABEL, statusTone } from "./status-tone.js";
 import { ProductionPhotoReview } from "./ProductionPhotoReview.jsx";
 import { DriverExceptionResolutionPanel } from "../../../../src/features/fulfillment/DriverExceptionResolutionPanel.jsx";
 import { EarlyShipmentPanel, ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
@@ -92,8 +93,24 @@ function riskFor(line = {}) {
   return "—";
 }
 
+// 2026-11-08：状态色统一走 status-tone 四级；阻塞/待办额外用圆点形状区分，照顾色弱。
 function StateText({ children }) {
-  return <span className={`business-state ${stateTone(String(children))}`}>{children}</span>;
+  const tone = statusTone(String(children));
+  return <span className={`business-state tone-${tone}`} data-tone={tone}>{children}</span>;
+}
+
+function StatusToneLegend({ tone, text }) {
+  return <span className={`status-tone-legend tone-${tone}`}><i aria-hidden="true" />{STATUS_TONE_LABEL[tone] ?? text}</span>;
+}
+
+// 2026-11-08：状态颜色图例，放在列表表头右侧；不参与页面网格布局。
+export function StatusToneLegendRow() {
+  return <div className="status-tone-legend-row" aria-label="状态颜色说明">
+    <StatusToneLegend tone="blocked" />
+    <StatusToneLegend tone="todo" />
+    <StatusToneLegend tone="doing" />
+    <StatusToneLegend tone="done" />
+  </div>;
 }
 
 const activeProductionStatusPattern = /丝印中|制袋中|生产中|印刷中|跨日继续/;
@@ -119,13 +136,6 @@ function miniappProgressLabel(line = {}) {
   if (/待出库|已备货|待交付|待自提|待提货/.test(status)) return "待发货/待自提";
   if (/待排产|已排产|丝印|制袋|生产|待打包|跨日继续|待完工确认|异常暂停|数量差异/.test(status)) return "生产中";
   return line.orderNo ? "备货中" : "工厂确认中";
-}
-
-function stateTone(value) {
-  if (/异常|差异|阻塞|失败|缺货|冻结|待补|未就绪/.test(value)) return "danger";
-  if (/已完成|正常|有效|通过|可用|可出库|已核算|在线|已清点|已交付|已启用|已付款|已结算|已确认/.test(value)) return "success";
-  if (/生产中|印刷中|丝印中|制袋中|打包中|配送中|已备货/.test(value)) return "info";
-  return "warning";
 }
 
 // 金额、数量列右对齐（表头按列名判断；「客户 / 期间」之类的文字列不受影响）
@@ -475,6 +485,7 @@ function buildWorkspaceConfigs(formal) {
   return {
   "production-tasks": {
     title: "生产任务",
+    showStatusTone: true,
     description: "来自 ProductionPackingPage；办公室负责发布与协调，现场仍由岗位手机端报工。",
     columns: ["客户", "品名", "规格 / 颜色", "计划数量", "机台", "状态"],
     gridTemplateColumns: "minmax(112px, 1.2fr) minmax(100px, 1.05fr) minmax(140px, 1.35fr) minmax(82px, .75fr) minmax(92px, .8fr) minmax(78px, .72fr)",
@@ -510,6 +521,7 @@ function buildWorkspaceConfigs(formal) {
   },
   "customer-statements": {
     title: "对账收款",
+    showStatusTone: true,
     description: "沿用 StatementPage 的客户账期、应收、实收、差额和订单明细。",
     columns: ["客户 / 期间", "应收", "已收", "本期未收", "状态"],
     rows: statementRows,
@@ -519,6 +531,7 @@ function buildWorkspaceConfigs(formal) {
   },
   "customer-records": {
     title: "客户档案",
+    showStatusTone: true,
     columns: ["客户", "客户编号", "结算周期", "当前应收", "状态"],
     rows: buildCustomerRows(data.orderLines, data.statements),
     primaryAction: "查看客户事实",
@@ -602,7 +615,7 @@ function GenericWorkspace({ config, onNavigate, detailExtra, focus = null }) {
 
   return <><div className="business-workbench source-grounded-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>{config.title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} extra={config.headingExtra} /></header>
+      <header className="business-panel-heading"><h2>{config.title}</h2>{config.showStatusTone ? <StatusToneLegendRow /> : null}<WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} extra={config.headingExtra} /></header>
       {config.modes ? <div aria-label={`${config.title}区域`} className="business-subtabs" role="tablist">{config.modes.map((item) => <button aria-selected={mode === item} key={item} onClick={() => { setMode(item); setSelectedId(""); }} role="tab" type="button">{item}</button>)}</div> : null}
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder={config.searchPlaceholder || "搜索当前工作台"} value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       {/* 2026-11-07：表头与表体放进同一个横向滚动容器，窄屏才能一起滚、列不裁切 */}
@@ -704,7 +717,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
 
   return <div className="business-workbench fulfillment-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>出库交付</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h2>出库交付</h2><StatusToneLegendRow /><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label="出库交付搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索客户 / 订单 / 货品 / 交付方式" value={query} /></label><select aria-label="出库交付状态" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div aria-label="出库交付列表" className="business-table" role="table">
         <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">客户 / 订单</span><span role="columnheader">货品</span><span role="columnheader">方式</span><span role="columnheader">本次 / 包装</span><span role="columnheader">状态</span></div>
@@ -1033,7 +1046,7 @@ function OrderPoolWorkspace({ formal, onNavigate, focus = null }) {
   const selected = rows.find((order) => order.id === selectedId) || rows[0] || officeOrders[0];
   return <div className="business-workbench order-pool-workbench source-grounded-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h2>订单池</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${officeOrders.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h2>订单池</h2><StatusToneLegendRow /><WorkbenchHeadingActions countLabel={`${rows.length} / ${officeOrders.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <div className="order-pool-tools"><div className="business-subtabs" role="tablist">{["全部订单", "待处理", "生产中", "待出库"].map((item) => <button aria-selected={tab === item} key={item} onClick={() => setTab(item)} role="tab" type="button">{item}</button>)}</div><label><SearchOutlined /><input aria-label="订单池搜索" onChange={(event) => setQuery(event.target.value)} placeholder="客户 / 货品 / 规格 / 订单号" value={query} /></label></div>
       <div className="order-ledger" role="table" aria-label="订单池明细"><div className="order-ledger-row head"><span>客户</span><span>货品与规格</span><span>数量</span><span>状态</span><span>交付</span><span>风险</span></div><div className="business-table-body">{rows.length ? rows.map((order) => <button aria-pressed={selected?.id === order.id} className={`order-ledger-row${selected?.id === order.id ? " selected" : ""}`} key={order.id} onClick={() => { setSelectedId(order.id); setNotice(""); }} type="button"><strong>{order.customer}</strong><span className="order-product-cell"><strong>{order.product}</strong><small>{order.size} · {getLineColorSpecLabel(order) || order.color} <SemanticOrderTag kind="business" value={order.business} />{order.requirement ? <SemanticOrderTag kind="requirement" value={order.requirement} /> : null}</small></span><strong>{order.qtyBasis === "incoming_rolls" ? <>{formatNumber(order.incomingRollCount)}<small>卷来料</small></> : <>{formatNumber(order.qty)}<small>个</small></>}</strong><span className="order-state-cell"><StateText>{order.status}</StateText>{/制袋中|丝印中|生产中/.test(order.status) ? <small>{order.machine}</small> : null}</span><span>{order.fulfillment}<small>{order.latest}</small></span><span>{order.risk === "—" ? "—" : <StateText>{order.risk}</StateText>}</span></button>) : <div className="business-empty"><FileTextOutlined /><strong>服务器暂无订单</strong><span>刷新后仍为空时，请先在订单录入中创建订单。</span></div>}</div></div>
     </section>

@@ -6,6 +6,7 @@ import { getOperationalStateTagValue } from "../../../../src/shared/labels.js";
 import { buildReceiptRowPresentation } from "./receipt-presentation.js";
 import { FormalReceivingWorkspace } from "./FormalReceivingWorkspace.jsx";
 import { CollectionFeedback, EmptyWorkspace, WorkspaceErrorBoundary } from "./WorkspaceFeedback.jsx";
+import { StatusToneLegendRow } from "./BusinessWorkspaces.jsx";
 import "./receipt-queue.css";
 
 const tabs = ["全部", "待核对", "退货单", "待打印", "待贴标", "异常"];
@@ -59,7 +60,7 @@ export function ReceiptWorkspace({ formal, focusId, onOpenReceive, onManageColor
   const unavailable = Boolean(receiving.loading || receiving.error || receiving.status === "unloaded");
   const selectedVisible = Boolean(selected && (selectionScope === queryScope || focusId === selected.id));
   return <section className="receiving-page">
-    <header className="receiving-page-heading"><h1>收货录入</h1><div>
+    <header className="receiving-page-heading"><h1>收货录入</h1><StatusToneLegendRow /><div>
       {onManageColors ? <button className="secondary-button" type="button" onClick={onManageColors}>厂家颜色资料</button> : null}
       <button className="secondary-button" type="button" onClick={() => void formal.actions.refreshReceipts()} disabled={receiving.loading}><ReloadOutlined aria-hidden="true" />刷新</button>
       <button className="primary" onClick={onOpenReceive} type="button"><PlusOutlined aria-hidden="true" />录入送货/退货单</button>
