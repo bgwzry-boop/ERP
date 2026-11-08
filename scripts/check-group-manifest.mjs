@@ -22,6 +22,7 @@ export const CHECK_GROUPS = Object.freeze({
     "v1-runtime-live-precheck-service:check",
     "print-driver-v1-readiness-service:check",
     "shared-office-ui:check",
+    "status-tone:check",
     "office-operational-ui:check",
     "office-finance-role-ui:check",
     "office-interaction-controller:check",
