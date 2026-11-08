@@ -5,6 +5,7 @@ import {
   createSetterBackedDraftActions,
   orderEntryDraftReducer,
 } from "../src/state/orderEntryDraftState.js";
+import { addDraftRow, createBlankDraftRow, removeDraftRow } from "../src/state/officeDraftActions.js";
 
 function createStore(initial) {
   let state = initial;
@@ -106,3 +107,22 @@ for (const [index, run] of scenarios.entries()) {
 }
 
 console.log("Order entry draft state check passed: setter compatibility, atomic replace/reset, and reducer/setter parity are locked.");
+
+// 2026-11-08：识别后客户改主意 —— 可以手动加一行/删一行，不要求重新识别。
+{
+  const existing = [{ id: "L1", qty: 500, size: "30*37", color: "红色" }];
+  const added = addDraftRow(existing, { customerId: "C1", name: "黄松" });
+  assert.equal(added.length, 2);
+  assert.equal(added[0], existing[0], "加行不得改动原行对象");
+  assert.equal(added[1].customerId, "C1", "新行沿用当前整单客户");
+  assert.equal(added[1].qty, "", "新行数量留空，等人工填写");
+  assert.notEqual(added[1].id, "L1");
+  assert.equal(added[1].draftLineId, added[1].id, "新行编号与明细编号一致");
+  const blank = createBlankDraftRow(null, "MANUAL-FIXED");
+  assert.equal(blank.id, "MANUAL-FIXED");
+  const removed = removeDraftRow(added, 0);
+  assert.deepEqual(removed.map((row) => row.id), [added[1].id]);
+  assert.equal(removeDraftRow(existing, 5).length, 1, "越界删除不得丢行");
+  assert.equal(removeDraftRow(existing, -1).length, 1, "负数索引不得丢行");
+}
+console.log("Order entry draft state checks passed: setter compatibility, atomic replace/reset, reducer/setter parity, blank row add/remove.");

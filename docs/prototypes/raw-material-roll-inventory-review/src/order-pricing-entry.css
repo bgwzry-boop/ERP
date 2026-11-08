@@ -411,6 +411,7 @@
 .pricing-new-customer-actions { display: flex; gap: 8px; margin-top: 16px; }
 @media (max-width: 760px) { .pricing-new-customer-form { grid-template-columns: minmax(0, 1fr); } }
 /* 开单即出库（负责人 2026-11-08） */
+/* 开单即出库（负责人 2026-11-08） */
 .pricing-walk-in { display: grid; gap: 10px; margin: 14px 0 0; padding: 14px 16px; border: 1px solid var(--erp-accent-border, var(--line)); border-radius: 8px; background: var(--erp-accent-wash); }
 .pricing-walk-in h3 { margin: 0; font-size: 15px; }
 .pricing-walk-in h3 small { margin-left: 6px; color: var(--ink-soft); font-weight: 400; font-size: 12px; }
@@ -419,3 +420,10 @@
 .pricing-walk-in p { margin: 0; color: var(--ink-soft); }
 .pricing-walk-in-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 760px) { .pricing-walk-in-fields { grid-template-columns: minmax(0, 1fr); } }
+
+/* 2026-11-08：识别后允许临时加行/删行 */
+.pricing-lines-tools { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.pricing-add-line { min-height: 32px; padding: 0 12px; border: 1px dashed var(--line-strong, var(--line)); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: var(--erp-text-sm); cursor: pointer; }
+.pricing-add-line:disabled { cursor: default; opacity: .45; }
+.pricing-row-actions { flex-wrap: wrap; gap: 8px; }
+.pricing-row-actions button[aria-label^="删除第"] { color: var(--erp-danger); }

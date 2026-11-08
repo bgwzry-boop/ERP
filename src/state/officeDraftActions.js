@@ -112,3 +112,37 @@ export function mergeDraftRowWithNext(rows, selectedId, inventoryRecords) {
     toast: "已合并当前行和下一行；不同的尺寸、颜色、交付或印刷字段已标记为待确认。",
   };
 }
+
+// 2026-11-08：识别后客户临时要加减行。空白行沿用识别行的字段形状，
+// 数量允许先空着（保存/报价时再校验），客户沿用当前整单客户。
+export function createBlankDraftRow(customer = null, id = "") {
+  const rowId = String(id || `MANUAL-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`);
+  return {
+    id: rowId,
+    draftLineId: rowId,
+    orderType: "stock",
+    size: "",
+    color: "",
+    bagColor: "",
+    qty: "",
+    handle: "",
+    print: "否",
+    printContent: "",
+    printColor: "",
+    printSide: "",
+    latest: "",
+    fulfillment: "",
+    customerId: customer?.customerId ?? "",
+    customer: customer?.name ?? "",
+    customerName: customer?.name ?? "",
+  };
+}
+
+export function addDraftRow(rows = [], customer = null) {
+  return [...rows, createBlankDraftRow(customer)];
+}
+
+export function removeDraftRow(rows = [], index) {
+  if (!Number.isInteger(index) || index < 0 || index >= rows.length) return rows;
+  return rows.filter((_, i) => i !== index);
+}
