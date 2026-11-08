@@ -9,6 +9,7 @@ import {
   FileTextOutlined,
   HomeOutlined,
   InfoCircleOutlined,
+  MenuFoldOutlined,
   MenuOutlined,
   PlusOutlined,
   ReconciliationOutlined,
@@ -139,13 +140,39 @@ const pcNavIcons = {
   system: SettingOutlined,
 };
 
-function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permissionContext, unhandledTodoCount = 0, navOpen = false }) {
+function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, onCollapseAll, permissionContext, unhandledTodoCount = 0, navOpen = false }) {
   const visibleGroups = getVisiblePcNavGroups(permissionContext);
   const activeItemRef = useRef(null);
+  const navRef = useRef(null);
+  const [hiddenGroupCount, setHiddenGroupCount] = useState(0);
 
   useEffect(() => {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeNavId]);
+
+  // 2026-11-08：侧栏装不下时给出"下面还有 N 组"的提示，避免整组被误认为不存在。
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return undefined;
+    const recompute = () => {
+      const bottom = nav.getBoundingClientRect().bottom;
+      const groups = [...nav.querySelectorAll("[data-nav-group]")];
+      const hidden = groups.filter((group) => group.getBoundingClientRect().top >= bottom - 2).length;
+      setHiddenGroupCount(hidden);
+    };
+    recompute();
+    nav.addEventListener("scroll", recompute, { passive: true });
+    window.addEventListener("resize", recompute);
+    return () => {
+      nav.removeEventListener("scroll", recompute);
+      window.removeEventListener("resize", recompute);
+    };
+  }, [expandedGroups, visibleGroups.length]);
+
+  const scrollToBottom = () => {
+    const nav = navRef.current;
+    if (nav) nav.scrollTo({ top: nav.scrollHeight, behavior: "smooth" });
+  };
 
   // On narrow windows (≤1024px, see narrow-desktop.css) the sidebar is a drawer opened from the topbar.
   return <aside className={`sidebar${navOpen ? " open" : ""}`} id="erp-main-sidebar">
@@ -158,12 +185,13 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
         width="630"
       />
     </div>
-    <nav aria-label="主导航" className="pc-business-tree">
+    <button aria-label="全部收起菜单" className="pc-nav-collapse-all" onClick={() => onCollapseAll?.()} title="全部收起菜单" type="button"><MenuFoldOutlined /><span>全部收起</span></button>
+    <nav aria-label="主导航" className="pc-business-tree" ref={navRef}>
       {visibleGroups.map((group) => {
         const Icon = pcNavIcons[group.icon] || AppstoreOutlined;
         const expanded = expandedGroups.has(group.id);
         return <section className={`pc-nav-group${expanded ? " expanded" : ""}`} data-nav-group={group.id} key={group.id}>
-          <button aria-expanded={expanded} className="pc-nav-group-button" onClick={() => onToggleGroup(group.id)} type="button"><Icon /><span>{group.label}</span><DownOutlined className="pc-nav-caret" /></button>
+          <button aria-expanded={expanded} className="pc-nav-group-button" onClick={() => onToggleGroup(group.id)} type="button"><Icon /><span>{group.label}{!expanded && group.items.some((item) => item.countSource === "unhandledTodos") && unhandledTodoCount > 0 ? <b className="pc-nav-group-count">{unhandledTodoCount}</b> : null}</span><DownOutlined className="pc-nav-caret" /></button>
           {expanded ? <div className="pc-nav-children">{group.items.map((item) => {
             const active = activeNavId === item.id;
             return <button aria-current={active ? "page" : undefined} className={active ? "active" : ""} data-nav-id={item.id} key={item.id} onClick={() => onNavigate(item.id)} ref={active ? activeItemRef : undefined} type="button"><span>{item.label}</span>{item.countSource === "unhandledTodos" && unhandledTodoCount > 0 ? <b>{unhandledTodoCount}</b> : null}</button>;
@@ -171,6 +199,7 @@ function Sidebar({ activeNavId, expandedGroups, onNavigate, onToggleGroup, permi
         </section>;
       })}
     </nav>
+    {hiddenGroupCount > 0 ? <button aria-label={`还有 ${hiddenGroupCount} 个菜单分组，点击查看`} className="pc-nav-more" onClick={scrollToBottom} type="button">下面还有 {hiddenGroupCount} 组</button> : null}
   </aside>;
 }
 
@@ -332,8 +361,11 @@ export function App({ permissionContext = defaultPermissionContext }) {
   }, [navOpen]);
   const [expandedGroups, setExpandedGroups] = useState(() => {
     try { const saved = JSON.parse(localStorage.getItem("erp.pc.expandedGroups.v1")); if (Array.isArray(saved)) return new Set(saved.filter(id => pcNavGroups.some(group => group.id === id))); } catch { /* Preferences cannot block the workbench. */ }
-    // No saved preference: every group starts open, as before, so no page is hidden on first visit.
-    return new Set(pcNavGroups.map((group) => group.id));
+    // 2026-11-08：首次打开只展开当前页所在分组。20 个分组全展开会有 1170px 内容，
+    // 900 高的屏只看得到 14 项，底部整组被藏在折叠线以下。
+    const initialNavId = viewNavMap[view] || "";
+    const currentGroup = pcNavGroups.find((group) => group.items.some((item) => item.id === initialNavId));
+    return new Set(currentGroup ? [currentGroup.id] : pcNavGroups.slice(0, 1).map((group) => group.id));
   });
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiptFocusId, setReceiptFocusId] = useState("");
@@ -541,7 +573,11 @@ export function App({ permissionContext = defaultPermissionContext }) {
 
   return <div className={`app-shell${navOpen ? " nav-open" : ""}`} data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
     {navOpen ? <div aria-hidden="true" className="nav-drawer-backdrop" onClick={() => setNavOpen(false)} /> : null}
-    <Sidebar navOpen={navOpen} activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar navOpen={navOpen} onToggleNav={() => setNavOpen((open) => !open)} allowedNavIds={allowedNavIds} createOrderDisabled={formal.orderEntryWritePending || formal.orderEntryEditorBlocked} onCreateOrder={openNewOrder} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} onSearchRequest={formal.actions.ensureSearchData} searchData={formal.data} searchPending={formal.meta.search.loading} searchError={formal.meta.search.error} unhandledTodoCount={unhandledTodoCount} />
+    <Sidebar navOpen={navOpen} activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} onCollapseAll={() => {
+      // 收起其它分组，但保留当前页所在组，避免当前页"消失"
+      const currentGroup = pcNavGroups.find((group) => group.items.some((item) => item.id === activeNavId));
+      setExpandedGroups(new Set(currentGroup ? [currentGroup.id] : []));
+    }} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar navOpen={navOpen} onToggleNav={() => setNavOpen((open) => !open)} allowedNavIds={allowedNavIds} createOrderDisabled={formal.orderEntryWritePending || formal.orderEntryEditorBlocked} onCreateOrder={openNewOrder} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} onSearchRequest={formal.actions.ensureSearchData} searchData={formal.data} searchPending={formal.meta.search.loading} searchError={formal.meta.search.error} unhandledTodoCount={unhandledTodoCount} />
     <main className={`page${isRawMaterialView ? "" : " business-page"}${activeView === "收货录入" ? " receiving-main-page" : ""}`}>
       {activeView !== "收货录入" ? <CollectionFeedback state={{ loading: formal.meta.loading, error: Object.keys(formal.meta.errors).length > 0, hasLoaded: formal.meta.hasLoaded }} label={activeView} onRetry={() => void formal.actions.refreshAll()} /> : null}
       {formal.orderEntryWritePending ? <div className="formal-sync-banner" role="status">本次操作结果正在核对，请先确认结果；结果未明时按原内容重试。</div> : null}
