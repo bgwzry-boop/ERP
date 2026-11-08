@@ -7,7 +7,12 @@ import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { normalizeInventoryHoldTimestamp } from "../../../../shared/inventoryHoldTime.js";
 import { toFactoryDatetimeLocal } from "../../../../shared/fulfillmentHandoffTime.js";
 import { hasWarehouseExecutionReceipt } from "../../../../shared/warehouseExecutionReceipt.js";
+import { printNotesInBrowser } from "../../../../src/features/fulfillment/printFulfillmentNotes.js";
+import { listOfficePrintJobs } from "../../../../src/services/officePrintJobApiClient.js";
 import "./desktop-fulfillment-operations.css";
+
+// 负责人 2026-11-08：办公室针式打印机走浏览器打印，打完由办公室确认。
+const BROWSER_PRINT_MODES = new Set(["browser_download", "manual"]);
 
 export function DesktopFulfillmentOperations({ fulfillment, formal }) {
   if (!fulfillment) return null;
@@ -137,7 +142,16 @@ function FulfillmentOperations({ fulfillment, formal }) {
       setConfirmation(null);
       setUncertain(false);
       setChecked(false);
-      setNotice(current.label === "创建出库单打印任务" ? "打印任务已创建。请在打印中心完成实际打印，再交库房。" : `${current.label}已保存。`);
+      const browserJob = current.label === "创建出库单打印任务" && BROWSER_PRINT_MODES.has(String(result.printJob?.driverMode ?? "").trim())
+        ? (result.printJobId ?? result.printJob?.printJobId) : "";
+      if (browserJob) {
+        setNotice("正在打开打印窗口，请选针式打印机…");
+        const printed = await printNotesInBrowser({ printJobIds: [browserJob], authState: formal?.authState, operatorId: formal?.operatorId });
+        if (!mounted.current) return;
+        setNotice(printed.message);
+      } else {
+        setNotice(current.label === "创建出库单打印任务" ? "打印任务已创建。请在打印中心完成实际打印，再交库房。" : `${current.label}已保存。`);
+      }
       await formal.actions.refreshAll();
     } catch {
       if (!mounted.current) return;
@@ -147,6 +161,23 @@ function FulfillmentOperations({ fulfillment, formal }) {
     } finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
   const ask = (label, execute, payload, summary) => prepare(label, execute, { ...common, ...payload }, summary);
+  // 已建了纸单、还没确认打印的：再打一次并确认。
+  async function printPendingNote() {
+    const printRecordId = paper?.printRecordId ?? fulfillment.printRecordId;
+    if (pending.current || !printRecordId) return;
+    pending.current = true;
+    setBusy(true);
+    try {
+      const jobs = await listOfficePrintJobs({ authState: formal?.authState, operatorId: formal?.operatorId, query: { printRecordId, status: "queued" } }, { serverRequired: true });
+      const job = (jobs.items ?? []).find(row => BROWSER_PRINT_MODES.has(String(row.driverMode ?? "").trim()) && row.jobStatus === "queued");
+      if (!job) { setNotice(jobs.blocked ? jobs.error?.message || "打印任务读取失败。" : "没有等待打印的纸单，请刷新后再看。"); return; }
+      setNotice("正在打开打印窗口，请选针式打印机…");
+      const printed = await printNotesInBrowser({ printJobIds: [job.printJobId], authState: formal?.authState, operatorId: formal?.operatorId });
+      if (!mounted.current) return;
+      setNotice(printed.message);
+      if (printed.printed) await formal.actions.refreshAll();
+    } finally { pending.current = false; if (mounted.current) setBusy(false); }
+  }
   function fillUniform() {
     const count = Number(uniformCount), qty = Number(uniformQty);
     if (!Number.isSafeInteger(count) || count < 1 || count > 10000 || !Number.isSafeInteger(qty) || qty < 1) return setNotice("实际包数和每包数量都要填写正整数。");
@@ -183,7 +214,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
     <h3>出库办理</h3>
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
-      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p><details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details>{pickupNote ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}<button type="button" onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button></fieldset>}
+      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p><details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details>{pickupNote ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}{paper?.status === "待打印确认" ? <button type="button" className="primary" onClick={() => void printPendingNote()}>打印纸单并确认</button> : null}<button type="button" hidden={paper?.status === "待打印确认"} onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button></fieldset>}
       {can("fulfillment.paper.handoff") && !fulfillment.legacyStateReviewRequired && paper?.status === "已打印待交库房" && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
       {can("fulfillment.warehouse.execute") && (fulfillment.warehouseTaskVisible || paper?.status === "已交库房") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
         <legend>库房实际执行</legend>

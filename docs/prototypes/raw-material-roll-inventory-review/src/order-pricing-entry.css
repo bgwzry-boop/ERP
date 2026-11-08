@@ -410,3 +410,12 @@
 .pricing-new-customer-existing { margin: 12px 0 0; color: var(--erp-warning); }
 .pricing-new-customer-actions { display: flex; gap: 8px; margin-top: 16px; }
 @media (max-width: 760px) { .pricing-new-customer-form { grid-template-columns: minmax(0, 1fr); } }
+/* 开单即出库（负责人 2026-11-08） */
+.pricing-walk-in { display: grid; gap: 10px; margin: 14px 0 0; padding: 14px 16px; border: 1px solid var(--erp-accent-border, var(--line)); border-radius: 8px; background: var(--erp-accent-wash); }
+.pricing-walk-in h3 { margin: 0; font-size: 15px; }
+.pricing-walk-in h3 small { margin-left: 6px; color: var(--ink-soft); font-weight: 400; font-size: 12px; }
+.pricing-walk-in-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pricing-walk-in-fields label { display: grid; gap: 5px; font-size: 13px; }
+.pricing-walk-in p { margin: 0; color: var(--ink-soft); }
+.pricing-walk-in-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 760px) { .pricing-walk-in-fields { grid-template-columns: minmax(0, 1fr); } }
