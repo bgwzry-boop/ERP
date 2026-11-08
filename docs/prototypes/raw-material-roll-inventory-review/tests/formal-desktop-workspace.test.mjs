@@ -45,7 +45,8 @@ test("4174 mobile review uses a signed passwordless preview session", async () =
   }).renderedPage, "rawMaterials", "the fixed management preview should enter the formal raw-material phone route");
   const shellSource = await readSource("../../../../src/app/OfficeWorkbenchShell.jsx");
   assert.match(shellSource, /fixedPreviewMode=\{signedPreviewMode\}/, "the fixed preview identity should not expose the demo role switcher");
-  assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
+  assert.match(authInitializationSource, /initializeRuntimeAuthSnapshot\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}, expectedSession\)/, "mobile startup must initialize through the guarded session snapshot");
+  assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.options, storage \}\)/, "the snapshot must still exchange the identity for a backend-signed session; real mounted behavior is checked by check-runtime-auth-initialization");
 });
 
 test("4174 desktop account identity is read-only instead of a fake dropdown", async () => {
