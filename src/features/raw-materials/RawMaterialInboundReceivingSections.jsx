@@ -31,6 +31,15 @@ import {
   isNumericOcrLineField,
 } from "./rawMaterialInboundOcrDraft.js";
 
+// 2026-11-08 原料走查：送货单上没有厂家卷号时，识别会先填「OCR待核对N」占位。
+// 入库后不再显示这个占位，只写第几卷，免得以为这卷还没核对。
+function formatSupplierRollNo(value) {
+  const text = String(value ?? "").trim();
+  const placeholder = text.match(/^OCR待核对(\d+)$/u);
+  if (placeholder) return `第 ${placeholder[1]} 卷`;
+  return text || "无厂家卷号";
+}
+
 export function RawMaterialInboundReceivingSections({
   actionDock = null,
   authState,
@@ -246,7 +255,7 @@ export function RawMaterialInboundReceivingSections({
       <div className="raw-material-roll-row" key={roll.id}>
         <div>
           <strong>{roll.id}</strong>
-          <span>{roll.supplierRollNo} / {roll.weightKg ? `${roll.weightKg}kg` : selected.unit || "件"}</span>
+          <span>{formatSupplierRollNo(roll.supplierRollNo)} / {roll.weightKg ? `${roll.weightKg}kg` : selected.unit || "件"}</span>
         </div>
         <StatusPill tone={getRawMaterialRollTone(roll)}>{roll.labelStatus} / {roll.inventoryStatus || "不可用"}</StatusPill>
         <span>{roll.location || "待分配"}</span>

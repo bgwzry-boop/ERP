@@ -56,6 +56,7 @@ export function RawMaterialMobileReceiving({
   printState,
   printerDeviceQa = {},
   records = [],
+  recordsLoading = false,
   reviewState,
   selected,
   supplierNameHint = "",
@@ -87,6 +88,7 @@ export function RawMaterialMobileReceiving({
     <section className={`raw-material-mobile-receiving is-stage-${stage}`} aria-label="原材料手机收货">
       <MobilePageHeader
         onBack={stage === "home" ? null : () => onStageChange?.("home")}
+        loading={recordsLoading && !records.length}
         pendingCount={pendingRecords.length}
         stage={stage}
       />
@@ -229,7 +231,7 @@ export function RawMaterialMobileReceiving({
   );
 }
 
-function MobilePageHeader({ onBack, pendingCount, stage }) {
+function MobilePageHeader({ onBack, loading = false, pendingCount, stage }) {
   return (
     <header className="raw-material-mobile-header">
       {onBack ? (
@@ -241,7 +243,7 @@ function MobilePageHeader({ onBack, pendingCount, stage }) {
         <h1>录原材料</h1>
       </div>
       {stage === "home" ? (
-        <strong>{pendingCount ? `${pendingCount} 单未完成` : "可开始拍单"}</strong>
+        <strong>{loading ? "正在读取…" : pendingCount ? `${pendingCount} 单未完成` : "可开始拍单"}</strong>
       ) : (
         <strong>{getStageLabel(stage)}</strong>
       )}

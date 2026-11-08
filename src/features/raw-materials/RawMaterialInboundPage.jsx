@@ -107,6 +107,7 @@ export function RawMaterialInboundPage(props) {
         printState={printState}
         printerDeviceQa={printerDeviceQa}
         records={inbounds}
+        recordsLoading={Boolean(meta?.loading)}
         reviewState={reviewState}
         selected={mobileSelected}
       />

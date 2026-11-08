@@ -245,7 +245,8 @@ export function formatRawMaterialLabelVerification(roll = {}) {
   const hasVersion = Number.isInteger(version) && version > 0;
   const currentVersion = Number(roll.labelVersion);
   const stale = hasVersion && Number.isInteger(currentVersion) && currentVersion > 0 && version !== currentVersion;
-  const verifier = verification.verifiedByUserId || verification.verifiedBy || "操作人待补";
+  // 2026-11-08 原料走查：显示核对人的名字，不显示内部账号编号。
+  const verifier = verification.verifiedBy || verification.verifiedByUserId || "操作人待补";
   const summary = `${result} · 标签V${hasVersion ? version : "?"} · ${verifier}`;
   // Audit evidence belongs to its recorded label, never to a newer printed label.
   return stale ? `历史核对：${summary}；与当前标签V${currentVersion}不同，请重新核实` : summary;
