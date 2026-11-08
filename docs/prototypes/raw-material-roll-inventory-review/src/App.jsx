@@ -68,6 +68,8 @@ function buildInventoryRolls(inbounds = []) {
       id: roll.id,
       color: factoryColor || (supplierColor ? `（${supplierColor}）` : "颜色待确认"),
       colorLabel: factoryColor || supplierColor ? formatRawMaterialColorDisplay(factoryColor, supplierColor) : "颜色待确认",
+      // 色块：有我厂颜色用我厂颜色；还没对应的按送货颜色显示（只是显示，不算对应好了）。
+      swatchColor: factoryColor || supplierColor,
       width: resolvedSpec.widthLabel,
       widthCm: resolvedSpec.widthCm,
       gramWeight: resolvedSpec.gramWeightLabel,
@@ -224,7 +226,7 @@ function DistributionRail({ activeBucket, distributionGroups, machineSideCount, 
       {selectedRoll ? <><dl>
         <div className="trace-wide"><dt>卷码</dt><dd>{selectedRoll.id}</dd></div>
         <div className="trace-wide"><dt>入库日期</dt><dd>{selectedRoll.date}</dd></div>
-        <div><dt>颜色</dt><dd className="trace-color"><ColorChip color={selectedRoll.color} />{selectedRoll.colorLabel ?? selectedRoll.color}</dd></div>
+        <div><dt>颜色</dt><dd className="trace-color"><ColorChip color={selectedRoll.swatchColor || selectedRoll.color} />{selectedRoll.colorLabel ?? selectedRoll.color}</dd></div>
         <div><dt>规格</dt><dd title={selectedRoll.spec}>{selectedRoll.spec}</dd></div>
         <div><dt>原料用途</dt><dd>{selectedRoll.materialUsage}</dd></div>
         <div className="trace-wide"><dt>来源票据</dt><dd>{selectedRoll.source}</dd></div>
@@ -304,7 +306,7 @@ function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [
         <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅/克重）</span><span role="columnheader" title="括号外是我厂颜色，括号里是送货单上的颜色">颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
         <div className="roll-table-body">
           {visibleRolls.length ? visibleRolls.map((roll) => <button aria-pressed={selectedRoll?.id === roll.id} className={`roll-row${selectedRoll?.id === roll.id ? " selected" : ""}`} key={roll.id} onClick={() => setSelectedId(roll.id)} role="row" type="button">
-            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.gramWeight}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.colorLabel ?? roll.color}</span><span className="weight" role="cell">{formatInventoryRollAmount(roll)}</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
+            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.gramWeight}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.swatchColor || roll.color} />{roll.colorLabel ?? roll.color}</span><span className="weight" role="cell">{formatInventoryRollAmount(roll)}</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
           </button>) : <EmptyWorkspace error={Boolean(formal.meta.collections?.rawMaterialInbounds?.error)} title={formal.meta.collections?.rawMaterialInbounds?.error ? "卷料读取失败" : formal.meta.collections?.rawMaterialInbounds?.loading ? "正在读取卷料…" : hasActiveFilters ? "没有符合条件的卷料" : "尚无可用卷料"} description={hasActiveFilters ? "调整颜色、宽幅或状态后继续查看。" : "完成核对、打印和贴标入库后，卷料才会出现在这里。"} actionLabel={formal.meta.collections?.rawMaterialInbounds?.error ? "重新读取" : hasActiveFilters ? "清除筛选" : undefined} onAction={formal.meta.collections?.rawMaterialInbounds?.error ? () => void formal.actions.refreshAll() : hasActiveFilters ? resetFilters : undefined} />}
         </div>
       </div>
