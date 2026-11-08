@@ -165,19 +165,15 @@ export function createRuntimeAuthActions(dependencies = {}) {
       return result;
     }
 
-    setAuthState((current) => {
-      if (!isCurrentRuntimeSession(expectedSession, current?.session)) return current;
-      return {
-        ...current,
-        source: "api_runtime",
-        authenticated: true,
-        permissions: result.permissions ?? current.permissions,
-        passwordPolicy: null,
-        reason: "runtime_password_changed",
-      };
+    // 2026-11-07：服务端改密会递增 sessionVersion，旧 token 立即失效。
+    // 前端不能继续拿着旧凭证装作还登录着——那会让下一个请求莫名 401。
+    // 直接清掉本地会话，让用户用新密码重新登录。
+    invalidateRuntimeUserSession({
+      reason: "runtime_password_changed",
+      error: { code: "AUTH_SESSION_REPLACED", message: "密码已修改，请用新密码重新登录。" },
     });
     setRuntimePasswordChangeForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    setToast("密码已修改，业务权限已恢复。");
+    setToast("密码已修改，请用新密码重新登录。");
     return { ...result, applied: true };
   }
 }

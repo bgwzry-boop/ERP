@@ -66,7 +66,9 @@ try {
   assert.equal(staleVariance.cumulativeDebt, 1510);
   await render([staleVariance]);
   assert.deepEqual((await page.locator(".business-table-body [role=cell]").allTextContents()).slice(1, 4), ["¥1,510", "¥0", "¥1,510"]);
-  assert.match(await page.locator(".business-facts").innerText(), /本期差额[\s\S]*¥1,510/);
+  // 明细里只保留权威「本期未收」，不再出现 legacy 差额
+  assert.match(await page.locator(".business-facts").innerText(), /本期未收[\s\S]*¥1,510/);
+  assert.doesNotMatch(await page.locator(".business-facts").innerText(), /本期差额/);
   assert.doesNotMatch(await page.locator(".business-facts").innerText(), /5,300/);
   const separateDebt = getStatementCustomers({
     customers: [{ id: "C010", name: "月结客户", cycle: "月结", debt: 5300 }],
@@ -75,6 +77,28 @@ try {
   assert.equal(separateDebt.varianceAmount, 1510);
   assert.equal(separateDebt.historicalDebt, 5300, "customer debt stays historical and is not copied into 本期差额");
   assert.equal(separateDebt.cumulativeDebt, 6810);
+  // 2026-11-07：期望值必须能区分"取权威 currentUnpaid"与"取 legacy variance"。
+  const sourceSplit = normalizeStatementCustomerSummary({
+    ...getStatementCustomers({
+      customers: [{ id: "C-SPLIT", name: "来源区分客户", cycle: "月结", debt: 0 }],
+      statements: [{ id: "ST-SPLIT", customerId: "C-SPLIT", receivable: 700, received: 0, variance: 17, status: "有欠款" }],
+    })[0],
+    currentUnpaid: 700,
+    varianceAmount: 17,
+  });
+  assert.equal(sourceSplit.currentUnpaid, 700);
+  assert.equal(sourceSplit.varianceAmount, 17, "构造出 legacy 17 与权威 700 不同，才能测出来源");
+  await render([sourceSplit]);
+  assert.equal((await page.locator(".business-table-body [role=cell]").allTextContents())[3], "¥700", "本期未收必须取权威 currentUnpaid，不能显示 legacy 差额 17");
+  assert.doesNotMatch(await page.locator(".business-facts").innerText(), /17/);
+  // 0 与缺失：0 正常显示，缺失显示待核实，不回退 legacy 差额
+  const zeroUnpaid = normalizeStatementCustomerSummary({ ...summary, currentUnpaid: 0 });
+  await render([zeroUnpaid]);
+  assert.equal((await page.locator(".business-table-body [role=cell]").allTextContents())[3], "¥0");
+  const missingUnpaid = normalizeStatementCustomerSummary({ ...summary, currentUnpaid: undefined });
+  await render([missingUnpaid]);
+  assert.equal((await page.locator(".business-table-body [role=cell]").allTextContents())[3], "待核实");
+
   const settledRounding = getStatementCustomers({
     customers: [{ id: "C001", name: "张三服饰", cycle: "7天一结", debt: 0 }],
     statements: [{ id: "ST-SETTLED", customerId: "C001", receivable: 273, received: 200, variance: 0, status: "已核销" }],

@@ -41,11 +41,20 @@ jobs:
           ERP_COLOR_SWATCH_UI_OUTPUT: .erp-local-storage/ci/color-swatches
         run: node scripts/check-raw-material-color-swatches-ui.mjs
       - name: Verify receiving workflow and migrated operations
+        env:
+          ERP_REQUIRE_RUNTIME_UNKNOWN: "1"
         run: |
           node scripts/check-raw-material-receive-dialog-ui.mjs
           node scripts/check-receiving-workspace-simplification-ui.mjs
           node scripts/check-raw-material-stock-operations-dialog.mjs
           node scripts/check-raw-material-cost-workspace.mjs
+          npm run receiving-review-guard-mounted:check
+          node scripts/check-order-entry-dirty-leave-ui.mjs
+          node scripts/check-deep-link-auth-ui.mjs
+          node scripts/check-route-guard-composition-ui.mjs
+          node scripts/check-business-table-overflow-ui.mjs
+      - run: node scripts/check-mobile-draft-exit-dialog-ui.mjs
+      - run: node scripts/check-mobile-receiving-safety-ui.cjs
       - run: npm test
       - run: npm run test:raw-material
       - run: npm audit --audit-level=high

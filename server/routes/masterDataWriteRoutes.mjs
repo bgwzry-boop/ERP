@@ -82,6 +82,11 @@ export async function handleMasterDataWriteRoutes({
 
   if (method !== "POST") return false;
 
+  const operatorPermissionKeys = () => [...new Set([
+    ...(permissionContext?.buttonPermissions ?? []),
+    ...(permissionContext?.actionPermissions ?? []),
+  ])];
+
   const subaccountActionMatch = url.pathname.match(
     /^\/api\/master-data\/subaccounts\/([^/]+)\/(temporary-password|suspend|reactivate|disable)$/,
   );
@@ -100,8 +105,29 @@ export async function handleMasterDataWriteRoutes({
       userId,
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+      operatorPermissions: [...new Set([
+        ...(permissionContext?.buttonPermissions ?? []),
+        ...(permissionContext?.actionPermissions ?? []),
+      ])],
     });
     sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
+    return true;
+  }
+
+  // 负责人 2026-11-05：开单时直接新建客户（客户名称、电话、地址）。
+  if (method === "POST" && url.pathname === "/api/master-data/customers" && customerAddressCommandService?.createCustomer) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    let source = workspace;
+    if (workspace.coreWorkspaceReadRepository?.loadState) {
+      const state = await workspace.coreWorkspaceReadRepository.loadState();
+      if (Array.isArray(state?.customers)) source = { ...workspace, customers: state.customers, customerContacts: state.customerContacts ?? [] };
+    }
+    const result = await customerAddressCommandService.createCustomer({
+      workspace: source === workspace ? workspace : { ...workspace, customers: source.customers, customerContacts: source.customerContacts },
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    sendCommandResponse(response, result, { useResultStatusCode: true });
     return true;
   }
 
@@ -173,6 +199,7 @@ export async function handleMasterDataWriteRoutes({
     "/api/master-data/employee-account-reviews/batch-enable": {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
       fallbackOperatorId: "U-MANAGER-A",
+      passOperatorPermissions: true,
       run: (input) => masterDataEmployeeAccountCommandService.enableEmployeeAccounts(input),
       responseOptions: EMPLOYEE_RESPONSE_OPTIONS,
     },
@@ -184,6 +211,15 @@ export async function handleMasterDataWriteRoutes({
       workspace,
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, directRoute.fallbackOperatorId),
+      // 批量启用同样是"发权限"的入口，必须带上操作者的有效权限。
+      ...(directRoute.passOperatorPermissions
+        ? {
+            operatorPermissions: [...new Set([
+              ...(permissionContext?.buttonPermissions ?? []),
+              ...(permissionContext?.actionPermissions ?? []),
+            ])],
+          }
+        : {}),
     });
     sendCommandResponse(response, result, directRoute.responseOptions);
     return true;
@@ -199,6 +235,7 @@ export async function handleMasterDataWriteRoutes({
       userId: decodeURIComponent(registrationAssignmentMatch[1]),
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+      operatorPermissions: operatorPermissionKeys(),
     });
     sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
     return true;
@@ -263,6 +300,7 @@ export async function handleMasterDataWriteRoutes({
     employeeId,
     body,
     operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+    operatorPermissions: operatorPermissionKeys(),
   });
   sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
   return true;

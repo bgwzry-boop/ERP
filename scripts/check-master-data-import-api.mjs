@@ -780,13 +780,26 @@ try {
   assert.equal(changedPasswordD49FinanceRole.ready, true);
   assert.equal(changedPasswordD49FinanceRole.readyAccountCount, 1);
 
+  // 2026-11-07：改密会递增 sessionVersion，旧 token 必须立即失效。
   const sessionAfterPasswordChange = await getJson(baseUrl, "/api/auth/me", {
     headers: { authorization: `Bearer ${dynamicLogin.session.accessToken}` },
+    expectedStatus: 401,
   });
-  assert.equal(sessionAfterPasswordChange.authenticated, true);
-  assert.equal(sessionAfterPasswordChange.permissions.user.mustChangePassword, false);
-  assert(sessionAfterPasswordChange.permissions.actionPermissions.includes("production.report.complete"));
-  assert(sessionAfterPasswordChange.permissions.actionPermissions.includes("statement.payment.record"));
+  assert.equal(sessionAfterPasswordChange.authenticated ?? false, false);
+
+  // 用新密码重新登录 -> 新签名会话 -> /auth/me 正常，且后续流程可用。
+  const reloginAfterPasswordChange = await postJson(baseUrl, "/api/auth/login", {
+    loginName: issuedEmployeePassword.issuedCredential.loginName,
+    password: "worker-new-password-001",
+  });
+  assert.ok(reloginAfterPasswordChange.session?.accessToken, JSON.stringify(reloginAfterPasswordChange));
+  const sessionAfterRelogin = await getJson(baseUrl, "/api/auth/me", {
+    headers: { authorization: `Bearer ${reloginAfterPasswordChange.session.accessToken}` },
+  });
+  assert.equal(sessionAfterRelogin.authenticated, true);
+  assert.equal(sessionAfterRelogin.permissions.user.mustChangePassword, false);
+  assert(sessionAfterRelogin.permissions.actionPermissions.includes("production.report.complete"));
+  assert(sessionAfterRelogin.permissions.actionPermissions.includes("statement.payment.record"));
 
   const oldTemporaryPasswordLogin = await postJson(
     baseUrl,

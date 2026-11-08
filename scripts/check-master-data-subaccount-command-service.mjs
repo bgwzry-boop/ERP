@@ -78,6 +78,25 @@ const escalation = await service.updateSubaccount({
 });
 assert.equal(escalation.code, "SUBACCOUNT_PERMISSION_ESCALATION_BLOCKED");
 
+// 2026-11-07 授权矩阵：改岗位（不只是加权限）同样不能越权。
+const roleEscalationOnUpdate = await service.updateSubaccount({
+  workspace,
+  userId: created.response.subaccount.userId,
+  operatorId: "U-TECH-A",
+  operatorPermissions: ["permission.manage"],
+  body: {
+    displayName: "库房李师傅",
+    employeeId: "EMP-001",
+    roleKeys: ["management"],
+    expectedRevision: 1,
+    reason: "改造岗位越权",
+  },
+});
+assert.equal(roleEscalationOnUpdate.statusCode, 403);
+assert.equal(roleEscalationOnUpdate.code, "SUBACCOUNT_ROLE_ESCALATION_BLOCKED");
+
+
+
 const updated = await service.updateSubaccount({
   workspace,
   userId: created.response.subaccount.userId,
@@ -100,6 +119,7 @@ const issued = await service.issueTemporaryPassword({
   workspace,
   userId: created.response.subaccount.userId,
   operatorId: "U-MANAGER-A",
+  operatorPermissions,
   body: { reason: "现场交付一次性密码" },
 });
 assert.equal(issued.response.subaccount.accountStatus, "active");
@@ -153,5 +173,83 @@ const disabled = await service.disableSubaccount({
 assert.equal(disabled.response.subaccount.accountStatus, "disabled");
 assert.equal(disabled.response.subaccount.loginEnabled, false);
 assert.equal(workspace.operationLogs[0].targetType, "master_data_subaccount");
+
+// 2026-11-07 缺陷回归：只有 permission.manage 的技术运维不能通过"选管理岗"给自己造一个管理账号。
+const techPermissions = resolvePermissionAssignment({ roles: ["technical_operations"] });
+const techOperatorPermissions = [...new Set([
+  ...techPermissions.buttonPermissions,
+  ...techPermissions.actionPermissions,
+])];
+const techEscalation = await service.createSubaccount({
+  workspace,
+  operatorId: "U-TECH-1",
+  operatorPermissions: techOperatorPermissions,
+  body: {
+    displayName: "越权管理岗",
+    loginName: "tech.escalation",
+    roleKeys: ["management"],
+    reason: "越权回归",
+  },
+});
+assert.equal(techEscalation.statusCode, 403);
+assert.equal(techEscalation.code, "SUBACCOUNT_ROLE_ESCALATION_BLOCKED");
+
+const managementAccount = await service.createSubaccount({
+  workspace,
+  operatorId: "U-MANAGER-A",
+  operatorPermissions,
+  body: {
+    displayName: "第二管理员",
+    loginName: "manager.second",
+    roleKeys: ["management"],
+    reason: "接管回归目标",
+  },
+});
+assert.equal(managementAccount.statusCode, 201);
+
+const takeover = await service.issueTemporaryPassword({
+  workspace,
+  userId: managementAccount.response.subaccount.userId,
+  operatorId: "U-TECH-1",
+  operatorPermissions: techOperatorPermissions,
+  body: { reason: "越权重置回归" },
+});
+assert.equal(takeover.statusCode, 403);
+assert.equal(takeover.code, "SUBACCOUNT_TARGET_PERMISSION_ESCALATION_BLOCKED");
+
+
+
+// 正面对照：技术运维开一个打包岗账号应当成功（岗位权限不超出他本人）。
+const lowRoleCreate = await service.createSubaccount({
+  workspace,
+  operatorId: "U-TECH-A",
+  operatorPermissions: ["permission.manage"],
+  body: {
+    displayName: "打包临时账号",
+    loginName: "tech.packing",
+    roleKeys: ["packing"],
+    reason: "正面对照",
+  },
+});
+assert.equal(lowRoleCreate.statusCode, 201, JSON.stringify(lowRoleCreate));
+// 技术运维重置同级或更低权限账号仍然允许：必须真的成功、真的发到新凭证、只发一次。
+{
+  const targetUserId = lowRoleCreate.response.subaccount.userId;
+  const allowedReset = await service.issueTemporaryPassword({
+    workspace,
+    userId: targetUserId,
+    operatorId: "U-TECH-A",
+    operatorPermissions: ["permission.manage"],
+    body: { reason: "同级账号重置" },
+  });
+  assert.equal(allowedReset.statusCode, 200, JSON.stringify(allowedReset));
+  const issuedPassword = allowedReset.response?.credential?.temporaryPassword;
+  assert.ok(issuedPassword, "必须返回可用的临时密码，而不是只返回 200");
+  const hashAfterFirst = workspace.users.find((user) => user.userId === targetUserId)?.passwordHash;
+  assert.ok(hashAfterFirst, "临时密码必须落到账号上");
+  // 只发一次：本次调用只应产生一条该账号的操作记录，且凭证确实写回账号。
+  const issuanceLogs = workspace.operationLogs.filter((log) => log.targetId === targetUserId && String(log.action ?? "").includes("password"));
+  assert.equal(issuanceLogs.length, 1, `预期只记录一次发放，实际 ${issuanceLogs.length}`);
+}
 
 console.log("master-data subaccount command service checks passed");

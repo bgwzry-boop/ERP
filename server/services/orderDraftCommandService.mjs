@@ -9,10 +9,17 @@ import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "..
 import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { INCOMING_ROLLS_QTY_BASIS, incomingRollCountOf, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 import { customerWithAddresses, resolveDeliveryAddress } from "../../shared/deliveryAddress.js";
+import { detectMessageCustomer } from "../../shared/orderMessageCustomer.js";
 import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSource.mjs";
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
 import { buildOfficeDraftPricingQuote, officeQuoteProjection, assertOfficeQuoteMatches } from "../orderDraftPricingQuote.mjs";
+
+async function readRecognitionCustomerWorkspace(workspace) {
+  if (!workspace.coreWorkspaceReadRepository?.loadState) return workspace;
+  const state = await workspace.coreWorkspaceReadRepository.loadState();
+  return Array.isArray(state?.customers) ? { ...workspace, customers: state.customers } : workspace;
+}
 
 export function createOrderDraftCommandService(dependencies = {}) {
   const {
@@ -86,11 +93,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
           inventoryIntents: prior.inventoryIntents, riskHints: [...buildDraftRiskHints(prior.draft.lines), ...(context.riskHints ?? [])], operationLogId: prior.operationLogId });
       }
     }
+    const customerWorkspace = await readRecognitionCustomerWorkspace(workspace);
     const sourceText = body.sourceText ?? body.text ?? "";
     const recognition = recognizeOrderConversation(
       Array.isArray(body.sourceMessages) && body.sourceMessages.length ? body.sourceMessages : sourceText,
       {
-        customers: workspace.customers,
+        customers: customerWorkspace.customers,
         inventories: workspace.inventories,
         standardColors: workspace.standardColors,
         colorAliases: workspace.colorAliases,
@@ -99,12 +107,20 @@ export function createOrderDraftCommandService(dependencies = {}) {
         currentDraftStatus: body.currentDraftStatus,
         parseOrderText,
         now,
+        // 2026-11-07 实测缺陷：只传 sourceText 时消息 id 固定为 MSG-001，组 id 和明细 id
+        // 对每张草稿都一样，第二张草稿必然撞 order_draft_lines 主键。明细编号必须落在草稿内。
+        messageIdScope: `${draftId}-`,
       },
     );
     if (!recognition.sourceMessages.length) {
       return businessError(422, "VALIDATION_ERROR", "sourceText or sourceMessages must contain at least one message");
     }
     let lines = recognition.orderRows;
+    // 负责人 2026-11-05：消息开头或结尾写了客户名字，没认出客户的明细自动用这个客户；不对再在开单页改。
+    const customerHint = body.customerId ? null : detectMessageCustomer(sourceText || recognition.sourceMessages.map((message) => message.text).join("\n"), customerWorkspace.customers ?? []);
+    if (customerHint?.customerId) {
+      lines = lines.map((line) => (line.customerId ? line : { ...line, customerId: customerHint.customerId, customer: customerHint.name }));
+    }
     const sourceHoldId = String(body.sourceHoldId ?? "").trim();
     const sourceIntentId = String(body.sourceIntentId ?? "").trim();
     let sourceHoldGuard = null;
@@ -125,6 +141,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       temporaryHolds: recognition.temporaryHolds,
       summary: recognition.summary,
       riskHints: recognition.riskHints,
+      ...(customerHint ? { customerHint } : {}),
     };
     const customerId = body.customerId ?? lines[0]?.customerId ?? "";
     const draft = buildDraftProjection(null, {
@@ -134,7 +151,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       sourceChannel: body.sourceChannel ?? "manual",
       sourceMessageId: body.sourceMessageId ?? "",
       customerId,
-      customerName: findCustomerName(workspace, customerId),
+      customerName: findCustomerName(customerWorkspace, customerId),
       status: "待审核",
       lines,
       recognitionContext,
@@ -181,11 +198,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function recognizeOrderDraftQueue({ workspace, body = {}, operatorId }) {
+    const customerWorkspace = await readRecognitionCustomerWorkspace(workspace);
     const sourceText = body.sourceText ?? body.text ?? "";
     const recognition = recognizeOrderConversation(
       Array.isArray(body.sourceMessages) && body.sourceMessages.length ? body.sourceMessages : sourceText,
       {
-        customers: workspace.customers,
+        customers: customerWorkspace.customers,
         inventories: workspace.inventories,
         standardColors: workspace.standardColors,
         colorAliases: workspace.colorAliases,
@@ -194,6 +212,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
         currentDraftStatus: body.currentDraftStatus,
         parseOrderText,
         now,
+        // 2026-11-07：批量识别一次会生成多张草稿，整批共用批次作用域，
+        // 不同批次不撞，同批次回放稳定。
+        messageIdScope: `${buildQueueScope(body)}-`,
       },
     );
     if (!recognition.sourceMessages.length) {
@@ -238,7 +259,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       }
 
       const scopedRecognition = buildScopedQueueRecognition(recognition, item);
-      const customerId = item.customerId ?? item.rows[0]?.customerId ?? "";
+      const customerId = item.customerId || item.rows[0]?.customerId || "";
       const recognitionContext = {
         version: recognition.version,
         queueVersion: plan.version,
@@ -260,7 +281,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         sourceChannel: body.sourceChannel ?? "wechat_group_queue",
         sourceMessageId: item.sourceMessageIds[0] ?? "",
         customerId,
-        customerName: findCustomerName(workspace, customerId),
+        customerName: findCustomerName(customerWorkspace, customerId),
         status: item.status,
         lines: item.rows,
         recognitionContext,
@@ -320,7 +341,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
 
   async function saveOrderDraft({ workspace, draftId, body = {}, operatorId }) {
     if(hasInvalidDraftQuantity(body.lines,{allowUnknown:true}))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","数量须为大于零的整数；尚未确认时可留空，不能自动取整保存。");
-    const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    const savedDraft = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
+    const knownLineIds = new Set((savedDraft?.lines ?? []).map((line) => cleanCommandText(line.id)));
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId, knownLineIds);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -366,15 +394,26 @@ export function createOrderDraftCommandService(dependencies = {}) {
       after: summarizeDraft(draft),
       reason: body.saveReason,
     });
-    const transaction = await workspace.orderDraftRepository.saveOrderDraft({
-      workspace,
-      draft,
-      expectedRevision,
-      todos,
-      operationLog,
-      idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
-    });
+    let transaction;
+    try {
+      transaction = await workspace.orderDraftRepository.saveOrderDraft({
+        workspace,
+        draft,
+        expectedRevision,
+        todos,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: { ...body, operatorId },
+      });
+    } catch (error) {
+      // 2026-11-07：明细编号若属于别的草稿，数据库会报 23505。
+      // 转成明确业务错误；事务整体回滚，不留半条明细，也不把 PG 原文回给前端。
+      if (String(error?.code ?? "") === "23505" && String(error?.constraint ?? "").includes("order_draft_lines")) {
+        return businessError(409, "ORDER_DRAFT_LINE_ID_OWNED_BY_OTHER_DRAFT",
+          "明细编号属于另一张草稿，请重新读取本草稿后核对。");
+      }
+      throw error;
+    }
 
     return success({
       draft: summarizeDraft(transaction.draft),
@@ -394,9 +433,13 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision) !== expectedRevision || /已生成|已确认/u.test(previous.status)) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已变化，请重新读取后报价。");
     if (["mini_program", "wechat_mini_program"].includes(previous.sourceChannel) || (await workspace.orderDraftRepository.getMiniappConfirmationSources?.({ workspace, draftId }))?.length) return businessError(409, "MINIAPP_PRICE_LOCKED", "小程序已锁定客户报价，办公室不能通过本单价覆盖。");
-    const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body), previous.lines ?? [], operatorId, nowIso(now));
+    const knownLineIds = new Set((previous.lines ?? []).map((line) => cleanCommandText(line.id)));
+    const lines = mergeDraftFieldReviewEvidence(normalizeDraftRows(body.lines ?? [], workspace, body, draftId, knownLineIds), previous.lines ?? [], operatorId, nowIso(now));
     if (!lines.length) return businessError(422, "ORDER_DRAFT_LINES_REQUIRED", "请先填写订单明细。");
-    if (new Set(lines.map(line => line.id)).size !== lines.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名。
+    if (findDuplicateDraftLineIds(lines).length) {
+      return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。");
+    }
     const cancellation = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (cancellation.error) return cancellation.error;
     if (!cancellation.activeLines.length) return businessError(422, "ORDER_DRAFT_NO_BILLABLE_LINES", "本草稿已无待下单明细，请核对取消记录，不能生成空报价。");
@@ -621,7 +664,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function confirmOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
-    let lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
@@ -647,6 +695,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(previous.status)) return businessError(409, "ORDER_DRAFT_ALREADY_CONFIRMED", "本草稿已生成正式订单，请在订单池核对，不能再次下单。");
+    // 2026-11-07：确认只能确认"已经保存并核过的那份草稿"。
+    // 这些字段不参与报价摘要，以前可以从请求体直接改掉、绕过保存直接进正式订单。
+    const unsavedConfirmChanges = findUnsavedConfirmFieldChanges(lines, previous.lines ?? []);
+    if (unsavedConfirmChanges.length) {
+      return {
+        ...businessError(409, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED",
+          "草稿里有未保存的改动（印刷方式、色数、来料卷数、备注、要求时间或交付方式），请先保存草稿并重新报价再确认。"),
+        details: { lines: unsavedConfirmChanges },
+      };
+    }
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
     if (["mini_program","wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) {
       return businessError(409, "MINIAPP_DRAFT_SOURCE_IMMUTABLE", "小程序订单必须按原客户归属确认。");
@@ -882,7 +940,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "草稿已更新，请重新读取后校验。");
-    const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length || lines.some(line => !Number.isSafeInteger(line.qty) || line.qty <= 0)) return businessError(422, "VALIDATION_ERROR", "请填写有效的正整数数量。");
     const holdResolution = resolveTemporaryHoldConversions(workspace, lines);
     if (holdResolution.error) return holdResolution.error;
@@ -894,7 +957,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function previewOrderDraftSplit({ workspace, draftId, body = {} }) {
-    const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    const lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -914,7 +982,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function confirmSplitOrderDraft({ workspace, draftId, body = {}, operatorId, actionPermissions = [] }) {
-    let lines = normalizeDraftRows(body.lines ?? [], workspace, body);
+    let lines = normalizeDraftRows(body.lines ?? [], workspace, body, draftId);
+    // 2026-11-07：显式重复编号一律拒绝，绝不静默改名（会把老行内容顶掉）。
+
+    { const duplicateExplicit = findDuplicateExplicitDraftLineIds(lines);
+
+      if (duplicateExplicit.length) return businessError(422, "ORDER_DRAFT_LINE_ID_DUPLICATED", "订单明细编号重复，请重新读取草稿后核对。"); }
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
@@ -937,6 +1010,15 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (["已生成正式订单", "已生成多个正式订单", "已确认"].includes(previous.status)) return businessError(409, "ORDER_DRAFT_ALREADY_CONFIRMED", "本草稿已生成正式订单，请在订单池核对，不能再次下单。");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) {
       return businessError(409, "ORDER_DRAFT_REVISION_CONFLICT", "The draft changed before split confirmation.");
+    }
+    // 拆单确认与整单确认同一把尺子：请求体不能改写已保存的、不参与报价摘要的字段。
+    const splitUnsavedChanges = findUnsavedConfirmFieldChanges(lines, previous.lines ?? []);
+    if (splitUnsavedChanges.length) {
+      return {
+        ...businessError(409, "ORDER_DRAFT_CONFIRM_LINES_NOT_SAVED",
+          "草稿里有未保存的改动（印刷方式、色数、来料卷数、备注、要求时间或交付方式），请先保存草稿并重新报价再拆单确认。"),
+        details: { lines: splitUnsavedChanges },
+      };
     }
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
     if (["mini_program","wechat_mini_program"].includes(previous.sourceChannel) && body.customerId !== undefined && body.customerId !== previous.customerId) {
@@ -1256,12 +1338,24 @@ export function createOrderDraftCommandService(dependencies = {}) {
     };
   }
 
-  function normalizeDraftRows(lines, workspace, body) {
+  function normalizeDraftRows(lines, workspace, body, draftId = "", knownLineIds = new Set()) {
+    // 先占位：已保存的合法编号 + 本次显式传入的编号，新行只能从未占用的号里取。
+    const reservedLineIds = new Set(knownLineIds);
+    for (const raw of lines) {
+      const explicit = cleanCommandText(raw?.draftLineId ?? raw?.id);
+      if (explicit) reservedLineIds.add(explicit);
+    }
     return lines.map((line, index) => {
       const customerId = line.customerId ?? body.customerId ?? "";
       const printFlag = line.printFlag ?? line.print === "是";
       return {
-        id: line.draftLineId ?? line.id ?? `DRAFT-LINE-${index + 1}`,
+        // 明细主键必须全局唯一：固定 DRAFT-LINE-N 会让第二张草稿撞上一张的主键。
+        // 2026-11-07：客户端带来的编号可能属于别的草稿（手工复制/误用）。
+        // 只保留本草稿自己的编号，其余一律重新归属，避免撞库级主键；
+        // 同一草稿同序号的编号是稳定的，所以保存/重试不会改号。
+        // 2026-11-07：已有编号一律原样保留（历史/批量/识别编号都不能改），
+        // 只有没有编号的新行才分配草稿内编号；空串按"没有编号"处理。
+        id: cleanCommandText(line.draftLineId ?? line.id) || allocateDraftLineId(draftId, index, reservedLineIds),
         customerId,
         customer: line.customer ?? findCustomerName(workspace, customerId) ?? "待确认客户",
         product: line.productName ?? line.product ?? "",
@@ -1279,6 +1373,10 @@ export function createOrderDraftCommandService(dependencies = {}) {
         ...(Number.isSafeInteger(Number(line.printColorCount)) && Number(line.printColorCount) >= 1 ? { printColorCount: Number(line.printColorCount) } : {}),
         fulfillment: line.fulfillmentMethod ?? line.fulfillment ?? "待确认",
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
+        // 2026-11-07：latest_needed_at 是 timestamptz，纯日期存进去会变成 00:00:00+00，
+        // 回读后分不清"原来只写了日期"和"原来写了 0 点"。保留原始写法用于确认比对。
+        // 只认真实传入的要求时间；客户端带来的 latestText 不参与判断。
+        latestText: confirmFieldText(line.latestNeededAt ?? line.latest),
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),
         printContent: String(line.printContent ?? "").trim(),
         specialRequirements: Array.isArray(line.specialRequirements) ? [...new Set(line.specialRequirements.map(String))].sort() : [],
@@ -1335,6 +1433,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       ...(row.deliveryAddressId ? { deliveryAddressId: row.deliveryAddressId } : {}),
       ...(row.deliveryAddress ? { deliveryAddress: row.deliveryAddress } : {}),
       ...(row.printColorCount ? { printColorCount: row.printColorCount } : {}),
+      ...(row.printContent ? { printContent: row.printContent } : {}),
       fulfillmentMethod: row.fulfillment,
       latestNeededAt: row.latest,
       printFlag: row.print === "是",
@@ -1816,7 +1915,149 @@ function cleanCommandText(value) {
   return String(value ?? "").trim();
 }
 
+// 2026-11-07 实测缺陷：明细编号固定为 DRAFT-LINE-N 时，第二张草稿会撞上第一张的
+// order_draft_lines 主键，识别接口直接 500。编号必须带上所属草稿。
+
+// 编号里带草稿身份才算本草稿的；其它一律视为外来编号。
+
+// 批次作用域：同一个幂等键/同一段原文 → 同一作用域，回放稳定；不同批次不同。
+function buildQueueScope(body = {}) {
+  const seed = cleanCommandText(body.idempotencyKey) || cleanCommandText(body.sourceText) || "queue";
+  return `QB-${createHash("sha256").update(seed).digest("hex").slice(0, 12).toUpperCase()}`;
+}
+
+
+
+// 只为"确实没有编号"的新行分配编号，且绝不占用已有/显式编号。
+function allocateDraftLineId(draftId, index, reserved) {
+  let attempt = index;
+  for (let guard = 0; guard < 10000; guard += 1) {
+    const candidate = draftLineIdFor(draftId, attempt);
+    if (!reserved.has(candidate)) {
+      reserved.add(candidate);
+      return candidate;
+    }
+    attempt += 1;
+  }
+  return draftLineIdFor(draftId, index);
+}
+
+function findDuplicateExplicitDraftLineIds(lines) {
+  return findDuplicateDraftLineIds(lines);
+}
+
+function draftLineIdFor(draftId, index) {
+  const scope = cleanCommandText(draftId);
+  return scope ? `${scope}-L${String(index + 1).padStart(2, "0")}` : `DRAFT-LINE-${index + 1}`;
+}
+
+function findDuplicateDraftLineIds(lines) {
+  const seen = new Set();
+  const duplicated = new Set();
+  for (const line of lines ?? []) {
+    if (seen.has(line.id)) duplicated.add(line.id);
+    seen.add(line.id);
+  }
+  return [...duplicated];
+}
+
+// 数据库约束错误不能把表名和约束名原样回给办公室。
+const POSTGRES_INTEGRITY_FAILURES = new Map([
+  ["23505", { statusCode: 409, code: "ORDER_DRAFT_DUPLICATE_RECORD", message: "同一笔记录已存在，请重新读取草稿后再试。" }],
+  ["23503", { statusCode: 409, code: "ORDER_DRAFT_REFERENCE_CONFLICT", message: "关联的数据不存在或已变更，请刷新后重试。" }],
+  ["23502", { statusCode: 422, code: "ORDER_DRAFT_REQUIRED_VALUE_MISSING", message: "缺少必填内容，请补全后重试。" }],
+  ["23514", { statusCode: 422, code: "ORDER_DRAFT_RULE_VIOLATION", message: "数据不满足业务规则，请核对后重试。" }],
+  ["40001", { statusCode: 409, code: "ORDER_DRAFT_SERIALIZATION_RETRY", message: "数据同时在改，请重试。" }],
+  ["40P01", { statusCode: 409, code: "ORDER_DRAFT_DEADLOCK_RETRY", message: "数据同时在改，请重试。" }],
+]);
+
+function isPostgresDriverError(error) {
+  return typeof error?.code === "string"
+    && /^[0-9A-Z]{5}$/.test(error.code)
+    && error.code !== "P0001"
+    && Boolean(error.severity || error.detail || error.table || error.constraint || error.routine);
+}
+
+const confirmGuardedLineFields = Object.freeze([
+  ["printMethod", "印刷方式"],
+  ["printColorCount", "印刷色数"],
+  ["incomingRollCount", "来料卷数"],
+  ["note", "备注"],
+  ["latest", "要求时间"],
+  ["fulfillment", "交付方式"],
+]);
+
+const BUSINESS_TIME_ZONE_OFFSET_MS = 8 * 3600000;
+
+function confirmFieldText(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
+
+function parseConfirmInstant(text) {
+  const value = String(text ?? "").trim();
+  if (!value) return NaN;
+  return Date.parse(
+    value
+      .replace(/^(\d{4}-\d{2}-\d{2}) /u, "$1T")
+      .replace(/([+-]\d{2})$/u, "$1:00")
+      .replace(/([+-]\d{2})(\d{2})$/u, "$1:$2"),
+  );
+}
+
+function confirmDateShape(raw) {
+  const text = confirmFieldText(raw);
+  if (!text) return { kind: "empty", value: "" };
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(text)) return { kind: "date", value: text };
+  const instant = parseConfirmInstant(text);
+  if (Number.isFinite(instant)) return { kind: "datetime", value: instant };
+  return { kind: "text", value: text };
+}
+
+function sameConfirmFieldValue(key, savedValue, incomingValue, context = {}) {
+  const a = confirmFieldText(savedValue);
+  const b = confirmFieldText(incomingValue);
+  if (a === b) return true;
+  if (key !== "latest" || !a || !b) return false;
+
+  // 两侧各自确定"原始写法"，再分别归类比较；不跨侧套用归一化。
+  const savedRaw = confirmFieldText(context.savedRaw) || a;
+  const incomingRaw = confirmFieldText(context.incomingRaw) || b;
+
+  const savedShape = confirmDateShape(savedRaw);
+  const incomingShape = confirmDateShape(incomingRaw);
+
+  // 精度/类型不同：一律视为改动（不能在确认阶段增删时分）。
+  if (savedShape.kind !== incomingShape.kind) return false;
+  if (savedShape.kind === "date") return savedShape.value === incomingShape.value;
+  if (savedShape.kind === "datetime") return savedShape.value === incomingShape.value;
+  return savedShape.value === incomingShape.value;
+}
+
+function findUnsavedConfirmFieldChanges(lines, savedLines) {
+  const byId = new Map((savedLines ?? []).map((line) => [String(line.id ?? ""), line]));
+  const changes = [];
+  for (const line of lines ?? []) {
+    const saved = byId.get(String(line.id ?? ""));
+    if (!saved) continue;
+    // 只拦"把草稿里已保存的值改掉"。草稿本来就没填的字段由请求补上不算绕过。
+    const fields = confirmGuardedLineFields
+      .filter(([key]) => !sameConfirmFieldValue(key, saved[key], line[key], {
+        savedRaw: saved[key === "latest" ? "latestText" : `${key}Text`],
+        requestRaw: line[key === "latest" ? "latestText" : `${key}Text`],
+      }))
+      .map(([key, label]) => ({ field: key, label }));
+    if (fields.length) changes.push({ draftLineId: line.id, fields });
+  }
+  return changes;
+}
+
 function repositoryCommandError(error) {
+  if (isPostgresDriverError(error)) {
+    const mapped = POSTGRES_INTEGRITY_FAILURES.get(error.code);
+    if (mapped) return businessError(mapped.statusCode, mapped.code, mapped.message);
+    return businessError(409, "ORDER_DRAFT_WRITE_FAILED", "订单草稿保存失败，请重试；若持续失败请联系管理员。");
+  }
   const code = cleanCommandText(error?.code) || "ORDER_DRAFT_WRITE_FAILED";
   return businessError(Number(error?.statusCode ?? 409), code, error?.message || code);
 }

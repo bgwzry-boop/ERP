@@ -1,4 +1,5 @@
-import { enrichDraftRow, parseOrderText } from "./orderParser.js";
+import { looksLikePrintOrderLine } from "../../shared/printOrderLineParser.js";
+import { detectCustomer, enrichDraftRow, findCompactOrderSize, isOrderReferencePrefix, orderQuantityDigitsPattern, parseOrderText, withoutCustomerColors } from "./orderParser.js";
 import { createDraftFieldReview } from "../../shared/orderDraftFieldReview.mjs";
 
 const unconfirmedDraftStatuses = new Set(["", "待录入", "识别中", "已识别待确认", "已调整待确认", "待审核", "待补充信息"]);
@@ -294,14 +295,17 @@ function parsePastedLine(line) {
   const timed = line.match(/^\[?((?:20\d{2}[-/]\d{1,2}[-/]\d{1,2}\s+)?\d{1,2}:\d{2})\]?\s+([^:：]{1,30})[:：]\s*(.+)$/);
   if (timed) return { sentAt: timed[1], sender: timed[2], text: timed[3] };
   const senderOnly = line.match(/^([^:：]{1,20})[:：]\s*(.+)$/);
-  if (senderOnly) return { sender: senderOnly[1], text: senderOnly[2] };
+  if (senderOnly && !isOrderReferencePrefix(senderOnly[1])) return { sender: senderOnly[1], text: senderOnly[2] };
   return { text: line };
 }
 
 function normalizeSourceMessage(value, index, options) {
   const source = typeof value === "string" ? { text: value } : value ?? {};
   return {
-    id: cleanText(source.id ?? source.messageId) || `MSG-${String(index + 1).padStart(3, "0")}`,
+    // 2026-11-07：显式传进来的消息编号同样要落到草稿作用域里。
+    // 否则批量/手工跨草稿复用同一个消息 id 时，明细主键还是会撞。
+    id: `${cleanText(options.messageIdScope)}${cleanText(source.id ?? source.messageId)
+      || `MSG-${String(index + 1).padStart(3, "0")}`}`,
     conversationId: cleanText(source.conversationId ?? source.groupId ?? options.conversationId) || "manual-entry",
     customerId: cleanText(source.customerId ?? options.customerId),
     sender: cleanText(source.sender ?? source.senderName),
@@ -318,6 +322,8 @@ function classifyMessage(message, context) {
   if (message.senderRole === "merchant" || message.senderRole === "office" || isMerchantSender(message.sender)) {
     if (merchantReplyWords.test(compact)) return { type: "merchant_reply", label: "商家回复" };
   }
+  // 车间单写法（【印刷内容】尺寸 数量 … 客户简称）每行就是一张下单。
+  if (looksLikePrintOrderLine(message.text)) return { type: "explicit_order", label: "明确下单" };
   if (holdWords.test(compact)) return { type: "temporary_hold", label: "临时留货请求" };
   if (inquiryWords.test(compact)) return { type: "inventory_inquiry", label: "库存询问" };
   if (shortageCancelWords.test(compact) || wholeOrderCancelWords.test(compact)) {
@@ -327,7 +333,7 @@ function classifyMessage(message, context) {
     return { type: "inventory_confirmation", label: "客户确认库存意向" };
   }
   if (followUpWords.test(compact)) return { type: "follow_up", label: "后续追加" };
-  if (looksLikeExplicitOrder(compact)) return { type: "explicit_order", label: "明确下单" };
+  if (looksLikeExplicitOrder(compact, message.text)) return { type: "explicit_order", label: "明确下单" };
   return { type: "ordinary_chat", label: "普通消息" };
 }
 
@@ -335,21 +341,35 @@ function isMerchantSender(value) {
   return /办公室|客服|商家|店铺|我方/.test(cleanText(value));
 }
 
-function looksLikeExplicitOrder(text) {
+function looksLikeExplicitOrder(text, source) {
   const hasQuantity = /\d{1,6}\s*(?:个|只|条|包)?/.test(text);
   const hasSpec = /\d{2}\s*[*xX×+]\s*\d{2}|袋|提(?:手)?|覆膜/.test(text);
-  return hasQuantity && (hasSpec || explicitOrderWords.test(text));
+  if (hasQuantity && (hasSpec || explicitOrderWords.test(text))) return true;
+  const size = findCompactOrderSize(source);
+  return Boolean(size && !/取消|不要了|查库存|留一下|库存.*(?:多少|吗|么|[？?])/u.test(source)
+    && parseOrderText(source.replace(size[0], " ")).some(row => row.qty > 0));
 }
 
 function parseMessageRows(message, colorLexicon, options) {
   const dimension = normalizeLikelyDimensionTypo(message.text);
-  const compoundAlias = resolveCompoundAlias(dimension.normalizedText, colorLexicon, message);
-  const colorQuantities = extractColorQuantities(dimension.normalizedText, colorLexicon);
+  const customer = detectCustomer(dimension.normalizedText, options.customers ?? []);
+  const colorText = withoutCustomerColors(dimension.normalizedText, customer, options.customers);
+  const compoundAlias = resolveCompoundAlias(colorText, colorLexicon, message);
+  const bagColors = extractBagColorEntries(colorText, colorLexicon);
   const parser = options.parseOrderText ?? parseOrderText;
   let rows = [];
-  if (colorQuantities.length > 1) {
-    rows = colorQuantities.flatMap((item) => {
-      const parserText = `${stripColorQuantities(dimension.normalizedText, colorLexicon)} 白${item.qty}个`;
+  // 负责人 2026-11-08：车间单写法（【印刷内容】… 客户简称）整行交给专门的识别，袋色/字色/提手色在那里分开。
+  const printOrderLine = looksLikePrintOrderLine(message.text);
+  if (printOrderLine) {
+    rows = parser(message.text, {
+      customers: options.customers ?? [],
+      inventories: options.inventories ?? [],
+      ...(options.now ? { now: options.now } : {}),
+    });
+  } else if (bagColors.length > 1) {
+    const commonText = stripColorQuantities(dimension.normalizedText, bagColors);
+    rows = bagColors.flatMap((item) => {
+      const parserText = `${commonText} ${item.qty ?? 0}个`;
       const parsed = parser(parserText, {
         customers: options.customers ?? [],
         inventories: options.inventories ?? [],
@@ -357,7 +377,7 @@ function parseMessageRows(message, colorLexicon, options) {
       return (parsed.slice(0, 1).length ? parsed.slice(0, 1) : [{}]).map((row) => ({
         ...row,
         color: item.color,
-        qty: item.qty,
+        qty: item.qty ?? 0,
       }));
     });
   } else {
@@ -369,11 +389,12 @@ function parseMessageRows(message, colorLexicon, options) {
   const reviewReasons = [];
   if (dimension.corrected) reviewReasons.push(`疑似尺寸输入错误：${dimension.originalSize}，候选 ${dimension.suggestedSize}`);
   if (compoundAlias?.needsReview) reviewReasons.push("颜色/提手短写需确认");
-  if (!compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText)) {
+  if (!printOrderLine && !compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText)) {
     reviewReasons.push("未匹配的颜色/提手短写需确认");
   }
   const normalizedRows = rows.map((row) => {
     const customer = (options.customers ?? []).find((item) => item.id === message.customerId);
+    const color = !printOrderLine && rows.length === 1 && bagColors.length === 1 && !compoundAlias ? bagColors[0].color : row.color;
     const fieldReviews = [];
     if (dimension.corrected) {
       fieldReviews.push(createDraftFieldReview({
@@ -385,7 +406,7 @@ function parseMessageRows(message, colorLexicon, options) {
         sourceMessageId: message.id,
       }));
     }
-    if (compoundAlias?.needsReview || (!compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText))) {
+    if (compoundAlias?.needsReview || (!printOrderLine && !compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText))) {
       fieldReviews.push(createDraftFieldReview({
         id: `${message.id}:color-handle`,
         field: "colorHandle",
@@ -397,17 +418,20 @@ function parseMessageRows(message, colorLexicon, options) {
     }
     const next = {
       ...row,
+      color,
       customer: customer?.name ?? row.customer,
       customerId: message.customerId || row.customerId,
       source: message.text,
-      reviewReasons: [...new Set([...(row.reviewReasons ?? []), ...reviewReasons])],
+      reviewReasons: [...new Set([...(row.reviewReasons ?? []), ...reviewReasons,
+        ...(bagColors.length && !(Number(row.qty) > 0) ? [`${color}数量待确认`] : []),
+      ])],
       fieldReviews,
       dimensionEvidence: dimension.corrected
         ? { original: dimension.originalSize, suggested: dimension.suggestedSize, requiresConfirmation: true, reviewStatus: "pending" }
         : undefined,
       aliasEvidence: compoundAlias?.evidence,
     };
-    if (compoundAlias) {
+    if (compoundAlias && bagColors.length <= 1) {
       next.color = compoundAlias.bagColor;
       next.handleColor = compoundAlias.handleColor;
       next.handle = next.handle || "普通提";
@@ -421,7 +445,7 @@ function parseMessageRows(message, colorLexicon, options) {
       next.printSide = "非印刷";
       next.artworkStatus = "非印刷";
     }
-    const enriched = colorQuantities.length > 1 || compoundAlias || dimension.corrected || laminatedBag
+    const enriched = bagColors.length > 1 || color !== row.color || compoundAlias || dimension.corrected || laminatedBag
       ? enrichDraftRow(next, options.inventories ?? [])
       : next;
     if (dimension.corrected) {
@@ -435,7 +459,7 @@ function parseMessageRows(message, colorLexicon, options) {
   return {
     rows: normalizedRows,
     riskHints: normalizedRows.flatMap((row, index) => row.reviewReasons.map((reason) => ({
-      riskType: reason.startsWith("疑似尺寸") ? "dimension_confirmation" : "alias_confirmation",
+      riskType: reason.startsWith("疑似尺寸") ? "dimension_confirmation" : reason.endsWith("数量待确认") ? "quantity_confirmation" : "alias_confirmation",
       level: "review",
       message: reason,
       relatedMessageId: message.id,
@@ -517,24 +541,43 @@ function resolveCompoundAlias(text, colorLexicon, message) {
   return null;
 }
 
-function extractColorQuantities(text, colorLexicon) {
+function extractBagColorEntries(text, colorLexicon) {
   const aliases = colorLexicon.map((item) => escapeRegExp(item.alias)).join("|");
   if (!aliases) return [];
   const colors = new Map(colorLexicon.map((item) => [item.alias, item.color]));
   const matches = [];
-  const pattern = new RegExp(`(${aliases})色?\\s*(\\d{1,6})(?:\\s*个)?`, "g");
+  const pattern = new RegExp(`(${aliases})色?(\\s*(${orderQuantityDigitsPattern})(?:\\s*个)?)?`, "g");
   for (const match of text.matchAll(pattern)) {
-    const prefix = text.slice(Math.max(0, Number(match.index) - 2), Number(match.index));
-    if (/印/.test(prefix)) continue;
-    matches.push({ color: colors.get(match[1]) ?? normalizeColor(match[1]), qty: Number(match[2]) });
+    const start = match.index;
+    const end = start + match[0].length;
+    const colorEnd = end - (match[2]?.length ?? 0);
+    const before = text.slice(0, start);
+    const afterColor = text.slice(colorEnd);
+    const describesOtherColor = /(?:印(?:刷)?(?:颜色|色)?|提手(?:颜色|色)?|把手(?:颜色|色)?)\s*[:：]?\s*$/u.test(before)
+      && !/(?:不|免|无需|不用)印(?:刷)?\s*$/u.test(before);
+    // “黑色印” names the ink. In “白色印黑色”, the first colour names the bag.
+    const inkColorSuffix = /^\s*印(?:刷)?(?=\s*(?:$|[，,、；;。.!！]|单面|双面|送货|发货|自提|快递|快运))/u.test(afterColor);
+    if (describesOtherColor || inkColorSuffix || /^\s*(?:提手|把手|提(?=\s|\d|个|$))/u.test(afterColor) || /(?:不要|别要|去掉|取消)\s*$/u.test(before)) continue;
+    const hasQuantity = match[3] !== undefined && !/^\s*[*xX×+]/u.test(text.slice(end));
+    const clearMention = /^(?:$|[\s，,、；;。]|送货|发货|自提|快运|快递|取货|袋|印)/u.test(afterColor)
+      && (text.slice(start, colorEnd).endsWith("色") || !before || /(?:[\s，,、；;。:：]|\d\s*个)$/u.test(before));
+    if (!hasQuantity && !clearMention) continue;
+    matches.push({ color: colors.get(match[1]) ?? normalizeColor(match[1]), qty: hasQuantity ? Number(match[3]) : undefined, start, end });
   }
-  return matches;
+  const quantifiedColors = new Set(matches.filter(item => item.qty !== undefined).map(item => item.color));
+  const retainedMissingColors = new Set();
+  return matches.filter(item => {
+    if (item.qty !== undefined) return true;
+    if (quantifiedColors.has(item.color) || retainedMissingColors.has(item.color)) return false;
+    retainedMissingColors.add(item.color);
+    return true;
+  });
 }
 
-function stripColorQuantities(text, colorLexicon) {
-  const aliases = colorLexicon.map((item) => escapeRegExp(item.alias)).join("|");
-  if (!aliases) return text;
-  return text.replace(new RegExp(`(${aliases})色?\\s*\\d{1,6}(?:\\s*个)?`, "g"), " ");
+function stripColorQuantities(text, bagColors) {
+  return bagColors.reduceRight((source, item) => (
+    item.qty === undefined ? source : `${source.slice(0, item.start)} ${source.slice(item.end)}`
+  ), text);
 }
 
 function hasUnresolvedColorHandleShorthand(text) {

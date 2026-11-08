@@ -17,6 +17,8 @@ import { useOfficeWorkspace } from "../src/app/useOfficeWorkspace.js";
 import { shouldRefreshMasterDataOnEntry } from "../src/app/useOfficeMasterDataEntryRefresh.js";
 import { loadOfficeWorkspace } from "../src/services/officeMockService.js";
 import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
+import { parseOrderText, enrichDraftRow } from "../src/lib/orderParser.js";
+import { enrichDraftRow as projectDraftRow } from "../src/lib/orderDraftProjection.js";
 
 const scenarioData = loadOfficeWorkspace();
 let workspace;
@@ -40,6 +42,8 @@ assert.equal(workspace.fulfillments.length, scenarioData.initialFulfillments.len
 assert.equal(workspace.statements.length, scenarioData.initialStatements.length);
 assert.equal(workspace.rawMaterialInbounds.length, scenarioData.initialRawMaterialInbounds.length);
 assert.equal(workspace.draftRows.length > 0, true);
+assert.deepEqual(workspace.draftRows, parseOrderText(scenarioData.sampleText, { customers: scenarioData.customers, inventories: scenarioData.initialInventories }));
+assert.equal(enrichDraftRow, projectDraftRow, "legacy parser imports reuse the same draft projection");
 assert.equal(Array.isArray(workspace.productionPacking.productionTasks), true);
 assert.equal(Array.isArray(workspace.driverDeliveryTasks), true);
 assert.equal(workspace.printJobQueue.source, "idle");

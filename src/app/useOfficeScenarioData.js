@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 const emptyOfficeScenarioData = Object.freeze({
   customers: Object.freeze([]),
   defaultSelections: Object.freeze({}),
+  initialDraftRows: Object.freeze([]),
   initialFulfillments: Object.freeze([]),
   initialInventories: Object.freeze([]),
   initialOrderLines: Object.freeze([]),

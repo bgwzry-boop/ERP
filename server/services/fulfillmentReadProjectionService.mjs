@@ -71,22 +71,26 @@ function projectFulfillment(workspace, value) {
     orderLine.qty,
   );
   const actualQty = optionalNonNegativeInteger(item.actualQty ?? item.actual_qty);
+  const physicalOutboundAt = cleanText(item.physicalOutboundAt ?? item.physical_outbound_at);
+  const storedPackageLabel = cleanText(item.packages ?? item.package ?? item.packageSummary ?? item.package_summary);
+  const anchorId = packageAnchorId(item);
+  const currentPackageLabelRows = anchorId ? packageLabelRows(list(workspace.packages).filter(row => cleanText(row.fulfillmentId ?? row.fulfillment_id) === anchorId)) : [];
   const packageCount = resolvePackageCount(workspace, {
     fulfillmentId,
     orderLineId,
     explicitCount: item.packageCount ?? item.package_count,
-    packageLabel: item.packages ?? item.package ?? item.packageSummary ?? item.package_summary,
+    packageLabel: storedPackageLabel,
   });
-  const packageLabel =
-    cleanText(item.packages ?? item.package ?? item.packageSummary ?? item.package_summary) ||
-    (packageCount > 0 ? `${packageCount}包` : "待打包");
+  const packageLabel = physicalOutboundAt && packageCount === 0 && !currentPackageLabelRows.length
+    && (!storedPackageLabel || storedPackageLabel === "待打包")
+    ? "包数未登记"
+    : storedPackageLabel || (packageCount > 0 ? `${packageCount}包` : "待打包");
   const dispatch = findActiveDriverDeliveryDispatch(workspace, fulfillmentId);
   const paperOutboundDocument = findCurrentPaperOutboundDocument(workspace, fulfillmentId);
   const latestWarehouseExecution = findLatestWarehouseOutboundExecution(workspace, fulfillmentId);
   const currentPrintRecord = paperOutboundDocument
     ? findPrintRecord(workspace, paperOutboundDocument.printRecordId ?? paperOutboundDocument.print_record_id)
     : null;
-  const anchorId = packageAnchorId(item);
   const latestLabelPrintRecord = findLatestLabelPrintRecord(workspace, anchorId || fulfillmentId);
   const labelsPrinted = anchorId ? hasTrustedCurrentFulfillmentLabel(workspace, item) : method === "express_ltl" && Boolean(
     latestLabelPrintRecord && list(workspace.packages)
@@ -107,7 +111,7 @@ function projectFulfillment(workspace, value) {
     actualPackageCount,
     packingGroupAnchorId: anchorId,
     packingGroupRevision: nonNegativeInteger(item.packingGroupRevision ?? item.packing_group_revision),
-    packageLabelRows: anchorId ? packageLabelRows(list(workspace.packages).filter(row => cleanText(row.fulfillmentId ?? row.fulfillment_id) === anchorId)) : [],
+    packageLabelRows: currentPackageLabelRows,
     packingTask: packingTask ? { packingTaskId: cleanText(packingTask.packingTaskId ?? packingTask.id), orderLineId, status: cleanText(packingTask.status), plannedQty: nonNegativeInteger(packingTask.plannedQty ?? packingTask.qty), actualPackedQty: nonNegativeInteger(packingTask.actualPackedQty), packageCount: actualPackageCount } : null,
     orderNo: cleanText(item.orderNo ?? item.order_no) || orderLineId,
     customerName: cleanText(customer.name ?? item.customerName ?? item.customer_name) || "客户待确认",
@@ -197,7 +201,7 @@ function projectFulfillment(workspace, value) {
     paperOutboundDocumentVersion: nonNegativeInteger(
       item.paperOutboundDocumentVersion ?? item.paper_outbound_document_version ?? paperOutboundDocument?.documentVersion ?? paperOutboundDocument?.document_version,
     ),
-    physicalOutboundAt: cleanText(item.physicalOutboundAt ?? item.physical_outbound_at),
+    physicalOutboundAt,
     physicalExecutorEmployeeId: cleanText(item.physicalExecutorEmployeeId ?? item.physical_executor_employee_id),
     physicalOutboundDocumentId: cleanText(item.physicalOutboundDocumentId ?? item.physical_outbound_document_id),
     physicalOutboundDocumentVersion: nonNegativeInteger(

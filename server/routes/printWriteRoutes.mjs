@@ -72,7 +72,7 @@ export async function handlePrintWriteRoutes({
     return runRoute(routes[deviceMatch[2]]);
   }
 
-  const jobMatch = url.pathname.match(/^\/api\/print-jobs\/([^/]+)\/(status|dispatch|driver-status|poll-status|retry)$/);
+  const jobMatch = url.pathname.match(/^\/api\/print-jobs\/([^/]+)\/(status|dispatch|driver-status|poll-status|retry|browser-printed)$/);
   if (!jobMatch) return false;
 
   const printJobId = decodeURIComponent(jobMatch[1]);
@@ -99,6 +99,9 @@ export async function handlePrintWriteRoutes({
       printJobLifecycleService.pollPrintJobById({ workspace, printJobId, body, operatorId })),
     retry: officeJobRoute((operatorId) =>
       printJobLifecycleService.retryPrintJob({ workspace, printJobId, body, operatorId })),
+    // 负责人 2026-11-08：浏览器打印的纸单，由办公室看纸确认已打出。
+    "browser-printed": officeJobRoute((operatorId) =>
+      printJobLifecycleService.confirmBrowserPrint({ workspace, printJobId, body, operatorId })),
   };
   return runRoute(routes[jobMatch[2]]);
 

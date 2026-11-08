@@ -70,8 +70,12 @@ const workspace = {
       customerId: "C-2",
       method: "自提",
       qty: 500,
+      actualQty: 500,
+      packages: "待打包",
       latest: "昨天 10:00",
       status: "已交付",
+      physicalOutboundAt: "2026-07-15T10:30:00.000Z",
+      finalDeliveryAt: "2026-07-15T11:00:00.000Z",
     },
   ],
   packages: [
@@ -157,6 +161,24 @@ assert.deepEqual(all.metrics, {
   waitingPickupCount: 0,
 });
 assert.equal(JSON.stringify(all).includes("NaN"), false);
+
+const pickupRecord = workspace.fulfillments.find(item => item.id === "F-3");
+const pickupDetail = service.getFulfillment({ workspace, fulfillmentId: pickupRecord.id });
+assert.deepEqual(pickupDetail, all.items.find(item => item.fulfillmentId === pickupRecord.id));
+assert.equal(pickupDetail.package, "包数未登记");
+assert.equal(pickupDetail.packages, "包数未登记");
+assert.equal(pickupDetail.packageCount, 0);
+assert.equal(pickupDetail.actualPackageCount, 0);
+assert.deepEqual(pickupDetail.packageLabelRows, []);
+assert.equal(pickupDetail.status, "已交付");
+assert.equal(pickupDetail.physicalOutboundAt, pickupRecord.physicalOutboundAt);
+assert.equal(pickupDetail.finalDeliveryAt, pickupRecord.finalDeliveryAt);
+assert.equal(pickupRecord.packages, "待打包", "the display label must not change the stored record");
+
+const projectPickup = (fields) => service.projectFulfillment({ workspace, fulfillment: { ...pickupRecord, ...fields } });
+assert.equal(projectPickup({ packages: "" }).packages, "包数未登记");
+assert.equal(projectPickup({ physicalOutboundAt: "", finalDeliveryAt: "", status: "待出库" }).packages, "待打包");
+assert.equal(projectPickup({ packages: "1件散装" }).packages, "1件散装", "preserve an existing recorded package summary");
 
 const detail = service.getFulfillment({ workspace, fulfillmentId: "F-1" });
 assert.deepEqual(detail, express.items[0]);

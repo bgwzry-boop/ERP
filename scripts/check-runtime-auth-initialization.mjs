@@ -4,7 +4,12 @@ import {
   getTopbarLogoutAction,
   shouldShowRuntimeAuthBoundary,
 } from "../src/app/runtimeAuthViewState.js";
-import { applyRuntimeAuthInitializationResult } from "../src/app/useRuntimeAuthInitialization.js";
+import { createElement, useState } from "react";
+import { act, create } from "react-test-renderer";
+import { applyRuntimeAuthInitializationResult, useRuntimeAuthInitialization } from "../src/app/useRuntimeAuthInitialization.js";
+import { getSeedPermissionContext } from "../src/auth/seedPermissions.js";
+import { seedAuthStorageKey } from "../src/services/officeAuthService.js";
+import { buildOfficeApiHeaders } from "../src/services/officeApiClientCore.js";
 
 const initialAuthState = {
   authenticated: false,
@@ -163,7 +168,78 @@ assert.equal(applyRuntimeAuthInitializationResult({
 }), false, "the startup response must not apply when the auth-state generation changed without token rotation");
 assert.equal(sameTokenStateChange.state.auth.reason, "newer_auth_transition", "a same-token newer auth state must remain intact");
 
-console.log("Runtime auth initialization checks passed: matching restore, newer-login retention, rejected-old-session retention, and same-token state protection are covered.");
+// Mount the actual hook and run the real initialization/login client. A fabricated
+// nextAuthState misses loginSeedUser's storage write, which caused the public-phone 403.
+const originalWindow = globalThis.window;
+const originalActEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+try {
+  for (const scenario of ["first_login", "expired_seed", "logout", "new_login", "password_invalidated", "unmount"]) {
+    const values = new Map();
+    const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+    const expired = { ...previewSeedSession, accessToken: "seed-session.expired" };
+    if (scenario === "expired_seed") storage.setItem(seedAuthStorageKey, JSON.stringify(expired));
+    globalThis.window = { sessionStorage: storage, localStorage: { removeItem() {} } };
+    let resolveLogin;
+    const pendingLogin = new Promise((resolve) => { resolveLogin = resolve; });
+    const paths = [];
+    const authOptions = {
+      defaultUserId: "U-MANAGER-A", stagingAuthBypass: true,
+      fetchImpl: async (url, init) => {
+        const path = new URL(url).pathname;
+        paths.push(path);
+        if (path.endsWith("/auth/me")) {
+          assert.equal(init.headers.authorization, `Bearer ${expired.accessToken}`);
+          return new Response(JSON.stringify({ code: "AUTH_TOKEN_EXPIRED" }), { status: 401 });
+        }
+        assert.ok(path.endsWith("/auth/prototype-login"));
+        assert.equal(JSON.parse(init.body).userId, "U-MANAGER-A");
+        return pendingLogin;
+      },
+    };
+    let active;
+    let changeAuth;
+    function MountedInitialization() {
+      const [auth, setAuth] = useState(initialAuthState);
+      active = auth; changeAuth = setAuth;
+      useRuntimeAuthInitialization({ authOptions, authState: auth, serverRequired: false, setAuthState: setAuth });
+      return null;
+    }
+    let mounted;
+    await act(async () => { mounted = create(createElement(MountedInitialization)); });
+    assert.equal(paths.at(-1).endsWith("/auth/prototype-login"), true);
+    let newerState;
+    if (scenario === "logout" || scenario === "password_invalidated") {
+      newerState = { ...initialAuthState, reason: scenario };
+      await act(async () => { storage.removeItem(seedAuthStorageKey); changeAuth(newerState); });
+    } else if (scenario === "new_login") {
+      newerState = newLoginState;
+      await act(async () => { storage.setItem(seedAuthStorageKey, JSON.stringify(newSession)); changeAuth(newerState); });
+    } else if (scenario === "unmount") {
+      await act(async () => { mounted.unmount(); });
+    }
+    await act(async () => {
+      resolveLogin(new Response(JSON.stringify({ authenticated: true, session: previewSeedSession, permissions: getSeedPermissionContext("U-MANAGER-A") }), { status: 200 }));
+    });
+    const stored = JSON.parse(storage.getItem(seedAuthStorageKey) ?? "null");
+    if (scenario === "first_login" || scenario === "expired_seed") {
+      assert.equal(active.authenticated, true, `${scenario}: real hook must apply the signed response`);
+      assert.deepEqual(stored, previewSeedSession);
+      const headers = buildOfficeApiHeaders(active, "U-MANAGER-A", {}, { serverRequired: false });
+      assert.equal(headers.authorization, `Bearer ${previewSeedSession.accessToken}`);
+      assert.equal(headers["x-erp-user-id"], undefined, "signed phone requests must not use the unsigned identity header");
+    } else {
+      if (newerState) assert.equal(active, newerState, `${scenario}: late initialization must not revive/replace auth`);
+      assert.deepEqual(stored, scenario === "new_login" ? newSession : null, `${scenario}: late login must not mutate real storage`);
+    }
+    if (scenario !== "unmount") await act(async () => { mounted.unmount(); });
+  }
+} finally {
+  if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
+  if (originalActEnvironment === undefined) delete globalThis.IS_REACT_ACT_ENVIRONMENT; else globalThis.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
+}
+
+console.log("Runtime auth initialization passed: existing CAS guards and 6 mounted real-client scenarios (first signed login, expired re-sign, logout, new login, password invalidation, unmount); signed requests carry Bearer only.");
 
 function createAuthHarness({ authState, session }) {
   const state = { auth: authState, session };

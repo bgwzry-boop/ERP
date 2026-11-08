@@ -128,7 +128,7 @@ async function checkReceiving(width) {
       const expected = getFactoryStandardColorSwatch(item.factory || item.supplier, mobile ? "var(--erp-roll-neutral)" : "#9aa6b2");
       await assertSwatch(page, row.locator(chipSelector), expected, `${item.key}: ${width}px swatch`);
       const text = row.locator(mobile ? ".line-color" : ".office-roll-color-text");
-      assert.equal(await text.textContent(), item.factory ? `${item.factory}（${item.supplier}）` : item.supplier, `${item.key}: colour text/provenance must stay unchanged`);
+      assert.equal(await text.textContent(), `${item.factory}（${item.supplier}）`, `${item.key}: colour text/provenance must stay unchanged`);
     }
     const mapped = rows.nth(1).locator(mobile ? ".line-color" : ".office-roll-color-text");
     const typography = await mapped.evaluate(element => {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   revalidateRuntimeUserSession,
   readStoredSeedSession,
@@ -240,6 +241,14 @@ try {
 } finally {
   if (originalWindow === undefined) delete globalThis.window;
   else globalThis.window = originalWindow;
+}
+
+// 2026-11-07：服务端改密会作废旧 token，前端不能继续假装登录着。
+{
+  const actionsSource = readFileSync(new URL("../src/app/createRuntimeAuthActions.js", import.meta.url), "utf8");
+  assert.ok(!/业务权限已恢复/u.test(actionsSource), "password change must not claim the old session still works");
+  assert.match(actionsSource, /invalidateRuntimeUserSession\(\{\s*\n\s*reason: "runtime_password_changed"/u,
+    "password change must clear the local session and ask for a fresh login");
 }
 
 console.log("Runtime session revalidation checks passed: current-session refresh, visible-tab scheduling, invalidation handoff, and transient-network retention are covered.");

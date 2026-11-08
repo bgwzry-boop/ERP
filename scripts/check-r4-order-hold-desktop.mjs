@@ -83,12 +83,12 @@ try {
   await holds.getByRole('button',{name:'续期',exact:true}).click();await holds.getByLabel('留货到期时间').fill('2099-07-14T19:30');await holds.getByLabel('留货操作原因').fill('隔离验证客户延后一天');await holds.getByRole('button',{name:'核对延长留货',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();await expect(holds).toContainText('07/14');
   await holds.getByRole('button',{name:'转订单草稿',exact:true}).click();await holds.getByRole('button',{name:'核对转入订单草稿',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认操作',exact:true}).click();
   await expect(page.getByLabel('客户订单原文')).toBeVisible();await expect(page.getByLabel('第1行数量',{exact:true})).toHaveValue('20');
-  await page.getByRole('button',{name:'生成正式报价',exact:true}).click();
-  await expect(page.getByRole('button',{name:'按原内容重试报价',exact:true})).toBeEnabled();
+  await page.locator('.pricing-actions .primary-button').click();
+  await expect(page.getByRole('button',{name:'按原内容重试算价',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'客户档案',exact:true}).click();await expect(page.getByLabel('客户订单原文')).toBeVisible();
   await page.evaluate(()=>{window.location.hash='#inventory-query';});await expect.poll(()=>page.evaluate(()=>window.location.hash)).toBe('#order-entry');
-  await page.getByRole('button',{name:'按原内容重试报价',exact:true}).click();
-  await expect(page.getByText('正式报价已保存。请核对金额和受影响原单，再确认下单。',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'按原内容重试算价',exact:true}).click();
+  await expect(page.getByText('价格已算好。',{exact:true})).toBeVisible();
   assert.equal(quoteAttempts.length,2);assert.equal(new Set(quoteAttempts.map(x=>x.key)).size,1);assert.equal(new Set(quoteAttempts.map(x=>x.body)).size,1);
   const converted=(await api('/order-drafts?pageSize=200')).items.find(x=>x.lines?.some(y=>y.sourceHoldId===current.reservationId));assert.ok(converted,'conversion persisted source hold');assert.equal((await api('/inventory/holds?status=生效')).items.find(x=>x.reservationId===current.reservationId).reservedQty,20,'draft never duplicates or consumes hold');
   await page.goto('http://127.0.0.1:4174/?r4OrderHold=isolated&erpViewport=desktop#inventory-query');

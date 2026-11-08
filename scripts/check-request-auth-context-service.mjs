@@ -180,6 +180,39 @@ console.log(
   "request auth-context service checks passed: runtime/seed verification, strict fail-closed identity, demo compatibility, workspace-aware permission resolution, and override isolation are locked",
 );
 
+// 2026-11-07 实测：免登录可以，但公网域名下的匿名请求不能被当成办公室账号。
+const stagingHostHeaders = { host: "erp-staging.luxingpack.com" };
+assert.deepEqual(
+  getRequestAuthContext(requestWithHeaders({ ...stagingHostHeaders, "x-erp-user-id": "U-MANAGER-A" }), demoWorkspace),
+  { authenticated: false, source: "unauthenticated", userId: "UNAUTHENTICATED", authError: "AUTH_SESSION_REQUIRED" },
+);
+assert.deepEqual(
+  getRequestAuthContext(requestWithHeaders(stagingHostHeaders), demoWorkspace),
+  { authenticated: false, source: "unauthenticated", userId: "UNAUTHENTICATED", authError: "AUTH_SESSION_REQUIRED" },
+);
+// 反向代理转发头一律视为外网流量，即使 Host 被伪造成本机也不放行。
+assert.equal(
+  getRequestAuthContext(
+    requestWithHeaders({ host: "127.0.0.1:8787", "x-forwarded-for": "203.0.113.9", "x-erp-user-id": "U-MANAGER-A" }),
+    demoWorkspace,
+  ).authenticated,
+  false,
+);
+// 本机预览与测试脚本仍然免签。
+assert.equal(
+  getRequestAuthContext(requestWithHeaders({ host: "127.0.0.1:8787", "x-erp-user-id": "U-FINANCE-A" }), demoWorkspace).source,
+  "seed_user_header",
+);
+// 权限覆盖头同样只在本机放行。
+assert.equal(
+  getRequestPermissionContext(
+    requestWithHeaders({ host: "erp-staging.luxingpack.com", "x-erp-user-id": "U-OFFICE-A", "x-erp-action-permissions": "payroll.export" }),
+    { authenticated: false, source: "default_seed_user", userId: "U-OFFICE-A" },
+    demoWorkspace,
+  ).actionPermissions.includes("payroll.export"),
+  false,
+);
+
 function requestWithHeaders(headers) {
   return { headers };
 }

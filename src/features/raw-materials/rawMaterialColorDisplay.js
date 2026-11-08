@@ -6,9 +6,11 @@ export function getRawMaterialDisplayColorSwatch(factoryColor, supplierColor = "
   return getFactoryStandardColorSwatch(color, fallback);
 }
 
+// 负责人 2026-11-05：括号外是我厂颜色，括号里是送货单上的颜色。
+// 两个都有：米黄（米色）；只有我厂颜色：米黄；只有送货颜色（还没对应到我厂颜色）：（米色）。
 export function formatRawMaterialColorDisplay(factoryColor, supplierColor) {
   const factory = String(factoryColor || "").trim();
   const supplier = String(supplierColor || "").trim();
-  if (factory && supplier) return `${factory}（${supplier}）`;
-  return factory || supplier || "颜色待补";
+  if (supplier) return `${factory}（${supplier}）`;
+  return factory || "颜色待补";
 }

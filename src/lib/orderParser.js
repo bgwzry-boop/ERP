@@ -1,8 +1,20 @@
-import { calculateLinePricing, p0BagPriceRows } from "../domain/priceTable.js";
-import { isStockOrderType, normalizeOrderType, inferOrderType } from "../../shared/orderRouting.js";
+import { enrichDraftRow } from "./orderDraftProjection.js";
+export { enrichDraftRow, estimateAmount } from "./orderDraftProjection.js";
+import { detectMessageCustomer, isActiveMessageCustomer } from "../../shared/orderMessageCustomer.js";
+import { looksLikePrintOrderLine, parsePrintOrderLine } from "../../shared/printOrderLineParser.js";
 
 const colorWords = ["米白", "浅蓝", "牛仔蓝", "大红", "红", "黑", "白", "蓝", "绿", "黄", "粉"];
 const colorPattern = colorWords.join("|");
+const compactInkPattern = new RegExp(`(${colorPattern})色?印(${colorPattern})色?`);
+const compactHandlePattern = new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`);
+const calendarDateShape = String.raw`\d{4}-\d{2}-\d{2}`;
+const calendarDateToken = new RegExp(String.raw`(?<![\w-])${calendarDateShape}(?![\w-])`, "gu");
+const quantityDateShape = String.raw`(?:\d{4}[-/.年])?\d{1,2}[-/.月]\d{1,2}日?`;
+const orderNumberPrefix = /(?:单号|编号|订单|\border(?:\s+(?:id|no\.?))?|\bpo)\s*(?:为|是)?\s*[:：=#]?\s*$/iu;
+const negatedPrintSide = /(?:不(?:需要?|用|要|做)?|无需)\s*(?:[双两单一]面\s*(?:印刷?)?|印刷?\s*[双两单一]面)/gu;
+const noPrinting = /(?:不(?:需要?|用|要|做)?|无需|非|免|无)\s*印(?:刷|字|花|图案?|标志|logo)?/giu;
+// Calendar-shaped text must not supply a quantity, even when its date is invalid.
+export const orderQuantityDigitsPattern = String.raw`(?<!\d)(?!${quantityDateShape}(?!\d))\d{1,6}(?!\d)`;
 const sizeAliases = [
   { words: ["中号横款", "中号横版"], size: "40*30*10" },
   { words: ["小号横款", "小号横版"], size: "35*27*10" },
@@ -27,9 +39,14 @@ const customerAliases = {
   C012: ["宏尚", "布业"],
 };
 
-export function parseOrderText(text, { customers = [], inventories = [] } = {}) {
+export function parseOrderText(text, { customers = [], inventories = [], now = new Date() } = {}) {
   const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
   if (!normalized) return [];
+  // 负责人 2026-11-08：车间单写法（【印刷内容】尺寸 数量 袋色字色 … 客户简称）按行单独识别。
+  const rawLines = String(text ?? "").split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  if (rawLines.length && rawLines.every(looksLikePrintOrderLine)) {
+    return rawLines.flatMap((line, index) => printOrderRows(line, index, { customers, inventories, now }));
+  }
   const chunks = normalized
     .split(/[；;\n]+/)
     .map((item) => item.trim())
@@ -44,20 +61,26 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
     if (customer) lastCustomer = customer;
 
     const size = detectSize(chunk);
-    const quantities = detectQuantities(chunk);
+    const colorText = withoutCustomerColors(chunk, customer, customers);
+    const quantities = detectQuantities(colorText);
     const product = detectProduct(chunk);
     const fulfillment = detectFulfillment(chunk);
-    const print = chunk.includes("印") || chunk.includes("美的") || chunk.includes("图") || chunk.includes("logo") ? "是" : "否";
+    const printSideText = chunk.replace(negatedPrintSide, " ");
+    const printText = printSideText.replace(noPrinting, " ");
+    // An explicit blank-bag instruction overrides loose hints, while a separate
+    // affirmative print instruction still applies to the line.
+    const prints = printText === printSideText ? /印|美的|图|logo/u.test(printSideText) : printText.includes("印");
+    const print = prints ? "是" : "否";
     const handle = chunk.includes("长提") || chunk.includes("加长") ? "加长提" : "普通提";
     const latest = detectLatest(chunk);
-    const printColor = print === "是" ? detectPrintColor(chunk) : "非印刷";
-    const printSide = print === "是" ? detectPrintSide(chunk) : "非印刷";
+    const printColor = prints ? detectPrintColor(printText) : "非印刷";
+    const printSide = prints ? detectPrintSide(printText) : "非印刷";
     const artworkStatus = print === "是" ? "待上传" : "非印刷";
     const handleColor = detectHandleColor(chunk);
     const note = detectNote(chunk, { handle });
 
     quantities.forEach((item, qtyIndex) => {
-      const color = item.color || detectColor(chunk);
+      const color = item.color || detectColor(colorText);
       const qty = Number(item.qty || 0);
       const baseRow = {
         id: `DRAFT-${index + 1}-${qtyIndex + 1}`,
@@ -86,40 +109,42 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
   return rows;
 }
 
-export function enrichDraftRow(row, inventories = []) {
-  const sizeParts = String(row.size ?? "").split(/[*×x]/).map(Number);
-  const standardSize = p0BagPriceRows.some(item => {
-    const parts = item.size.split("*").map(Number);
-    return sizeParts.length >= 2 && sizeParts.length <= 3 && sizeParts.every((value, index) => value === parts[index]);
-  });
-  row = { ...row, orderType: inferOrderType(row, { standardSize }) };
-  const amount = estimateAmount(row);
-  const inventory = estimateInventory(row, inventories);
-  const confidence = getConfidence(row, inventory);
-  return { ...row, amount, inventory, confidence };
+export function detectCustomer(chunk, customers, fallback) {
+  customers = customers.filter(isActiveMessageCustomer);
+  const hint = detectMessageCustomer(chunk, customers);
+  if (hint?.ambiguous) return undefined;
+  if (hint?.customerId) return customers.find(customer => customer.id === hint.customerId);
+  const fullNames = customers.filter(customer => chunk.includes(customer.name));
+  if (fullNames.length) return fullNames.length === 1 ? fullNames[0] : undefined;
+  const aliases = customers.filter(customer => (customerAliases[customer.id] ?? [customer.name.slice(0, 2)])
+    .some(alias => chunk.includes(alias)));
+  if (aliases.length > 1) return undefined;
+  return aliases[0] ?? fallback;
 }
 
-export function estimateAmount(rowOrQty, print = "否") {
-  const row = typeof rowOrQty === "object" && rowOrQty !== null ? rowOrQty : { qty: rowOrQty, print };
-  return calculateLinePricing(row).amount;
+export function withoutCustomerColors(text, customer, customers = []) {
+  const hint = customer ? null : detectMessageCustomer(text, customers);
+  const knownName = hint && customers.some(item => [item.name, item.shortName].includes(hint.name)) ? hint.name : "";
+  for (const name of [customer?.name, customer?.shortName, knownName, ...(customerAliases[customer?.id] ?? [customer?.name?.slice(0, 2)])]) {
+    if (name?.length > 1) text = text.split(name).join(" ".repeat(name.length));
+  }
+  return text;
 }
 
-function detectCustomer(chunk, customers, fallback) {
-  return (
-    customers.find((customer) => chunk.includes(customer.name)) ||
-    customers.find((customer) => {
-      const aliases = customerAliases[customer.id] ?? [customer.name.slice(0, 2)];
-      return aliases.some((alias) => chunk.includes(alias));
-    }) ||
-    fallback
-  );
+export function findCompactOrderSize(text) {
+  return [...text.matchAll(/(?<![\w./-])([2-5]\d)([2-5]\d)(?![\w./-])/gu)]
+    .find(match => !isOrderReferencePrefix(text.slice(0, match.index)));
+}
+
+export function isOrderReferencePrefix(text) {
+  return orderNumberPrefix.test(text.replace(/[A-Za-z_-]+$/u, "")) || /(?:电话|手机号?)\s*[:：]?\s*$/u.test(text);
 }
 
 function detectSize(chunk) {
   const explicit = chunk.match(/(\d{2})\s*[*xX×]\s*(\d{2})(?:\s*[*xX×]\s*(\d{1,2}))?/);
   if (explicit) return `${explicit[1]}*${explicit[2]}*${explicit[3] ?? "10"}`;
 
-  const compact = chunk.match(/(?:^|[^\d])([2-5]\d)([2-5]\d)(?:[^\d]|$)/);
+  const compact = findCompactOrderSize(chunk);
   if (compact) return `${compact[1]}*${compact[2]}*10`;
 
   const alias = sizeAliases.find((item) => item.words.some((word) => chunk.includes(word)));
@@ -128,17 +153,19 @@ function detectSize(chunk) {
 
 function detectQuantities(chunk) {
   const matches = [];
-  const colorQtyRegExp = new RegExp(`(${colorPattern})色?\\s*(\\d{1,6})(?:\\s*个)?`, "g");
+  const colorQtyRegExp = new RegExp(`(${colorPattern})色?\\s*(${orderQuantityDigitsPattern})(?:\\s*个)?`, "g");
   for (const match of chunk.matchAll(colorQtyRegExp)) {
     const before = chunk.slice(Math.max(0, match.index - 3), match.index);
     const after = chunk.slice(Number(match.index) + match[0].length);
-    if (before.includes("印") || /^\s*[*xX×]/.test(after)) continue;
+    if (before.includes("印") || /^\s*[*xX×]/.test(after) || isOrderReferencePrefix(chunk.slice(0, match.index))) continue;
     matches.push({ color: normalizeColor(match[1]), qty: Number(match[2]) });
   }
 
   if (matches.length) return matches;
 
-  const qty = chunk.match(/(\d{1,6})\s*个/);
+  const quantitySource = chunk.replace(new RegExp(quantityDateShape, "gu"), " ");
+  const qty = [...quantitySource.matchAll(/(?<!\d)(\d{1,6})\s*个/gu)]
+    .find(match => !isOrderReferencePrefix(quantitySource.slice(0, match.index)));
   return [{ color: detectColor(chunk), qty: qty ? Number(qty[1]) : 0 }];
 }
 
@@ -167,64 +194,48 @@ function detectProduct(chunk) {
 }
 
 function detectFulfillment(chunk) {
-  if (chunk.includes("快运") || chunk.includes("快递")) return "快递快运";
-  if (chunk.includes("送货") || chunk.includes("送到")) return "送货";
-  if (chunk.includes("自提") || chunk.includes("来取") || chunk.includes("拿货")) return "自提";
+  if (/快运|快递/.test(chunk)) return "快递快运";
+  if (/送货|送到/.test(chunk)) return "送货";
+  if (/自提|来取|拿货/.test(chunk)) return "自提";
   return "待确认";
 }
 
 function detectLatest(chunk) {
+  let date;
+  for (const match of chunk.matchAll(calendarDateToken)) {
+    if (orderNumberPrefix.test(chunk.slice(0, match.index))) continue;
+    if (date && date !== match[0]) return "待确认";
+    date = match[0];
+  }
+  if (date) return new Date(date).toJSON()?.startsWith(date) ? date : "待确认";
   if (chunk.includes("今天") && chunk.includes("下午")) return "今天下午";
-  if (chunk.includes("今天")) return "今天";
-  if (chunk.includes("明天")) return "明天";
-  if (chunk.includes("后天")) return "后天";
-  if (chunk.includes("周五")) return "周五";
-  return "待确认";
+  return ["今天", "明天", "后天", "周五"].find((value) => chunk.includes(value)) ?? "待确认";
+}
+
+function matchColor(chunk, pattern, group = 1) {
+  const match = chunk.match(pattern);
+  return match ? normalizeColor(match[group]) : "";
 }
 
 function detectPrintColor(chunk) {
-  const compactColorPrint = chunk.match(new RegExp(`(${colorPattern})色?印(${colorPattern})色?`));
-  if (compactColorPrint) return normalizeColor(compactColorPrint[2]);
-
-  const printColorField = chunk.match(new RegExp(`印色\\s*[:：]?\\s*(${colorPattern})色?`));
-  if (printColorField) return normalizeColor(printColorField[1]);
-
-  const colorAfterPrint = chunk.match(new RegExp(`印(?:刷)?\\s*(${colorPattern})色?`));
-  if (colorAfterPrint) return normalizeColor(colorAfterPrint[1]);
-
-  const colorBeforePrint = chunk.match(new RegExp(`(${colorPattern})色?\\s*印`));
-  if (colorBeforePrint) return normalizeColor(colorBeforePrint[1]);
-
-  return "待确认";
+  return matchColor(chunk, compactInkPattern, 2)
+    || matchColor(chunk, new RegExp(`印色\\s*[:：]?\\s*(${colorPattern})色?`))
+    || matchColor(chunk, new RegExp(`印(?:刷)?\\s*(${colorPattern})色?`))
+    || matchColor(chunk, new RegExp(`(${colorPattern})色?\\s*印`))
+    || "待确认";
 }
 
 function detectBagColor(chunk) {
-  const compactColorPrint = chunk.match(new RegExp(`(${colorPattern})色?印(${colorPattern})色?`));
-  if (compactColorPrint) return normalizeColor(compactColorPrint[1]);
-
-  const explicitBlankBag = chunk.match(new RegExp(`(${colorPattern})色?\\s*空白袋`));
-  if (explicitBlankBag) return normalizeColor(explicitBlankBag[1]);
-
-  const compactBagHandle = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
-  if (compactBagHandle) return normalizeColor(compactBagHandle[1]);
-
-  const explicitBag = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
-  if (explicitBag) return normalizeColor(explicitBag[1]);
-
-  return "";
+  return matchColor(chunk, compactInkPattern)
+    || matchColor(chunk, new RegExp(`(${colorPattern})色?\\s*空白袋`))
+    || matchColor(chunk, compactHandlePattern)
+    || matchColor(chunk, new RegExp(`(?<!空)(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
 }
 
 function detectHandleColor(chunk) {
-  const compactBagHandle = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
-  if (compactBagHandle) return normalizeColor(compactBagHandle[2]);
-
-  const colorBeforeHandle = chunk.match(new RegExp(`(${colorPattern})色?\\s*(?:提手|手提|提)(?!货|醒|示)`));
-  if (colorBeforeHandle) return normalizeColor(colorBeforeHandle[1]);
-
-  const colorAfterHandle = chunk.match(new RegExp(`(?:提手|手提)\\s*(${colorPattern})色?`));
-  if (colorAfterHandle) return normalizeColor(colorAfterHandle[1]);
-
-  return "";
+  return matchColor(chunk, compactHandlePattern, 2)
+    || matchColor(chunk, new RegExp(`(${colorPattern})色?\\s*(?:提手|手提|提)(?!货|醒|示)`))
+    || matchColor(chunk, new RegExp(`(?:提手|手提)\\s*(${colorPattern})色?`));
 }
 
 function detectNote(chunk, { handle }) {
@@ -239,34 +250,55 @@ function detectNote(chunk, { handle }) {
 }
 
 function detectPrintSide(chunk) {
-  if (chunk.includes("双面") || chunk.includes("两面")) return "双面";
-  if (chunk.includes("单面") || chunk.includes("一面")) return "单面";
+  // 负责人 2026-11-08：双面要分相同还是不同；没写清的标待确认，开单页提醒补全。
+  if (/(?:[双两]面?|正反面?)\s*不同|不同版|不同内容|正反版/u.test(chunk)) return "双面不同";
+  if (/(?:[双两]面?|正反面?)\s*(?:一样|相同)|同样内容|内容相同/u.test(chunk)) return "双面";
+  if (/[双两]面/.test(chunk)) return "双面待确认";
+  if (/[单一]面/.test(chunk)) return "单面";
   return "待确认";
 }
 
-function estimateInventory(row, inventories) {
-  if (!row.customerId || row.size === "待确认" || row.color === "待确认" || !row.qty) return "待确认";
-  const orderType = normalizeOrderType(row?.orderType);
-  if (orderType && !isStockOrderType(orderType)) return orderType === "external_print" ? "外加工，不走通货库存" : "订单生产，不走通货库存";
-
-  const stock = inventories.find(
-    (item) =>
-      item.size === row.size &&
-      item.color === row.color &&
-      item.handle === row.handle &&
-      item.style === row.style &&
-      !String(item.state ?? "").includes("待处理"),
-  );
-
-  if (!stock) return "缺货";
-  const available = stock.inStock - stock.reserved - stock.locked - stock.pending;
-  if (available >= row.qty && !stock.estimated) return "可用";
-  if (available >= row.qty && stock.estimated) return "需复核";
-  return `缺货 ${row.qty - Math.max(0, available)}`;
+function findPrintOrderCustomer(name, customers) {
+  const active = customers.filter(isActiveMessageCustomer);
+  if (!name) return undefined;
+  const exact = active.filter((customer) => [customer.name, customer.shortName].map((value) => String(value ?? "").trim()).includes(name));
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1 || name.length < 2) return undefined;
+  const partial = active.filter((customer) => String(customer.name ?? "").includes(name));
+  return partial.length === 1 ? partial[0] : undefined;
 }
 
-function getConfidence(row, inventory) {
-  if (!row.customerId || row.size === "待确认" || row.color === "待确认" || !row.qty) return "low";
-  if (row.latest === "待确认" || inventory === "待确认" || inventory === "需复核" || inventory.startsWith("缺货")) return "medium";
-  return "high";
+function printOrderRows(line, index, { customers, inventories, now }) {
+  const parsed = parsePrintOrderLine(line, { now });
+  const customer = findPrintOrderCustomer(parsed.customerName, customers);
+  const fulfillment = /送货/u.test(line) ? "送货" : /自提|来拿|来取/u.test(line) ? "自提" : /发/u.test(line) ? "快递快运" : "待确认";
+  return parsed.rows.map((item, rowIndex) => {
+    const notes = [...parsed.notes];
+    if (item.sizeReview) notes.push(item.sizeReview);
+    if (parsed.peerProcessor) notes.push(`${parsed.peerProcessor}送卷来加工，只印不制袋`);
+    const row = {
+      id: `DRAFT-${index + 1}-${rowIndex + 1}`,
+      customer: customer?.name ?? "待确认客户",
+      customerId: customer?.id ?? "",
+      product: parsed.external ? "同行来料印刷" : "空白袋",
+      ...(parsed.external ? { orderType: "external_print" } : {}),
+      size: item.size,
+      color: item.bagColor || "待确认",
+      handle: parsed.handle,
+      style: "空白袋",
+      print: "是",
+      qty: item.qty,
+      fulfillment,
+      latest: parsed.latest || "待确认",
+      printColor: item.printColor || "待确认",
+      printSide: parsed.side,
+      ...(parsed.printColorCount ? { printColorCount: parsed.printColorCount } : {}),
+      artworkStatus: "待上传",
+      handleColor: item.handleColor,
+      printContent: parsed.printContent,
+      note: [...new Set(notes)].join("、"),
+      source: line,
+    };
+    return enrichDraftRow(row, inventories);
+  });
 }

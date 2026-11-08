@@ -1,5 +1,5 @@
 import { normalizeOrderType } from "../../shared/orderRouting.js";
-import { enrichDraftRow } from "../lib/orderParser.js";
+import { enrichDraftRow } from "../lib/orderDraftProjection.js";
 import { recognizeOrderConversation } from "../lib/orderConversationRecognition.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import {
@@ -705,13 +705,16 @@ function mapApiTodosToLocalTodoInputs(todos = [], { draftRows = [], draftId = ""
 function mapApiPrintSide(value, print) {
   if (print !== "是") return "非印刷";
   if (value === "single" || value === "单面") return "单面";
-  if (value === "double" || value === "双面") return "双面";
+  if (value === "double" || value === "双面" || value === "双面相同") return "双面";
+  if (value === "double_different" || value === "双面不同") return "双面不同";
   return "待确认";
 }
 
 function mapDraftPrintSideToApi(value) {
   if (value === "单面" || value === "single") return "single";
-  if (value === "双面" || value === "double") return "double";
+  if (value === "双面" || value === "double" || value === "双面相同") return "double";
+  // 负责人 2026-11-08：双面不同（两面内容不一样）单独一种；服务端按中文原样保存。
+  if (value === "双面不同" || value === "double_different") return "双面不同";
   return undefined;
 }
 
@@ -803,6 +806,40 @@ export async function updateOfficeCustomerDeliveryAddress(input = {}, options = 
     return { source: "api", address: json.address ?? null, changed: json.changed === true, locationCleared: json.locationCleared === true };
   } catch (error) {
     return { source: "api_error", blocked: true, error: { code: "CUSTOMER_ADDRESS_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+// 开单时选客户（负责人 2026-11-05）：按名称、简称、联系人、电话找。
+export async function searchOfficeCustomers(input = {}, options = {}) {
+  const query = String(input.query ?? "").trim().slice(0, 40);
+  try {
+    const response = await requestOrderApi(`/master-data/customers?q=${encodeURIComponent(query)}&limit=${Number(input.limit) || 20}`, { ...options, authState: input.authState, operatorId: input.operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toApiError(json, response.status, "客户列表读取失败。") };
+    return { source: "api", items: Array.isArray(json.items) ? json.items : [], total: Number(json.total) || 0 };
+  } catch (error) {
+    return { source: "api_error", blocked: true, items: [], error: { code: "CUSTOMER_SEARCH_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+// 开单时直接新建客户（负责人 2026-11-05）：客户名称必填，电话、地址可不填。
+export async function createOfficeCustomer(input = {}, options = {}) {
+  try {
+    const response = await requestOrderApi("/master-data/customers", {
+      ...options,
+      method: "POST",
+      authState: input.authState,
+      operatorId: input.operatorId,
+      body: { name: input.name, contactName: input.contactName, phone: input.phone, address: input.address },
+    });
+    const json = await readJson(response);
+    if (response.status === 409 && json?.code === "CUSTOMER_NAME_EXISTS" && json.customer) {
+      return { source: "api", existing: true, customer: json.customer, message: json.message };
+    }
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "新建客户没有保存。") };
+    return { source: "api", created: true, customer: json.customer ?? null, addressId: json.addressId ?? "" };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "CUSTOMER_CREATE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
   }
 }
 

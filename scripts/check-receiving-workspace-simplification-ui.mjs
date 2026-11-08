@@ -1,4 +1,4 @@
-import { fulfillReceiptRead, selectReceiptRow, selectReceiptTab } from "./receipt-ui-read-fixtures.mjs";
+import { fulfillReceiptRead, openReceiptQueue, selectReceiptRow, selectReceiptTab } from "./receipt-ui-read-fixtures.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
@@ -143,7 +143,7 @@ async function checkDesktop(width) {
     }
     assert.equal(await page.getByRole("button", { name: "录入送货/退货单", exact: true }).count(), 1, "one primary capture entry remains above the receipt list");
     await pane.getByRole("heading", { name: "收货核对", exact: true }).waitFor();
-    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "米色"]);
+    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "（米色）"]);
     assert.equal(await pane.getByRole("button", { name: "这批都对，去打印", exact: true }).count(), 1);
     const history = pane.locator("details.raw-material-receipt-history");
     assert.equal(await history.evaluate(element => element.open), false, "history must initially remain collapsed");
@@ -186,7 +186,7 @@ async function checkDesktop(width) {
     await selectReceiptRow(page, delivery.id);
     await pane.locator(".raw-material-detail-facts").getByText(delivery.id, { exact: true }).waitFor();
     assert.equal(await pane.locator("details.raw-material-receipt-history").evaluate(element => element.open), false);
-    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "米色"], "viewing source/history must preserve both colour identities");
+    assert.deepEqual(await pane.locator(".office-roll-color-text").allTextContents(), ["海蓝（海兰）", "（米色）"], "viewing source/history must preserve both colour identities");
 
     // Both notes intentionally reuse their first OCR line id. An unsubmitted
     // edit must never become a different receipt's displayed or submitted facts.
@@ -194,6 +194,50 @@ async function checkDesktop(width) {
     await pane.getByLabel("本卷公斤", { exact: true }).fill("69");
     await pane.getByRole("button", { name: "保存这一卷", exact: true }).click();
     assert.match(await pane.locator(".office-roll-table").innerText(), /69kg/u);
+
+    // 2026-11-07：未保存的核对修改切换单据必须先确认；取消保留原单与修改。
+    {
+      const dirtyMsg = "当前这张单还有没保存的核对修改，切换后会丢失。确定要切换吗？";
+      await pane.locator(".office-roll-row").first().getByRole("button", { name: "改这一卷", exact: true }).click();
+      await pane.getByLabel("本卷公斤", { exact: true }).fill("77");
+      let dialogMessage = "";
+      let dismissCount = 0;
+      const onDismiss = async (dialog) => {
+        if (dialog.type() !== "confirm") { await dialog.accept(); return; }
+        dialogMessage = dialog.message();
+        dismissCount += 1;
+        await dialog.dismiss();
+      };
+      page.on("dialog", onDismiss);
+      // 直接点另一行（不能用会等待新目标的 helper，对话框会挡住导航）。
+      await openReceiptQueue(page);
+      await page.locator(`button.receipt-queue-item:has([title*="${other.id}"])`).click();
+      await page.waitForTimeout(300);
+      assert.equal(dismissCount, 1, "切换未保存单据必须弹一次确认");
+      assert.equal(dialogMessage, dirtyMsg, "确认文案应说明会丢失修改");
+      await pane.getByText(delivery.id, { exact: true }).first().waitFor();
+      // 77 只存在本地编辑框里，不是已保存的行值；行里仍必须是 69。
+      assert.match(await pane.locator(".office-roll-table").innerText(), /69kg/u, "取消后已保存的行仍是 69");
+      assert.equal(await pane.getByLabel("本卷公斤", { exact: true }).inputValue(), "77", "取消后未提交的输入必须保留");
+      assert.ok((await pane.locator(".raw-material-detail-facts").innerText()).includes(delivery.id), "取消后仍是原来那张单");
+
+      // 接受确认 -> 真正切换，且不能把 77 带到另一张单。
+      let accepted = 0;
+      page.off("dialog", onDismiss);
+      const onAccept = async (dialog) => {
+        if (dialog.type() !== "confirm") { await dialog.accept(); return; }
+        accepted += 1;
+        await dialog.accept();
+      };
+      page.on("dialog", onAccept);
+      await openReceiptQueue(page);
+      await page.locator(`button.receipt-queue-item:has([title*="${other.id}"])`).click();
+      await pane.getByText(other.id, { exact: true }).first().waitFor();
+      assert.equal(accepted, 1, "接受确认后应只切一次");
+      assert.doesNotMatch(await pane.locator(".office-roll-table").innerText(), /77kg/u, "未保存修改不得带到另一张单");
+      page.off("dialog", onAccept);
+      await selectReceiptRow(page, delivery.id);
+    }
     await selectReceiptTab(page, "退货单 1");
     await selectReceiptRow(page, returned.id);
     await pane.getByRole("heading", { name: "退货核对", exact: true }).waitFor();
@@ -220,13 +264,64 @@ async function checkDesktop(width) {
 }
 
 async function checkPhone() {
+  // 2026-11-07：三条真实路径的哈希路由回归（断言具体页面，而不是拿当前状态自我对照）。
+  {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    page.setDefaultTimeout(15000);
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.route("**/api/**", async route => {
+      const request = route.request(), path = new URL(request.url()).pathname;
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && path !== "/api/auth/prototype-login") {
+        report.blockedWrites.push({ width: "hash-routing", method: request.method(), path });
+        return route.abort();
+      }
+      if (await fulfillReceiptRead(route, records)) return;
+      return route.continue();
+    });
+    const url = new URL(origin);
+    url.searchParams.set("receivingCleanupReview", `hash-${Date.now()}`);
+    url.searchParams.set("keepMe", "1");
+    url.searchParams.set("erpViewport", "desktop");
+    url.hash = "definitely-unknown-route";
+    await page.goto(url.href);
+
+    // 路径 1：首屏未知 hash 必须落到固定默认页（卷料库存 + 物理卷料台账），查询参数保留。
+    await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').waitFor();
+    await page.getByRole("table", { name: "物理卷料台账", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.location.hash), "#roll-inventory", "未知 hash 必须改写为默认有效页");
+    assert.equal(new URL(page.url()).searchParams.get("keepMe"), "1", "回写地址不得丢掉查询参数");
+
+    // 路径 2：先到有效页 material-receiving，再改成未知 hash；不刷新不点菜单也必须自动回到收货页。
+    await page.evaluate(() => { window.location.hash = "material-receiving"; });
+    await page.locator('[data-nav-id="material-receiving"][aria-current="page"]').waitFor();
+    await page.getByRole("region", { name: "收货单据队列", exact: true }).waitFor();
+    await page.evaluate(() => { window.location.hash = "still-unknown-route"; });
+    await page.locator('[data-nav-id="material-receiving"][aria-current="page"]').waitFor();
+    await page.getByRole("region", { name: "收货单据队列", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.location.hash), "#material-receiving", "未知 hash 必须自动回退当前页");
+
+    // 路径 3：点导航切到卷料库存，再写回合法收货 hash，两个方向都要跟着变。
+    await page.locator('[data-nav-id="roll-inventory"]').click();
+    await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').waitFor();
+    await page.getByRole("table", { name: "物理卷料台账", exact: true }).waitFor();
+    await page.evaluate(() => { window.location.hash = "material-receiving"; });
+    await page.locator('[data-nav-id="material-receiving"][aria-current="page"]').waitFor();
+    await page.getByRole("region", { name: "收货单据队列", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.location.hash), "#material-receiving");
+
+    assert.deepEqual(errors, [], "路由路径不得产生页面错误");
+    report.pageErrors.push(...errors.map(message => ({ width: "hash-routing", message })));
+    await page.close();
+  }
+
   const page = await openPage(390);
   try {
     await page.getByRole("button", { name: "核对全部卷材", exact: true }).click();
     const rows = page.locator(".raw-material-mobile-review-list > article");
     await rows.first().waitFor();
     assert.equal(await rows.count(), 2);
-    assert.deepEqual(await rows.locator(".line-color").allTextContents(), ["海蓝（海兰）", "米色"]);
+    assert.deepEqual(await rows.locator(".line-color").allTextContents(), ["海蓝（海兰）", "（米色）"]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: `${output}/phone-review-390.png`, fullPage: true });
     report.checks.push({ width: 390, scope: "existing-phone-review", passed: true, sameReceiptAndTwoRows: true, originalColourNames: true, noHorizontalOverflow: true });

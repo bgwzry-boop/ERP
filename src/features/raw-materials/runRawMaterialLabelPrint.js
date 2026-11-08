@@ -16,11 +16,15 @@ export function isRawMaterialLabelPrintFrame(value) {
   return Boolean(value && typeof value.contentWindow?.print === "function" && typeof value.remove === "function");
 }
 
-const PRINT_OPEN_GRACE_MS = 400;
-const PRINT_CLOSE_FALLBACK_MS = 120000;
+// 负责人 2026-11-05：现场 Windows 电脑上标签实际打出来了，但浏览器一个打印事件都没发，
+// 页面却提示「打印窗口没有打开」，单子一直停在待打印。现在 print() 没出错就再等一小会儿：
+// 等到事件就照常等预览关闭；等不到也当浏览器已经处理了打印，交给后面的
+// 「面单都出来了吗？」确认框由人确认，没出来点取消就不会记成已打印。
+export const PRINT_OPEN_GRACE_MS = 1500;
+export const PRINT_CLOSE_FALLBACK_MS = 120000;
 
-// Resolves true after the print preview closes, false if the browser never
-// opened it. The frame is created during the click (before any await) so the
+// Resolves true after the print preview closes (or the browser printed without
+// any print event), false only if print() itself failed. The frame is created during the click (before any await) so the
 // later print still belongs to that gesture; the confirm dialog waits until
 // the preview closes so it cannot cover or cancel that preview.
 // Cancelling the dialog is not a failure to open: Chrome often delivers only
@@ -71,7 +75,7 @@ export function printRawMaterialLabelFrame(frame, sheetHtml) {
       win.focus();
       win.print();
       if (settled) return;
-      fallback = setTimeout(() => finish(opened), opened ? PRINT_CLOSE_FALLBACK_MS : PRINT_OPEN_GRACE_MS);
+      fallback = setTimeout(() => finish(true), opened ? PRINT_CLOSE_FALLBACK_MS : PRINT_OPEN_GRACE_MS);
     } catch {
       finish(false);
     }

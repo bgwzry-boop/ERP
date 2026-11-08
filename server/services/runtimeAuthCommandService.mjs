@@ -14,10 +14,11 @@ import { getWorkspaceSecurityPolicy } from "../apiSecurityPolicy.mjs";
 import { getEffectivePermissions } from "../seedData.mjs";
 import { toMasterDataEmployeeAccountReview } from "./masterDataEmployeeAccountCommandService.mjs";
 import {
+  captureRuntimeIdentityBaseline,
+  commitRuntimeIdentityWorkspace,
   findRuntimeUserById,
   findRuntimeUserByIdentifiers,
-  commitRuntimeIdentityWorkspace,
-  captureRuntimeIdentityBaseline,
+  nextRuntimeSessionVersion,
   runRuntimeIdentityMutation,
   sanitizeRuntimeUserForResponse,
   upsertRuntimeUser,
@@ -257,6 +258,8 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       mustChangePassword: false,
       passwordChangedAt: changedAt,
       passwordChangedBy: userId,
+      // 2026-11-07：改密必须让已签发的旧会话失效，否则密码变更不能用来止损。
+      sessionVersion: nextRuntimeSessionVersion(runtimeUser.sessionVersion),
       passwordExpiresAt: getRuntimePasswordExpiresAt({
         passwordStatus: "active",
         passwordChangedAt: changedAt,

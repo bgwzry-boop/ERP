@@ -28,7 +28,7 @@ const originalClearTimeout = globalThis.clearTimeout;
 const timers = new Map();
 let timerId = 0;
 globalThis.setTimeout = (callback, duration) => {
-  assert.ok(duration === 400 || duration === 120000, `unexpected print timer ${duration}`);
+  assert.ok(duration === 1500 || duration === 120000, `unexpected print timer ${duration}`);
   const id = ++timerId;
   timers.set(id, { callback, duration });
   return id;
@@ -104,13 +104,15 @@ try {
   const noEvents = harness(() => {});
   const noEventsResult = printRawMaterialLabelFrame(noEvents.frame, "synthetic label");
   assert.equal(timers.size, 1);
-  assert.equal([...timers.values()][0].duration, 400);
-  fireTimers(400);
-  await expectClean(noEvents, noEventsResult, false);
+  assert.equal([...timers.values()][0].duration, 1500);
+  fireTimers(1500);
+  // 2026-11-05: Windows Chrome on site printed the labels without firing any print event.
+  // print() did not fail, so the result goes to the human confirmation instead of "window not opened".
+  await expectClean(noEvents, noEventsResult, true);
 
   const delayedOpen = harness(() => {});
   const delayedResult = printRawMaterialLabelFrame(delayedOpen.frame, "synthetic label");
-  assert.equal([...timers.values()][0].duration, 400);
+  assert.equal([...timers.values()][0].duration, 1500);
   delayedOpen.win.emit("beforeprint");
   assert.equal([...timers.values()][0].duration, 120000, "a late beforeprint must wait for the preview to close");
   delayedOpen.win.emit("afterprint");
@@ -126,4 +128,4 @@ try {
   globalThis.setTimeout = originalSetTimeout;
   globalThis.clearTimeout = originalClearTimeout;
 }
-console.log("PASS label print lifecycle: blocking and delayed print closure, print cancel, parent-window preview, print errors, no-event failure and missing-afterprint fallback settle once and clean listeners/timers. No browser, physical print or business writes.");
+console.log("PASS label print lifecycle: blocking and delayed print closure, print cancel, parent-window preview, print errors, silent printing without events (handed to the human confirmation) and missing-afterprint fallback settle once and clean listeners/timers. No browser, physical print or business writes.");

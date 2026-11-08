@@ -3,6 +3,7 @@ import { readCompleteCollection, createReadGenerationGuard } from "./read-comple
 import { UNLOADED_READ, beginRead, finishRead, invalidateRead, workspaceReadDependencies } from "./formal-workspace-read-state.js";
 import { useReceivingData } from "./useReceivingData.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
 import { initializeSeedAuth } from "../../../../src/services/officeAuthService.js";
 import { listOfficeTodos } from "../../../../src/services/officeTodoApiClient.js";
 import { listOfficeDraftQueue, recognizeOfficeDraft, saveOfficeDraft, confirmOfficeDraftViaApi, previewOfficeDraftSplit, confirmOfficeDraftSplit } from "../../../../src/services/officeOrderApiClient.js";
@@ -95,8 +96,56 @@ function replaceEmployeeReview(items, review) {
 export function useFormalDesktopWorkspace() {
   const [authState, setAuthState] = useState(null);
   const [entryDraftId, focusOrderDraft] = useState("");
+  const [entryCreationId, setEntryCreationId] = useState(0);
   const [entryWriteGuard, setEntryWriteGuard] = useState({ pending: false, ownerKey: "", session: "" });
+  const [orderEntryEditorBlocked, setOrderEntryEditorBlocked] = useState(false);
+  const [orderEntryDirty, setOrderEntryDirty] = useState(false);
+  // 2026-11-07：未保存内容离开订单录入要先确认；确认离开后不要自动灌回默认草稿。
+  const [orderEntrySuppressDefaultDraft, setOrderEntrySuppressDefaultDraft] = useState(false);
+  const entryEditor = useRef(null);
+  // 2026-11-07：新建订单/菜单导航/hash/搜索共用同一个"提示占用"锁，
+  // 同步加锁，后来者直接拒绝并回退地址，绝不复用前一个 true。
+  const promptOwner = useRef(null);
+  const requestSharedConfirm = useCallback(async (owner, request) => {
+    if (promptOwner.current) return { granted: false, busy: true };
+    promptOwner.current = owner;
+    try {
+      return { granted: Boolean(await confirmInApp(request)), busy: false };
+    } finally {
+      promptOwner.current = null;
+    }
+  }, []);
   const orderEntryWritePending = entryWriteGuard.pending && entryWriteGuard.session === authState?.session?.accessToken;
+  const registerOrderEntryEditor = useCallback((editor) => {
+    entryEditor.current = editor;
+    setOrderEntryEditorBlocked(editor.blocked);
+    setOrderEntryDirty(Boolean(editor.dirty));
+    return () => {
+      if (entryEditor.current !== editor) return;
+      entryEditor.current = null;
+      setOrderEntryEditorBlocked(false);
+      setOrderEntryDirty(false);
+    };
+  }, []);
+  const startNewOrderDraft = useCallback(async () => {
+    const editor = entryEditor.current;
+    if (orderEntryWritePending || editor?.blocked) return false;
+    if (promptOwner.current) return false;
+    if (editor?.dirty) {
+      const decision = await requestSharedConfirm("new-order", {
+        title: "放弃当前修改？",
+        message: "当前订单还有未保存的内容。放弃这些修改并新建订单？",
+        cancelLabel: "继续编辑",
+        confirmLabel: "放弃并新建",
+        tone: "danger",
+      });
+      if (!decision.granted || decision.busy || entryEditor.current !== editor) return false;
+    }
+    focusOrderDraft("");
+    setOrderEntrySuppressDefaultDraft(false);
+    setEntryCreationId(current => current + 1);
+    return true;
+  }, [orderEntryWritePending]);
   const setOrderEntryWritePending = useCallback((pending, ownerKey) => {
     if (!ownerKey) return;
     setEntryWriteGuard(current => pending
@@ -436,6 +485,8 @@ export function useFormalDesktopWorkspace() {
     readCollection,
     ensureSearchData,
     focusOrderDraft,
+    registerOrderEntryEditor,
+    startNewOrderDraft,
     setOrderEntryWritePending,
     confirmEmployeeIdentity,
     confirmOrderDraft,
@@ -456,7 +507,7 @@ export function useFormalDesktopWorkspace() {
     confirmSupplierStatement,
     generateSupplierPayable,
     confirmSupplierPayment,
-  }), [receiptReader.actions, setActiveView, readCollection, ensureSearchData, precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
+  }), [receiptReader.actions, registerOrderEntryEditor, startNewOrderDraft, setActiveView, readCollection, ensureSearchData, precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
 
   const requiredStates = (workspaceReadDependencies[activeView] || []).map(key => [key, collections[key] || UNLOADED_READ]);
   if (activeView === "material-receiving") requiredStates.push(["receiving", receiptReader.receiving]);
@@ -478,6 +529,12 @@ export function useFormalDesktopWorkspace() {
   return {
     actions,
     entryDraftId,
+    orderEntryDirty,
+    requestSharedConfirm,
+    orderEntrySuppressDefaultDraft,
+    discardOrderEntryLocalEdit: () => setOrderEntrySuppressDefaultDraft(true),
+    entryCreationId,
+    orderEntryEditorBlocked,
     orderEntryWritePending,
     authState,
     data,

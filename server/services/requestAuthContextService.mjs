@@ -5,7 +5,7 @@ import {
   verifyRuntimeSessionToken,
   verifySeedSessionToken,
 } from "../authSeed.mjs";
-import { getWorkspaceSecurityPolicy } from "../apiSecurityPolicy.mjs";
+import { getWorkspaceSecurityPolicy, isUnsignedIdentityRequestAllowed } from "../apiSecurityPolicy.mjs";
 import { getEffectivePermissions } from "../seedData.mjs";
 
 export function getRequestPermissionContext(request, authContext, workspace = {}) {
@@ -16,7 +16,11 @@ export function getRequestPermissionContext(request, authContext, workspace = {}
   const actionPermissionOverride = request?.headers?.["x-erp-action-permissions"];
   const securityPolicy = getWorkspaceSecurityPolicy(workspace);
 
-  if (actionPermissionOverride === undefined || !securityPolicy.allowActionPermissionOverride) {
+  if (
+    actionPermissionOverride === undefined
+    || !securityPolicy.allowActionPermissionOverride
+    || !isUnsignedIdentityRequestAllowed(request, securityPolicy)
+  ) {
     return effectivePermissions;
   }
 
@@ -82,7 +86,8 @@ export function getRequestAuthContext(request, workspace = {}) {
   }
 
   const legacySeedBearerMatch = bearerToken.match(/^seed:(.+)$/i);
-  if (securityPolicy.allowLegacyIdentityHeaders && legacySeedBearerMatch?.[1]) {
+  const unsignedIdentityAllowed = isUnsignedIdentityRequestAllowed(request, securityPolicy);
+  if (securityPolicy.allowLegacyIdentityHeaders && unsignedIdentityAllowed && legacySeedBearerMatch?.[1]) {
     return {
       authenticated: false,
       source: "legacy_seed_bearer",
@@ -91,7 +96,7 @@ export function getRequestAuthContext(request, workspace = {}) {
   }
 
   const userIdHeader = getRequestHeaderValue(request, "x-erp-user-id");
-  if (securityPolicy.allowLegacyIdentityHeaders && userIdHeader) {
+  if (securityPolicy.allowLegacyIdentityHeaders && unsignedIdentityAllowed && userIdHeader) {
     return {
       authenticated: false,
       source: "seed_user_header",
@@ -99,7 +104,7 @@ export function getRequestAuthContext(request, workspace = {}) {
     };
   }
 
-  if (!securityPolicy.allowDefaultSeedUser) {
+  if (!securityPolicy.allowDefaultSeedUser || !unsignedIdentityAllowed) {
     return {
       authenticated: false,
       source: "unauthenticated",

@@ -2,6 +2,8 @@
 
 Development tasks open PRs only and do not merge them. The designated integration/release task reviews and combines approved PRs in dependency order on a clean candidate branch, tests and deploys that immutable candidate to staging, and advances `codex/staging-current` only after the server serves and verifies that exact release. The normal controlled finalize remains mandatory; merging a PR before the server switches is not allowed. Production requires separate explicit authorization.
 
+2026-11-08 owner instruction: all subsequent ERP deployments and version updates must be executed only in the existing Codex conversation `部署-更新` (local host, thread `019f9832-39ce-7431-bc65-e1d568ff15f9`). Other conversations prepare code, PRs, reviews and a release handoff; they do not execute deploy, finalize, server cutover or canonical promotion, even if an earlier message in that conversation authorized deployment. Send the reviewed PR/full commit, checks, current served baseline, release lock, transport/rollback evidence and remaining blockers to `部署-更新`. A changed candidate requires a new matching lock and validation there. This designation does not waive any controlled-release gate or authorize production; production still requires separate explicit owner authorization. See `docs/development/controlled-release-governance.zh-CN.md`.
+
 Do not change the GitHub repository's visibility based on a completed review or an earlier temporary-public arrangement. Change visibility only when the owner explicitly requests that change at the time.
 
 Run the local server yourself and open the preview in the in-app browser. Do not give the user server-start instructions when you can run it.
@@ -29,6 +31,11 @@ Before asking the user to restate a business rule, search `AGENTS.md`, `DECISION
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 
 Prototype-specific design decisions:
+
+- 2026-11-07 负责人实测要求消息录单支持日常短写「3037 红 500 个」及「3037 红 500 个 黄松」。按已有规格规则识别商品明细；没有客户名时仍展示明细，由办公室补选客户。消息末尾的已有客户名称应自动匹配当前客户档案，不能误报不存在或要求重建。客户姓名里的颜色字不能充当未写明的袋身颜色；未识别出明细时应如实提示，不能显示「已识别，请核对」的成功信息。验证必须使用原样短消息，不能补上「空白袋」「自提」等词来绕过缺陷。
+
+- 2026-11-06 负责人要求桌面「订单录入」的客户订单原文提供「清空消息」。一键清空当前输入并聚焦文本框，保留已识别明细、客户选择和已保存草稿。空白输入不覆盖已保存原文。清空与手动改原文使用相同的报价失效处理，并遵守当前操作和回执待核对时的编辑锁。
+- 2026-11-06 订单录入实跑修正：顶部「新建订单」开启空白录单，清除当前选择并生成独立编辑身份；默认待办或异步刷新不得重新填入旧单。未保存的原文、明细或报价输入须先提示，取消保留编辑，确认放弃只清本地编辑、不改写已保存草稿。正式下单成功后允许「查看订单池」和继续新建；拆单预览或请求结果未明时继续阻止新建，并按原请求重试。
 
 - 2026-11-02 负责人在收货试稿后要求将本轮审查建议全部落实到现有业务界面，并明确待办单据不能只展示三张样例：保留完整现有数据、状态和操作，接入分页/搜索/独立总数看实际效果。继续保留深色导航与橙色操作，扩大核对区并允许调整分栏，窄桌面切换列表和详情，缺项就地改正，统一复核校验，区分加载/空数据/筛选无结果/读取失败并保留已读取内容和填写，记住菜单展开，移除日常技术来源文字，增强选中对比度，按业务加载并隔离页面故障。此为实现授权，不构成部署、合并或生产授权；本地查看测试站数据使用注明读取时间的隔离副本，不冒充线上实时版本。
 

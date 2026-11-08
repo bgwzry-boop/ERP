@@ -5,6 +5,7 @@ import {
   getPermissionCatalog,
   normalizeRoleKeys,
   resolvePermissionAssignment,
+  findSensitivePermissionEscalation,
   roleCatalog,
 } from "../../shared/auth/roleCatalog.js";
 import {
@@ -166,10 +167,21 @@ export function createMasterDataSubaccountCommandService(dependencies = {}) {
     return success({ subaccount: projectSubaccount(staged, updated), operationLogId: operationLog.id });
   }
 
-  async function issueTemporaryPassword({ workspace, userId, body = {}, operatorId }) {
+  async function issueTemporaryPassword({ workspace, userId, body = {}, operatorId, operatorPermissions = [] }) {
     const context = getSubaccountContext(workspace, userId);
     if (context.result) return context.result;
     if (context.userId === cleanText(operatorId)) return selfMutationError();
+    // 2026-11-07：重置临时密码等于接管账号，目标账号权限不得高于操作者。
+    const operatorSet = new Set((Array.isArray(operatorPermissions) ? operatorPermissions : []).map(cleanText));
+    const targetEscalation = findSensitivePermissionEscalation({
+      roles: context.before.roles ?? [],
+      permissionAllowlist: context.before.allowPermissions ?? context.before.permissionAllowlist ?? [],
+      permissionDenylist: context.before.denyPermissions ?? context.before.permissionDenylist ?? [],
+      operatorPermissions: [...operatorSet],
+    });
+    if (targetEscalation.length) {
+      return businessError(403, "SUBACCOUNT_TARGET_PERMISSION_ESCALATION_BLOCKED", "目标账号权限高于你自己，不能重置它的临时密码；请由更高权限管理员处理。", { permissionKeys: targetEscalation });
+    }
     const status = resolveAccountStatus(context.before);
     if (status === "disabled") return businessError(409, "SUBACCOUNT_DISABLED_IMMUTABLE", "已停用子账号不能发放密码。");
     const reason = cleanText(body.reason);
@@ -294,6 +306,17 @@ function validateAssignment(body, operatorPermissions) {
   const escalation = allowPermissions.filter((permissionKey) => !operatorSet.has(permissionKey));
   if (escalation.length) {
     return { error: businessError(403, "SUBACCOUNT_PERMISSION_ESCALATION_BLOCKED", "单项额外权限不能超过当前管理员自己的权限；请改用已审核的权限模板或由更高权限管理员处理。", { permissionKeys: escalation }) };
+  }
+  // 2026-11-07：岗位自带的权限包也要比一遍。只校验额外权限时，
+  // 只有 permission.manage 的技术运维可以直接勾 management 岗位拿到全部财务/工资权限。
+  const roleEscalation = findSensitivePermissionEscalation({
+    roles,
+    permissionAllowlist: allowPermissions,
+    permissionDenylist: denyPermissions,
+    operatorPermissions: [...operatorSet],
+  });
+  if (roleEscalation.length) {
+    return { error: businessError(403, "SUBACCOUNT_ROLE_ESCALATION_BLOCKED", "所选岗位自带的权限超出你自身的权限范围；不能把更高权限的岗位授予他人。", { permissionKeys: roleEscalation }) };
   }
   return resolved;
 }

@@ -200,13 +200,10 @@ try {
       await selectReceiptRow(page, printable.id);
       const printButton = page.getByRole("button", { name: "打印 12 张 · 76×130", exact: true });
       await printButton.waitFor();
-      const beforeDialogs = dialogs.length;
+      // 电脑端挂了应用内确认框（2026-11-05）：「确认打印结果」显示在屏幕正中间，不再是浏览器自带的小弹窗。
       await printButton.click();
-      const deadline = Date.now() + 3000;
-      while (dialogs.length === beforeDialogs && Date.now() < deadline) {
-        if (await page.getByText("打印窗口没有打开。请再点一次打印。").count()) break;
-        await page.waitForTimeout(50);
-      }
+      const confirmDialog = page.getByRole("alertdialog").filter({ hasText: "请看打印机" });
+      await confirmDialog.waitFor({ timeout: 4000 }).catch(() => {});
       const printDebug = await page.evaluate(() => ({
         stubbed: window.__labelPrintStubbed || 0,
         closed: window.__labelPrintClosed || 0,
@@ -214,8 +211,13 @@ try {
         frames: [...document.querySelectorAll("iframe")].map((frame) => frame.title),
         banner: document.body.innerText.includes("打印窗口没有打开"),
       }));
-      assert.ok(dialogs.length > beforeDialogs, `cancelling print preview must reach the printed-or-not confirmation, not fail closed ${JSON.stringify(printDebug)} dialogs=${JSON.stringify(dialogs)}`);
-      assert.match(dialogs.at(-1), /请看打印机/);
+      assert.equal(await confirmDialog.count(), 1, `cancelling print preview must reach the printed-or-not confirmation, not fail closed ${JSON.stringify(printDebug)} nativeDialogs=${JSON.stringify(dialogs)}`);
+      const box = await confirmDialog.boundingBox();
+      assert.ok(box && Math.abs(box.y + box.height / 2 - height / 2) < height * 0.2, `the print confirmation is centred on screen ${JSON.stringify(box)}`);
+      assert.deepEqual(dialogs, [], "no native browser confirm");
+      await page.screenshot({ path: `${output}/print-confirm-${width}x${height}.png` });
+      await confirmDialog.getByRole("button", { name: "取消", exact: true }).click();
+      await confirmDialog.waitFor({ state: "detached" });
       assert.equal(await page.getByText("打印窗口没有打开。请再点一次打印。").count(), 0);
       assert.deepEqual(page.pageErrors, []);
       const printLayout = await rollFooterGeometry(page);

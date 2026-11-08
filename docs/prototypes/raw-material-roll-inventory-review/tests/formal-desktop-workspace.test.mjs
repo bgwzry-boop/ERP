@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { buildEmployeeProfile, formatEmployeeAge, formatEmployeeTenure } from "../src/employee-profile.js";
 import { detectCompleteReviewRuntimeFamily } from "../src/review-runtime-family.js";
 import { assertCompleteReviewStaticIdentity } from "../../../../scripts/completeReviewPreviewIdentity.mjs";
 import { resolveOfficeWorkbenchNavigation } from "../../../../src/app/useOfficeWorkbenchNavigation.js";
 import { getRolePermissionSet } from "../../../../shared/auth/roleCatalog.js";
+import { createFulfillmentReadProjectionService } from "../../../../server/services/fulfillmentReadProjectionService.mjs";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
@@ -39,7 +45,8 @@ test("4174 mobile review uses a signed passwordless preview session", async () =
   }).renderedPage, "rawMaterials", "the fixed management preview should enter the formal raw-material phone route");
   const shellSource = await readSource("../../../../src/app/OfficeWorkbenchShell.jsx");
   assert.match(shellSource, /fixedPreviewMode=\{signedPreviewMode\}/, "the fixed preview identity should not expose the demo role switcher");
-  assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
+  assert.match(authInitializationSource, /initializeRuntimeAuthSnapshot\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}, expectedSession\)/, "mobile startup must initialize through the guarded session snapshot");
+  assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.options, storage \}\)/, "the snapshot must still exchange the identity for a backend-signed session; real mounted behavior is checked by check-runtime-auth-initialization");
 });
 
 test("4174 desktop account identity is read-only instead of a fake dropdown", async () => {
@@ -168,6 +175,43 @@ test("outbound delivery and supplier month-end share the complete review list-de
   assert.match(workspacesSource, /本地评审只读样例/, "the filled settlement chain should be explicitly non-writing in the local review");
   assert.match(stylesSource, /\.fulfillment-progress-facts/, "outbound progress facts should be styled inside the selected detail rail");
   assert.match(stylesSource, /\.supplier-settlement-flow/, "supplier settlement stages should be styled inside the selected detail rail");
+});
+
+test("completed stock pickup shows unrecorded package count and keeps real package history accessible", async () => {
+  const bundle = await build({
+    entryPoints: [fileURLToPath(new URL("../src/BusinessWorkspaces.jsx", import.meta.url))],
+    bundle: true, write: false, platform: "node", format: "cjs", jsx: "automatic",
+    define: { "import.meta.env": "{}" }, external: ["react", "react-dom"], loader: { ".css": "empty" },
+  });
+  const module = { exports: {} };
+  new Function("require", "module", "exports", bundle.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports);
+  const { BusinessWorkspace } = module.exports;
+  const projection = createFulfillmentReadProjectionService();
+  const orderLines = [{ id: "OL-PICKUP", orderType: "stock", product: "空白袋", qty: 500 }];
+  const pickup = {
+    id: "F-PICKUP", lineId: "OL-PICKUP", method: "自提", status: "已交付", qty: 500, actualQty: 500,
+    packages: "待打包", physicalOutboundAt: "2026-11-06T06:00:00Z", finalDeliveryAt: "2026-11-06T07:00:00Z",
+  };
+  const render = (fulfillment, packages) => {
+    const { items } = projection.listFulfillments({ workspace: { orderLines, fulfillments: [fulfillment], packages } });
+    const formal = {
+      data: { orderLines, fulfillments: items },
+      actions: { refreshAll() {} },
+      permissionContext: { actionPermissions: ["packing.read"] },
+    };
+    return renderToStaticMarkup(createElement(BusinessWorkspace, { formal, navId: "outbound-delivery" }));
+  };
+
+  const noPackages = render(pickup, []);
+  assert.match(noPackages, /包数未登记/);
+  assert.doesNotMatch(noPackages, /登记 \/ 更正实物包裹/);
+
+  const anchoredHistory = render({ ...pickup, packingGroupAnchorId: "F-ANCHOR" }, [{
+    packageId: "PK-1", fulfillmentId: "F-ANCHOR", packedQty: 500, packageSeq: 1,
+    contents: [{ fulfillmentId: pickup.id, orderLineId: "OL-PICKUP", packedQty: 500 }],
+  }]);
+  assert.doesNotMatch(anchoredHistory, /包数未登记/, "real package history must not be reported as unrecorded");
+  assert.match(anchoredHistory, /登记 \/ 更正实物包裹/, "retain the shared real-package history even when the selected member has zero directly owned packages");
 });
 
 test("supplier statement identifiers use collision-resistant entropy", async () => {
