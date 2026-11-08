@@ -1,5 +1,4 @@
-// 每个桌面页面应当恰好一个 h1（页面标题）。工资核算标题在 src/features/payroll（本方案不允许改），
-// 作为已知例外单独列出，等方案批准后再补。
+// 每个桌面页面应当恰好一个 h1（页面标题）。工资核算标题已在负责人批准后改为 h1。
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
@@ -10,7 +9,7 @@ const pages = [
   "raw-material-cost", "payroll-attendance", "customer-records", "general-prices",
   "people-machines", "launch-status",
 ];
-const knownExceptions = new Set(["payroll-attendance"]);
+const knownExceptions = new Set();
 
 const origin = process.env.ERP_RECEIVING_CLEANUP_UI_BASE_URL || "http://127.0.0.1:4174/";
 const browser = await chromium.launch();
@@ -51,7 +50,7 @@ try {
   }
   assert.deepEqual(blocked, [], `不得业务写入: ${JSON.stringify(blocked)}`);
   assert.deepEqual(errors, [], `不得页面错误: ${JSON.stringify(errors)}`);
-  console.log(`Page heading checks passed: ${pages.length - knownExceptions.size}/${pages.length} 页恰好一个 h1（工资核算为已说明例外）。`);
+  console.log(`Page heading checks passed: ${pages.length - knownExceptions.size}/${pages.length} 页恰好一个 h1。`);
 } finally {
   await browser.close();
 }

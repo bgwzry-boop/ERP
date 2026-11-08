@@ -21,7 +21,7 @@
 .payroll-review-list { display: grid; grid-template-rows: 58px auto 52px minmax(0, 1fr); }
 .payroll-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 14px; border-bottom: 1px solid var(--line); }
 .payroll-review-heading > div:first-child { display: grid; gap: 4px; }
-.payroll-review-heading h2 { font-size: 17px; }
+.payroll-review-heading h1, .payroll-review-heading h2 { font-size: 17px; }
 .payroll-review-heading span { color: var(--ink-soft); font-size: 11px; }
 .payroll-review-heading > div:last-child { display: flex; align-items: center; gap: 8px; }
 .payroll-review-heading button { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); font-size: 12px; }

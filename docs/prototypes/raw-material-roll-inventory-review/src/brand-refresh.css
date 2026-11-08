@@ -99,7 +99,7 @@
   box-shadow: none;
 }
 .app-shell .business-panel-heading { min-height: 60px; padding-inline: 20px; }
-.app-shell .business-panel-heading h2 { font-size: 20px; font-weight: 700; }
+.app-shell .business-panel-heading h1, .app-shell .business-panel-heading h2 { font-size: 20px; font-weight: 700; }
 .app-shell .business-heading-actions > span { color: var(--erp-text-faint); font-size: 13px; }
 .app-shell .business-heading-actions button { min-height: 36px; padding: 0 12px; border: 1px solid var(--erp-control-border); border-radius: var(--erp-radius-md); background: var(--erp-surface); color: var(--erp-text); font-size: 13px; }
 
@@ -213,7 +213,7 @@
   opacity: 1;
 }
 .app-shell .order-pricing-entry :is(input, select, textarea, button):focus-visible { outline-color: var(--erp-focus); }
-.app-shell .pricing-heading h2 { font-size: 22px; font-weight: 700; }
+.app-shell .pricing-heading h1, .app-shell .pricing-heading h2 { font-size: 22px; font-weight: 700; }
 
 .app-shell .pricing-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
 .app-shell .pricing-steps li {

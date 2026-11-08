@@ -35,7 +35,7 @@
   border-bottom: 1px solid var(--line);
 }
 
-.business-panel-heading h2 { font-size: 17px; }
+.business-panel-heading h1, .business-panel-heading h2 { font-size: 17px; }
 .business-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
 .business-heading-actions > span { color: var(--ink-soft); font-size: 11px; }
 .business-heading-actions > button { min-height: 30px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-soft); font-size: 11px; }
