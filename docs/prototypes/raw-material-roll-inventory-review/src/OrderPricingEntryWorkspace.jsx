@@ -1679,6 +1679,11 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
             {hint.customerId
               ? <>已找到客户「{hint.name}」。
                 <button type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(hint)}>选用这个客户</button></>
+              : hintCandidates.length
+              ? <>消息里写的「{hint.name}」对应多个客户，请选一个：
+                {hintCandidates.map((customer) => (
+                  <button key={customer.customerId} type="button" className="pricing-link-button" disabled={disabled} onClick={() => choose(customer)}>「{customer.name}」</button>
+                ))}</>
               : hint.ambiguous?.length
               ? <>消息里写的「{hint.name}」对应多个客户：{hint.ambiguous.join("、")}，请在上面选一个。</>
               : hintCandidates.length

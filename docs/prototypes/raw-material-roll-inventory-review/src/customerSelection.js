@@ -4,9 +4,16 @@
 export function resolveCustomerSelection(query, items = []) {
   const name = String(query ?? "").trim();
   if (!name) return { customer: null, pendingName: "" };
-  const exact = items.filter((item) => String(item?.name ?? "").trim() === name);
-  if (exact.length === 1) return { customer: exact[0], pendingName: "" };
-  return { customer: null, pendingName: name };
+  // 2026-11-08：只有"唯一一个相关客户"才自动认定；只要还有别的相似客户，
+  // 就保留输入并让人自己选，避免系统替人做判断。
+  const related = items.filter((item) => {
+    const candidate = String(item?.name ?? "").trim();
+    if (!candidate) return false;
+    return candidate === name || candidate.includes(name) || name.includes(candidate);
+  });
+  const exact = related.filter((item) => String(item?.name ?? "").trim() === name);
+  if (related.length === 1 && exact.length === 1) return { customer: related[0], pendingName: "" };
+  return { customer: null, pendingName: name, candidates: related };
 }
 
 // 识别结果里的客户：有档案就直接绑定；没有档案就把名字回填到输入框，等人确认。

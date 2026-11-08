@@ -5,11 +5,13 @@ import { findSimilarCustomers, resolveCustomerSelection, resolveRecognizedCustom
 const huang = { customerId: "C-HUANG", name: "黄松" };
 const other = { customerId: "C-OTHER", name: "黄松林" };
 
-assert.deepEqual(resolveCustomerSelection("黄松", [huang, other]), { customer: huang, pendingName: "" }, "唯一同名应直接认定");
+assert.equal(resolveCustomerSelection("黄松", [huang]).customer?.customerId, "C-HUANG", "只有唯一同名客户时应直接认定");
+assert.equal(resolveCustomerSelection("黄松", [huang, other]).customer, null, "同名但还有相似客户时不得主观认定");
+assert.deepEqual(resolveCustomerSelection("黄松", [huang, other]).candidates.map((item) => item.name), ["黄松", "黄松林"], "应把两个候选都给人选");
 assert.deepEqual(resolveCustomerSelection(" 黄松 ", [huang]), { customer: huang, pendingName: "" }, "首尾空格不应影响");
-assert.deepEqual(resolveCustomerSelection("黄松", []), { customer: null, pendingName: "黄松" }, "没有匹配必须保留输入并提示");
-assert.deepEqual(resolveCustomerSelection("黄松", [huang, { ...huang, customerId: "C-DUP" }]), { customer: null, pendingName: "黄松" }, "重名不得自动认定");
-assert.deepEqual(resolveCustomerSelection("黄", [huang]), { customer: null, pendingName: "黄" }, "模糊输入不得自动认定");
+assert.deepEqual(resolveCustomerSelection("黄松", []), { customer: null, pendingName: "黄松", candidates: [] }, "没有匹配必须保留输入并提示");
+assert.equal(resolveCustomerSelection("黄松", [huang, { ...huang, customerId: "C-DUP" }]).customer, null, "重名不得自动认定");
+assert.equal(resolveCustomerSelection("黄", [huang]).customer, null, "只写一半名字不得自动认定");
 assert.deepEqual(resolveCustomerSelection("", [huang]), { customer: null, pendingName: "" }, "空输入什么都不做");
 assert.notEqual(resolveCustomerSelection("黄松", [huang, other]).customer?.customerId, "C-OTHER", "不能误选相似名字");
 

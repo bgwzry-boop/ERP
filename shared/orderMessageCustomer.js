@@ -70,13 +70,15 @@ export function isActiveMessageCustomer(customer) {
 export function detectMessageCustomer(sourceText, customers = []) {
   const active = customers.filter(isActiveMessageCustomer);
   for (const candidate of messageCustomerNameCandidates(sourceText)) {
-    const exact = active.filter((customer) => [customer.name, customer.shortName].map(clean).includes(candidate));
-    const matches = exact.length ? exact : active.filter((customer) => matchesCustomer(candidate, customer));
-    if (matches.length === 1) {
-      const customer = matches[0];
+    // 2026-11-08：不做主观判断。只要还有别的客户也沾边（例如「黄松」与「黄松林」），
+    // 就全部列出来让人选；只有唯一一个相关客户时才自动带出。
+    const related = active.filter((customer) => matchesCustomer(candidate, customer));
+    const exactNames = related.filter((customer) => [customer.name, customer.shortName].map(clean).includes(candidate));
+    if (related.length === 1 && exactNames.length === 1) {
+      const customer = related[0];
       return { name: clean(customer.name), customerId: clean(customer.id ?? customer.customerId), matchedText: candidate };
     }
-    if (matches.length > 1) return { name: candidate, customerId: "", ambiguous: matches.map((customer) => clean(customer.name)).slice(0, 5) };
+    if (related.length > 1) return { name: candidate, customerId: "", ambiguous: related.map((customer) => clean(customer.name)).slice(0, 5) };
   }
   const [unknown] = messageCustomerNameCandidates(sourceText);
   return unknown ? { name: unknown, customerId: "" } : null;
