@@ -18,3 +18,16 @@ export function resolveRecognizedCustomer(recognitionHint, picked) {
   }
   return { customer: null, pendingName: name };
 }
+
+// 识别出的名字在系统里找不到完全一致时，先看是不是识别错了：
+// 只要对方名字包含识别结果（或反之），就当作"可能是这个客户"，不要直接让人新建。
+export function findSimilarCustomers(name, items = []) {
+  const target = String(name ?? "").trim();
+  if (!target) return [];
+  return items.filter((item) => {
+    const candidate = String(item?.name ?? "").trim();
+    if (!candidate) return false;
+    if (candidate === target) return true;
+    return candidate.includes(target) || target.includes(candidate);
+  });
+}
