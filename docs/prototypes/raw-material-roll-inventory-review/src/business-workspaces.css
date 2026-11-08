@@ -715,7 +715,13 @@ button.todo-source-row.selected { background: var(--erp-neutral-bg); box-shadow:
 }
 
 .order-ledger-row.head { min-height: 40px; border-bottom: 1px solid var(--line-strong); background: var(--surface-soft); color: var(--ink-soft); font-size: 11px; }
-button.order-ledger-row { width: 100%; min-height: 64px; border: 0; border-bottom: 1px solid var(--line); background: white; font-size: 12px; }
+button.order-ledger-row { width: 100%; min-height: 52px; border: 0; border-bottom: 1px solid var(--line); background: white; font-size: 12px; }
+/* 2026-11-08：长列表表头固定，滚动时列名不丢 */
+.order-ledger-row.head, .business-row.business-head { position: sticky; top: 0; z-index: 3; }
+/* 2026-11-08：没有风险时隐藏该列，避免整列“—”占宽 */
+.order-ledger.without-risk .order-ledger-row { grid-template-columns: 100px minmax(250px, 1.8fr) 90px 100px 110px; }
+/* 2026-11-08：数字列右对齐 + 等宽数字 */
+.order-ledger-row [data-numeric="true"], .business-row [data-numeric="true"] { text-align: right; font-variant-numeric: tabular-nums; }
 button.order-ledger-row:hover { background: var(--surface-soft); }
 button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow: inset 0 0 0 1px var(--erp-info-border); }
 .order-ledger-row > span,
@@ -812,6 +818,8 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
   .entry-workbench { grid-template-columns: minmax(700px, 1fr) 292px; }
   .business-row { min-width: 610px; }
   .order-ledger-row { min-width: 610px; grid-template-columns: 72px minmax(190px, 1.7fr) 66px 78px 80px 68px; gap: 6px; }
+  /* 2026-11-08：窄屏无风险列时同步 5 列宽，避免沿用 6 列模板造成错位 */
+  .order-ledger.without-risk .order-ledger-row { grid-template-columns: 72px minmax(200px, 1.8fr) 64px 78px 86px; }
   .entry-grid { min-width: 650px; grid-template-columns: 1.05fr .78fr .72fr 1.1fr 76px 88px; gap: 6px; }
   .finished-goods-classification { grid-template-columns: minmax(0, .9fr) minmax(0, 1.35fr); gap: 8px; }
   .finished-goods-classification button { padding: 0 5px; font-size: 11px; }
@@ -909,7 +917,8 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .customer-profile-panel { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .customer-profile-panel > header { display: flex; align-items: center; justify-content: space-between; }
 .customer-profile-panel h3 { margin: 0; font-size: 14px; }
-.customer-profile-panel .link-button { padding: 0; border: 0; background: transparent; color: var(--erp-accent-strong); font-size: 12px; cursor: pointer; }
+/* 2026-11-08：右栏文字按钮（编辑）点击区补到 32×32，视觉仍为文字按钮 */
+.customer-profile-panel .link-button, .customer-address-panel .link-button { min-width: 32px; min-height: 32px; padding: 0 8px; border: 0; background: transparent; color: var(--erp-accent-strong); font-size: 12px; cursor: pointer; }
 .customer-profile-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px 12px; margin: 0; }
 .customer-profile-facts dt { color: var(--ink-soft); font-size: 11px; }
 .customer-profile-facts dd { margin: 0; font-size: 13px; font-weight: 650; }
@@ -918,3 +927,8 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .customer-profile-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
 .customer-profile-panel p { margin: 0; color: var(--ink-soft); font-size: 12px; }
 .status-tone-legend-row { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 4px 14px 0; }
+
+/* 2026-11-08：点击区至少 32×32（视觉尺寸不变，用内边距/最小尺寸撑开） */
+.table-footer button, .receipt-queue-pagination button, .business-subtabs button, .order-pool-tools button, .inventory-type-filter button, .finished-goods-search button { min-width: 32px; min-height: 32px; }
+.business-detail-panel > header button, .business-detail-panel .business-facts button { min-height: 32px; min-width: 32px; }
+.finished-goods-search > button, .business-filter-row > button { min-height: 32px; }
