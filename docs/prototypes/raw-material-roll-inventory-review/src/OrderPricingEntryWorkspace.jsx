@@ -5,6 +5,7 @@ import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiCl
 import { isStockOrderType, normalizeOrderType } from "../../../../shared/orderRouting.js";
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
+import { resolveCustomerSelection } from "./customerSelection.js";
 import { ReviewDialog } from "./ReviewDialog.jsx";
 import { completeWalkInPickup, printWalkInPickupNote } from "../../../../src/features/fulfillment/walkInPickup.js";
 import { getOfficeFulfillmentOperatorCandidates } from "../../../../src/services/officeFulfillmentApiClient.js";
@@ -1562,6 +1563,8 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
     : picked?.name ?? "";
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState(false);
+  // 输入了但还没选中时保留内容，明确提示"尚未选中"，不静默清空。
+  const [pendingName, setPendingName] = useState("");
   const [found, setFound] = useState({ loading: false, items: [], error: "" });
   const [profile, setProfile] = useState(null);
   const [creating, setCreating] = useState(null);
@@ -1589,6 +1592,22 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
     onPick(customer);
     setEditing(false);
     setQuery("");
+    setPendingName("");
+  };
+  // 失焦时按"输入≠选中"收尾：唯一同名直接认定；否则保留输入并提示未选中。
+  const finishEditing = () => {
+    if (currentId) { setEditing(false); return; }
+    const decision = resolveCustomerSelection(query, found.items);
+    if (decision.customer) { choose(decision.customer); return; }
+    setPendingName(decision.pendingName);
+    setEditing(false);
+  };
+  const handleCustomerKeyDown = (event) => {
+    if (event.key === "Escape") { setEditing(false); return; }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (found.items.length) choose(found.items[0]);
+    else finishEditing();
   };
   const multiple = ids.length > 1;
   return (
@@ -1604,10 +1623,12 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
           className={currentId ? undefined : "pricing-missing"}
           disabled={disabled}
           placeholder={multiple ? `这段消息里有 ${ids.length} 个客户，选一个会全部改成同一个` : "输入客户名称、简称、联系人或电话搜索"}
-          value={editing ? query : currentName}
+          value={editing ? query : (currentName || pendingName)}
           onFocus={() => { setEditing(true); setQuery(""); }}
-          onBlur={() => setTimeout(() => setEditing(false), 150)}
-          onChange={(event) => { setEditing(true); setQuery(event.target.value); }}
+          onBlur={() => setTimeout(finishEditing, 150)}
+          onKeyDown={handleCustomerKeyDown}
+          onChange={(event) => { setEditing(true); setQuery(event.target.value); setPendingName(""); }}
+          aria-invalid={!currentId && Boolean(pendingName)}
         />
         {editing ? (
           <ul id="pricing-customer-options" role="listbox" className="pricing-customer-options">
@@ -1626,6 +1647,11 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
               ＋ 新建客户{query.trim() ? `「${query.trim()}」` : ""}
             </li>
           </ul>
+        ) : null}
+        {!currentId && !editing && pendingName ? (
+          <p className="pricing-customer-info warn" role="status">
+            「{pendingName}」还没选中：请从下拉里选这一位，或点「＋新建客户」建完再用。
+          </p>
         ) : null}
         {!currentId && !editing && hint?.name ? (
           <p className="pricing-customer-info warn" role="status">
