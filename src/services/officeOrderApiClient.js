@@ -705,13 +705,16 @@ function mapApiTodosToLocalTodoInputs(todos = [], { draftRows = [], draftId = ""
 function mapApiPrintSide(value, print) {
   if (print !== "是") return "非印刷";
   if (value === "single" || value === "单面") return "单面";
-  if (value === "double" || value === "双面") return "双面";
+  if (value === "double" || value === "双面" || value === "双面相同") return "双面";
+  if (value === "double_different" || value === "双面不同") return "双面不同";
   return "待确认";
 }
 
 function mapDraftPrintSideToApi(value) {
   if (value === "单面" || value === "single") return "single";
-  if (value === "双面" || value === "double") return "double";
+  if (value === "双面" || value === "double" || value === "双面相同") return "double";
+  // 负责人 2026-11-08：双面不同（两面内容不一样）单独一种；服务端按中文原样保存。
+  if (value === "双面不同" || value === "double_different") return "双面不同";
   return undefined;
 }
 

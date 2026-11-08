@@ -254,7 +254,8 @@ try {
   );
   assert.equal(directReads.filter((read) => read.id === selected.id).length, 2);
   await page.getByLabel("第1行数量", { exact: true }).fill("5000");
-  await page.getByRole("button", { name: "生成正式报价", exact: true }).click();
+  // 2026-11-08：报价和下单合成一步，主按钮先算价、算好直接下单（全是现货时叫「开单」）。
+  await page.locator(".pricing-actions .primary-button").click();
   await page
     .getByRole("status")
     .filter({ hasText: "没有取得完整报价回执" })
@@ -265,7 +266,7 @@ try {
     true,
   );
   await page
-    .getByRole("button", { name: "按原内容重试报价", exact: true })
+    .getByRole("button", { name: "按原内容重试算价", exact: true })
     .click();
   await page
     .getByRole("status")
@@ -276,7 +277,7 @@ try {
     true,
   );
   await page
-    .getByRole("button", { name: "按原内容重试报价", exact: true })
+    .getByRole("button", { name: "按原内容重试算价", exact: true })
     .click();
   assert.equal(quoteAttempts[0].key, quoteAttempts[1].key);
   assert.deepEqual(quoteAttempts[0].body, quoteAttempts[1].body);
@@ -285,7 +286,7 @@ try {
   await page.getByRole("group", { name: "缺货怎么办（按客户说的选）" }).waitFor();
   assert.equal(
     await page
-      .getByRole("button", { name: "确认下单", exact: true })
+      .getByRole("button", { name: "开单", exact: true })
       .isEnabled(),
     false,
   );
@@ -293,7 +294,7 @@ try {
   await page.getByLabel("客户怎么说的（可不填）").fill("客户同意先发有的");
   assert.equal(
     await page
-      .getByRole("button", { name: "确认下单", exact: true })
+      .getByRole("button", { name: "开单", exact: true })
       .isEnabled(),
     true,
   );
@@ -303,13 +304,7 @@ try {
     .getByLabel("第1行订单分类", { exact: true })
     .selectOption("custom_special");
   await page.getByLabel("第1行规格", { exact: true }).fill("43*31*12");
-  assert.equal(
-    await page
-      .getByRole("button", { name: "确认下单", exact: true })
-      .isEnabled(),
-    false,
-  );
-  await page.getByRole("button", { name: "生成正式报价", exact: true }).click();
+  await page.getByRole("button", { name: "确认下单", exact: true }).click();
   await page
     .getByRole("status")
     .filter({ hasText: "缺少已确认材料批次价" })
@@ -321,7 +316,8 @@ try {
   await page
     .getByLabel("改价原因", { exact: true })
     .fill("客户议价，按确认的本单成交价");
-  await page.getByRole("button", { name: "生成正式报价", exact: true }).click();
+  // 价格算好后直接下单：这里模拟的下单回执丢失。
+  await page.getByRole("button", { name: "确认下单", exact: true }).click();
   await page.getByText("¥4000.00", { exact: true }).first().waitFor();
   assert.equal(
     await page.evaluate(
@@ -335,14 +331,13 @@ try {
     path: "/tmp/erp-office-pricing-desktop-20261024.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "确认下单", exact: true }).click();
   await page
     .getByRole("status")
     .filter({ hasText: "模拟确认回执丢失，请重试" })
     .waitFor();
   assert.equal(
     await page
-      .getByRole("button", { name: "按原内容重试确认", exact: true })
+      .getByRole("button", { name: "按原内容重试确认下单", exact: true })
       .isEnabled(),
     true,
   );
@@ -359,8 +354,9 @@ try {
   assert.equal(
     await page
       .getByRole("button", { name: "生成正式报价", exact: true })
-      .isDisabled(),
-    true,
+      .count(),
+    0,
+    "报价不再是单独一步",
   );
   assert.equal(
     await page
@@ -369,7 +365,7 @@ try {
     true,
   );
   await page
-    .getByRole("button", { name: "按原内容重试确认", exact: true })
+    .getByRole("button", { name: "按原内容重试确认下单", exact: true })
     .click();
   await page
     .getByRole("status")
@@ -380,7 +376,7 @@ try {
     true,
   );
   await page
-    .getByRole("button", { name: "按原内容重试确认", exact: true })
+    .getByRole("button", { name: "按原内容重试确认下单", exact: true })
     .click();
   await page
     .getByRole("status")
@@ -500,7 +496,7 @@ try {
     .getByLabel("补单依据", { exact: true })
     .fill("原单未开印，与本次相同图案同批印刷");
   await page.getByLabel("已核实所选原单尚未开印，并与新单同批印刷").check();
-  await page.getByRole("button", { name: "生成正式报价", exact: true }).click();
+  await page.getByRole("button", { name: "确认下单", exact: true }).click();
   await page.getByRole("heading", { name: "逐项确认原单价格修订" }).waitFor();
   assert.equal(
     await page
@@ -584,9 +580,8 @@ try {
     await page.getByLabel("第1行数量", { exact: true }).inputValue(),
     "5",
   );
-  await page.getByRole("button", { name: "生成正式报价", exact: true }).click();
+  await page.locator(".pricing-actions .primary-button").click();
   await page.getByText("¥4.50", { exact: true }).first().waitFor();
-  await page.getByRole("button", { name: "确认下单", exact: true }).click();
   await page
     .getByRole("status")
     .filter({ hasText: "正式订单已生成" })
@@ -751,7 +746,7 @@ try {
     },
     { selectedDraft: selected, auth },
   );
-  await page.getByRole("button", { name: "生成正式报价", exact: true }).click();
+  await page.locator(".pricing-actions .primary-button").click();
   await page.waitForFunction(() => window.deferredQuotes.length === 1);
   const ownerA = await page.evaluate(() => window.pendingOwner);
   await page.evaluate(() => {
@@ -764,7 +759,7 @@ try {
     };
     window.render();
   });
-  await page.getByRole("button", { name: "生成正式报价", exact: true }).click();
+  await page.locator(".pricing-actions .primary-button").click();
   await page.waitForFunction(() => window.deferredQuotes.length === 2);
   const ownerB = await page.evaluate(() => window.pendingOwner);
   assert.notEqual(ownerA, ownerB);
@@ -814,7 +809,7 @@ try {
     window.render();
   });
   await page
-    .getByRole("button", { name: "按原内容重试报价", exact: true })
+    .getByRole("button", { name: "按原内容重试算价", exact: true })
     .click();
   await page.waitForFunction(() => window.deferredQuotes.length === 3);
   assert.equal(
