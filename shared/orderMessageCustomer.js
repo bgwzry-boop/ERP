@@ -2,6 +2,8 @@
 // 只看第一行开头（第一个数字之前）和最后一行（不带数字的一行），去掉打招呼、交付等常用词后剩下的就是名字。
 // 系统里有这个客户就带出客户编号；没有就只给出名字，开单页提示是否新建。
 
+import { looksLikePrintOrderLine, parsePrintOrderLine } from "./printOrderLineParser.js";
+
 const FILLER_WORDS = [
   "你好", "您好", "老板", "老板娘", "在吗", "在么", "麻烦", "帮我", "帮忙", "谢谢", "辛苦", "辛苦了", "收到",
   "客户", "订单", "下单", "要货", "订货", "我要", "要", "定", "订",
@@ -30,6 +32,11 @@ function candidateName(text) {
 export function messageCustomerNameCandidates(sourceText) {
   const lines = String(sourceText ?? "").split(/\r?\n/u).map(clean).filter(Boolean);
   if (!lines.length) return [];
+  // 负责人 2026-11-08：车间单写法「【印刷内容】……  客户简称」：【】里不是客户，客户在最后，可能只有一个字。
+  if (looksLikePrintOrderLine(lines[0])) {
+    const names = lines.filter(looksLikePrintOrderLine).map((line) => parsePrintOrderLine(line).customerName).filter(Boolean);
+    return [...new Set(names)].slice(0, 1);
+  }
   const candidates = [];
   const firstLead = lines[0].split(/\d/u)[0];
   const first = candidateName(firstLead);

@@ -1,6 +1,7 @@
 import { enrichDraftRow } from "./orderDraftProjection.js";
 export { enrichDraftRow, estimateAmount } from "./orderDraftProjection.js";
 import { detectMessageCustomer, isActiveMessageCustomer } from "../../shared/orderMessageCustomer.js";
+import { looksLikePrintOrderLine, parsePrintOrderLine } from "../../shared/printOrderLineParser.js";
 
 const colorWords = ["米白", "浅蓝", "牛仔蓝", "大红", "红", "黑", "白", "蓝", "绿", "黄", "粉"];
 const colorPattern = colorWords.join("|");
@@ -38,9 +39,14 @@ const customerAliases = {
   C012: ["宏尚", "布业"],
 };
 
-export function parseOrderText(text, { customers = [], inventories = [] } = {}) {
+export function parseOrderText(text, { customers = [], inventories = [], now = new Date() } = {}) {
   const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
   if (!normalized) return [];
+  // 负责人 2026-11-08：车间单写法（【印刷内容】尺寸 数量 袋色字色 … 客户简称）按行单独识别。
+  const rawLines = String(text ?? "").split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  if (rawLines.length && rawLines.every(looksLikePrintOrderLine)) {
+    return rawLines.flatMap((line, index) => printOrderRows(line, index, { customers, inventories, now }));
+  }
   const chunks = normalized
     .split(/[；;\n]+/)
     .map((item) => item.trim())
@@ -247,4 +253,49 @@ function detectPrintSide(chunk) {
   if (/[双两]面/.test(chunk)) return "双面";
   if (/[单一]面/.test(chunk)) return "单面";
   return "待确认";
+}
+
+function findPrintOrderCustomer(name, customers) {
+  const active = customers.filter(isActiveMessageCustomer);
+  if (!name) return undefined;
+  const exact = active.filter((customer) => [customer.name, customer.shortName].map((value) => String(value ?? "").trim()).includes(name));
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1 || name.length < 2) return undefined;
+  const partial = active.filter((customer) => String(customer.name ?? "").includes(name));
+  return partial.length === 1 ? partial[0] : undefined;
+}
+
+function printOrderRows(line, index, { customers, inventories, now }) {
+  const parsed = parsePrintOrderLine(line, { now });
+  const customer = findPrintOrderCustomer(parsed.customerName, customers);
+  const fulfillment = /送货/u.test(line) ? "送货" : /自提|来拿|来取/u.test(line) ? "自提" : /发/u.test(line) ? "快递快运" : "待确认";
+  return parsed.rows.map((item, rowIndex) => {
+    const notes = [...parsed.notes];
+    if (item.sizeReview) notes.push(item.sizeReview);
+    if (parsed.peerProcessor) notes.push(`${parsed.peerProcessor}送卷来加工，只印不制袋`);
+    const row = {
+      id: `DRAFT-${index + 1}-${rowIndex + 1}`,
+      customer: customer?.name ?? "待确认客户",
+      customerId: customer?.id ?? "",
+      product: parsed.external ? "同行来料印刷" : "空白袋",
+      ...(parsed.external ? { orderType: "external_print" } : {}),
+      size: item.size,
+      color: item.bagColor || "待确认",
+      handle: parsed.handle,
+      style: "空白袋",
+      print: "是",
+      qty: item.qty,
+      fulfillment,
+      latest: parsed.latest || "待确认",
+      printColor: item.printColor || "待确认",
+      printSide: parsed.side,
+      ...(parsed.printColorCount ? { printColorCount: parsed.printColorCount } : {}),
+      artworkStatus: "待上传",
+      handleColor: item.handleColor,
+      printContent: parsed.printContent,
+      note: [...new Set(notes)].join("、"),
+      source: line,
+    };
+    return enrichDraftRow(row, inventories);
+  });
 }

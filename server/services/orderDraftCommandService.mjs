@@ -1433,6 +1433,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       ...(row.deliveryAddressId ? { deliveryAddressId: row.deliveryAddressId } : {}),
       ...(row.deliveryAddress ? { deliveryAddress: row.deliveryAddress } : {}),
       ...(row.printColorCount ? { printColorCount: row.printColorCount } : {}),
+      ...(row.printContent ? { printContent: row.printContent } : {}),
       fulfillmentMethod: row.fulfillment,
       latestNeededAt: row.latest,
       printFlag: row.print === "是",
