@@ -147,7 +147,7 @@ try {
     await button("识别客户消息").click();
     await checkShortLine();
     await expect(customerInput).toHaveValue("");
-    await expect(button("生成正式报价")).toBeDisabled();
+    await expect(button("开单")).toBeDisabled();
     assert.equal(recognized.lines[0].customerId, "");
     assert.equal(recognized.draft.sourceText, message);
   }
@@ -157,7 +157,7 @@ try {
   await checkShortLine();
   await expect(page.getByLabel("第1行是否印刷", { exact: true })).toHaveValue("否");
   await expect(customerInput).toHaveValue(customer.name);
-  await expect(button("生成正式报价")).toBeEnabled();
+  await expect(button("开单")).toBeEnabled();
   await expect(page.getByText("1 行计价明细已齐全", { exact: true })).toBeVisible();
   assert.equal(recognized.lines[0].customerId, customer.id);
   assert.equal(recognized.draft.sourceText, customerMessage);
@@ -170,14 +170,13 @@ try {
   await page.getByLabel("整单需要日期", { exact: true }).fill("2099-11-07");
 
   report.stage = "quote-and-confirm";
-  await button("生成正式报价").click();
-  await expect(button("确认下单")).toBeEnabled();
+  // 2026-11-08：现货一次「开单」：先按价格表算价，算好直接下单。
+  await button("开单").click();
+  await expect(page.getByText(/正式订单已生成/u)).toBeVisible();
   assert.equal(quote.lines.length, 1);
   assert.equal(quote.lines[0].chargeableQty, stockQty);
   assert.equal(quote.lines[0].amount, quotedAmount);
   await screenshot("01-quoted");
-  await button("确认下单").click();
-  await expect(page.getByText(/正式订单已生成/u)).toBeVisible();
   assert.deepEqual(confirmation.productionTasks, []);
   assert.equal(confirmation.orderLines.length, 1);
   assert.equal(confirmation.orderLines[0].lineStatus, "待出库");
