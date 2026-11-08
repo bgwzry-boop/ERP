@@ -205,6 +205,7 @@ function OrderPricingEditor({
   const frozenRequest = useRef(recovered ?? null);
   const mounted = useRef(false);
   const inFlight = useRef(false);
+  const autoConfirm = useRef(false);
   const [pendingKind, setPendingKind] = useState(recovered?.kind ?? "");
   const newOrderBlocked = Boolean(busy || pendingKind || splitPlan);
   const editingLocked = complete || newOrderBlocked;
@@ -462,7 +463,7 @@ function OrderPricingEditor({
         setRevision(nextRevision);
         setSavedSource(result.draft?.sourceText ?? draftSource);
         setSavedRows(rows);
-        setNotice("草稿已保存，请生成正式报价后确认。");
+        setNotice("草稿已保存。核对无误后点「开单」或「确认下单」。");
       },
     );
   const pricing = () =>
@@ -517,7 +518,7 @@ function OrderPricingEditor({
         setSavedPricingInputs(pricingInputs);
         setAffected([]);
         requests.current.confirm = null;
-        setNotice("正式报价已保存。请核对金额和受影响原单，再确认下单。");
+        setNotice("价格已算好。");
       },
     );
   const confirm = () =>
@@ -569,7 +570,7 @@ function OrderPricingEditor({
       delete next[line.id];
       return next;
     });
-    setNotice(`${result.toast} 请分别核对数量、交付和日期，并重新生成正式报价；原行的本单改价需重新填写，避免费用重复。`);
+    setNotice(`${result.toast} 请分别核对数量、交付和日期后再开单；原行的本单改价需重新填写，避免费用重复。`);
   };
   const previewSplit = async () => {
     if (inFlight.current || editingLocked || !canConfirmOrder || !draftId || !rows.length) return;
@@ -642,10 +643,35 @@ function OrderPricingEditor({
   const acknowledge = quote?.affectedOrders.every((line) =>
     affected.includes(line.orderLineId),
   );
-  // 一次只有一个主按钮：还没报价时「生成正式报价」是主操作；报价就绪后「确认下单」是主操作。
-  const quoteReady = locked || !!quote;
-  const entrySteps = ["核对来单", "正式报价", "确认下单"].map((label, index) => {
-    const current = complete ? -1 : quoteReady ? 2 : 0;
+  useEffect(() => {
+    if (!autoConfirm.current || busy) return;
+    const mode = autoConfirm.current;
+    autoConfirm.current = false;
+    if (pendingKind || !quote || complete) return;
+    if (mode === "preview") { void previewSplit(); return; }
+    if (!acknowledge) {
+      setNotice(`价格已算好。有 ${quote.affectedOrders.length} 张原单受影响，请在右边逐条核对勾选后，再点「${rows.every((line) => isStockOrderType(line.orderType)) ? "开单" : "确认下单"}」。`);
+      return;
+    }
+    if ((shortageAsked || rows.some(isLocalShortage)) && !shortageChoice) {
+      setNotice("价格已算好。库存不够，请先按客户说的选缺货怎么办，再点「开单」或「确认下单」。");
+      return;
+    }
+    void confirm();
+  }, [busy, pendingKind, quote]);
+  // 负责人 2026-11-08：报价和下单合成一步。点一次主按钮，先按价格表算价，算好直接下单；
+  // 只有受影响原单要核对、缺货要问客户、价格表里缺价时才停下来。全部是现货时按钮叫「开单」。
+  const allStock = rows.length > 0 && rows.every((line) => isStockOrderType(line.orderType));
+  const actionLabel = allStock ? "开单" : "确认下单";
+  const placeOrder = () => {
+    // 上次算价没拿到完整回执：按原内容重试只算价，算好后再点一次下单，免得重试时直接下单。
+    if (pendingKind === "报价") { autoConfirm.current = false; void pricing(); return; }
+    if (pendingKind === "确认") { void confirm(); return; }
+    if (!locked && !quote) { autoConfirm.current = "confirm"; void pricing(); return; }
+    void confirm();
+  };
+  const entrySteps = ["核对来单", actionLabel].map((label, index) => {
+    const current = complete ? -1 : 1;
     const state = complete || index < current ? "done" : index === current ? "current" : "todo";
     return { label, state };
   });
@@ -1183,54 +1209,38 @@ function OrderPricingEditor({
             >
               {pendingKind === "保存" ? "按原内容重试保存" : "保存草稿"}
             </button>
-            {!locked ? (
-              <button
-                type="button"
-                className={quoteReady ? "secondary-button" : "primary-button"}
-                disabled={
-                  !!splitPlan ||
-                  !!busy ||
-                  !draftId ||
-                  missing ||
-                  !rows.length ||
-                  complete ||
-                  (!!pendingKind && pendingKind !== "报价")
-                }
-                onClick={() => void pricing()}
-              >
-                {busy === "报价"
-                  ? "正在生成报价…"
-                  : pendingKind === "报价"
-                    ? "按原内容重试报价"
-                    : "生成正式报价"}
-              </button>
-            ) : null}
+
             <button type="button" ref={splitTrigger} disabled={editingLocked || !canConfirmOrder || !draftId || !rows.length || shortageMissing}
               title={shortageMissing ? "库存不够，请先按客户意见选缺货怎么办" : undefined}
-              onClick={() => void previewSplit()}>
+              onClick={() => { if (!locked && !quote && !missing) { autoConfirm.current = "preview"; void pricing(); } else void previewSplit(); }}>
               {busy === "拆单预览" ? "正在核对分组…" : "按客户/交付拆单"}
             </button>
             <button
               type="button"
-              className={quoteReady ? "primary-button" : "secondary-button"}
+              className="primary-button"
               disabled={
                 !!splitPlan ||
                 !!busy ||
                 complete ||
                 missing ||
                 !rows.length ||
-                (!locked && (!quote || !acknowledge)) ||
-                shortageMissing ||
-                (!!pendingKind && pendingKind !== "确认")
+                (!locked && !draftId) ||
+                (!locked && !!quote && !acknowledge) ||
+                (shortageMissing && (locked || !!quote)) ||
+                (!!pendingKind && !["报价", "确认"].includes(pendingKind))
               }
-              title={shortageMissing ? "库存不够，请先按客户意见选缺货怎么办" : undefined}
-              onClick={() => void confirm()}
+              title={shortageMissing ? "库存不够，请先按客户意见选缺货怎么办" : !locked && quote && !acknowledge ? "请先在右边核对勾选受影响的原单" : "按价格表算价，算好直接下单"}
+              onClick={placeOrder}
             >
-              {busy === "确认"
-                ? "正在确认…"
-                : pendingKind === "确认"
-                  ? "按原内容重试确认"
-                  : "确认下单"}
+              {busy === "报价"
+                ? "正在算价…"
+                : busy === "确认"
+                  ? "正在下单…"
+                  : pendingKind === "报价"
+                    ? "按原内容重试算价"
+                    : pendingKind === "确认"
+                      ? `按原内容重试${actionLabel}`
+                      : actionLabel}
             </button>
           </div>
         </footer>
@@ -1267,9 +1277,9 @@ function OrderPricingEditor({
               </ul>
               <p className="pricing-precheck-hint">
                 {missing
-                  ? "先补全标出的字段，再生成正式报价。"
-                  : "可生成报价；下单前请核对交付方式和需要日期。"}
-                缺少发布价或已确认材料价时会保留草稿，由有权限的人填写本单价及原因。
+                  ? "先补全标出的字段，再开单。"
+                  : "点「开单」或「确认下单」会先按价格表算价，再直接下单；请先核对交付方式和需要日期。"}
+                价格表里缺价时会停在这里，由有权限的人填写本单价及原因。
               </p>
             </>
           ) : (

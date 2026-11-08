@@ -59,8 +59,9 @@ try {
   await page.getByLabel("本行使用授权本单价",{exact:true}).check();
   await page.getByLabel("第1行其他费（元）",{exact:true}).fill("9");
   await page.getByLabel("改价原因",{exact:true}).fill("isolated one-time charge before row split");
-  await page.getByRole("button",{name:"生成正式报价",exact:true}).click();
-  await expect(page.getByText("正式报价已保存。请核对金额和受影响原单，再确认下单。",{exact:true})).toBeVisible();
+  // 2026-11-08：报价不再是单独一步；拆单预览前自动按价格表算价（不下单）。
+  await previewButton.click(); dialog=page.getByRole("dialog",{name:"拆单预览与确认"});
+  await expect(dialog).toBeVisible(); await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0);
   const firstQuote = quote.quoteId;
   assert.equal(quote.lines[0].otherFee,9);
   await page.getByRole("button",{name:"拆分第1行明细",exact:true}).click();
@@ -69,14 +70,12 @@ try {
   await openRow(1); await openRow(2);
   await expect(page.getByLabel("本行使用授权本单价",{exact:true}).nth(0)).not.toBeChecked();
   await expect(page.getByLabel("本行使用授权本单价",{exact:true}).nth(1)).not.toBeChecked();
-  await expect(page.getByRole("button",{name:"确认下单",exact:true})).toBeDisabled();
   await page.getByLabel("第2行交付方式",{exact:true}).selectOption("送货");
   await page.getByLabel("第2行需要日期",{exact:true}).fill("2099-11-03");
-  await page.getByRole("button",{name:"生成正式报价",exact:true}).click();
-  await expect(page.getByRole("button",{name:"确认下单",exact:true})).toBeEnabled();
+  await previewButton.click(); dialog=page.getByRole("dialog",{name:"拆单预览与确认"});
+  await expect(dialog).toBeVisible();
   assert.notEqual(quote.quoteId,firstQuote,"row splitting invalidates the original quote");
   assert.equal(quote.lines.reduce((sum,line)=>sum+line.otherFee,0),0,"one-time fees are not cloned into split lines");
-  await previewButton.click(); dialog=page.getByRole("dialog",{name:"拆单预览与确认"});
   await expect(dialog.getByRole("button",{name:"确认生成 2 张订单",exact:true})).toBeEnabled();
   assert.equal(writes.length,0,"preview does not create orders");
   await page.screenshot({path:join(output,"desktop-split-review.png"),fullPage:true});
@@ -87,10 +86,8 @@ try {
   await expect(previewButton).toBeFocused(); assert.equal(writes.length,0,"return sends no order mutation");
   const oldHash=previews.at(-1).planHash;
   await page.getByLabel("第2行需要日期",{exact:true}).fill("2099-11-04");
-  await expect(page.getByRole("button",{name:"确认下单",exact:true})).toBeDisabled();
-  await page.getByRole("button",{name:"生成正式报价",exact:true}).click();
-  await expect(page.getByRole("button",{name:"确认下单",exact:true})).toBeEnabled();
   await previewButton.click(); dialog=page.getByRole("dialog",{name:"拆单预览与确认"});
+  await expect(dialog).toBeVisible();
   assert.notEqual(previews.at(-1).planHash,oldHash,"edited delivery date requires a new server plan");
   await dialog.getByRole("button",{name:"确认生成 2 张订单",exact:true}).click();
   const retry=dialog.getByRole("button",{name:"按原内容重试拆单",exact:true});
@@ -154,7 +151,7 @@ try {
   await expect(quantity).toHaveValue("12");
   await quantity.fill("13");
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
-  await expect(page.getByText("草稿已保存，请生成正式报价后确认。", { exact: true })).toBeVisible();
+  await expect(page.getByText("草稿已保存。核对无误后点「开单」或「确认下单」。", { exact: true })).toBeVisible();
   await newOrder.click();
   await expect(source).toHaveValue("");
   await expect(quantity).toHaveCount(0);

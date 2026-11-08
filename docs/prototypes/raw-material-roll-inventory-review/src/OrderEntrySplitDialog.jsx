@@ -27,7 +27,7 @@ export function OrderEntrySplitDialog({ plan, rows, quote, locked, busy, pending
         </li>)}
       </ol>
       {plan.noSplitNeeded ? <p>当前只有一个交付组，无需拆单。返回后使用“确认下单”生成一张订单。</p> : null}
-      {!locked && !quote ? <p>请返回生成正式报价，再重新预览拆单。</p> : null}
+      {!locked && !quote ? <p>请返回重新点「按客户/交付拆单」，系统会先按价格表算价再预览。</p> : null}
       {quote?.affectedOrders.length ? <p>本次还会按已勾选确认的报价修订 {quote.affectedOrders.length} 条关联原单价格；旧报价记录保留。</p> : null}
       {quote && !canConfirm && !plan.noSplitNeeded && plan.canConfirm ? <p>请返回，逐项确认正式报价中受影响的原单后再拆单。</p> : null}
       <p>确认后会创建正式订单、价格快照及相应库存占用、交付任务或生产任务；办公室仍须逐单安排出库或生产排单。</p>
