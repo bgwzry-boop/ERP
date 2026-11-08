@@ -335,7 +335,8 @@
     "order-entry-dirty-leave:check": "node scripts/check-order-entry-dirty-leave-ui.mjs",
     "deep-link-auth:check": "node scripts/check-deep-link-auth-ui.mjs",
     "business-table-overflow:check": "node scripts/check-business-table-overflow-ui.mjs",
-    "mobile-draft-exit-dialog:check": "node scripts/check-mobile-draft-exit-dialog-ui.mjs"
+    "mobile-draft-exit-dialog:check": "node scripts/check-mobile-draft-exit-dialog-ui.mjs",
+    "write-error-message:check": "node scripts/check-write-error-message.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",

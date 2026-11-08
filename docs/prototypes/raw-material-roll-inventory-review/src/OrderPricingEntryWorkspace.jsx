@@ -4,6 +4,7 @@ import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPrici
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType, normalizeOrderType } from "../../../../shared/orderRouting.js";
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
+import { formatWriteFailureMessage } from "../../../../src/shared/ui/errorPresentation.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
 import { ReviewDialog } from "./ReviewDialog.jsx";
 import { completeWalkInPickup, printWalkInPickupNote } from "../../../../src/features/fulfillment/walkInPickup.js";
@@ -378,11 +379,11 @@ function OrderPricingEditor({
           setQuote(null);
           setSplitPlan(null);
         }
-        setNotice(error.message);
+        setNotice(formatWriteFailureMessage(error));
       } else {
         request.uncertain = true;
         setNotice(
-          `${kind}结果待核对，当前内容已锁定，请按原内容重试。${error.message}`,
+          `${kind}结果待核对，当前内容已锁定，请按原内容重试。${formatWriteFailureMessage(error, "")}`.trim(),
         );
       }
     } finally {
