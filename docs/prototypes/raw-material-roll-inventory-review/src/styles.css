@@ -62,7 +62,9 @@ h1, h2, h3, p, dl, dd, ul { margin: 0; }
 .pc-nav-children button { min-height: 29px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 0 9px 0 37px; border-radius: 4px; }
 .pc-nav-children button:hover { background: color-mix(in oklch, var(--erp-surface) 4.5%, transparent); color: white; }
 .pc-nav-children button > span { overflow: hidden; font-size: 12px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
-.pc-nav-children button.active { background: var(--orange); color: white; box-shadow: 0 4px 12px color-mix(in oklch, var(--erp-danger) 20%, transparent); }
+/* 2026-11-08：当前菜单改为左侧 3px 橙色竖条 + 浅色底，避免和顶栏橙色主按钮抢眼 */
+.pc-nav-children button.active { border-left: 3px solid var(--orange); background: var(--erp-sidebar-hover); color: var(--erp-sidebar-text); font-weight: 700; }
+.pc-nav-children button.active > span { font-weight: 700; }
 .pc-nav-children button b { min-width: 17px; height: 17px; display: grid; place-items: center; padding: 0 4px; border-radius: 99px; background: var(--erp-brand); color: white; font-size: 11px; font-weight: 760; }
 .pc-nav-children button.active b { background: color-mix(in oklch, var(--erp-surface) 24%, transparent); }
 
@@ -387,3 +389,10 @@ button.receipt-row:hover, button.statement-row:hover, button.receipt-row.selecte
   font-size: 12px;
 }
 .formal-receiving-workspace .office-roll-row > button { min-width: 0; padding: 5px 3px; font-size: 11px; }
+
+/* 2026-11-08：侧栏"全部收起"与"下面还有 N 组"提示、折叠组角标 */
+.pc-nav-collapse-all { display: inline-flex; min-height: 32px; min-width: 32px; align-items: center; justify-content: center; gap: 6px; margin: 0 10px 6px; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--erp-surface) 16%, transparent); border-radius: 6px; background: transparent; color: var(--erp-sidebar-muted); font-size: var(--erp-text-xs); cursor: pointer; }
+.pc-nav-collapse-all:hover { background: var(--erp-sidebar-hover); color: var(--erp-sidebar-text); }
+.pc-nav-group-count { min-width: 17px; display: inline-grid; place-items: center; margin-left: 6px; padding: 0 4px; border-radius: 99px; background: var(--erp-brand); color: var(--erp-surface); font-size: var(--erp-text-xs); font-weight: 760; }
+.pc-nav-more { min-height: 32px; margin: 4px 6px 8px; padding: 0 8px; border: 1px dashed color-mix(in oklch, var(--erp-surface) 24%, transparent); border-radius: 6px; background: transparent; color: var(--erp-sidebar-text); font-size: var(--erp-text-xs); cursor: pointer; }
+.pc-nav-more:hover { background: var(--erp-sidebar-hover); }

@@ -19,10 +19,11 @@
 .app-shell .pc-nav-children { gap: 2px; padding: 2px 0 6px; }
 .app-shell .pc-nav-children button { min-height: 36px; padding: 0 10px 0 36px; border-radius: var(--erp-radius-sm); color: var(--erp-sidebar-text); }
 .app-shell .pc-nav-children button > span { font-size: 14px; font-weight: 500; }
-.app-shell .pc-nav-children button.active { background: var(--erp-accent); color: var(--erp-accent-ink); box-shadow: none; }
-.app-shell .pc-nav-children button.active > span { font-weight: 600; }
+/* 2026-11-08：当前菜单改为左侧 3px 橙色竖条 + 浅色底，不再用橙色实底（与顶栏主按钮抢眼） */
+.app-shell .pc-nav-children button.active { border-left: 3px solid var(--orange); background: var(--erp-sidebar-hover); color: var(--erp-sidebar-text); box-shadow: none; }
+.app-shell .pc-nav-children button.active > span { font-weight: 700; }
 .app-shell .pc-nav-children button b { min-width: 20px; height: 20px; padding: 0 6px; background: var(--erp-brand); font-size: 12px; font-weight: 700; }
-.app-shell .pc-nav-children button.active b { background: color-mix(in oklch, var(--erp-accent-ink) 26%, transparent); }
+.app-shell .pc-nav-children button.active b { background: var(--erp-brand); color: var(--erp-surface); }
 
 /* ---------- 外壳：顶栏 ---------- */
 .app-shell .topbar { gap: 16px; padding: 0 24px; border-bottom-color: var(--erp-border); }
