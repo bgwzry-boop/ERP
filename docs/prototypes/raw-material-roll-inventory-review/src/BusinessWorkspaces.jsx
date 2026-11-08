@@ -138,13 +138,6 @@ function miniappProgressLabel(line = {}) {
   return line.orderNo ? "备货中" : "工厂确认中";
 }
 
-function stateTone(value) {
-  if (/异常|差异|阻塞|失败|缺货|冻结|待补|未就绪/.test(value)) return "danger";
-  if (/已完成|正常|有效|通过|可用|可出库|已核算|在线|已清点|已交付|已启用|已付款|已结算|已确认/.test(value)) return "success";
-  if (/生产中|印刷中|丝印中|制袋中|打包中|配送中|已备货/.test(value)) return "info";
-  return "warning";
-}
-
 // 金额、数量列右对齐（表头按列名判断；「客户 / 期间」之类的文字列不受影响）
 function isNumericColumn(column) {
   // 2026-11-07：列名改「本期未收」后仍要右对齐，不能漏。

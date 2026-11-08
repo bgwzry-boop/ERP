@@ -13,12 +13,12 @@ for (const [text, tone] of STATUS_TONE_TABLE) {
 
 // 6 个列表页的代表状态（来自各页状态列）
 const pageStatuses = {
-  "order-pool": ["待出库", "缺货待处理", "已备货", "制袋中", "已交付", "待对账", "待打包", "待收款确认", "数量差异", "丝印中"],
-  "outbound-delivery": ["待出库", "已备货", "待打印标签", "待确认拉走", "数量不符", "已交付"],
-  "material-receiving": ["待核对", "待贴标", "异常", "待确认"],
-  "production-tasks": ["丝印中", "待补印", "待排产", "制袋中", "已完成"],
-  "customer-statements": ["本期待对账", "有欠款/差异", "收款待确认", "已结清"],
-  "customer-records": ["正常", "停用"],
+  "order-pool": ["待出库", "缺货待处理", "已备货", "制袋中", "已交付", "待对账", "待打包", "待收款确认", "数量差异", "丝印中", "已出库", "已提货", "逾期"],
+  "outbound-delivery": ["待出库", "已备货", "待打印标签", "待确认拉走", "数量不符", "已交付", "部分出库", "部分交付", "已交库房"],
+  "material-receiving": ["待核对", "待贴标", "异常", "待确认", "已入库", "已收货", "已签收"],
+  "production-tasks": ["丝印中", "待补印", "待排产", "制袋中", "已完成", "有效", "通过", "已核算"],
+  "customer-statements": ["本期待对账", "有欠款/差异", "收款待确认", "已结清", "超期"],
+  "customer-records": ["正常", "停用", "已启用", "可出库"],
 };
 for (const [page, statuses] of Object.entries(pageStatuses)) {
   for (const text of statuses) {
@@ -35,6 +35,15 @@ assert.equal(statusTone("配送中"), "doing");
 
 // 重点口径：阻塞级只能是要人处理的事
 for (const text of ["缺货待处理", "数量差异", "数量不符", "异常", "疑似重复", "读取失败"]) {
+  assert.equal(statusTone(text), "blocked", `「${text}」必须是阻塞级`);
+}
+for (const text of ["已出库", "已提货", "已签收", "已入库", "已收货", "有效", "通过", "可出库", "已核算", "已启用"]) {
+  assert.equal(statusTone(text), "done", `「${text}」必须是完成级`);
+}
+for (const text of ["已交库房", "部分出库", "部分交付"]) {
+  assert.equal(statusTone(text), "doing", `「${text}」必须是进行中级`);
+}
+for (const text of ["逾期", "超期"]) {
   assert.equal(statusTone(text), "blocked", `「${text}」必须是阻塞级`);
 }
 for (const text of ["已交付", "已结清", "正常", "可用"]) {

@@ -5,7 +5,7 @@ export const STATUS_TONE_TABLE = Object.freeze([
   ["缺货待处理", "blocked"], ["缺货", "blocked"], ["库存不足", "blocked"],
   ["数量差异", "blocked"], ["数量不符", "blocked"], ["异常", "blocked"],
   ["送货异常", "blocked"], ["疑似重复", "blocked"], ["读取失败", "blocked"],
-  ["冻结", "blocked"], ["未就绪", "blocked"],
+  ["冻结", "blocked"], ["未就绪", "blocked"], ["逾期", "blocked"], ["超期", "blocked"],
   // 待办：轮到某人做
   ["待出库", "todo"], ["待贴标", "todo"], ["待核对", "todo"], ["待确认", "todo"],
   ["待打印标签", "todo"], ["待确认拉走", "todo"], ["待打包", "todo"], ["待排产", "todo"],
@@ -15,8 +15,11 @@ export const STATUS_TONE_TABLE = Object.freeze([
   // 进行中：正在做，不用催
   ["生产中", "doing"], ["丝印中", "doing"], ["制袋中", "doing"], ["印刷中", "doing"],
   ["配送中", "doing"], ["运输中", "doing"], ["已备货", "doing"], ["机边领用", "doing"],
+  ["已交库房", "doing"], ["部分出库", "doing"], ["部分交付", "doing"],
   // 完成：已结束
   ["已交付", "done"], ["已结清", "done"], ["已确认对账", "done"], ["可用", "done"],
+  ["已出库", "done"], ["已提货", "done"], ["已签收", "done"], ["已入库", "done"], ["已收货", "done"],
+  ["有效", "done"], ["通过", "done"], ["可出库", "done"], ["已核算", "done"], ["已启用", "done"],
   ["正常", "done"], ["已完成", "done"], ["已付款", "done"], ["已结算", "done"], ["已清点", "done"],
   // 其他：不做催促，也不代表完成
   ["停用", "neutral"], ["已取消", "neutral"], ["已作废", "neutral"], ["草稿", "neutral"],
