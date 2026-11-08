@@ -8,3 +8,13 @@ export function resolveCustomerSelection(query, items = []) {
   if (exact.length === 1) return { customer: exact[0], pendingName: "" };
   return { customer: null, pendingName: name };
 }
+
+// 识别结果里的客户：有档案就直接绑定；没有档案就把名字回填到输入框，等人确认。
+export function resolveRecognizedCustomer(recognitionHint, picked) {
+  const name = String(recognitionHint?.name ?? "").trim();
+  if (picked?.customerId && picked.selectionSource !== "recognition") return { customer: picked, pendingName: "" };
+  if (recognitionHint?.customerId) {
+    return { customer: { customerId: recognitionHint.customerId, name: recognitionHint.name, selectionSource: "recognition" }, pendingName: "" };
+  }
+  return { customer: null, pendingName: name };
+}
