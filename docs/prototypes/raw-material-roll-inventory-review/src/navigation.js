@@ -56,7 +56,7 @@ export const pcNavGroups = [
   },
   {
     id: "inventory",
-    label: "库存管理",
+    label: "成品库存",
     icon: "inventory",
     items: [
       { id: "inventory-query", label: "无纺布袋", allowedRoleKeys: ["office", "management"], permissionKeys: ["inventory.lookup", "inventory.correction.create", "inventory.correction.confirm"] },
