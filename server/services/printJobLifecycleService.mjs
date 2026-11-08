@@ -285,6 +285,67 @@ export function createPrintJobLifecycleService({
     };
   }
 
+  // 负责人 2026-11-08：办公室针式打印机走浏览器打印（打印设备设成 browser_download）。
+  // 打印机没有程序回报，打没打出来由办公室看纸确认；只有这种设备的打印任务能这样确认，
+  // 由打印程序回报的设备仍然不能手工改成已打印。
+  async function confirmBrowserPrint({ workspace, printJobId, body = {}, operatorId }) {
+    const before = await findPrintJob(workspace, printJobId);
+    if (!before) return notFound();
+    if (!["browser_download", "manual"].includes(normalizeText(before.driverMode))) {
+      return businessError(409, "PRINT_JOB_NOT_BROWSER_PRINT", "这台打印设备由打印程序自动确认，不能在页面上确认已打印。");
+    }
+    if (body.confirmed !== true) {
+      return businessError(422, "PRINT_JOB_BROWSER_CONFIRMATION_REQUIRED", "请看过打印机、纸单确实打出来后再确认。");
+    }
+    if (before.jobStatus === "printed") {
+      return { printJob: before, operationLogId: "", alreadyConfirmed: true };
+    }
+    if (before.jobStatus !== "queued") {
+      return businessError(409, "PRINT_JOB_NOT_WAITING_FOR_PRINT", "这张单子的打印任务已经结束或作废，请重新打印。");
+    }
+    const confirmedAt = nowIso(now);
+    const after = {
+      ...before,
+      jobStatus: "printed",
+      sentAt: before.sentAt || confirmedAt,
+      finishedAt: confirmedAt,
+      errorCode: "",
+      errorMessage: "",
+      metadata: {
+        ...before.metadata,
+        browserPrintConfirmedBy: operatorId,
+        browserPrintConfirmedAt: confirmedAt,
+        printConfirmationSource: "office_visual_check",
+      },
+      updatedAt: confirmedAt,
+    };
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "print_job",
+      targetId: printJobId,
+      action: "confirm_browser_print",
+      operatorId,
+      before,
+      after,
+      reason: "办公室确认纸单已打出",
+    });
+    const persisted = await persistPrintJobWithBusinessProjection({
+      workspace,
+      printJob: after,
+      printJobOperationLog: operationLog,
+      printJobWriteMode: "update",
+      operatorId,
+      reason: "办公室确认纸单已打出",
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: { printJobId, confirmed: true, operatorId },
+    });
+    if (persisted.error) return persisted;
+    return {
+      printJob: persisted.printJob,
+      operationLogId: persisted.operationLogId,
+      ...persisted.printProjection,
+    };
+  }
+
   function syncBusinessProjection(input) {
     return printJobBusinessProjectionService.syncPrintJobBusinessProjection(input);
   }
@@ -348,6 +409,7 @@ export function createPrintJobLifecycleService({
     pollPrintJobById,
     recordPrintJobDriverStatus,
     retryPrintJob,
+    confirmBrowserPrint,
   };
 }
 

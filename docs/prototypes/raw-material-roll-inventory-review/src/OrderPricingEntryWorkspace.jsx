@@ -6,6 +6,8 @@ import { isStockOrderType, normalizeOrderType } from "../../../../shared/orderRo
 import { splitDraftRow } from "../../../../src/state/officeDraftActions.js";
 import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
 import { ReviewDialog } from "./ReviewDialog.jsx";
+import { completeWalkInPickup, printWalkInPickupNote } from "../../../../src/features/fulfillment/walkInPickup.js";
+import { getOfficeFulfillmentOperatorCandidates } from "../../../../src/services/officeFulfillmentApiClient.js";
 import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
 
@@ -206,6 +208,7 @@ function OrderPricingEditor({
   const mounted = useRef(false);
   const inFlight = useRef(false);
   const autoConfirm = useRef(false);
+  const [walkIn, setWalkIn] = useState(null);
   const [pendingKind, setPendingKind] = useState(recovered?.kind ?? "");
   const newOrderBlocked = Boolean(busy || pendingKind || splitPlan);
   const editingLocked = complete || newOrderBlocked;
@@ -548,7 +551,14 @@ function OrderPricingEditor({
         )
           throw new Error("没有取得完整订单回执。");
         setComplete(true);
-        setNotice(shortageChoice === "ship_available" && shortageVisible
+        // 负责人 2026-11-08：开单即出库——全是现货、客户自提的，下面直接打自提单、点「客户已拿走」。
+        const pickupTasks = (result.confirmation.fulfillmentTasks ?? [])
+          .filter((task) => ["自提", "pickup"].includes(String(task.method ?? "").trim()) && task.fulfillmentId);
+        const walkInOrder = pickupTasks.length > 0 && rows.every((line) => isStockOrderType(line.orderType));
+        setWalkIn(walkInOrder ? { fulfillmentIds: pickupTasks.map((task) => task.fulfillmentId), customerId: rows[0]?.customerId ?? "" } : null);
+        setNotice(walkInOrder
+          ? "正式订单已生成。客户在现场就点下面「打印自提单」，打出来后点「客户已拿走」。"
+          : shortageChoice === "ship_available" && shortageVisible
           ? "正式订单已生成：有货的照常下单，缺货的明细已按客户意见取消。"
           : "正式订单已生成，办公室仍需安排出库或生产排单。");
         void Promise.resolve(formal.actions.refreshAll()).catch(() =>
@@ -1200,6 +1210,9 @@ function OrderPricingEditor({
             </label>
           </fieldset>
         ) : null}
+        {complete && walkIn ? (
+          <WalkInPickupPanel key={walkIn.fulfillmentIds.join(",")} walkIn={walkIn} formal={formal} />
+        ) : null}
         <footer className="pricing-actions">
           <p role="status" aria-live="polite">
             {notice || "草稿不占用库存；确认下单后由办公室安排出库或生产。"}
@@ -1432,6 +1445,67 @@ function lineStatusTags(line, rows, lineOverride) {
     tags.push({ tone: "info", text: [line.fulfillment || "自提", String(line.latest ?? "").trim().slice(5)].filter(Boolean).join(" · ") });
   }
   return tags;
+}
+
+// 负责人 2026-11-08：开单即出库。现货、客户当场拿走：打一张自提单（几样货合一张）→ 看纸确认 →
+// 「客户已拿走」一次办完交库房、实物出库（扣库存）、提货完成。经手人选一次，下次默认。
+const WALK_IN_EXECUTOR_KEY = "erp.walkIn.executorEmployeeId";
+function WalkInPickupPanel({ walkIn, formal }) {
+  const auth = { authState: formal.authState, operatorId: formal.operatorId };
+  const [pickerName, setPickerName] = useState("");
+  const [executors, setExecutors] = useState([]);
+  const [executorId, setExecutorId] = useState(() => { try { return window.localStorage.getItem(WALK_IN_EXECUTOR_KEY) ?? ""; } catch { return ""; } });
+  const [state, setState] = useState({ busy: "", printed: false, done: false, message: "" });
+  const live = useRef(true);
+  useEffect(() => () => { live.current = false; }, []);
+  useEffect(() => {
+    let active = true;
+    void getOfficeFulfillmentOperatorCandidates({ authState: formal.authState, operatorId: formal.operatorId }, { serverRequired: true }).then((result) => {
+      if (active) setExecutors(result.warehouseExecutors ?? []);
+    });
+    return () => { active = false; };
+  }, [formal.authState, formal.operatorId]);
+  const chooseExecutor = (value) => {
+    setExecutorId(value);
+    try { window.localStorage.setItem(WALK_IN_EXECUTOR_KEY, value); } catch { /* 记不住也不影响本次 */ }
+  };
+  async function print() {
+    setState((current) => ({ ...current, busy: "print", message: "正在打开打印窗口，请选针式打印机…" }));
+    const result = await printWalkInPickupNote({ fulfillmentIds: walkIn.fulfillmentIds, pickerName, ...auth });
+    if (!live.current) return;
+    setState((current) => ({ ...current, busy: "", printed: result.printed, message: result.message }));
+  }
+  async function finish() {
+    setState((current) => ({ ...current, busy: "finish", message: "正在出库…" }));
+    const result = await completeWalkInPickup({ fulfillmentIds: walkIn.fulfillmentIds, executorEmployeeId: executorId, ...auth });
+    if (!live.current) return;
+    setState((current) => ({ ...current, busy: "", done: result.done, message: result.message }));
+    if (result.done) void Promise.resolve(formal.actions.refreshAll()).catch(() => {});
+  }
+  return (
+    <section className="pricing-walk-in" aria-label="客户现场拿货">
+      <h3>客户现场拿货 <small>{walkIn.fulfillmentIds.length} 样货合在一张自提单上</small></h3>
+      <div className="pricing-walk-in-fields">
+        <label>提货人（实际来拿货的人，可不填）<input value={pickerName} maxLength={20} disabled={state.printed || !!state.busy} onChange={(event) => setPickerName(event.target.value)} /></label>
+        <label>经手人（库房谁拿的货）
+          <select value={executorId} disabled={state.done || !!state.busy} onChange={(event) => chooseExecutor(event.target.value)}>
+            <option value="">请选择</option>
+            {executors.map((row) => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}
+          </select>
+        </label>
+      </div>
+      {state.message ? <p role="status">{state.message}</p> : null}
+      <div className="pricing-walk-in-actions">
+        <button type="button" className={state.printed ? "secondary-button" : "primary-button"} disabled={state.printed || state.done || !!state.busy} onClick={() => void print()}>
+          {state.busy === "print" ? "正在打印…" : state.printed ? "自提单已打印" : "打印自提单"}
+        </button>
+        <button type="button" className={state.printed ? "primary-button" : "secondary-button"} disabled={!state.printed || !executorId || state.done || !!state.busy}
+          title={!state.printed ? "先打印自提单并确认打出来" : !executorId ? "先选经手人" : undefined} onClick={() => void finish()}>
+          {state.busy === "finish" ? "正在出库…" : state.done ? "已出库，客户已拿走" : "客户已拿走"}
+        </button>
+      </div>
+    </section>
+  );
 }
 
 // 负责人 2026-11-05：系统里没有的客户，开单页直接新建，不用放下录入去客户资料。只填名称、电话、地址。

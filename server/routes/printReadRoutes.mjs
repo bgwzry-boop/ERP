@@ -1,4 +1,6 @@
 import { readCompanyPrintProfile } from "../services/companyPrintProfileService.mjs";
+import { buildFulfillmentNotePdf, isFulfillmentNoteTemplate } from "../../scripts/fulfillment-note-pdf.mjs";
+import { mergeFulfillmentNoteTemplates } from "../../shared/fulfillmentNoteMerge.js";
 export async function handlePrintReadRoutes({
   url,
   response,
@@ -113,6 +115,45 @@ export async function handlePrintReadRoutes({
       printDevice,
       latestRecord: items[0] ?? null,
     });
+    return true;
+  }
+
+  // 负责人 2026-11-08：送货单/自提单走办公室电脑的浏览器打印。按打印任务出 PDF；
+  // 同一客户、同一种单据的几张可以合成一张（?ids=任务1,任务2）。
+  if (url.pathname === "/api/print-jobs/note.pdf") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.printFulfillment)) return true;
+    const ids = [...new Set(String(url.searchParams.get("ids") ?? "").split(",").map((id) => id.trim()).filter(Boolean))].slice(0, 30);
+    if (!ids.length) { sendJson(response, 422, { code: "PRINT_JOB_IDS_REQUIRED", message: "请指定要打印的单据。" }); return true; }
+    const jobs = [];
+    for (const id of ids) {
+      const job = await findPrintJob(workspace, id);
+      if (!job) { sendNotFound(response, "PRINT_JOB_NOT_FOUND"); return true; }
+      jobs.push(job);
+    }
+    const templates = jobs.map((job) => job.payload?.printTemplate ?? job.payloadSnapshot?.printTemplate);
+    if (templates.some((template) => !isFulfillmentNoteTemplate(template))) {
+      sendJson(response, 422, { code: "PRINT_JOB_NOT_A_NOTE", message: "只有送货单、自提单能在这里打印。" });
+      return true;
+    }
+    // 客户编号从出库记录里取，不信单据上的客户名字（会重名）。
+    const customerIds = jobs.map((job, index) => {
+      const fulfillmentId = String((job.targetType === "fulfillment" ? job.targetId : "") || templates[index]?.fields?.fulfillmentId || "").trim();
+      const fulfillment = (workspace.fulfillments ?? []).find((row) => (row.fulfillmentId ?? row.id) === fulfillmentId);
+      return String(fulfillment?.customerId ?? "").trim();
+    });
+    const merged = mergeFulfillmentNoteTemplates(templates, { customerIds });
+    if (merged.error) { sendJson(response, 422, merged.error); return true; }
+    try {
+      const pdf = await buildFulfillmentNotePdf(merged.template);
+      response.writeHead(200, {
+        "content-type": "application/pdf",
+        "content-disposition": `inline; filename="note-${encodeURIComponent(ids[0])}.pdf"`,
+        "cache-control": "no-store",
+      });
+      response.end(Buffer.from(pdf));
+    } catch (error) {
+      sendJson(response, 422, { code: "PRINT_NOTE_RENDER_FAILED", message: error?.message || "单据生成失败。" });
+    }
     return true;
   }
 
