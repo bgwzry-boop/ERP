@@ -806,6 +806,8 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
   .entry-workbench { grid-template-columns: minmax(700px, 1fr) 292px; }
   .business-row { min-width: 610px; }
   .order-ledger-row { min-width: 610px; grid-template-columns: 72px minmax(190px, 1.7fr) 66px 78px 80px 68px; gap: 6px; }
+  /* 2026-11-08：窄屏无风险列时同步 5 列宽，避免沿用 6 列模板造成错位 */
+  .order-ledger.without-risk .order-ledger-row { grid-template-columns: 72px minmax(200px, 1.8fr) 64px 78px 86px; }
   .entry-grid { min-width: 650px; grid-template-columns: 1.05fr .78fr .72fr 1.1fr 76px 88px; gap: 6px; }
   .finished-goods-classification { grid-template-columns: minmax(0, .9fr) minmax(0, 1.35fr); gap: 8px; }
   .finished-goods-classification button { padding: 0 5px; font-size: 11px; }

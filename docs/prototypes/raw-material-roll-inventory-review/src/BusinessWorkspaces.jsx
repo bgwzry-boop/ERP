@@ -1036,7 +1036,8 @@ function OrderPoolWorkspace({ formal, onNavigate, focus = null }) {
   });
   const selected = rows.find((order) => order.id === selectedId) || rows[0] || officeOrders[0];
   // 2026-11-08：整列都没有风险时隐藏"风险"列，避免一排"—"占宽
-  const hasRisk = rows.some((order) => order.risk && order.risk !== "—");
+  // 2026-11-08：按全部订单判断风险列是否存在，避免搜索后列数跳动
+  const hasRisk = officeOrders.some((order) => order.risk && order.risk !== "—");
   return <div className="business-workbench order-pool-workbench source-grounded-workbench">
     <section className="business-list-panel">
       <header className="business-panel-heading"><h2>订单池</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${officeOrders.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
