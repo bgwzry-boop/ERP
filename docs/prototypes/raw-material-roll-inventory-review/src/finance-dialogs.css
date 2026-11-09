@@ -59,3 +59,4 @@
 @media (max-width: 700px) { .finance-action-panel .business-decision-fields__grid { grid-template-columns: 1fr; } }
 .finance-dialog summary { cursor: pointer; min-height: 40px; font-weight: 650; }
 @media (max-width: 700px) { .review-modal.finance-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); } .finance-dialog > header, .finance-dialog > footer, .finance-dialog-content { padding: 16px; } .finance-summary, .finance-confirm dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } .finance-form-grid { grid-template-columns: 1fr; } .finance-dialog button { min-height: 44px; } }
+.finance-heading-actions { display: flex; gap: 8px; flex-wrap: wrap; }
