@@ -99,3 +99,15 @@ export function buildTodayItems({ orderLines = [], fulfillments = [], rawMateria
   const order = new Map(TODAY_GROUPS.map((group, index) => [group.key, index]));
   return items.sort((a, b) => order.get(a.group) - order.get(b.group));
 }
+
+/**
+ * 「今天」标题和空状态。数据没读全或读失败时绝不能说"没有要办的事"，免得办公室漏办。
+ * meta 来自 useFormalDesktopWorkspace（loading / pendingInitial / hasLoaded / blockingError）。
+ * 返回 { state: "items" | "loading" | "failed" | "empty", count }。
+ */
+export function todayStatus(items = [], meta = {}) {
+  if (items.length) return { state: "items", count: items.length };
+  if (meta.blockingError) return { state: "failed", count: 0 };
+  if (meta.loading || meta.pendingInitial || !meta.hasLoaded) return { state: "loading", count: 0 };
+  return { state: "empty", count: 0 };
+}

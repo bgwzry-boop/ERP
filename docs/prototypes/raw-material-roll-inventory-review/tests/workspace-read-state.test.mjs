@@ -157,6 +157,41 @@ test("desktop initial reads follow the active page and search loads only its own
   } finally { if (tree) await act(async () => tree.unmount()); env.restore(); }
 });
 
+// 负责人 2026-11-08 工作台「今天」：冷启动必须真的去读订单、出库、原料收货三类数据；
+// 读失败或没读完时不能显示"没有要办的事"。
+test("today cold start reads order lines, fulfillments and raw-material inbounds; failure is not an empty day", async () => {
+  assert.deepEqual([...workspaceReadDependencies.today].sort(), ["fulfillments", "orderLines", "rawMaterialInbounds"]);
+  const env = browserHarness();
+  const paths = [];
+  let fail = true;
+  let hook;
+  let tree;
+  globalThis.fetch = async address => {
+    const url = new URL(address); paths.push(url.pathname);
+    if (url.pathname.includes("/auth/")) return json(auth);
+    if (fail) throw new Error("network disconnected");
+    const page = Number(url.searchParams.get("page") || 1); const pageSize = Number(url.searchParams.get("pageSize") || 200);
+    const items = url.pathname === "/api/order-lines"
+      ? [{ id: "ORD-1-01", customerName: "鑫源超市", printFlag: true, printContent: "鑫源超市", size: "30*37*10", bagColor: "红色", printColor: "白", printSide: "双面", qty: 5000, exceptionTags: ["缺料"], lineStatus: "待排产" }]
+      : [];
+    return json({ items, total: items.length, page, pageSize });
+  };
+  function Harness() { hook = useFormalDesktopWorkspace(); return null; }
+  try {
+    await act(async () => { tree = create(React.createElement(Harness)); });
+    await act(async () => { hook.actions.setActiveView("today"); });
+    for (const segment of ["/api/order-lines", "fulfillment", "raw-material-inbounds"]) assert.ok(paths.some(path => path.includes(segment)), `今天必须读 ${segment}`);
+    assert.equal(hook.meta.blockingError, true, "第一次读失败要报错");
+    assert.equal(hook.meta.hasLoaded, false);
+    fail = false;
+    await act(async () => { await hook.actions.refreshAll(); });
+    assert.equal(hook.meta.blockingError, false);
+    assert.equal(hook.meta.hasLoaded, true);
+    assert.equal(hook.data.orderLines.length, 1);
+    assert.equal(hook.data.orderLines[0].printContent, "鑫源超市", "接口给的印刷内容不能在映射时丢掉");
+  } finally { if (tree) await act(async () => tree.unmount()); env.restore(); }
+});
+
 test("an older filter response cannot replace the current receipt query", async () => {
   const env = browserHarness();
   let hook, tree, releaseOld;

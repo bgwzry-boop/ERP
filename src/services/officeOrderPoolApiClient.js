@@ -289,6 +289,8 @@ export function mapApiOrderLineToLocal(value = {}) {
     printFlag,
     print: printFlag ? "是" : "否",
     printColor: cleanText(value.printColor ?? value.print_color),
+    // 印刷内容是订单的辨认标识（「【鑫源超市】30*37*10cm…」），接口给了就必须保留。
+    printContent: printFlag ? cleanText(value.printContent ?? value.print_content) : "",
     printSide: mapPrintSideToLocal(value.printSide ?? value.print_side, printFlag),
     handleColor: cleanText(value.handleColor ?? value.handle_color),
     qty: toNumber(value.qty ?? value.originalQty ?? value.original_qty, 0),
