@@ -10,7 +10,7 @@ import { printStockPickingSlip } from "../../../../src/features/fulfillment/prin
 import { ReviewDialog } from "./ReviewDialog.jsx";
 import { completeWalkInPickup, printWalkInPickupNote } from "../../../../src/features/fulfillment/walkInPickup.js";
 import { getOfficeFulfillmentOperatorCandidates } from "../../../../src/services/officeFulfillmentApiClient.js";
-import { listOfficeRawMaterialStockInbounds } from "../../../../src/services/officeRawMaterialStockApiClient.js";
+import { useFabricStock } from "./useFabricStock.js";
 import { buildOrderFabricHints, needsFabricHint } from "./orderFabricHint.js";
 import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
@@ -1491,21 +1491,12 @@ const WALK_IN_EXECUTOR_KEY = "erp.walkIn.executorEmployeeId";
 // 负责人 2026-11-08：开单时一行提醒这单要用多少布、库里够不够；只提醒，不拦下单。
 function OrderFabricHints({ rows, formal }) {
   const wanted = rows.some(needsFabricHint);
-  const [stock, setStock] = useState(undefined);
-  useEffect(() => {
-    if (!wanted || stock !== undefined) return undefined;
-    let active = true;
-    setStock("loading");
-    Promise.resolve()
-      .then(() => listOfficeRawMaterialStockInbounds({ authState: formal.authState, operatorId: formal.operatorId }, { serverRequired: true }))
-      .then((result) => { if (active) setStock(result?.source === "api" && Array.isArray(result.items) ? result.items : null); })
-      .catch(() => { if (active) setStock(null); });
-    return () => { active = false; };
-  }, [wanted, stock, formal.authState, formal.operatorId]);
+  const stock = useFabricStock(wanted, { authState: formal.authState, operatorId: formal.operatorId });
   if (!wanted) return null;
-  const hints = buildOrderFabricHints(rows, Array.isArray(stock) ? stock : null);
+  const hints = buildOrderFabricHints(rows, stock.status === "ready" ? stock.items : null);
   return <div className="pricing-fabric" role="status" aria-label="这单要用的布">
-    {stock === "loading" ? <p>正在看卷料库存…</p> : hints.map((hint) => <p key={hint.index} className={hint.ok === false ? "short" : hint.ok ? "ok" : undefined}><b>用布</b>{rows.length > 1 ? <span>第 {hint.index + 1} 行</span> : null}{hint.text}</p>)}
+    {stock.status === "loading" ? <p>正在看卷料库存…</p> : hints.map((hint) => <p key={hint.index} className={hint.ok === false ? "short" : hint.ok ? "ok" : undefined}><b>用布</b>{rows.length > 1 ? <span>第 {hint.index + 1} 行</span> : null}{hint.text}</p>)}
+    {stock.status === "failed" ? <p className="pricing-fabric-retry"><button onClick={stock.retry} type="button">重新读取卷料库存</button></p> : null}
   </div>;
 }
 
