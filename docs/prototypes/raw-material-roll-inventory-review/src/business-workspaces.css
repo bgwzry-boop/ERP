@@ -961,3 +961,36 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .today-row button { justify-self: end; min-height: 32px; padding: 0 14px; border: 1px solid var(--erp-accent-strong); border-radius: var(--erp-radius-md); background: var(--erp-surface); color: var(--erp-accent-strong); font-size: 13px; font-weight: 600; cursor: pointer; }
 .today-row button:hover { background: var(--erp-accent-strong); color: var(--erp-accent-ink); }
 @media (max-width: 1100px) { .today-row { grid-template-columns: 120px minmax(0, 1fr) 140px 88px; column-gap: 12px; padding: 0 14px; } }
+
+/* 负责人 2026-11-08：订单跟踪——一行一单，列宽固定对齐；订单按「【印刷内容】尺寸cm 袋色印色 印刷面 数量」写。 */
+.track-ledger { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.track-row { display: grid; grid-template-columns: 128px minmax(0, 1fr) 84px 92px; column-gap: 16px; align-items: center; padding: 0 16px; min-height: 48px; text-align: left; font-size: 14px; color: var(--erp-text); }
+.track-ledger.with-risk .track-row { grid-template-columns: 128px minmax(0, 1fr) 84px 92px 132px; }
+.track-row > * { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-row.head { min-height: 40px; border-bottom: 1px solid var(--erp-border); background: var(--erp-neutral-bg); color: var(--erp-text-muted); font-size: 13px; font-weight: 600; position: sticky; top: 0; z-index: 3; }
+button.track-row { width: 100%; border: 0; border-bottom: 1px solid var(--erp-border-subtle); background: var(--erp-surface); font: inherit; cursor: pointer; }
+button.track-row:hover { background: var(--erp-neutral-bg); }
+button.track-row.selected { background: var(--erp-accent-wash); box-shadow: inset 5px 0 0 var(--erp-accent), inset 0 0 0 1px var(--erp-accent-border); font-weight: 600; }
+.track-due { font-variant-numeric: tabular-nums; color: var(--erp-text-muted); }
+.track-risk { color: var(--erp-danger); font-weight: 600; }
+.order-pool-tools .business-subtabs button b { margin-left: 6px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--erp-text-muted); }
+.track-detail { border-top: 4px solid var(--erp-accent); }
+.track-detail > header { display: flex; flex-direction: column; gap: 2px; }
+.track-detail > header strong { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-detail > header span { font-size: 12px; color: var(--erp-text-muted); }
+.track-timeline { list-style: none; margin: 4px 0 12px; padding: 0; display: flex; flex-direction: column; }
+.track-step { display: flex; gap: 12px; }
+.track-rail { display: flex; flex-direction: column; align-items: center; flex: 0 0 24px; }
+.track-rail i { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 12px; font-weight: 700; box-sizing: border-box; border: 2px solid var(--erp-border); color: var(--erp-text-faint); background: var(--erp-surface); }
+.track-rail em { width: 2px; flex: 1 1 auto; min-height: 18px; margin: 3px 0; background: var(--erp-border-subtle); }
+.track-step.done .track-rail i { border-color: var(--erp-success); background: var(--erp-success); color: var(--erp-surface); }
+.track-step.done .track-rail em { background: var(--erp-success); }
+.track-step.current .track-rail i { border-color: var(--erp-info); background: var(--erp-info); color: var(--erp-surface); }
+.track-step.blocked .track-rail i { border-color: var(--erp-danger); background: var(--erp-danger); color: var(--erp-surface); box-shadow: 0 0 0 4px var(--erp-danger-bg); }
+.track-body { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 16px; min-width: 0; }
+.track-body strong { font-size: 14px; line-height: 20px; color: var(--erp-text); }
+.track-step.todo .track-body strong { color: var(--erp-text-muted); font-weight: 500; }
+.track-body small { font-size: 12px; color: var(--erp-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-step.blocked .track-body strong, .track-step.blocked .track-body small { color: var(--erp-danger); font-weight: 600; }
+.track-more { border-top: 1px solid var(--erp-border-subtle); padding-top: 8px; }
+.track-more summary { cursor: pointer; font-size: 13px; color: var(--erp-text-muted); }
