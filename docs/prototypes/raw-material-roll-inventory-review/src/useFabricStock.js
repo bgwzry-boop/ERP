@@ -22,7 +22,6 @@ export function useFabricStock(wanted, { authState, operatorId } = {}, { read = 
       .catch(() => { if (active) setResult({ owner, attempt, items: null }); });
     return () => { active = false; };
     // authState / operatorId 的变化都体现在 owner 里。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted, owner, attempt, read]);
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   if (!wanted) return { status: "idle", items: null, retry };
