@@ -361,7 +361,11 @@
 .pricing-customer-info { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 2px 0 0; color: var(--ink-soft); font-size: 12px; }
 .pricing-customer-info.warn { color: var(--erp-warning); }
 .pricing-line-table { margin-top: 8px; border-top: 1px solid var(--line); }
-.pricing-line-head, .pricing-line-main { display: grid; grid-template-columns: 22px minmax(96px, 1.15fr) minmax(90px, 1.1fr) minmax(64px, .8fr) minmax(70px, .85fr) minmax(76px, .8fr) minmax(52px, .55fr) minmax(0, 1.3fr) 58px; gap: 6px; align-items: center; }
+/* 负责人 2026-11-08：排单预览——印刷内容、印色、印刷面放进主行。 */
+.pricing-line-head, .pricing-line-main { display: grid; grid-template-columns: 22px minmax(96px, 1fr) minmax(110px, 1.3fr) minmax(86px, .9fr) minmax(52px, .55fr) minmax(52px, .55fr) minmax(84px, .8fr) minmax(70px, .7fr) minmax(70px, .7fr) minmax(0, 1fr) 58px; gap: 6px; align-items: center; }
+.pricing-line-head > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.order-pricing-entry .pricing-line-main :is(input, select):disabled { background: var(--erp-neutral-bg); color: var(--erp-text-faint); }
+.pricing-check-inline { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-soft); }
 .pricing-line-head { padding: 6px 4px; background: var(--erp-surface-subtle); color: var(--ink-soft); font-size: 12px; }
 .pricing-lines fieldset.pricing-line-row { margin: 0; padding: 4px; border: 0; border-bottom: 1px solid var(--erp-border-subtle); border-radius: 0; }
 .pricing-lines fieldset.pricing-line-row.open { background: var(--erp-accent-wash); }
@@ -419,3 +423,10 @@
 .pricing-walk-in p { margin: 0; color: var(--ink-soft); }
 .pricing-walk-in-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 760px) { .pricing-walk-in-fields { grid-template-columns: minmax(0, 1fr); } }
+.pricing-fabric { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; }
+.pricing-fabric p { margin: 0; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; background: var(--erp-neutral-bg); font-size: 14px; color: var(--erp-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pricing-fabric p b { font-weight: 600; color: var(--erp-text-muted); }
+.pricing-fabric p span { color: var(--erp-text-muted); }
+.pricing-fabric p.short { background: var(--erp-danger-bg); color: var(--erp-danger); }
+.pricing-fabric p.short b { color: var(--erp-danger); }
+.pricing-fabric p.ok { background: var(--erp-success-bg, var(--erp-neutral-bg)); }

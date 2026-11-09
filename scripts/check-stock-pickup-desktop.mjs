@@ -155,7 +155,7 @@ try {
   await source.fill(customerMessage);
   await button("识别客户消息").click();
   await checkShortLine();
-  await expect(page.getByLabel("第1行是否印刷", { exact: true })).toHaveValue("否");
+  await expect(page.getByLabel("第1行印刷内容", { exact: true })).toHaveValue("");
   await expect(customerInput).toHaveValue(customer.name);
   await expect(button("开单")).toBeEnabled();
   await expect(page.getByText("1 行计价明细已齐全", { exact: true })).toBeVisible();

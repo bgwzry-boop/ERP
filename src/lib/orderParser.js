@@ -193,11 +193,12 @@ function detectProduct(chunk) {
   return "空白袋";
 }
 
+// 负责人 2026-11-08：交付方式默认送货单；客户写了「自提 / 来拿 / 来取」才是自提，写了「快递 / 快运」才是快递快运。
+// 「12号发」「自己写31号发」是要求发货日期，不是交付方式。
 function detectFulfillment(chunk) {
-  if (/快运|快递/.test(chunk)) return "快递快运";
-  if (/送货|送到/.test(chunk)) return "送货";
-  if (/自提|来取|拿货/.test(chunk)) return "自提";
-  return "待确认";
+  if (/快运|快递/u.test(chunk)) return "快递快运";
+  if (/自提|来取|来拿|拿货/u.test(chunk)) return "自提";
+  return "送货";
 }
 
 function detectLatest(chunk) {
@@ -271,7 +272,7 @@ function findPrintOrderCustomer(name, customers) {
 function printOrderRows(line, index, { customers, inventories, now }) {
   const parsed = parsePrintOrderLine(line, { now });
   const customer = findPrintOrderCustomer(parsed.customerName, customers);
-  const fulfillment = /送货/u.test(line) ? "送货" : /自提|来拿|来取/u.test(line) ? "自提" : /发/u.test(line) ? "快递快运" : "待确认";
+  const fulfillment = detectFulfillment(line);
   return parsed.rows.map((item, rowIndex) => {
     const notes = [...parsed.notes];
     if (item.sizeReview) notes.push(item.sizeReview);

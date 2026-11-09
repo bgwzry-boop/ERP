@@ -98,8 +98,16 @@ assert.deepEqual(detectMessageCustomer("【斐然】尺寸是35*27*10的   5000�
 const rows = parseOrderText("【芽哩口腔7院】：31号发货 40*30*10 双面印刷 5000个宝石蓝白色（双面不同）  松", { customers, now });
 assert.equal(rows.length, 1);
 assert.deepEqual([rows[0].customerId, rows[0].printContent, rows[0].size, rows[0].color, rows[0].printColor, rows[0].qty, rows[0].latest, rows[0].print, rows[0].fulfillment, rows[0].orderType],
-  ["C-SONG", "芽哩口腔7院", "40*30*10", "宝石蓝", "白色", 5000, "2026-10-31", "是", "快递快运", "custom_print"]);
+  ["C-SONG", "芽哩口腔7院", "40*30*10", "宝石蓝", "白色", 5000, "2026-10-31", "是", "送货", "custom_print"]);
 const peer = parseOrderText("【斐然】尺寸是35*27*10的   5000个双面  陈梦赛印", { customers, now });
 assert.deepEqual([peer[0].orderType, peer[0].customerId], ["external_print", ""]);
 assert.match(peer[0].note, /陈梦赛送卷来加工，只印不制袋/u);
 console.log(`print order line parser ok: ${cases.length} real workshop lines (content, short customer, peer processing, required date, sizes, bag/ink/handle colours, quantities).`);
+
+// 负责人 2026-11-08：交付方式默认送货单；「N号发」是要求发货日期，不算快递快运；写了自提 / 快运才认。
+{
+  const methodOf = (line) => parseOrderText(line, { customers, now })[0]?.fulfillment;
+  assert.equal(methodOf("【鑫源超市】竖中 红 5000 双面相同 松 12号发"), "送货");
+  assert.equal(methodOf("【鑫源超市】竖中 红 5000 双面相同 自提 松"), "自提");
+  assert.equal(methodOf("【鑫源超市】竖中 红 5000 双面相同 快运 松"), "快递快运");
+}
