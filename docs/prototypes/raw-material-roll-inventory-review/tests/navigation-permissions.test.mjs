@@ -49,7 +49,7 @@ test("office navigation is derived from the signed-in account permission context
   assert.equal(hasEffectivePermission(defaultPermissionContext, "payroll.preview"), false);
   assert.deepEqual(getVisibleRawMaterialViews(defaultPermissionContext), ["卷料库存", "收货录入"]);
   assert.deepEqual(getVisibleWorkspaceViews(defaultPermissionContext), [
-    "公共待办", "订单录入", "订单池", "收货录入", "卷料库存", "生产任务", "打包/标签",
+    "今天", "公共待办", "订单录入", "订单池", "收货录入", "卷料库存", "生产任务", "打包/标签",
     "打印与设备", "换模工单", "出库交付", "无纺布袋", "覆膜袋", "对账收款", "供应商月结", "客户档案", "成品资料",
     "员工机台",
   ]);
@@ -154,7 +154,7 @@ test("raw-material receiving permission alone never exposes supplier month-end",
   assert(itemIds.includes("roll-inventory"));
   assert(!itemIds.includes("supplier-month-end"));
   assert(!itemIds.includes("raw-material-cost"));
-  assert.deepEqual(getVisibleWorkspaceViews(rawMaterialOnly), ["订单池", "收货录入", "卷料库存"]);
+  assert.deepEqual(getVisibleWorkspaceViews(rawMaterialOnly), ["今天", "订单池", "收货录入", "卷料库存"]);
 });
 
 test("raw-material cost stays in finance and requires its exact view permission", () => {
