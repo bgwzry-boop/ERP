@@ -37,6 +37,7 @@ import { RawMaterialPurchasePanel } from "../../../../src/features/raw-materials
 import { getUiActionState } from "../../../../src/auth/seedPermissions.js";
 import { RawMaterialReceiveDialog } from "../../../../src/features/raw-materials/RawMaterialReceiveDialog.jsx";
 import { RawMaterialSupplierColorMappingDialog } from "../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx";
+import { formatRawMaterialColorDisplay } from "../../../../src/features/raw-materials/rawMaterialColorDisplay.js";
 import { ColorChip, FACTORY_COLORS, RAW_MATERIAL_COLOR_NAMES } from "./FactoryColor.jsx";
 import {
   buildInventoryWidthOptions,
@@ -59,9 +60,16 @@ import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
     const resolvedSpec = resolveRollSpecification(inbound, roll);
+    // 负责人 2026-11-08：库存按我厂颜色归类；还没对应到我厂颜色的，写成「（送货颜色）」，
+    // 不能把送货颜色当成我厂颜色。显示时两个都有就写「我厂颜色（送货颜色）」。
+    const supplierColor = String(roll.supplierColor || inbound.supplierColor || "").trim();
+    const factoryColor = String(roll.factoryColor || (roll.supplierColor ? "" : inbound.factoryColor) || "").trim();
     return {
       id: roll.id,
-      color: roll.factoryColor || roll.supplierColor || inbound.factoryColor || inbound.supplierColor || "颜色待确认",
+      color: factoryColor || (supplierColor ? `（${supplierColor}）` : "颜色待确认"),
+      colorLabel: factoryColor || supplierColor ? formatRawMaterialColorDisplay(factoryColor, supplierColor) : "颜色待确认",
+      // 色块：有我厂颜色用我厂颜色；还没对应的按送货颜色显示（只是显示，不算对应好了）。
+      swatchColor: factoryColor || supplierColor,
       width: resolvedSpec.widthLabel,
       widthCm: resolvedSpec.widthCm,
       gramWeight: resolvedSpec.gramWeightLabel,
@@ -218,7 +226,7 @@ function DistributionRail({ activeBucket, distributionGroups, machineSideCount, 
       {selectedRoll ? <><dl>
         <div className="trace-wide"><dt>卷码</dt><dd>{selectedRoll.id}</dd></div>
         <div className="trace-wide"><dt>入库日期</dt><dd>{selectedRoll.date}</dd></div>
-        <div><dt>颜色</dt><dd className="trace-color"><ColorChip color={selectedRoll.color} />{selectedRoll.color}</dd></div>
+        <div><dt>颜色</dt><dd className="trace-color"><ColorChip color={selectedRoll.swatchColor || selectedRoll.color} />{selectedRoll.colorLabel ?? selectedRoll.color}</dd></div>
         <div><dt>规格</dt><dd title={selectedRoll.spec}>{selectedRoll.spec}</dd></div>
         <div><dt>原料用途</dt><dd>{selectedRoll.materialUsage}</dd></div>
         <div className="trace-wide"><dt>来源票据</dt><dd>{selectedRoll.source}</dd></div>
@@ -241,10 +249,18 @@ function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [
   const [activeBucket, setActiveBucket] = useState("");
   const [page, setPage] = useState(1);
 
+  // 2026-11-08 原料走查：库位和颜色的筛选项按库里实际有的生成。以前库位写死成「原材料仓库」「余料区」，
+  // 跟记录里的「原料库-可用区」「原料库-余料可用区」对不上，选了就筛不出东西。
+  const locationOptions = useMemo(() => ["全部库位", ...[...new Set(sourceRolls.map((roll) => roll.location).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"))], [sourceRolls]);
+  const colorOptions = useMemo(() => {
+    const present = new Set(sourceRolls.map((roll) => roll.color).filter(Boolean));
+    const unlisted = [...present].filter((name) => !RAW_MATERIAL_COLOR_NAMES.includes(name)).sort((a, b) => a.localeCompare(b, "zh-CN"));
+    return ["全部颜色", ...RAW_MATERIAL_COLOR_NAMES, ...unlisted];
+  }, [sourceRolls]);
   const filteredRolls = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return sourceRolls.filter((roll) => {
-      if (keyword && !`${roll.id}${roll.color}${roll.spec}${roll.supplier}${roll.source}`.toLowerCase().includes(keyword)) return false;
+      if (keyword && !`${roll.id}${roll.colorLabel ?? roll.color}${roll.spec}${roll.supplier}${roll.source}`.toLowerCase().includes(keyword)) return false;
       if (status !== "全部状态" && roll.status !== status) return false;
       if (width !== "全部宽幅" && roll.width !== width) return false;
       if (color !== "全部颜色" && roll.color !== color) return false;
@@ -282,15 +298,15 @@ function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [
         <label className="roll-search"><SearchOutlined /><input onChange={(event) => setFilter(setQuery)(event.target.value)} placeholder="搜索卷码 / 颜色 / 宽幅 / 供应商" value={query} /></label>
         <SelectField label="可用状态" onChange={setFilter(setStatus)} options={["全部状态", "可用", "机边领用", "余料待复核"]} value={status} />
         <SelectField label="宽幅" onChange={setFilter(setWidth)} options={widthOptions} value={width} />
-        <SelectField label="厂内颜色" onChange={setFilter(setColor)} options={["全部颜色", ...RAW_MATERIAL_COLOR_NAMES]} value={color} />
-        <SelectField label="库位" onChange={setFilter(setLocation)} options={["全部库位", "原材料仓库", "1号机边", "2号机边", "余料区"]} value={location} />
+        <SelectField label="颜色" onChange={setFilter(setColor)} options={colorOptions} value={color} />
+        <SelectField label="库位" onChange={setFilter(setLocation)} options={locationOptions} value={location} />
       </div>
       {hasActiveFilters ? <div aria-live="polite" className="filter-feedback"><span>已筛选 {matchingRolls.length} 条</span>{activeBucket ? <button className="active-bucket" onClick={() => setBucket("")} type="button">{activeBucket.replace("::", " · ")} ×</button> : null}<button aria-label="重置筛选" className="reset-filter" onClick={resetFilters} type="button"><ReloadOutlined />重置</button></div> : null}
       <div className="roll-table" role="table" aria-label="物理卷料台账">
-        <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅/克重）</span><span role="columnheader">厂内颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
+        <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅/克重）</span><span role="columnheader" title="括号外是我厂颜色，括号里是送货单上的颜色">颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
         <div className="roll-table-body">
           {visibleRolls.length ? visibleRolls.map((roll) => <button aria-pressed={selectedRoll?.id === roll.id} className={`roll-row${selectedRoll?.id === roll.id ? " selected" : ""}`} key={roll.id} onClick={() => setSelectedId(roll.id)} role="row" type="button">
-            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.gramWeight}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.color}</span><span className="weight" role="cell">{formatInventoryRollAmount(roll)}</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
+            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.gramWeight}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.swatchColor || roll.color} />{roll.colorLabel ?? roll.color}</span><span className="weight" role="cell">{formatInventoryRollAmount(roll)}</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
           </button>) : <EmptyWorkspace error={Boolean(formal.meta.collections?.rawMaterialInbounds?.error)} title={formal.meta.collections?.rawMaterialInbounds?.error ? "卷料读取失败" : formal.meta.collections?.rawMaterialInbounds?.loading ? "正在读取卷料…" : hasActiveFilters ? "没有符合条件的卷料" : "尚无可用卷料"} description={hasActiveFilters ? "调整颜色、宽幅或状态后继续查看。" : "完成核对、打印和贴标入库后，卷料才会出现在这里。"} actionLabel={formal.meta.collections?.rawMaterialInbounds?.error ? "重新读取" : hasActiveFilters ? "清除筛选" : undefined} onAction={formal.meta.collections?.rawMaterialInbounds?.error ? () => void formal.actions.refreshAll() : hasActiveFilters ? resetFilters : undefined} />}
         </div>
       </div>

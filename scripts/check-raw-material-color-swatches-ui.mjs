@@ -166,7 +166,11 @@ async function checkReceiving(width) {
       const stockRows = page.locator("button.roll-row");
       await stockRows.first().waitFor();
       assert.equal(await stockRows.count(), 3);
-      for (const color of inventoryColors) await assertSwatch(page, stockRows.filter({ has: page.locator(".roll-color", { hasText: new RegExp(`^${color}$`, "u") }) }).locator(".roll-color .color-chip"), getFactoryStandardColorSwatch(color), `physical stock ${color}`);
+      // 负责人 2026-11-08：库存颜色写「我厂颜色（送货颜色）」；还没对应我厂颜色的只写「（送货颜色）」，色块仍按送货颜色显示。
+      for (const [index, color] of inventoryColors.entries()) {
+        const label = index === 0 ? `（${color}）` : `${color}（${color}）`;
+        await assertSwatch(page, stockRows.filter({ has: page.locator(".roll-color", { hasText: new RegExp(`^${label}$`, "u") }) }).locator(".roll-color .color-chip"), getFactoryStandardColorSwatch(color), `physical stock ${label}`);
+      }
       await page.screenshot({ path: `${output}/roll-inventory-${width}.png`, fullPage: true });
       if (!(await page.getByRole("button", { name: "无纺布袋", exact: true }).isVisible())) await page.locator('[data-nav-group="inventory"] > button').click();
       await page.getByRole("button", { name: "无纺布袋", exact: true }).click();

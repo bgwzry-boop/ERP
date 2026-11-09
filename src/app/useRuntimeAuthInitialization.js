@@ -29,7 +29,7 @@ export function useRuntimeAuthInitialization({ authOptions, authState, serverReq
         setAuthState,
       });
       if (applied && nextAuthState.authenticated) {
-        setToastRef.current?.(`已恢复后端登录会话：${nextAuthState.permissions.user.displayName}。`);
+        setToastRef.current?.(`已登录：${nextAuthState.permissions.user.displayName}。`);
       }
     });
     return () => {

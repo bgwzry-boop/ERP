@@ -30,3 +30,5 @@
 .raw-stock-operations-dialog .raw-stock-operations-notice { color: var(--erp-success); font-size: 14px; }
 .raw-stock-operations-dialog > footer { border-top: 1px solid var(--erp-border-subtle); }
 @media (max-width: 520px) { .raw-stock-operations-dialog > header, .raw-stock-operations-dialog > footer, .raw-stock-operations-scroll { padding: 14px; } .raw-stock-operations-facts { grid-template-columns: minmax(0, 1fr); } }
+/* 2026-11-08 原料走查：按钮的统一样式把「隐藏」盖掉了，领料弹窗里会冒出「核对并确认」「作废旧标签」「重打本卷标签」。 */
+.raw-stock-operations-dialog [hidden] { display: none !important; }

@@ -87,13 +87,13 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       throw Object.assign(new Error(`Raw material roll not found: ${rollId}`), { statusCode: 404 });
     }
     if (!targetAvailableRolls.length) {
-      throw Object.assign(new Error("Only available labeled raw-material rolls/pieces can be issued to machine side"), {
+      throw Object.assign(new Error("这一卷已经领走，或还没贴标核对，现在不能领料。请刷新后核对这卷的状态。"), {
         statusCode: 409,
         code: "RAW_MATERIAL_ISSUE_REQUIRES_AVAILABLE_ROLL",
       });
     }
     if (!rollId && (Number.isFinite(requestedWeightKg) || Number.isFinite(requestedQuantity))) {
-      throw Object.assign(new Error("Measured raw-material issue requires a single rollId"), {
+      throw Object.assign(new Error("按实测领料一次只能选一卷。"), {
         statusCode: 422,
         code: "RAW_MATERIAL_ISSUE_MEASURE_REQUIRES_ROLL",
       });
@@ -101,14 +101,14 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
     if (rollId && Number.isFinite(requestedWeightKg) && requestedWeightKg > 0 && targetAvailableRolls[0]?.weightKg > 0) {
       const fullWeight = Number(targetAvailableRolls[0].weightKg) || 0;
       if (requestedWeightKg - fullWeight > 0.001) {
-        throw Object.assign(new Error("Issued raw-material weight cannot exceed available roll weight"), {
+        throw Object.assign(new Error("领料重量不能超过这卷的可用重量。"), {
           statusCode: 422,
           code: "RAW_MATERIAL_ISSUE_WEIGHT_EXCEEDS_AVAILABLE",
         });
       }
     }
     if (rollId && Number.isFinite(requestedQuantity) && requestedQuantity > 0 && requestedQuantity !== 1) {
-      throw Object.assign(new Error("V1 only supports full-piece raw-material issue; partial quantity issue requires a later workflow"), {
+      throw Object.assign(new Error("现在只能整卷领料，不能拆开领一部分。"), {
         statusCode: 422,
         code: "RAW_MATERIAL_PARTIAL_QUANTITY_ISSUE_NOT_SUPPORTED",
       });
@@ -292,13 +292,13 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       throw Object.assign(new Error(`Raw material roll not found: ${rollId}`), { statusCode: 404 });
     }
     if (!targetMachineSideRolls.length) {
-      throw Object.assign(new Error("Only machine-side raw-material rolls/pieces can be confirmed as consumed"), {
+      throw Object.assign(new Error("只有已经领到机边的卷才能确认消耗。请刷新后核对这卷的状态。"), {
         statusCode: 409,
         code: "RAW_MATERIAL_CONSUMPTION_REQUIRES_MACHINE_SIDE_ROLL",
       });
     }
     if (targetMachineSideRolls.length > 1 && (Number.isFinite(requestedWeightKg) || Number.isFinite(requestedQuantity))) {
-      throw Object.assign(new Error("Measured raw-material consumption requires a single rollId in V1"), {
+      throw Object.assign(new Error("按实测确认消耗一次只能选一卷。"), {
         statusCode: 422,
         code: "RAW_MATERIAL_CONSUMPTION_MEASURE_REQUIRES_ROLL",
       });

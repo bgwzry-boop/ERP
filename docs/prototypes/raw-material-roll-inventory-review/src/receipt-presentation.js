@@ -71,8 +71,12 @@ export function buildReceiptMaterialPresentation(row = {}) {
     ? "把条"
     : cleanText(row.materialCategory || row.materialType || row.productName) || "类型待确认";
 
+  // 2026-11-08 原料走查：一张单里有几种宽幅（比如 70、80、90）时全部列出，不能只显示第一卷的。
+  const rollWidths = isHandleStrip ? [] : [...new Set((row.rolls ?? []).map((roll) => positiveNumber(roll?.widthCm)).filter(Boolean))].sort((a, b) => a - b);
   return {
     materialType,
-    widthLabel: widthCm ? `${formatMeasurement(widthCm)}cm` : "宽幅待确认",
+    widthLabel: rollWidths.length > 1
+      ? `${rollWidths.map(formatMeasurement).join(" / ")}cm`
+      : widthCm ? `${formatMeasurement(widthCm)}cm` : rollWidths[0] ? `${formatMeasurement(rollWidths[0])}cm` : "宽幅待确认",
   };
 }
