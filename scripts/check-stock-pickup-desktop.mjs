@@ -147,7 +147,7 @@ try {
     await button("识别客户消息").click();
     await checkShortLine();
     await expect(customerInput).toHaveValue("");
-    await expect(button("开单")).toBeDisabled();
+    await expect(button("开单", page.locator("main"))).toBeDisabled();
     assert.equal(recognized.lines[0].customerId, "");
     assert.equal(recognized.draft.sourceText, message);
   }
@@ -157,7 +157,7 @@ try {
   await checkShortLine();
   await expect(page.getByLabel("第1行是否印刷", { exact: true })).toHaveValue("否");
   await expect(customerInput).toHaveValue(customer.name);
-  await expect(button("开单")).toBeEnabled();
+  await expect(button("开单", page.locator("main"))).toBeEnabled();
   await expect(page.getByText("1 行计价明细已齐全", { exact: true })).toBeVisible();
   assert.equal(recognized.lines[0].customerId, customer.id);
   assert.equal(recognized.draft.sourceText, customerMessage);
@@ -171,7 +171,7 @@ try {
 
   report.stage = "quote-and-confirm";
   // 2026-11-08：现货一次「开单」：先按价格表算价，算好直接下单。
-  await button("开单").click();
+  await button("开单", page.locator("main")).click();
   await expect(page.getByText(/正式订单已生成/u)).toBeVisible();
   assert.equal(quote.lines.length, 1);
   assert.equal(quote.lines[0].chargeableQty, stockQty);
@@ -195,9 +195,9 @@ try {
   assert.equal(initialFulfillment.customerName, customer.name);
 
   report.stage = "paper-create";
-  await button("查看订单池").click();
+  await button("查看订单跟踪").click();
   await expect(page).toHaveURL(/#order-pool$/u);
-  await button("出库交付").click();
+  await button("发货安排").click();
   await expect(page).toHaveURL(/#outbound-delivery$/u);
   await selectRow("出库交付", report.fulfillmentId, report.orderLineId);
   const panel = page.getByRole("region", { name: "出库办理", exact: true });
@@ -249,7 +249,7 @@ try {
   await button("返回列表", dialog).click();
 
   report.stage = "paper-handoff-and-warehouse";
-  await button("出库交付").click();
+  await button("发货安排").click();
   await selectRow("出库交付", report.fulfillmentId, report.orderLineId);
   await expect(handoff).toBeVisible();
   await screenshot("03-paper-ready-for-warehouse");

@@ -10,14 +10,15 @@ const outDir = process.argv[2] ?? "screenshots/ui-compare";
 const baseUrl = (process.argv[3] ?? "http://127.0.0.1:4174/").replace(/\/?$/, "/");
 
 const pages = [
+  ["today", "今天"],
   ["shared-todos", "公共待办"],
-  ["order-entry", "订单录入"],
-  ["order-pool", "订单池"],
+  ["order-entry", "开单"],
+  ["order-pool", "订单跟踪"],
   ["material-receiving", "收货录入"],
   ["roll-inventory", "卷料库存"],
   ["production-tasks", "生产任务"],
   ["packing-labels", "打包标签"],
-  ["outbound-delivery", "出库交付"],
+  ["outbound-delivery", "发货安排"],
   ["inventory-query", "无纺布袋"],
   ["customer-statements", "对账收款"],
   ["supplier-month-end", "供应商月结"],

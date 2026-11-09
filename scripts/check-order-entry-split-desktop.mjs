@@ -110,7 +110,7 @@ try {
   assert.deepEqual(errors,[]);
   await page.setViewportSize({width:1440,height:980});
   await page.screenshot({path:join(output,"desktop-split-success.png"),fullPage:true});
-  const openPool = page.getByRole("button", { name: "查看订单池", exact: true });
+  const openPool = page.getByRole("button", { name: "查看订单跟踪", exact: true });
   await expect(openPool).toBeEnabled();
   await openPool.click();
   await expect(page).toHaveURL(/#order-pool$/u);

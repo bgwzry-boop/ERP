@@ -17,7 +17,7 @@ const STAGES = Object.freeze([
     pattern: /已备货|待出库|待送货|待发货|待提货|出库|配送|送货中|待打印/,
     next: "货已备好，安排出库：打印出库单，交给司机或等客户自提。",
     target: "outbound-delivery",
-    action: "进入出库交付",
+    action: "进入发货安排",
   },
   {
     stage: 1,

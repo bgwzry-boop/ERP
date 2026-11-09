@@ -716,7 +716,7 @@ function OrderPricingEditor({
       <section className="pricing-editor" aria-label="订单录入明细">
         <header className="pricing-heading">
           <div>
-            <h1>订单录入</h1>
+            <h1>开单</h1>
             <ol className="pricing-steps" aria-label="录单步骤">
               {entrySteps.map((step, index) => (
                 <li key={step.label} className={step.state} aria-current={step.state === "current" ? "step" : undefined}>
@@ -732,7 +732,7 @@ function OrderPricingEditor({
             disabled={newOrderBlocked}
             onClick={() => onNavigate("order-pool")}
           >
-            查看订单池
+            查看订单跟踪
           </button>
         </header>
         <section className="pricing-source">

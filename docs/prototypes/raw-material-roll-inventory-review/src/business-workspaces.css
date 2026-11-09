@@ -932,3 +932,32 @@ button.order-ledger-row.selected { background: var(--erp-neutral-bg); box-shadow
 .table-footer button, .receipt-queue-pagination button, .business-subtabs button, .order-pool-tools button, .inventory-type-filter button, .finished-goods-search button { min-width: 32px; min-height: 32px; }
 .business-detail-panel > header button, .business-detail-panel .business-facts button { min-height: 32px; min-width: 32px; }
 .finished-goods-search > button, .business-filter-row > button { min-height: 32px; }
+
+/* 2026-11-08 工作台「今天」：分类按钮 + 一件事一行，列宽固定、不换行。 */
+.today-workbench { display: flex; flex-direction: column; gap: 16px; padding: 4px 2px 24px; min-width: 0; }
+.today-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.today-head > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+.today-head span { font-size: 13px; color: var(--erp-text-muted); }
+.today-head h1 { margin: 0; font-size: 24px; }
+.today-head h1 b { color: var(--erp-accent-strong); }
+.today-head-actions { display: flex; align-items: center; gap: 10px; }
+.today-head-actions .primary { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 18px; border: 0; border-radius: var(--erp-radius-md); background: var(--erp-accent-strong); color: var(--erp-accent-ink); font-size: 15px; font-weight: 600; cursor: pointer; }
+.today-segs { display: flex; flex-wrap: wrap; gap: 4px; align-self: flex-start; padding: 4px; border-radius: var(--erp-radius-lg); background: var(--erp-neutral-bg); }
+.today-segs button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; border: 0; border-radius: var(--erp-radius-md); background: transparent; color: var(--erp-text-muted); font-size: 14px; cursor: pointer; }
+.today-segs button[aria-selected="true"] { background: var(--erp-surface); color: var(--erp-text); font-weight: 600; box-shadow: var(--erp-shadow-panel); }
+.today-segs b { min-width: 22px; padding: 1px 8px; border-radius: var(--erp-radius-pill); background: var(--erp-surface); color: var(--erp-text); font-size: 12px; font-variant-numeric: tabular-nums; text-align: center; }
+.today-segs button[aria-selected="true"] b { background: var(--erp-text); color: var(--erp-surface); }
+.today-segs i, .today-group-head i { width: 8px; height: 8px; border-radius: 50%; background: var(--erp-warning); }
+.today-segs [data-tone="danger"] i, .today-group-head[data-tone="danger"] i { background: var(--erp-danger); }
+.today-list { overflow: hidden; border: 1px solid var(--erp-border); border-radius: var(--erp-radius-lg); background: var(--erp-surface); }
+.today-group-head { display: flex; align-items: center; gap: 8px; padding: 12px 20px 8px; border-top: 1px solid var(--erp-border-subtle); background: var(--erp-canvas); color: var(--erp-text-muted); font-size: 13px; font-weight: 600; }
+.today-group:first-child .today-group-head { border-top: 0; }
+.today-group-head b { color: var(--erp-text-faint); font-weight: 600; }
+.today-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 170px 96px; column-gap: 16px; align-items: center; min-height: 52px; padding: 0 20px; border-top: 1px solid var(--erp-border-subtle); font-size: 14px; }
+.today-row > * { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.today-text { color: var(--erp-text); }
+.today-note { justify-self: start; max-width: 100%; padding: 4px 10px; border-radius: var(--erp-radius-pill); background: var(--erp-warning-bg); color: var(--erp-warning); font-size: 12px; font-weight: 600; }
+.today-row[data-tone="danger"] .today-note { background: var(--erp-danger-bg); color: var(--erp-danger); }
+.today-row button { justify-self: end; min-height: 32px; padding: 0 14px; border: 1px solid var(--erp-accent-strong); border-radius: var(--erp-radius-md); background: var(--erp-surface); color: var(--erp-accent-strong); font-size: 13px; font-weight: 600; cursor: pointer; }
+.today-row button:hover { background: var(--erp-accent-strong); color: var(--erp-accent-ink); }
+@media (max-width: 1100px) { .today-row { grid-template-columns: 120px minmax(0, 1fr) 140px 88px; column-gap: 12px; padding: 0 14px; } }
