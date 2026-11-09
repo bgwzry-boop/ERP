@@ -30,11 +30,12 @@ export function createLocalOrderPoolReadRepository() {
       const customers = new Map((workspace.customers ?? []).map((customer) => [customer.id, customer]));
       const groupByLine=new Map();
       for(const snapshot of [...(workspace.priceSnapshots??[])].sort((a,b)=>(Date.parse(b.createdAt??b.created_at)||0)-(Date.parse(a.createdAt??a.created_at)||0)||Number(b.versionNo??b.version_no)-Number(a.versionNo??a.version_no))){
-        const id=snapshot.orderLineId??snapshot.order_line_id;if(!groupByLine.has(id))groupByLine.set(id,safePrintingPriceGroup(snapshot.sourceEvidence?.officePricingGroup));
+        const id=snapshot.orderLineId??snapshot.order_line_id;if(!groupByLine.has(id))groupByLine.set(id,{group:safePrintingPriceGroup(snapshot.sourceEvidence?.officePricingGroup),printContent:cleanText(snapshot.sourceEvidence?.officeQuoteInput?.printContent)});
       }
-      let items = (workspace.orderLines ?? []).map((line) =>
-        normalizeOrderLineListItem({...line,printingPriceGroup:groupByLine.get(line.orderLineId??line.id)??null}, { customer: customers.get(line.customerId) }),
-      );
+      let items = (workspace.orderLines ?? []).map((line) => {
+        const latest=groupByLine.get(line.orderLineId??line.id);
+        return normalizeOrderLineListItem({...line,printingPriceGroup:latest?.group??null,printContent:latest?.printContent||line.printContent}, { customer: customers.get(line.customerId) });
+      });
       items = filterLocalOrderLines(items, filters);
       return paginateOrderLines(items, filters);
     },
@@ -43,7 +44,10 @@ export function createLocalOrderPoolReadRepository() {
       const customers = new Map((workspace.customers ?? []).map((customer) => [customer.id, customer]));
       const sourceLine = (workspace.orderLines ?? []).find((line) => line.id === orderLineId || line.orderLineId === orderLineId);
       if (!sourceLine) return null;
-      const orderLine = normalizeOrderLineListItem(sourceLine, { customer: customers.get(sourceLine.customerId) });
+      const latestSnapshot = [...(workspace.priceSnapshots ?? [])]
+        .filter((snapshot) => (snapshot.orderLineId ?? snapshot.order_line_id) === (sourceLine.orderLineId ?? sourceLine.id))
+        .sort((a, b) => (Date.parse(b.createdAt ?? b.created_at) || 0) - (Date.parse(a.createdAt ?? a.created_at) || 0) || Number(b.versionNo ?? b.version_no) - Number(a.versionNo ?? a.version_no))[0];
+      const orderLine = normalizeOrderLineListItem({ ...sourceLine, printContent: cleanText(latestSnapshot?.sourceEvidence?.officeQuoteInput?.printContent) || sourceLine.printContent }, { customer: customers.get(sourceLine.customerId) });
       const originalOrder =
         (workspace.originalOrders ?? []).find(
           (order) => order.orderId === orderLine.orderId || order.id === orderLine.orderId,
@@ -344,6 +348,7 @@ SELECT
   latest_price.final_amount AS amount,
   latest_price.id AS price_snapshot_id,
   latest_price.printing_price_group,
+  latest_price.print_content,
   latest_fulfillment.id AS fulfillment_id,
   latest_fulfillment.status AS fulfillment_status,
   latest_fulfillment.method AS latest_fulfillment_method,
@@ -355,7 +360,9 @@ JOIN original_orders AS original ON original.id = line.order_id
 LEFT JOIN customers AS customer ON customer.id = line.customer_id
 LEFT JOIN LATERAL (
   SELECT snapshot.id, snapshot.final_amount,
-    json_build_object('groupId',snapshot.source_evidence_json->'officePricingGroup'->>'groupId','memberCount',snapshot.source_evidence_json->'officePricingGroup'->'memberCount') AS printing_price_group
+    json_build_object('groupId',snapshot.source_evidence_json->'officePricingGroup'->>'groupId','memberCount',snapshot.source_evidence_json->'officePricingGroup'->'memberCount') AS printing_price_group,
+    -- 负责人 2026-11-08：订单统一写成「【印刷内容】规格 颜色…」，印刷内容随开单报价保存在价格快照里。
+    snapshot.source_evidence_json->'officeQuoteInput'->>'printContent' AS print_content
   FROM price_snapshots AS snapshot
   WHERE snapshot.order_line_id = line.id
   ORDER BY snapshot.created_at DESC, snapshot.version_no DESC, snapshot.id DESC
@@ -459,6 +466,7 @@ function orderLineListItemJsonExpression(alias) {
     'printFlag', ${alias}.print_flag,
     'print', CASE WHEN ${alias}.print_flag THEN '是' ELSE '否' END,
     'printColor', ${alias}.print_color,
+    'printContent', COALESCE(${alias}.print_content, ''),
     'printSide', ${alias}.print_side,
     'handleColor', ${alias}.handle_color,
     'qty', ${alias}.original_qty,
@@ -577,6 +585,7 @@ function normalizeOrderLineListItem(line, context = {}) {
     printFlag,
     print: printFlag ? "是" : "否",
     printColor: cleanText(line.printColor ?? line.print_color),
+    printContent: printFlag ? cleanText(line.printContent ?? line.print_content) : "",
     printSide: cleanText(line.printSide ?? line.print_side),
     handleColor: cleanText(line.handleColor ?? line.handle_color),
     qty,

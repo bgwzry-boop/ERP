@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { pcNavGroups, navViewMap } from "../docs/prototypes/raw-material-roll-inventory-review/src/navigation.js";
 import { completedBusinessWorkspaceIds } from "../docs/prototypes/raw-material-roll-inventory-review/src/workspaceCoverage.js";
 import { formatOrderLineText, printSideText } from "../docs/prototypes/raw-material-roll-inventory-review/src/orderLineText.js";
-import { buildTodayItems } from "../docs/prototypes/raw-material-roll-inventory-review/src/todayItems.js";
+import { buildTodayItems, todayStatus } from "../docs/prototypes/raw-material-roll-inventory-review/src/todayItems.js";
+import { createLocalOrderPoolReadRepository, buildListOrderLinesSql, buildFindOrderLineDetailSql } from "../server/orderPoolReadRepository.mjs";
+import { mapApiOrderLineToLocal } from "../src/services/officeOrderPoolApiClient.js";
 
 const menu = Object.fromEntries(pcNavGroups.map((group) => [group.label, group.items.map((item) => item.label)]));
 assert.deepEqual(menu["工作台"], ["今天", "公共待办"]);
@@ -49,4 +51,32 @@ assert.deepEqual(items.map((item) => [item.group, item.title, item.note, item.ac
 assert.equal(items[0].text, "【鑫源超市】30*37*10cm 红印白 双面相同 5000个");
 assert.equal(items[1].action.navId, "outbound-delivery");
 assert.equal(items[2].text, "送货单 16卷 1570.3kg · 11月1日到");
+// 「今天」没读完 / 读失败不能说"今天没有要办的事"
+assert.equal(todayStatus([], { loading: true, hasLoaded: false }).state, "loading");
+assert.equal(todayStatus([], { hasLoaded: false }).state, "loading", "还没开始读也不能当成没事");
+assert.equal(todayStatus([], { blockingError: true, hasLoaded: false }).state, "failed");
+assert.equal(todayStatus([], { hasLoaded: true }).state, "empty");
+assert.equal(todayStatus([{ id: 1 }], { blockingError: true }).state, "items");
+
+// 印刷内容走完整链路：价格快照里的开单报价 → 订单池接口 → 前端映射 → 订单写法
+const repository = createLocalOrderPoolReadRepository();
+const workspace = {
+  customers: [{ id: "C-1", name: "松源百货商行" }],
+  orderLines: [{ id: "ORD-9-01", orderId: "ORD-9", customerId: "C-1", printFlag: true, size: "30*37*10", bagColor: "红色", printColor: "白", printSide: "双面相同", qty: 5000, lineStatus: "待排产" }],
+  priceSnapshots: [
+    { id: "P-old", orderLineId: "ORD-9-01", createdAt: "2026-11-01T00:00:00Z", versionNo: 1, sourceEvidence: { officeQuoteInput: { printContent: "旧内容" } } },
+    { id: "P-new", orderLineId: "ORD-9-01", createdAt: "2026-11-02T00:00:00Z", versionNo: 2, sourceEvidence: { officeQuoteInput: { printContent: "鑫源超市" } } },
+  ],
+};
+const listed = repository.listOrderLines({ workspace, query: {} }).items[0];
+assert.equal(listed.printContent, "鑫源超市", "订单池接口要带出最新报价里的印刷内容");
+const mapped = mapApiOrderLineToLocal(JSON.parse(JSON.stringify(listed)));
+assert.equal(mapped.printContent, "鑫源超市", "前端映射不能丢印刷内容");
+assert.equal(formatOrderLineText(mapped), "【鑫源超市】30*37*10cm 红印白 双面相同 5000个");
+assert.equal(repository.getOrderLineDetail({ workspace, orderLineId: "ORD-9-01" }).orderLine?.printContent ?? repository.getOrderLineDetail({ workspace, orderLineId: "ORD-9-01" }).printContent, "鑫源超市");
+assert.equal(mapApiOrderLineToLocal({ id: "ORD-9-02", printFlag: false, printContent: "不该出现" }).printContent, "", "不印刷的单不显示印刷内容");
+for (const sql of [buildListOrderLinesSql({}).text ?? String(buildListOrderLinesSql({})), String(buildFindOrderLineDetailSql({ orderLineId: "x" }).text ?? buildFindOrderLineDetailSql({ orderLineId: "x" }))]) {
+  assert.match(sql, /officeQuoteInput'->>'printContent' AS print_content/u, "数据库读取要取出印刷内容");
+}
+
 console.log("today workbench ok: menu regrouped (今天 / 开单 · 订单跟踪 · 发货安排 / 生产车间), owner order wording, today's to-do list built from shortages, unprinted notes and unfinished receipts.");
