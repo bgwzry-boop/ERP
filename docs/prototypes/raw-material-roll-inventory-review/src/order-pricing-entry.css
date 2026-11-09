@@ -430,3 +430,5 @@
 .pricing-fabric p.short { background: var(--erp-danger-bg); color: var(--erp-danger); }
 .pricing-fabric p.short b { color: var(--erp-danger); }
 .pricing-fabric p.ok { background: var(--erp-success-bg, var(--erp-neutral-bg)); }
+.pricing-fabric p.pricing-fabric-retry { background: transparent; padding: 0 12px; }
+.pricing-fabric-retry button { border: 0; background: none; padding: 0; color: var(--erp-accent-strong); font-size: 13px; cursor: pointer; }
