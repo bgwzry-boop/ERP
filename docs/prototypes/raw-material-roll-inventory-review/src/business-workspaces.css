@@ -994,3 +994,11 @@ button.track-row.selected { background: var(--erp-accent-wash); box-shadow: inse
 .track-step.blocked .track-body strong, .track-step.blocked .track-body small { color: var(--erp-danger); font-weight: 600; }
 .track-more { border-top: 1px solid var(--erp-border-subtle); padding-top: 8px; }
 .track-more summary { cursor: pointer; font-size: 13px; color: var(--erp-text-muted); }
+
+/* 负责人 2026-11-08：发货安排按客户分块，一块就是一张要开的送货单。 */
+.ship-group { border-bottom: 6px solid var(--erp-neutral-bg); }
+.ship-group-head { display: flex; align-items: baseline; gap: 12px; padding: 10px 14px 6px; background: var(--erp-surface); border-bottom: 1px solid var(--erp-border-subtle); white-space: nowrap; overflow: hidden; }
+.ship-group-head strong { font-size: 15px; color: var(--erp-text); }
+.ship-group-head span { font-size: 12px; color: var(--erp-text-muted); overflow: hidden; text-overflow: ellipsis; }
+.ship-row > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ship-row .business-primary-cell small { margin-left: 8px; }
