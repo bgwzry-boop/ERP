@@ -3,6 +3,8 @@ import { RAW_MATERIAL_RECEIPT_STAGES } from "../../../../shared/rawMaterialRecei
 // These are business dependencies, not every collection the shell can render.
 // Receiving has its own server-paged reader and must never populate a complete ledger.
 export const workspaceReadDependencies = Object.freeze({
+  // 「今天」工作台要看缺货缺料、待打送货单、原料没收完，三类数据都要读，否则会误报"没有要办的事"。
+  today: ["orderLines", "fulfillments", "rawMaterialInbounds"],
   "shared-todos": ["todos"],
   "order-entry": ["orderDrafts", "inventoryItems", "orderLines"],
   "order-pool": ["orderLines", "machines"],

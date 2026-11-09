@@ -11,7 +11,7 @@ import {refreshAfterProductionPhotoReview} from "./production-review-refresh.js"
 import {resolveTodoWorkspaceLink} from "./todo-workspace-link.js";
 import { TodoReminderForm } from "../../../../src/features/todos/TodoReminderForm.jsx";
 import { STATUS_TONE_LABEL, statusTone } from "./status-tone.js";
-import { TODAY_GROUPS, buildTodayItems } from "./todayItems.js";
+import { TODAY_GROUPS, buildTodayItems, todayStatus } from "./todayItems.js";
 import { ProductionPhotoReview } from "./ProductionPhotoReview.jsx";
 import { DriverExceptionResolutionPanel } from "../../../../src/features/fulfillment/DriverExceptionResolutionPanel.jsx";
 import { EarlyShipmentPanel, ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
@@ -1005,10 +1005,13 @@ export function TodayWorkspace({ formal, onNavigate }) {
     if (navId === "material-receiving") return onNavigate(navId, { receiptId: focus.recordId });
     return onNavigate(navId, { preserveWorkspaceFocus: true, workspaceFocus: { token: `today:${item.id}:${Date.now()}`, navId, recordId: focus.recordId } });
   };
-  const loading = formal.meta?.loading && !items.length;
+  // 数据没读全、读失败时不能说"没有要办的事"，免得漏办。
+  const status = todayStatus(items, formal.meta);
+  const loading = status.state === "loading";
+  const failed = status.state === "failed";
   return <div className="today-workbench">
     <header className="today-head">
-      <div><span>{dateLabel}</span><h1>{loading ? "正在读取今天的事…" : items.length ? <>今天要办 <b>{items.length}</b> 件事</> : "今天没有要办的事"}</h1></div>
+      <div><span>{dateLabel}</span><h1>{failed ? "今天的事没读出来，请点刷新重试" : loading ? "正在读取今天的事…" : items.length ? <>今天要办 <b>{items.length}</b> 件事</> : "今天没有要办的事"}</h1></div>
       <div className="today-head-actions"><WorkbenchHeadingActions countLabel="" onRefresh={formal.actions.refreshAll} /><button className="primary" onClick={() => onNavigate("order-entry")} type="button"><PlusOutlined />开单</button></div>
     </header>
     <div aria-label="要办的事分类" className="today-segs" role="tablist">
@@ -1024,7 +1027,7 @@ export function TodayWorkspace({ formal, onNavigate }) {
           <span className="today-note">{item.note}</span>
           <button onClick={() => void go(item)} type="button">{item.action.label}</button>
         </div>)}
-      </div>) : <div className="business-empty"><CheckCircleOutlined /><strong>{loading ? "正在读取" : "这一类没有要办的事"}</strong><span>{loading ? "订单、出库和收货读取完后会列在这里。" : "办完的事会从这里消失。"}</span></div>}
+      </div>) : <div className="business-empty"><CheckCircleOutlined /><strong>{failed ? "读取失败" : loading ? "正在读取" : "这一类没有要办的事"}</strong><span>{failed ? "订单、出库或收货数据没读出来，点右上角刷新再试。" : loading ? "订单、出库和收货读取完后会列在这里。" : "办完的事会从这里消失。"}</span></div>}
     </section>
   </div>;
 }
