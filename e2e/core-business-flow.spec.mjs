@@ -273,7 +273,7 @@ test("默认公共待办引用真实业务并可打开保存草稿", async ({ pa
   await expect(draftTodo).toHaveCount(1);
   await draftTodo.click();
   await page.getByRole("button", { name: "打开订单录入", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "开单" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "订单原文" })).toHaveValue(/张三服饰.*红500.*黑100/);
   await expect(page.locator(".entry-edit-row")).toHaveCount(2);
 
@@ -328,8 +328,8 @@ test("订单录入危险操作确认可取消且已保存后修改原文仍阻�
 
   await openInternalWorkbench(page);
   await switchAccount(page, operatorId);
-  await navigateToPage(page, "开单", "订单管理");
-  await expect(page.getByRole("heading", { name: "开单" })).toBeVisible();
+  await navigateToPage(page, "订单录入", "订单");
+  await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
 
   const sourceText = page.getByRole("textbox", { name: "订单原文" });
   await sourceText.fill(dangerOrderText);
@@ -373,8 +373,8 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
 
   await openInternalWorkbench(page);
   await switchAccount(page, operatorId);
-  await navigateToPage(page, "开单", "订单管理");
-  await expect(page.getByRole("heading", { name: "开单" })).toBeVisible();
+  await navigateToPage(page, "订单录入", "订单");
+  await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
   const orderLinesBeforeConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
   const existingOrderLineIds = new Set(orderLinesBeforeConfirmation.items.map((item) => item.id));
 
@@ -384,7 +384,7 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
 
   await page.getByRole("button", { name: "保存并确认", exact: true }).click();
   await expect(page.getByText("订单已由后端确认", { exact: false })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "订单跟踪" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "订单池" })).toBeVisible();
 
   const orderLinesAfterConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
   const createdLine = orderLinesAfterConfirmation.items.find((item) =>
@@ -401,8 +401,8 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   const pickupReservedBeforeOutbound = Number(reservedInventory?.reserved ?? reservedInventory?.reservedQty ?? 0);
   expect(Number(reservedInventory?.reserved ?? reservedInventory?.reservedQty ?? 0)).toBeGreaterThanOrEqual(10);
 
-  await navigateToPage(page, "发货安排", "订单管理");
-  await expect(page.getByRole("heading", { name: "发货安排" })).toBeVisible();
+  await navigateToPage(page, "出库交付", "库存交付");
+  await expect(page.getByRole("heading", { name: "出库交付" })).toBeVisible();
   await page.getByRole("tab", { name: "自提", exact: true }).click();
 
   const createdFulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
@@ -563,7 +563,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
 
   await openInternalWorkbench(page);
   await switchAccount(page, operatorId);
-  await navigateToPage(page, "开单", "订单管理");
+  await navigateToPage(page, "订单录入", "订单");
   const orderLinesBeforeConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
   const existingOrderLineIds = new Set(orderLinesBeforeConfirmation.items.map((item) => item.id));
 
@@ -580,7 +580,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   await expect(page.getByLabel("缺字段检查")).toHaveText("当前行已完成必要字段校对");
   await expect(page.getByText("订单生产，不走通货库存", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "保存并确认", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "订单跟踪" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "订单池" })).toBeVisible();
 
   const createdLine = await waitForApiItem(request, "/order-lines?page=1&pageSize=200", (item) =>
     !existingOrderLineIds.has(item.id) &&
@@ -1171,7 +1171,7 @@ async function submitFulfillmentPrint(page, request, {
 }) {
   const before = await apiGet(request, "/print-jobs?page=1&pageSize=200");
   const existingIds = new Set(before.items.map((item) => item.printJobId));
-  await navigateToPage(page, "发货安排", "订单管理");
+  await navigateToPage(page, "出库交付", "库存交付");
   await page.getByRole("tab", { name: methodTab, exact: true }).click();
   await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
   await page.getByRole("button", { name: action, exact: true }).click();
@@ -1249,7 +1249,7 @@ async function handoffAndRecordPhysicalOutbound(page, request, {
   feedbackChannel,
 }) {
   await page.reload();
-  await navigateToPage(page, "发货安排", "订单管理");
+  await navigateToPage(page, "出库交付", "库存交付");
   await page.getByRole("tab", { name: methodTab, exact: true }).click();
   await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
   await page.getByRole("button", { name: "纸单交库房", exact: true }).click();
@@ -1262,7 +1262,7 @@ async function handoffAndRecordPhysicalOutbound(page, request, {
   );
 
   await page.reload();
-  await navigateToPage(page, "发货安排", "订单管理");
+  await navigateToPage(page, "出库交付", "库存交付");
   await page.getByRole("tab", { name: methodTab, exact: true }).click();
   await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
   await page.getByRole("button", { name: "回录库房结果", exact: true }).click();
@@ -1283,7 +1283,7 @@ async function handoffAndRecordPhysicalOutbound(page, request, {
   );
 
   await page.reload();
-  await navigateToPage(page, "发货安排", "订单管理");
+  await navigateToPage(page, "出库交付", "库存交付");
   await page.getByRole("tab", { name: methodTab, exact: true }).click();
   await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
   if (methodTab !== "自提") await page.getByLabel("实际拉走时间（北京时间）").fill(new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 19));
