@@ -30,9 +30,9 @@ test('steps mark done / current / todo around the current stage', () => {
 });
 
 test('the previous primary-button routing is preserved for production and outbound statuses', () => {
-  // 改版前：待出库 / 已备货 → 出库交付，其余 → 生产任务
-  assert.equal(getOrderProgress('待出库').action, '进入出库交付');
-  assert.equal(getOrderProgress('已备货').action, '进入出库交付');
+  // 改版前：待出库 / 已备货 → 发货安排，其余 → 生产任务
+  assert.equal(getOrderProgress('待出库').action, '进入发货安排');
+  assert.equal(getOrderProgress('已备货').action, '进入发货安排');
   assert.equal(getOrderProgress('制袋中').action, '进入生产任务');
 });
 
