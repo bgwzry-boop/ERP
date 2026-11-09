@@ -10,6 +10,8 @@ import { printStockPickingSlip } from "../../../../src/features/fulfillment/prin
 import { ReviewDialog } from "./ReviewDialog.jsx";
 import { completeWalkInPickup, printWalkInPickupNote } from "../../../../src/features/fulfillment/walkInPickup.js";
 import { getOfficeFulfillmentOperatorCandidates } from "../../../../src/services/officeFulfillmentApiClient.js";
+import { listOfficeRawMaterialStockInbounds } from "../../../../src/services/officeRawMaterialStockApiClient.js";
+import { buildOrderFabricHints, needsFabricHint } from "./orderFabricHint.js";
 import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
 
@@ -789,14 +791,14 @@ function OrderPricingEditor({
             picked={pickedCustomer}
             onPick={pickCustomer}
             hint={customerHint}
-            fulfillment={commonValue(rows, "fulfillment", "自提")}
+            fulfillment={commonValue(rows, "fulfillment", "送货")}
             latest={commonValue(rows, "latest", "")}
             onFulfillment={(value) => updateAll("fulfillment", value)}
             onLatest={(value) => updateAll("latest", value)}
           />
           <header>
-            <h3>订单明细</h3>
-            <span>{rows.length ? `${rows.length} 行 · 点「更多」填印刷内容、改价、拆行` : ""}</span>
+            <h3>排单预览</h3>
+            <span>{rows.length ? `${rows.length} 行 · 印刷内容、印色、印刷面直接改；改价、拆行点「更多」` : ""}</span>
           </header>
           {!rows.length ? (
             <p className="pricing-empty">
@@ -807,11 +809,13 @@ function OrderPricingEditor({
               <div className="pricing-line-head" role="row" aria-hidden="true">
                 <span />
                 <span>分类</span>
+                <span>印刷内容</span>
                 <span>规格（宽×高×侧）</span>
-                <span>袋身颜色</span>
+                <span>袋色</span>
+                <span>印色</span>
+                <span>印刷面</span>
                 <span>数量（个）</span>
                 <span>提手</span>
-                <span>印刷</span>
                 <span>状态</span>
                 <span />
               </div>
@@ -839,6 +843,20 @@ function OrderPricingEditor({
                       <option value="external_print">外加工印刷（来料加工）</option>
                     </select>
                   </label>
+                  {/* 负责人 2026-11-08：排单预览——印刷内容、印色、印刷面直接在这一行改，不用点「更多」。 */}
+                  <label className="pricing-cell">
+                    <span className="pricing-sr">印刷内容</span>
+                    <input
+                      aria-label={`第${index + 1}行印刷内容`}
+                      disabled={!privatePrint(line) && line.orderType !== "stock"}
+                      placeholder={privatePrint(line) ? "【】里的字" : "不印"}
+                      value={line.printContent || ""}
+                      onChange={(e) => {
+                        update(index, "printContent", e.target.value);
+                        if (e.target.value.trim() && line.print !== "是") update(index, "print", "是");
+                      }}
+                    />
+                  </label>
                   <label className="pricing-cell">
                     <span className="pricing-sr">规格（宽×高×侧）</span>
                     <input
@@ -856,6 +874,32 @@ function OrderPricingEditor({
                       value={line.color || line.bagColor || ""}
                       onChange={(e) => update(index, "color", e.target.value)}
                     />
+                  </label>
+                  <label className="pricing-cell">
+                    <span className="pricing-sr">印色</span>
+                    <input
+                      aria-label={`第${index + 1}行印色`}
+                      disabled={!privatePrint(line)}
+                      placeholder={privatePrint(line) ? "待填" : "—"}
+                      className={privatePrint(line) && !line.printColor ? "pricing-missing" : undefined}
+                      value={privatePrint(line) ? line.printColor || "" : ""}
+                      onChange={(e) => update(index, "printColor", e.target.value)}
+                    />
+                  </label>
+                  <label className="pricing-cell">
+                    <span className="pricing-sr">印刷面</span>
+                    <select
+                      aria-label={`第${index + 1}行印刷面`}
+                      disabled={!privatePrint(line)}
+                      className={privatePrint(line) && !["单面", "双面", "双面不同"].includes(line.printSide) ? "pricing-missing" : undefined}
+                      value={["单面", "双面", "双面不同"].includes(line.printSide) ? line.printSide : ""}
+                      onChange={(e) => update(index, "printSide", e.target.value)}
+                    >
+                      {["单面", "双面", "双面不同"].includes(line.printSide) ? null : <option value="" disabled>{privatePrint(line) ? "待选" : "—"}</option>}
+                      <option value="单面">单面印刷</option>
+                      <option value="双面">双面相同</option>
+                      <option value="双面不同">双面不同</option>
+                    </select>
                   </label>
                   <div className="pricing-cell pricing-qty-cell">
                       {line.orderType === "external_print" ? (
@@ -914,17 +958,6 @@ function OrderPricingEditor({
                       <option>加长提</option>
                     </select>
                   </label>
-                  <label className="pricing-cell">
-                    <span className="pricing-sr">是否印刷</span>
-                    <select
-                      aria-label={`第${index + 1}行是否印刷`}
-                      value={line.print || "否"}
-                      onChange={(e) => update(index, "print", e.target.value)}
-                    >
-                      <option>否</option>
-                      <option>是</option>
-                    </select>
-                  </label>
                   <span className="pricing-line-tags">
                     {tags.map((tag) => <b key={tag.text} className={`pricing-tag ${tag.tone}`}>{tag.text}</b>)}
                   </span>
@@ -980,48 +1013,25 @@ function OrderPricingEditor({
                       onChange={(key, value) => update(index, key, value)}
                     />
                   ) : null}
+                  <label className="pricing-check-inline">
+                    是否印刷
+                    <select
+                      aria-label={`第${index + 1}行是否印刷`}
+                      value={line.print || "否"}
+                      onChange={(e) => update(index, "print", e.target.value)}
+                    >
+                      <option>否</option>
+                      <option>是</option>
+                    </select>
+                  </label>
                   {privatePrint(line) ? (
                     <div className="pricing-print-fields">
-                      <label>
-                        印刷内容（同图合组依据）
-                        <input
-                          value={line.printContent || ""}
-                          placeholder="填写可核对的图案名称或文件版本"
-                          onChange={(e) =>
-                            update(index, "printContent", e.target.value)
-                          }
-                        />
-                      </label>
-                      <label>
-                        印刷面
-                        <select
-                          className={["单面", "双面", "双面不同"].includes(line.printSide) ? undefined : "pricing-missing"}
-                          value={["单面", "双面", "双面不同"].includes(line.printSide) ? line.printSide : ""}
-                          onChange={(e) =>
-                            update(index, "printSide", e.target.value)
-                          }
-                        >
-                          {["单面", "双面", "双面不同"].includes(line.printSide) ? null : <option value="" disabled>请选择（双面要分相同还是不同）</option>}
-                          <option value="单面">单面印刷</option>
-                          <option value="双面">双面相同</option>
-                          <option value="双面不同">双面不同</option>
-                        </select>
-                      </label>
                       {/* 负责人 2026-11-08：印刷工艺目前只有丝印，以后有别的工艺再加选项。 */}
                       <label>
                         印刷工艺
                         <select aria-label={`第${index + 1}行印刷工艺`} value="丝印" onChange={() => {}}>
                           <option value="丝印">丝印</option>
                         </select>
-                      </label>
-                      <label>
-                        印刷颜色
-                        <input
-                          value={line.printColor || ""}
-                          onChange={(e) =>
-                            update(index, "printColor", e.target.value)
-                          }
-                        />
                       </label>
                     </div>
                   ) : null}
@@ -1131,6 +1141,7 @@ function OrderPricingEditor({
               </fieldset>
               );
             })}
+              <OrderFabricHints rows={rows} formal={formal} />
               <p className="pricing-line-sum">
                 共 {rows.length} 行，合计{" "}
                 <b>{rows.reduce((sum, line) => sum + (byIncomingRolls(line) ? 0 : Number(line.qty) || 0), 0).toLocaleString("zh-CN")}</b> 个
@@ -1477,6 +1488,27 @@ function lineStatusTags(line, rows, lineOverride) {
 // 负责人 2026-11-08：开单即出库。现货、客户当场拿走：打一张自提单（几样货合一张）→ 看纸确认 →
 // 「客户已拿走」一次办完交库房、实物出库（扣库存）、提货完成。经手人选一次，下次默认。
 const WALK_IN_EXECUTOR_KEY = "erp.walkIn.executorEmployeeId";
+// 负责人 2026-11-08：开单时一行提醒这单要用多少布、库里够不够；只提醒，不拦下单。
+function OrderFabricHints({ rows, formal }) {
+  const wanted = rows.some(needsFabricHint);
+  const [stock, setStock] = useState(undefined);
+  useEffect(() => {
+    if (!wanted || stock !== undefined) return undefined;
+    let active = true;
+    setStock("loading");
+    Promise.resolve()
+      .then(() => listOfficeRawMaterialStockInbounds({ authState: formal.authState, operatorId: formal.operatorId }, { serverRequired: true }))
+      .then((result) => { if (active) setStock(result?.source === "api" && Array.isArray(result.items) ? result.items : null); })
+      .catch(() => { if (active) setStock(null); });
+    return () => { active = false; };
+  }, [wanted, stock, formal.authState, formal.operatorId]);
+  if (!wanted) return null;
+  const hints = buildOrderFabricHints(rows, Array.isArray(stock) ? stock : null);
+  return <div className="pricing-fabric" role="status" aria-label="这单要用的布">
+    {stock === "loading" ? <p>正在看卷料库存…</p> : hints.map((hint) => <p key={hint.index} className={hint.ok === false ? "short" : hint.ok ? "ok" : undefined}><b>用布</b>{rows.length > 1 ? <span>第 {hint.index + 1} 行</span> : null}{hint.text}</p>)}
+  </div>;
+}
+
 function WalkInPickupPanel({ walkIn, formal }) {
   const auth = { authState: formal.authState, operatorId: formal.operatorId };
   const [pickerName, setPickerName] = useState("");
