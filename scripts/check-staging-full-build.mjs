@@ -22,7 +22,10 @@ const bundledSource = javascriptFiles
   .map((fileName) => readFileSync(new URL(fileName, assetsDirectory), "utf8"))
   .join("\n");
 
-for (const requiredWorkbench of ["公共待办", "开单", "订单跟踪", "生产/打包", "原材料", "基础资料"]) {
+// dist/assets is the internal root workbench, built before the complete-review app.
+// Its compatibility labels are not the public 4174 navigation labels; that entry
+// is independently checked by review:check and the controlled release identity.
+for (const requiredWorkbench of ["公共待办", "订单录入", "订单池", "生产/打包", "原材料", "基础资料"]) {
   assert(
     bundledSource.includes(requiredWorkbench),
     `the full staging bundle is missing the ${requiredWorkbench} workbench`,
