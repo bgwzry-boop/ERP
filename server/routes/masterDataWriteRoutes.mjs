@@ -1,3 +1,4 @@
+import { saveSalesPriceVersion } from "../services/salesPriceService.mjs";
 export async function handleMasterDataWriteRoutes({
   method,
   url,
@@ -17,8 +18,18 @@ export async function handleMasterDataWriteRoutes({
   customerAddressCommandService,
   phoneIdentityCommandService,
   sendCommandResponse,
+  sendCommandRecord,
 }) {
   if (!["POST", "PATCH"].includes(method)) return false;
+
+  // 负责人 2026-11-12「销售价格」：改价存成新版本，立即对之后开的单生效。
+  if (method === "POST" && url.pathname === "/api/sales-prices/versions") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageSalesPrices)) return true;
+    const result = await saveSalesPriceVersion({ workspace, body, operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A") });
+    if (sendCommandRecord) sendCommandRecord(response, result);
+    else sendCommandResponse(response, result.error ? result : { response: result });
+    return true;
+  }
 
   if (method === "POST" && url.pathname === "/api/master-data/subaccounts") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageSubaccounts)) return true;

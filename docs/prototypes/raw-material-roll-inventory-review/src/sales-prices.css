@@ -1,0 +1,70 @@
+/* 负责人 2026-11-12「销售价格」：按价目表的样子分块排，表格不换行、数字右对齐；右侧改价记录。 */
+.sales-price-workbench { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 8px; padding-top: 6px; }
+.sales-price-main, .sales-price-history { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.sales-price-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.sales-price-head h1 { font-size: 18px; }
+.sales-price-head p { margin-top: 4px; color: var(--ink-soft); font-size: 12px; }
+.sales-price-actions { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.sales-price-actions button { height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--ink); font-size: 13px; }
+.sales-price-actions button.primary { border-color: var(--erp-accent-strong); background: var(--erp-accent-strong); color: var(--erp-surface); }
+.sales-price-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.sales-price-current { color: var(--ink-soft); font-size: 12px; }
+.sales-price-notice, .sales-price-error { margin: 10px 16px 0; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+.sales-price-notice { border: 1px solid var(--erp-success-border); background: var(--erp-success-bg); }
+.sales-price-error { border: 1px solid var(--erp-danger-border); background: var(--erp-danger-bg); }
+.sales-price-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 40px 16px; color: var(--ink-soft); font-size: 13px; text-align: center; }
+.sales-price-empty strong { color: var(--ink); font-size: 16px; }
+.sales-price-empty button { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border: 0; border-radius: 5px; background: var(--erp-accent-strong); color: var(--erp-surface); font-size: 14px; }
+.sales-price-scroll { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 16px; scrollbar-width: thin; }
+.sales-price-summary { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.sales-price-summary b { font-size: 13px; white-space: nowrap; }
+.sales-price-summary input { flex: 1; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 13px; }
+.sales-price-changes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--erp-warning-border); border-radius: 6px; background: var(--erp-warning-bg); font-size: 12px; }
+.sales-price-changes.none { border-color: var(--line); background: var(--surface-soft); color: var(--ink-soft); }
+.sales-price-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; align-items: start; }
+.sales-price-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.sales-price-card > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 2px 0 8px; }
+.sales-price-card > header:not(:first-child) { margin-top: 14px; }
+.sales-price-card h2 { font-size: 15px; white-space: nowrap; }
+.sales-price-card header small { overflow: hidden; color: var(--ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.sales-price-table { display: grid; }
+.sales-price-row { display: grid; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px; border-bottom: 1px solid var(--erp-border-subtle); font-size: 13px; }
+.sales-price-row.head { min-height: 30px; background: var(--surface-soft); color: var(--ink-soft); font-size: 12px; }
+.sales-price-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sales-price-row .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 640; }
+.sales-price-row .num small { margin-left: 4px; color: var(--ink-soft); font-size: 11px; font-weight: 400; }
+.sales-price-row .num.muted { color: var(--ink-faint); font-weight: 400; }
+.sales-price-row .num.changed input { border-color: var(--erp-warning-border); background: var(--erp-warning-bg); }
+.sales-price-row input, .sales-price-chip input, .sales-price-rule input { width: 100%; min-width: 0; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.sales-price-row > span:first-child input, .sales-price-row > span:nth-child(2) input { text-align: left; }
+.sales-price-remove { width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--ink-soft); font-size: 16px; }
+.sales-price-remove:hover { background: var(--erp-danger-bg); }
+.sales-price-add { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; padding: 0; border: 0; background: transparent; color: var(--erp-accent-strong); font-size: 12px; }
+.sales-price-row .sales-price-add { margin: 0; font-size: 14px; }
+.sales-price-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sales-price-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface-soft); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sales-price-chip input { width: 52px; }
+.sales-price-chip button { border: 0; background: transparent; color: var(--ink-soft); font-size: 14px; }
+.sales-price-rule { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.sales-price-rule input { width: 72px; }
+.sales-price-tiers { display: grid; margin: 8px 0; }
+.sales-price-tiers > div { display: flex; justify-content: space-between; padding: 6px 4px; border-bottom: 1px solid var(--erp-border-subtle); font-size: 13px; font-variant-numeric: tabular-nums; }
+.sales-price-hint { color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.sales-price-history > header { display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
+.sales-price-history h2 { font-size: 15px; }
+.sales-price-history-list { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; scrollbar-width: thin; }
+.sales-price-history article { padding: 10px 2px; border-bottom: 1px solid var(--erp-border-subtle); font-size: 12px; }
+.sales-price-history article > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sales-price-history article strong { font-size: 13px; }
+.sales-price-history article > div span { color: var(--ink-soft); font-size: 11px; }
+.sales-price-history article.active > div span { color: var(--green); font-weight: 640; }
+.sales-price-history article small { display: block; margin-top: 2px; color: var(--ink-soft); font-size: 11px; }
+.sales-price-history article p { margin-top: 6px; }
+.sales-price-history article ul { margin: 6px 0 0 16px; color: var(--ink-soft); }
+.sales-price-history article li { margin-top: 2px; }
+
+@media (max-width: 1180px) {
+  .sales-price-workbench { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .sales-price-history { max-height: 260px; }
+  .sales-price-head { flex-wrap: wrap; }
+}

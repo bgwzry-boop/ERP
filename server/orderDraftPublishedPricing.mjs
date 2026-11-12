@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { findMiniappPriceItem, quoteMiniappCatalogPrice } from "./miniapp/miniappErpProjectionAdapter.mjs";
 import { normalizeOrderType } from "../shared/orderRouting.js";
 import { LARGE_MACHINE_PRINT_PRICE_VERSION, quoteLargeMachinePrint, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
+import { normalizeSalesPriceRules, wantsSnapButton } from "../shared/pricing/factorySalesPriceList.js";
 import { incomingRollCountOf, isIncomingRollsLine, isValidIncomingRollsLine } from "../shared/externalPrintQuantity.js";
 
 const clean = value => String(value ?? "").trim();
@@ -23,6 +24,7 @@ export function getPublishedOrderPriceSource(workspace, at = new Date()) {
   if (tables.length !== 1) throw publishedOrderPriceError();
   const table = tables[0];
   const priceTable = { id: clean(table.id), bizNo: clean(table.bizNo), versionNo: Number(table.versionNo ?? 1),
+    rules: normalizeSalesPriceRules(table.rules),
     effectiveFrom: table.effectiveFrom ? new Date(table.effectiveFrom).toISOString() : null,
     effectiveTo: table.effectiveTo ? new Date(table.effectiveTo).toISOString() : null };
   if (!priceTable.id || !Number.isSafeInteger(priceTable.versionNo) || priceTable.versionNo < 1) throw publishedOrderPriceError();
@@ -64,23 +66,28 @@ export function resolvePublishedRow(source, row) {
   const printing = !printedCommon && (row.print === "是" || row.printFlag === true || ["custom_print", "external_print"].includes(type));
   const patternText = `${row.style} ${row.product}`;
   const patternId = /小熊|小狗/.test(patternText) ? "dog" : /喜/.test(patternText) ? "xi" : /福/.test(patternText) ? "fu" : row.style;
-  const patternName = patternId === "xi" ? "喜" : patternId === "fu" ? "福" : row.style;
+  const patternName = patternId === "xi" ? "喜" : patternId === "fu" ? "福" : patternId === "dog" ? "小熊小狗" : row.style;
+  // 负责人 2026-11-08：加扣子每个 +0.10（小熊小狗已含扣子不加，由价格规则判断）。
+  // 只看订单行上会存下来的字段（款式、品名），确认后复核价格时才能算出同一个数。
+  const snap = wantsSnapButton(row.style, row.product);
   const line = { ...row, quantity: row.qty, handleId: /加长/.test(clean(row.handle)) ? "extended" : "regular",
     productType: printedCommon ? (laminated ? "laminated_printed" : "stock_printed")
       : laminated ? (printing ? "laminated_custom" : "laminated_plain") : printing ? "custom_print" : "stock_plain",
     patternName, patternId,
-    printColor: printing ? row.printColor : "", printContent: printing ? row.printContent : "" };
+    printColor: printing ? row.printColor : "", printContent: printing ? row.printContent : "",
+    specialRequirements: snap ? ["snap_button"] : [] };
   const match = findMiniappPriceItem(source, line, { requireUnique: true,
     ...(/金银|metallic/i.test(patternText) ? { styleKeys: ["覆膜金银", "laminated_metallic"], requireExplicitStyle: true } : {}) });
   if (!match || ![match.item.bagPrice, match.item.printPrice, match.item.otherFee].every(value => Number.isFinite(value) && value >= 0)) throw publishedOrderPriceError();
   const quote = quoteMiniappCatalogPrice(source, line, match, { preserveUnitPrecision: true });
-  const bagPrice = type === "external_print" ? 0 : Math.round((quote.basePrice + quote.handleAddon + Number.EPSILON) * 10_000) / 10_000;
+  const bagPrice = type === "external_print" ? 0 : Math.round((quote.basePrice + quote.handleAddon - quote.giftDiscount + quote.specialRequirementAddon + Number.EPSILON) * 10_000) / 10_000;
   const amount = type === "external_print" ? money(quote.printFee * row.qty + match.item.otherFee) : quote.amount;
   if ((type === "external_print" ? quote.printFee : bagPrice) <= 0) throw publishedOrderPriceError();
   return { bagPrice, printPrice: quote.printFee, otherFee: match.item.otherFee, amount,
     priceVersion: quote.priceVersion, sourceEvidence: { kind: "erp_published_price", priceTableId: source.priceTable.id,
       priceTableVersion: source.priceTable.versionNo, priceItemId: match.item.id, priceVersion: quote.priceVersion,
-      handleFallback: match.handleFallback } };
+      handleFallback: match.handleFallback, handleAddon: quote.handleAddon, giftDiscount: quote.giftDiscount,
+      snapAddon: quote.specialRequirementAddon } };
 }
 
 export function applyOrderDraftPublishedPricing(confirmation, pricing) {
