@@ -276,12 +276,20 @@ function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [
 
   const selectedRoll = visibleRolls.find((roll) => roll.id === selectedId) || visibleRolls[0] || null;
   const setFilter = (setter) => (value) => { setter(value); setPage(1); setActiveBucket(""); };
-  const setBucket = (value) => { setActiveBucket(value); setPage(1); };
+  // 2026-11-12 复查：表格和查布按全部可用卷汇总，点格子时下面台账的筛选要跟着改成这一格，
+  // 否则旧的宽幅/颜色/库位/搜索还在，格子写着 1 卷、台账却是 0 条。取消时宽幅、颜色回到全部。
+  const setBucket = (value) => {
+    setPage(1);
+    setActiveBucket(value);
+    if (!value) { setWidth("全部宽幅"); setColor("全部颜色"); return; }
+    const [bucketWidth, bucketColor] = value.split("::");
+    setQuery(""); setStatus("可用"); setLocation("全部库位"); setWidth(bucketWidth); setColor(bucketColor);
+  };
   const resetFilters = () => { setQuery(""); setStatus("可用"); setWidth("全部宽幅"); setColor("全部颜色"); setLocation("全部库位"); setActiveBucket(""); setPage(1); };
   const hasActiveFilters = Boolean(query.trim() || status !== "可用" || width !== "全部宽幅" || color !== "全部颜色" || location !== "全部库位" || activeBucket);
 
   return <div className="inventory-workbench">
-    <StockMatrixPanel activeBucket={activeBucket} formal={formal} matrix={stockMatrix} onBucketChange={(value) => { setStatus("可用"); setBucket(value); }} rolls={sourceRolls} summary={inventorySummary} />
+    <StockMatrixPanel activeBucket={activeBucket} formal={formal} matrix={stockMatrix} onBucketChange={setBucket} rolls={sourceRolls} summary={inventorySummary} />
     <section className={`ledger-panel${hasActiveFilters ? " has-filter-feedback" : ""}`}>
       <div className="filter-row">
         <label className="roll-search"><SearchOutlined /><input onChange={(event) => setFilter(setQuery)(event.target.value)} placeholder="搜索卷码 / 颜色 / 宽幅 / 供应商" value={query} /></label>

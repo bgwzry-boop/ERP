@@ -31,6 +31,12 @@ assert.equal(found.count, 1, "只算可用卷");
 assert.equal(lookupFabric(sample, parseFabricQuery("豆沙绿")).items[0].color, "（豆沙绿）", "供应商颜色也能查");
 assert.equal(lookupFabric(sample, parseFabricQuery("80 蓝")).count, 0);
 
+async function resetLedger(page) {
+  const reset = page.getByRole("button", { name: "重置筛选" });
+  if (await reset.count()) await reset.click();
+  await page.waitForTimeout(150);
+}
+
 // 浏览器
 const origin = process.env.ERP_RECEIVING_CLEANUP_UI_BASE_URL || "http://127.0.0.1:4174/";
 const outDir = ".erp-local-storage/ci/raw-stock-matrix";
@@ -89,12 +95,55 @@ try {
     await page.waitForTimeout(300);
     assert.equal(await page.locator(".roll-table-body button.roll-row").count(), 2, "查布结果可以点开对应的卷");
     await page.getByLabel("查布", { exact: true }).fill("");
+    await resetLedger(page);
+
+    // 2026-11-12 复查回归：台账先选了别的宽幅/颜色/库位/搜索，再点格子或查布结果，
+    // 台账条数必须等于格子上写的卷数，下拉框跟着变成这一格。
+    const ledgerCount = () => page.locator(".roll-table-body button.roll-row").count();
+    const cells = table.locator("button.stock-matrix-cell");
+    const cellCount = await cells.count();
+    assert.ok(cellCount >= 5);
+    for (let index = 0; index < cellCount; index += 1) {
+      const cell = cells.nth(index);
+      const label = await cell.getAttribute("aria-label");
+      const [, cellWidth, cellColor, advertised] = label.match(/^(\S+) (\S+) (\d+) 卷/u);
+      // 故意设成跟这一格冲突的筛选
+      await page.getByRole("combobox", { name: "宽幅" }).selectOption(cellWidth === "70cm" ? "90cm" : "70cm");
+      await page.getByRole("combobox", { name: "颜色" }).selectOption(cellColor === "天兰" ? "果绿" : "天兰");
+      await page.getByRole("combobox", { name: "可用状态" }).selectOption("机边领用");
+      await page.getByPlaceholder("搜索卷码 / 颜色 / 宽幅 / 供应商").fill("不存在的卷");
+      await cell.click();
+      await page.waitForTimeout(200);
+      assert.equal(await ledgerCount(), Number(advertised), `${width}: 已有冲突筛选时点「${label}」，台账条数要等于格子上的卷数`);
+      assert.equal(await page.getByRole("combobox", { name: "宽幅" }).inputValue(), cellWidth, "宽幅下拉跟着变成这一格");
+      assert.equal(await page.getByRole("combobox", { name: "颜色" }).inputValue(), cellColor, "颜色下拉跟着变成这一格");
+      assert.equal(await page.getByPlaceholder("搜索卷码 / 颜色 / 宽幅 / 供应商").inputValue(), "", "搜索清空");
+      await cell.click();
+      await page.waitForTimeout(200);
+      assert.equal(await page.getByRole("combobox", { name: "宽幅" }).inputValue(), "全部宽幅", "再点一次取消，宽幅回到全部");
+      assert.equal(await page.getByRole("combobox", { name: "颜色" }).inputValue(), "全部颜色", "再点一次取消，颜色回到全部");
+      await resetLedger(page);
+    }
+    // 查布结果同样：先选 70cm，再查「90 红」并点开
+    await page.getByRole("combobox", { name: "宽幅" }).selectOption("70cm");
+    assert.equal(await ledgerCount(), 3);
+    await page.getByLabel("查布", { exact: true }).fill("90 红");
+    const lookup = page.locator(".stock-fabric-result button").first();
+    const lookupCount = Number((await lookup.innerText()).match(/(\d+) 卷/u)[1]);
+    await lookup.click();
+    await page.waitForTimeout(200);
+    assert.equal(lookupCount, 1);
+    assert.equal(await ledgerCount(), lookupCount, "查布结果点开后台账条数等于结果卷数");
+    await page.locator(".active-bucket").click();
+    await page.waitForTimeout(200);
+    assert.equal(await page.getByRole("combobox", { name: "宽幅" }).inputValue(), "全部宽幅", "点筛选标签上的 × 也回到全部");
+    await page.getByLabel("查布", { exact: true }).fill("");
     await page.screenshot({ path: `${outDir}/stock-matrix-${width}.png` });
     await page.close();
   }
   assert.deepEqual(writes, [], `不得写入：${writes.join(",")}`);
   assert.deepEqual(errors, [], `页面报错：${errors.join(";")}`);
-  console.log("raw stock matrix ok: 颜色×宽幅、只剩1卷、点格子筛台账、查布（宽幅/袋子尺寸/供应商颜色）、1440/1180 不换行不溢出、零写入");
+  console.log("raw stock matrix ok: 颜色×宽幅、只剩1卷、点格子筛台账（含已有冲突筛选）、查布（宽幅/袋子尺寸/供应商颜色）、1440/1180 不换行不溢出、零写入");
 } finally {
   await browser.close();
 }
