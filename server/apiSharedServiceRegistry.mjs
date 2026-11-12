@@ -1,3 +1,4 @@
+import { createFulfillmentNoteCorrectionService } from "./services/fulfillmentNoteCorrectionService.mjs";
 import { recognizeOrderConversation } from "../src/lib/orderConversationRecognition.js";
 import { parseOrderText } from "../src/lib/orderParser.js";
 import { confirmDraftOrder } from "../src/state/officeOrderActions.js";
@@ -191,6 +192,7 @@ export function createApiSharedServiceRegistry() {
     printJobBusinessProjectionService,
   });
   const fulfillmentPrintCommandService = createFulfillmentPrintCommandService({
+    fulfillmentNoteCorrectionService: createFulfillmentNoteCorrectionService({ findInventoryItem }),
     buildNotePrintStockDeduction: (...args) => fulfillmentActionCommandService.buildNotePrintStockDeduction(...args),
     buildFulfillmentActionRecord,
     buildFulfillmentPrintTemplate,

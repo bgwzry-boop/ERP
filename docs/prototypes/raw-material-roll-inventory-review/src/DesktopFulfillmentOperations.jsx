@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
 import { completeOfficePackingTask } from "../../../../src/services/officeProductionPackingApiClient.js";
+import { correctOfficeFulfillmentNote } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, getOfficeFulfillmentPickerSuggestions, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
@@ -37,6 +38,63 @@ export function operationsOwnStockPackingEntry(fulfillment, formal) {
   const task = fulfillment.packingTask ?? (formal?.data?.packingTasks ?? []).map(row => row.packingTask ?? row).find(row => (row.orderLineId ?? row.lineId) === lineId);
   const stockPacking = !task && !Number(fulfillment.actualPackageCount || 0) && initialStockStatuses.includes(fulfillment.status);
   return task?.status === "待打包" || stockPacking || Number(fulfillment.actualPackageCount || 0) > 0;
+}
+
+// 负责人 2026-11-12「作废重打」：送货单 / 自提单打出来以后（含已拉走、已入对账单）发现错了，在这里改对、作废旧单、重打新单。
+function NoteCorrectionPanel({ fulfillment, formal, pickupNote }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ correctedQty: "", correctedUnitPrice: "", address: "", pickerName: "", voidWhole: false, reason: "" });
+  const [state, setState] = useState({ busy: false, message: "", error: "" });
+  const key = useRef("");
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const set = (name) => (event) => { key.current = ""; const value = event.target.type === "checkbox" ? event.target.checked : event.target.value; setForm((current) => ({ ...current, [name]: value })); };
+  const currentQty = fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty;
+  async function submit() {
+    if (state.busy) return;
+    if (!form.reason.trim()) { setState({ busy: false, message: "", error: "请写一句为什么作废重打。" }); return; }
+    key.current ||= createOfficeIdempotencyKey();
+    setState({ busy: true, message: "", error: "" });
+    const result = await correctOfficeFulfillmentNote({ authState: formal?.authState, operatorId: formal?.operatorId, fulfillment, idempotencyKey: key.current, ...form }, { serverRequired: true });
+    if (!mounted.current) return;
+    if (result.blocked) { setState({ busy: false, message: "", error: result.error?.message || "作废重打没有保存。" }); return; }
+    key.current = "";
+    const changes = (result.changes ?? []).join("，");
+    if (!result.reprint) {
+      setState({ busy: false, error: "", message: `已作废：${changes}。${result.statementNeedsResend ? "对账单已经发给客户的，请重新发一次。" : ""}` });
+      await formal?.actions?.refreshAll?.();
+      return;
+    }
+    setState({ busy: true, error: "", message: `已作废旧单（${changes}），正在重打…` });
+    const reprint = await printOfficeFulfillment({ authState: formal?.authState, operatorId: formal?.operatorId, fulfillment, action: "打印出库单", printAction: "reprint",
+      previousPrintRecordId: result.previousPrintRecordId, reprintReason: `作废重打：${form.reason.trim()}`, idempotencyKey: createOfficeIdempotencyKey(),
+      ...(pickupNote && form.pickerName.trim() ? { pickerName: form.pickerName.trim() } : {}) }, { serverRequired: true });
+    if (!mounted.current) return;
+    if (reprint.blocked) { setState({ busy: false, message: "", error: `旧单已作废，但新单没打出来：${reprint.error?.message || "请在上面重新打印。"}` }); await formal?.actions?.refreshAll?.(); return; }
+    const jobId = reprint.printJobId ?? reprint.printJob?.printJobId;
+    const printed = jobId && BROWSER_PRINT_MODES.has(String(reprint.printJob?.driverMode ?? "").trim())
+      ? await printNotesInBrowser({ printJobIds: [jobId], authState: formal?.authState, operatorId: formal?.operatorId }) : null;
+    if (!mounted.current) return;
+    setState({ busy: false, error: "", message: `${printed?.message || "新单已排队打印。"}${result.statementNeedsResend ? " 对账单已经发给客户的，请重新发一次。" : ""}` });
+    await formal?.actions?.refreshAll?.();
+  }
+  return <fieldset className="note-correction" disabled={state.busy}>
+    <legend>作废重打</legend>
+    {!open ? <><p>单子打错了（数量、单价、地址提货人，或整张不要了），已经拉走、已经对账也能改。</p><button type="button" onClick={() => setOpen(true)}>作废重打…</button></> : <>
+      <label className="note-correction-check"><input type="checkbox" checked={form.voidWhole} onChange={set("voidWhole")} />整张不要了（作废不重打；扣过的库存退回，对账单删掉这一行）</label>
+      {!form.voidWhole ? <div className="fulfillment-operation-grid">
+        <label>实际数量<input inputMode="numeric" value={form.correctedQty} onChange={set("correctedQty")} placeholder={`现在 ${currentQty ?? "—"}，不改留空`} /></label>
+        <label>单价（元/个）<input inputMode="decimal" value={form.correctedUnitPrice} onChange={set("correctedUnitPrice")} placeholder="不改留空" /></label>
+        <label>送货地址<input maxLength={120} value={form.address} onChange={set("address")} placeholder="不改留空" /></label>
+        {pickupNote ? <label>提货人<input maxLength={20} value={form.pickerName} onChange={set("pickerName")} placeholder="不改留空" /></label> : null}
+      </div> : null}
+      <label>为什么作废重打<input maxLength={200} value={form.reason} onChange={set("reason")} placeholder="比如：数量写错了，实际 4800 个" /></label>
+      <p className="note-correction-hint">改数量、单价：扣过的库存按差额退回或补扣，对账单这一行跟着改；对账单已经发给客户的，改完要重新发。收过款的对账单不能在这里改，请找财务。</p>
+      {state.error ? <p className="fulfillment-operation-notice" role="alert">{state.error}</p> : null}
+      <div><button type="button" onClick={() => { setOpen(false); setState({ busy: false, message: "", error: "" }); }}>先不改</button><button type="button" className="primary" onClick={() => void submit()}>{state.busy ? "正在处理…" : form.voidWhole ? "确认整张作废" : "作废并重打"}</button></div>
+    </>}
+    {state.message ? <p className="fulfillment-operation-notice" role="status">{state.message}</p> : null}
+  </fieldset>;
 }
 
 export function parseActualPackageQuantities(text) {
@@ -229,6 +287,8 @@ function FulfillmentOperations({ fulfillment, formal }) {
       {customMixedOpen ? <MixedPackageWorkbench collapseIntro authState={formal?.authState} fulfillmentId={fulfillment.id ?? fulfillment.fulfillmentId} orderLineId={lineId} onSaved={() => formal?.actions?.refreshAll?.()} onBusyChange={setBusy} /> : null}
       </div>
     </div> : null}
+    {can("fulfillment.print") && (fulfillment.printed === true || fulfillment.activePrintRecordId) && !["已取消", "已作废"].includes(fulfillment.status)
+      ? <NoteCorrectionPanel key={`${fulfillment.id}:${fulfillment.revision ?? 0}`} fulfillment={fulfillment} formal={formal} pickupNote={pickupNote} /> : null}
     <h3>出库办理</h3>
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}

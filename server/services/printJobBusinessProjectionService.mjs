@@ -164,7 +164,7 @@ function planNoteStockDeduction({ workspace, fulfillment, printJob, beforePrintR
   if (!physicalPrintConfirmed || !fulfillment || !STOCK_NOTE_DOCUMENT_TYPES.has(documentType) || typeof buildNotePrintStockDeduction !== "function") return null;
   if (normalizeText(fulfillment.stockDeductedAt)) return null;
   const movements = buildNotePrintStockDeduction(workspace, fulfillment, { operatorId });
-  if (movements.inventoryDeductionMode === "fulfillment_closed") return null;
+  if (["fulfillment_closed", "already_left"].includes(movements.inventoryDeductionMode)) return null;
   const confirmation = printJob?.metadata?.warehouseStockConfirmation ?? beforePrintRecord?.warehouseStockConfirmation ?? null;
   const confirmedBy = normalizeText(confirmation?.confirmedBy);
   if (movements.error) {

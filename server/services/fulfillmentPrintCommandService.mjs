@@ -9,6 +9,7 @@ import { readCompanyPrintProfile, isNotePrintStockDeductionEnabled } from "./com
 
 export function createFulfillmentPrintCommandService({
   buildNotePrintStockDeduction = null,
+  fulfillmentNoteCorrectionService = null,
   buildFulfillmentActionRecord,
   buildFulfillmentPrintTemplate,
   buildOperationLog,
@@ -26,6 +27,11 @@ export function createFulfillmentPrintCommandService({
     getTemplateId,
   })) {
     assertFunction(dependency, name);
+  }
+
+  async function correctFulfillmentNote(input) {
+    if (!fulfillmentNoteCorrectionService) return businessError(503, "NOTE_CORRECTION_UNAVAILABLE", "暂时不能作废重打，请稍后再试。");
+    return fulfillmentNoteCorrectionService.correctFulfillmentNote(input);
   }
 
   async function printFulfillment({ workspace, fulfillmentId, body = {}, operatorId }) {
@@ -114,7 +120,10 @@ export function createFulfillmentPrintCommandService({
       buildPrintDeviceSnapshot,
       now,
     });
-    const paperOutboundDocument = printableBody.printAction === "preview" || ["express_ltl_label","package_label"].includes(documentType)
+    // 负责人 2026-11-12：货已经出库 / 拉走 / 送到以后作废重打的单子只给客户和对账用，不再交库房出一次货。
+    const goodsAlreadyLeft = Boolean(normalizeText(before.physicalOutboundAt) || normalizeText(before.finalDeliveryAt) || normalizeText(before.deliveredAt)
+      || ["已交付", "已拉走", "已完成"].includes(normalizeText(before.status)));
+    const paperOutboundDocument = printableBody.printAction === "preview" || ["express_ltl_label","package_label"].includes(documentType) || goodsAlreadyLeft
       ? null
       : buildPaperOutboundDocument({
           workspace,
@@ -396,7 +405,7 @@ export function createFulfillmentPrintCommandService({
     return { printRecord: after, operationLogId: operationLog.id };
   }
 
-  return { printFulfillment, voidPrintRecord };
+  return { printFulfillment, voidPrintRecord, correctFulfillmentNote };
 }
 
 function printCommandResponse(transaction, body) {

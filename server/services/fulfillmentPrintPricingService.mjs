@@ -54,7 +54,11 @@ export function resolveFulfillmentPrintPricing({ workspace, fulfillment, orderLi
     const amount = line.finalAmount ?? line.final_amount;
     if (text(line.orderLineId ?? line.order_line_id) !== orderLineId || originalQty !== deliveredQty || !Number.isSafeInteger(chargeableQty) || !Number.isSafeInteger(freeQty) || chargeableQty < 0 || freeQty < 0 || chargeableQty + freeQty !== deliveredQty || !validNumber(amount)) throw invalid("本次交付数量与原入账凭据不一致，请先核对。");
     const recordedPrice = selectFulfillmentPriceSnapshot(billingSnapshot);
-    return { billingSnapshot, pricing: { deliveredQty, chargeableQty, freeQty, amount: Number(amount), unitPrice: null, phase: "recorded", source: "recorded_statement", statementLineId: text(line.id ?? line.statementLineId), ...legacyUnitPrices(workspace, recordedPrice) } };
+    // 负责人 2026-11-12：作废重打改过单价的，纸上的单价要和这一行金额对得上；对不上就只印一个合计单价。
+    const split = legacyUnitPrices(workspace, recordedPrice);
+    const parts = split.unitPrices ? split.unitPrices.bag + split.unitPrices.print + split.unitPrices.handle + split.unitPrices.snap : null;
+    const consistent = parts === null || chargeableQty === 0 || Math.abs(parts * chargeableQty - Number(amount)) <= 0.011;
+    return { billingSnapshot, pricing: { deliveredQty, chargeableQty, freeQty, amount: Number(amount), unitPrice: consistent ? null : Math.round((Number(amount) / chargeableQty) * 10_000) / 10_000, phase: "recorded", source: "recorded_statement", statementLineId: text(line.id ?? line.statementLineId), ...(consistent ? split : {}) } };
   }
   if (!billingSnapshot.lines.length && (workspace.statements ?? []).some(statement => (statement.lineIds ?? []).includes(orderLineId))) throw invalid("历史账单缺少分批入账明细，不能确定本次纸单金额。");
   const price = selectFulfillmentPriceSnapshot(billingSnapshot);
