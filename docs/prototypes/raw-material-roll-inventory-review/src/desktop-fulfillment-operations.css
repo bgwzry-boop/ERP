@@ -28,3 +28,8 @@
 .desktop-fulfillment-operations .fulfillment-picker-quick { display: flex; flex-wrap: wrap; gap: 6px; }
 .desktop-fulfillment-operations .fulfillment-picker-quick button { min-height: 32px; padding: 0 10px; }
 .desktop-fulfillment-operations .fulfillment-picker-quick button.is-active { border-color: var(--erp-accent-border); color: var(--erp-accent-ink); background: var(--erp-accent-soft); }
+/* 负责人 2026-11-08：打单扣库存的结果；没扣上的标黄提醒盘点。 */
+.fulfillment-stock-note { margin: 4px 0 0; color: var(--erp-text-muted); font-size: 12px; }
+.fulfillment-stock-note.warn { padding: 6px 8px; border-left: 3px solid var(--erp-warning); background: var(--erp-warning-bg); color: var(--erp-text); }
+.fulfillment-operation-confirm label { display: grid; gap: 4px; margin: 8px 0; font-size: 13px; }
+.fulfillment-operation-confirm label input { min-height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 13px; }

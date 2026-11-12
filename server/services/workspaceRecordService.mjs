@@ -149,6 +149,8 @@ export function createWorkspaceRecordService({ now = () => new Date() } = {}) {
       paperOutboundStatus: input.paperOutboundStatus ?? fulfillment.paperOutboundStatus ?? "待生成纸单",
       paperOutboundDocumentId: input.paperOutboundDocumentId ?? fulfillment.paperOutboundDocumentId ?? "",
       physicalOutboundAt: input.physicalOutboundAt ?? fulfillment.physicalOutboundAt ?? "",
+      stockDeductedAt: input.stockDeductedAt ?? fulfillment.stockDeductedAt ?? "",
+      stockDeductionNote: input.stockDeductionNote ?? fulfillment.stockDeductionNote ?? "",
       physicalExecutorEmployeeId:
         input.physicalExecutorEmployeeId ?? fulfillment.physicalExecutorEmployeeId ?? "",
       physicalOutboundDocumentId:

@@ -131,6 +131,8 @@ export async function printOfficeFulfillment(input, options = {}) {
         printAction: resolvedPrintAction,
         ...(resolvedPrintAction === "reprint" ? { previousPrintRecordId, reprintReason } : {}),
         ...(cleanText(input.pickerName) ? { pickerName: cleanText(input.pickerName) } : {}),
+        // 负责人 2026-11-08：线上库存不够时，出库工看过实物确认有货才能打。
+        ...(cleanText(input.warehouseStockConfirmation?.confirmedBy) ? { warehouseStockConfirmation: { confirmedBy: cleanText(input.warehouseStockConfirmation.confirmedBy) } } : {}),
         operatorId,
       },
     });

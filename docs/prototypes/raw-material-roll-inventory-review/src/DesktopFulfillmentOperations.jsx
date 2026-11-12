@@ -48,6 +48,8 @@ export function parseActualPackageQuantities(text) {
 
 function FulfillmentOperations({ fulfillment, formal }) {
   const [notice, setNotice] = useState("");
+  // 负责人 2026-11-08：打送货单就扣库存；线上库存不够时先让出库工看实物，确认有货再打。
+  const [stockShort, setStockShort] = useState(null);
   const [candidates, setCandidates] = useState({ warehouseExecutors: [], drivers: [], loading: true, error: "" });
   const [busy, setBusy] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
@@ -150,6 +152,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
         const unknown = !result.error?.status || result.error.status >= 500;
         setUncertain(unknown);
         setNotice(unknown ? "网络未确认结果，请保持当前内容并重试本次操作。" : result.error?.message || "未保存，请核对后再提交。");
+        if (!unknown && result.error?.code === "FULFILLMENT_NOTE_STOCK_SHORT") setStockShort({ label: current.label, execute: current.execute, payload: current.payload, summary: current.summary, confirmedBy: "" });
         if (!unknown) { attempt.current = null; setConfirmation(null); }
         return;
       }
@@ -230,7 +233,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
       {can("fulfillment.print") && stockOrder && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>备货小票</legend><p>现货先打小票给库房配货，备好后再打正式出库单。小票不带价钱，列出本订单所有现货。</p><button type="button" onClick={() => void printSlip()}>打印备货小票</button></fieldset>}
-      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p><details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details>{pickupNote ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}{paper?.status === "待打印确认" ? <button type="button" className="primary" onClick={() => void printPendingNote()}>打印纸单并确认</button> : null}<button type="button" hidden={paper?.status === "待打印确认"} onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button></fieldset>}
+      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p>{fulfillment.stockDeductionNote ? <p className={/没扣/u.test(fulfillment.stockDeductionNote) ? "fulfillment-stock-note warn" : "fulfillment-stock-note"}>库存：{fulfillment.stockDeductionNote}</p> : null}<details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details>{pickupNote ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}{paper?.status === "待打印确认" ? <button type="button" className="primary" onClick={() => void printPendingNote()}>打印纸单并确认</button> : null}<button type="button" hidden={paper?.status === "待打印确认"} onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button></fieldset>}
       {can("fulfillment.paper.handoff") && !fulfillment.legacyStateReviewRequired && paper?.status === "已打印待交库房" && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
       {can("fulfillment.warehouse.execute") && (fulfillment.warehouseTaskVisible || paper?.status === "已交库房") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
         <legend>库房实际执行</legend>
@@ -261,6 +264,12 @@ function FulfillmentOperations({ fulfillment, formal }) {
       </fieldset>}
       {!permissions.some(key => ["packing.complete", "fulfillment.print", "fulfillment.warehouse.execute", "fulfillment.dispatch.update", "fulfillment.complete", "fulfillment.pickup.confirm"].includes(key)) && <p>当前账号仅可查看，请由对应岗位办理。</p>}
     </>}
+    {stockShort && !confirmation ? <div className="fulfillment-operation-confirm" role="group" aria-label="出库工确认有货">
+      <strong>线上库存不够，先请出库工看实物</strong>
+      <p>系统里这个货的库存不够（或对不上），打出来扣不了库存。请出库工到库里看过，确认有货再打；打出来不扣库存，会提醒盘点修正。</p>
+      <label>出库工名字<input maxLength={20} value={stockShort.confirmedBy} onChange={(event) => setStockShort((value) => ({ ...value, confirmedBy: event.target.value }))} placeholder="比如：老王" /></label>
+      <div><button type="button" disabled={busy} onClick={() => setStockShort(null)}>先不打</button><button type="button" className="primary" disabled={busy || !stockShort.confirmedBy.trim()} onClick={() => { const next = stockShort; setStockShort(null); prepare(next.label, next.execute, { ...next.payload, warehouseStockConfirmation: { confirmedBy: next.confirmedBy.trim() } }, `${next.summary} 出库工${next.confirmedBy.trim()}已看过实物，确认有货。`); }}>出库工已确认有货，继续打印</button></div>
+    </div> : null}
     {confirmation && <div className="fulfillment-operation-confirm" role="group" aria-label="提交前核对"><strong>{confirmation.label}</strong><p>{confirmation.summary}</p><div><button type="button" disabled={busy || uncertain} onClick={() => setConfirmation(null)}>返回修改</button><button type="button" className="primary" disabled={busy} onClick={() => commit(uncertain)}>{busy ? "正在保存…" : uncertain ? "重试本次操作" : "确认提交"}</button></div></div>}
   </section>;
 }

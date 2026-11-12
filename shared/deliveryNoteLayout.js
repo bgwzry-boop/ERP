@@ -53,6 +53,8 @@ export const DEFAULT_COMPANY_PRINT_PROFILE = Object.freeze({
   address: "河北邢台宁晋河渠镇大召村",
   phone: "17367893639",
   footerNote: "以上货品请核对数量，如有质量问题，请在三个工作日内通知本公司，逾期恕不负责。",
+  // 负责人 2026-11-08：送货单 / 自提单打出来就扣成品库存。默认关，负责人在「打印与设备 → 单据抬头」里打开。
+  deductStockAtNotePrint: false,
 });
 
 export const DELIVERY_NOTE_SIGNATURES = Object.freeze({
@@ -70,6 +72,7 @@ export function normalizeCompanyPrintProfile(value = {}) {
     address: pick("address", 120),
     phone: pick("phone", 40),
     footerNote: pick("footerNote", 200),
+    deductStockAtNotePrint: value?.deductStockAtNotePrint === true || value?.deductStockAtNotePrint === "true",
     revision: Number.isSafeInteger(Number(value?.revision)) && Number(value?.revision) > 0 ? Number(value.revision) : 1,
     updatedAt: clean(value?.updatedAt),
     updatedBy: clean(value?.updatedBy),

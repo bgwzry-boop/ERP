@@ -8,6 +8,7 @@ const normalize = value => ({
   address: clean(value?.address),
   phone: clean(value?.phone),
   footerNote: clean(value?.footerNote),
+  deductStockAtNotePrint: value?.deductStockAtNotePrint === true,
   revision: Number(value?.revision) || 1,
   updatedAt: clean(value?.updatedAt),
 });
