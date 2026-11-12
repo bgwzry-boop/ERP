@@ -336,7 +336,7 @@
     "deep-link-auth:check": "node scripts/check-deep-link-auth-ui.mjs",
     "business-table-overflow:check": "node scripts/check-business-table-overflow-ui.mjs",
     "mobile-draft-exit-dialog:check": "node scripts/check-mobile-draft-exit-dialog-ui.mjs",
-    "status-tone:check": "node scripts/check-status-tone.mjs && node scripts/check-today-workbench.mjs && node scripts/check-order-track.mjs",
+    "status-tone:check": "node scripts/check-status-tone.mjs && node scripts/check-today-workbench.mjs && node scripts/check-order-track.mjs && node scripts/check-order-fabric-hint.mjs",
     "desktop-hit-targets:check": "node scripts/check-desktop-hit-targets-ui.mjs",
     "page-headings:check": "node scripts/check-page-headings-ui.mjs"
   },
