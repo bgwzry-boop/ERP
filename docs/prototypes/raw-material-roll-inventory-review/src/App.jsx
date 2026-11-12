@@ -8,7 +8,6 @@ import {
   DollarCircleOutlined,
   FileTextOutlined,
   HomeOutlined,
-  InfoCircleOutlined,
   MenuOutlined,
   PlusOutlined,
   ReconciliationOutlined,
@@ -38,7 +37,7 @@ import { getUiActionState } from "../../../../src/auth/seedPermissions.js";
 import { RawMaterialReceiveDialog } from "../../../../src/features/raw-materials/RawMaterialReceiveDialog.jsx";
 import { RawMaterialSupplierColorMappingDialog } from "../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx";
 import { formatRawMaterialColorDisplay } from "../../../../src/features/raw-materials/rawMaterialColorDisplay.js";
-import { ColorChip, FACTORY_COLORS, RAW_MATERIAL_COLOR_NAMES } from "./FactoryColor.jsx";
+import { ColorChip, RAW_MATERIAL_COLOR_NAMES } from "./FactoryColor.jsx";
 import {
   buildInventoryWidthOptions,
   compactRollCode,
@@ -47,6 +46,7 @@ import {
   resolveRollSpecification,
   sortInventoryRollsByWidth,
 } from "./roll-inventory-presentation.js";
+import { buildStockMatrix, cellTone, lookupFabric, parseFabricQuery } from "./stockMatrix.js";
 import { useFormalDesktopWorkspace } from "./useFormalDesktopWorkspace.js";
 import { ReceiptWorkspace } from "./ReceiptWorkspace.jsx";
 import { CollectionFeedback, EmptyWorkspace, WorkspaceErrorBoundary } from "./WorkspaceFeedback.jsx";
@@ -103,37 +103,6 @@ function InventoryStatusCards({ summary }) {
     <div className="dock-status-card machine-side" role="listitem"><span className="dock-status-line"><span className="dock-status-label">机边</span><span className="dock-status-value"><strong>{summary.machineSide.count}</strong>卷</span><small>{summary.machineSide.count > 0 ? formatWeight(summary.machineSide.weight) : "暂无"}</small></span></div>
     <div className="dock-status-card review" role="listitem"><span className="dock-status-line"><span className="dock-status-label">余料待复核</span><span className="dock-status-value"><strong>{summary.review.count}</strong>卷</span></span></div>
   </div>;
-}
-
-function buildDistribution(sourceRolls) {
-  const groups = new Map();
-  sourceRolls.filter((roll) => roll.status === "可用").forEach((roll) => {
-    if (!groups.has(roll.width)) groups.set(roll.width, new Map());
-    const colors = groups.get(roll.width);
-    const current = colors.get(roll.color) || { color: roll.color, countValue: 0, weightValue: 0 };
-    current.countValue += 1;
-    current.weightValue += roll.weight;
-    colors.set(roll.color, current);
-  });
-
-  const widthOrder = buildInventoryWidthOptions(sourceRolls).slice(1).filter((width) => groups.has(width));
-  return widthOrder.map((width) => {
-    const unit = width.includes("把条") ? "件" : "卷";
-    const items = Array.from(groups.get(width).values());
-    const maxWeight = Math.max(...items.map((item) => item.weightValue));
-    const maxCount = Math.max(...items.map((item) => item.countValue));
-    const countValue = items.reduce((sum, item) => sum + item.countValue, 0);
-    const weightValue = items.reduce((sum, item) => sum + item.weightValue, 0);
-    return {
-      width,
-      total: weightValue > 0 ? `${countValue}${unit} / ${formatWeight(weightValue)}` : `${countValue}${unit}`,
-      items: items.map((item) => ({
-        color: item.color,
-        count: item.weightValue > 0 ? `${item.countValue}${unit} / ${formatWeight(item.weightValue)}` : `${item.countValue}${unit}`,
-        percent: Math.max(18, Math.round(((maxWeight > 0 ? item.weightValue / maxWeight : item.countValue / maxCount) || 0) * 100)),
-      })),
-    };
-  });
 }
 
 const pcNavIcons = {
@@ -201,26 +170,45 @@ function SelectField({ label, value, onChange, options }) {
   return <label className="select-field"><span className="sr-only">{label}</span><select aria-label={label} onChange={(event) => onChange(event.target.value)} value={value}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>;
 }
 
-function DistributionRail({ activeBucket, distributionGroups, machineSideCount, onBucketChange, selectedRoll, onOpenSource, onOpenOperations, formal }) {
-  return <aside className="distribution-rail" aria-label="可用库存分布">
-    <section className="distribution-panel">
-      <header><div><h2>可用库存分布</h2><small>不含机边库存</small></div><InfoCircleOutlined /></header>
-      <div className="distribution-scroll">
-        {distributionGroups.length ? distributionGroups.map((group) => <section className="distribution-group" key={group.width}>
-          <div className="distribution-group-head"><strong>{group.width}</strong><span>{group.total}</span></div>
-          {group.items.map((item) => {
-            const key = `${group.width}::${item.color}`;
-            const active = activeBucket === key;
-            return <button aria-pressed={active} className={`distribution-item${active ? " active" : ""}`} key={item.color} onClick={() => onBucketChange(active ? "" : key)} type="button">
-              <span className="distribution-label"><ColorChip color={item.color} /><b>{item.color}</b></span>
-              <span className="distribution-bar"><i style={{ background: FACTORY_COLORS[item.color], width: `${item.percent}%` }} /></span>
-              <span className="distribution-count">{item.count}</span>
-            </button>;
+// 负责人 2026-11-08 设计稿：库存一眼看「颜色 × 宽幅」，再加查布（「90 红」或袋子尺寸「30*37*10 红」）。
+// 点格子 = 按这一格筛下面的台账；表格不换行、列对齐，颜色多了在面板里上下滚。
+function StockMatrixPanel({ activeBucket, formal, matrix, onBucketChange, rolls, summary }) {
+  const [fabricInput, setFabricInput] = useState("");
+  const fabric = useMemo(() => lookupFabric(rolls, parseFabricQuery(fabricInput)), [fabricInput, rolls]);
+  const columns = `minmax(108px, max-content) repeat(${Math.max(1, matrix.widths.length)}, minmax(84px, 1fr))`;
+  const readState = formal.meta.collections?.rawMaterialInbounds;
+  const toggle = (key) => onBucketChange(activeBucket === key ? "" : key);
+  return <section aria-label="颜色 × 宽幅" className="stock-matrix-panel">
+    <header className="stock-matrix-head">
+      <div><h2>颜色 × 宽幅</h2><span>可用 {summary.available.count} 卷 · {formatWeight(summary.available.weight)}</span><span>机边 {summary.machineSide.count} 卷</span><span>余料待复核 {summary.review.count} 卷</span></div>
+      <label className="stock-fabric-search"><b>查布</b><input aria-label="查布" onChange={(event) => setFabricInput(event.target.value)} placeholder="输「90 红」或袋子尺寸「30*37*10 红」" value={fabricInput} />{fabricInput ? <button aria-label="清空查布" onClick={() => setFabricInput("")} type="button">×</button> : null}</label>
+    </header>
+    {fabric ? <div aria-live="polite" className={`stock-fabric-result${fabric.count ? "" : " none"}`} role="status">
+      <strong>{fabric.label}</strong>
+      {fabric.count ? <><span>库里 {fabric.count} 卷 · {formatWeight(fabric.kg)}</span>{fabric.items.map((item) => <button aria-pressed={activeBucket === item.key} key={item.key} onClick={() => toggle(item.key)} type="button"><ColorChip color={item.swatch} />{item.width} {item.color} {item.count} 卷</button>)}</> : <span>库里没有，记得订购 / 采购</span>}
+    </div> : null}
+    {matrix.rows.length ? <div className="stock-matrix-scroll">
+      <div aria-label="可用卷料：颜色 × 宽幅" className="stock-matrix" role="table" style={{ gridTemplateColumns: columns }}>
+        <div className="stock-matrix-row" role="row"><span className="stock-matrix-corner" role="columnheader">颜色</span>{matrix.widths.map((width) => <span className="stock-matrix-width" key={width.label} role="columnheader">{width.label}</span>)}</div>
+        {matrix.rows.map((row) => <div className="stock-matrix-row" key={row.color} role="row">
+          <span className="stock-matrix-color" role="rowheader" title={row.color}><ColorChip color={row.swatch} /><b>{row.color}</b></span>
+          {matrix.widths.map((width) => {
+            const cell = row.cells[width.label];
+            const tone = cellTone(cell);
+            const key = `${width.label}::${row.color}`;
+            if (tone === "empty") return <span aria-label={`${width.label} ${row.color} 没有`} className="stock-matrix-cell empty" key={width.label} role="cell">—</span>;
+            return <button aria-label={`${width.label} ${row.color} ${cell.count} 卷 ${formatWeight(cell.kg)}`} aria-pressed={activeBucket === key} className={`stock-matrix-cell ${tone}${activeBucket === key ? " picked" : ""}`} key={width.label} onClick={() => toggle(key)} role="cell" type="button"><strong>{cell.count} 卷</strong><small>{formatWeight(cell.kg)}</small></button>;
           })}
-        </section>) : <div className="distribution-empty"><strong>当前筛选没有可用卷料</strong><span>清除状态或库位筛选后再看分布</span></div>}
+        </div>)}
       </div>
-      <button className="machine-side-disclosure" type="button"><span><RightOutlined />机边库存（不计入可用）</span><b>{machineSideCount}卷</b></button>
-    </section>
+    </div> : <div className="distribution-empty"><strong>{readState?.error ? "卷料读取失败" : readState?.loading || !readState?.hasLoaded ? "正在读取卷料…" : "库里还没有可用卷料"}</strong><span>{readState?.error ? "点下面的「重新读取」再试。" : "贴标入库后，这里按颜色和宽幅汇总。"}</span></div>}
+    {matrix.strips.length ? <p className="stock-matrix-strips"><b>把条</b>{matrix.strips.map((strip) => <button aria-pressed={activeBucket === strip.key} key={strip.key} onClick={() => toggle(strip.key)} type="button"><ColorChip color={strip.swatch} />{strip.color} {strip.count} 件</button>)}</p> : null}
+    <footer className="stock-matrix-legend"><span><i className="low" />只剩 1 卷</span><span>（豆沙绿）= 还没对应我厂颜色，照常可用</span><span>点格子看下面这一格的每一卷</span></footer>
+  </section>;
+}
+
+function DistributionRail({ selectedRoll, onOpenSource, onOpenOperations, formal }) {
+  return <aside className="distribution-rail" aria-label="选中卷料">
     <section className="trace-panel">
       <header><h2>选中卷料来源</h2></header>
       {selectedRoll ? <><dl>
@@ -279,7 +267,7 @@ function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [
 
   const inventorySummary = useMemo(() => summarizeInventory(sourceRolls), [sourceRolls]);
 
-  const distributionGroups = useMemo(() => buildDistribution(filteredRolls), [filteredRolls]);
+  const stockMatrix = useMemo(() => buildStockMatrix(sourceRolls), [sourceRolls]);
   const widthOptions = useMemo(() => buildInventoryWidthOptions(sourceRolls), [sourceRolls]);
   const pageSize = 20;
   const pageCount = Math.max(1, Math.ceil(matchingRolls.length / pageSize));
@@ -293,6 +281,7 @@ function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [
   const hasActiveFilters = Boolean(query.trim() || status !== "可用" || width !== "全部宽幅" || color !== "全部颜色" || location !== "全部库位" || activeBucket);
 
   return <div className="inventory-workbench">
+    <StockMatrixPanel activeBucket={activeBucket} formal={formal} matrix={stockMatrix} onBucketChange={(value) => { setStatus("可用"); setBucket(value); }} rolls={sourceRolls} summary={inventorySummary} />
     <section className={`ledger-panel${hasActiveFilters ? " has-filter-feedback" : ""}`}>
       <div className="filter-row">
         <label className="roll-search"><SearchOutlined /><input onChange={(event) => setFilter(setQuery)(event.target.value)} placeholder="搜索卷码 / 颜色 / 宽幅 / 供应商" value={query} /></label>
@@ -312,7 +301,7 @@ function RollInventory({ onOpenSource, onOpenOperations, formal, sourceRolls = [
       </div>
       <footer className="table-footer"><span>共 {matchingRolls.length} 条</span><div><button type="button">20 条/页 <DownOutlined /></button><button aria-label="上一页" disabled={safePage === 1} onClick={() => setPage(Math.max(1, safePage - 1))} type="button">‹</button>{Array.from({ length: pageCount }, (_, index) => index + 1).map((pageNumber) => <button aria-current={safePage === pageNumber ? "page" : undefined} className={safePage === pageNumber ? "current" : ""} key={pageNumber} onClick={() => setPage(pageNumber)} type="button">{pageNumber}</button>)}<button aria-label="下一页" disabled={safePage === pageCount} onClick={() => setPage(Math.min(pageCount, safePage + 1))} type="button">›</button><span>前往</span><input aria-label="前往页码" max={pageCount} min="1" onChange={(event) => setPage(Math.min(pageCount, Math.max(1, Number(event.target.value) || 1)))} type="number" value={safePage} /><span>页</span></div></footer>
     </section>
-    <DistributionRail activeBucket={activeBucket} distributionGroups={distributionGroups} machineSideCount={inventorySummary.machineSide.count} onBucketChange={setBucket} onOpenSource={() => onOpenSource(selectedRoll)} onOpenOperations={onOpenOperations} formal={formal} selectedRoll={selectedRoll} />
+    <DistributionRail onOpenSource={() => onOpenSource(selectedRoll)} onOpenOperations={onOpenOperations} formal={formal} selectedRoll={selectedRoll} />
   </div>;
 }
 

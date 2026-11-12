@@ -90,10 +90,13 @@
 
 @media (max-width: 1180px) {
   /* 卷料库存：台账和分布上下排（原样式把分布固定在第 2 列）。 */
-  .app-shell .inventory-workbench > .ledger-panel { grid-column: 1; grid-row: 1; }
+  /* 颜色×宽幅表格放最上面、矮一点（框内滚动），台账至少留出能看几行的高度，整页可以往下滚。 */
+  .app-shell .inventory-workbench { grid-template-rows: auto minmax(340px, 1.4fr) minmax(0, 1fr); overflow-y: auto; }
+  .app-shell .inventory-workbench > .stock-matrix-panel { grid-column: 1; grid-row: 1; max-height: 260px; }
+  .app-shell .inventory-workbench > .ledger-panel { grid-column: 1; grid-row: 2; }
   .app-shell .inventory-workbench > .distribution-rail {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 3;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     align-items: start;
   }
