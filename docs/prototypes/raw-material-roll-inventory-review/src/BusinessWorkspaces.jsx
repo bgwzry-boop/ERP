@@ -11,6 +11,7 @@ import {refreshAfterProductionPhotoReview} from "./production-review-refresh.js"
 import {resolveTodoWorkspaceLink} from "./todo-workspace-link.js";
 import { TodoReminderForm } from "../../../../src/features/todos/TodoReminderForm.jsx";
 import { STATUS_TONE_LABEL, statusTone } from "./status-tone.js";
+import { TODAY_GROUPS, buildTodayItems, todayStatus } from "./todayItems.js";
 import { ProductionPhotoReview } from "./ProductionPhotoReview.jsx";
 import { DriverExceptionResolutionPanel } from "../../../../src/features/fulfillment/DriverExceptionResolutionPanel.jsx";
 import { EarlyShipmentPanel, ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
@@ -27,6 +28,7 @@ import {
   CheckCircleOutlined,
   FileTextOutlined,
   InfoCircleOutlined,
+  PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
   WarningOutlined,
@@ -516,7 +518,7 @@ function buildWorkspaceConfigs(formal) {
     source: "正式打印设备与作业 API",
   },
   "outbound-delivery": {
-    title: "出库交付",
+    title: "发货安排",
     description: "沿用 FulfillmentPage 的交付任务、方式、数量、库区和实物状态。",
     columns: ["客户 / 订单", "货品", "交付方式", "数量 / 包装", "状态"],
     rows: fulfillmentRows,
@@ -695,14 +697,14 @@ function PhysicalPackagesPanel({formal,fulfillmentId,orderLineId}) {
   return <section className="business-detail-section fulfillment-package-correction"><button className="primary" type="button" disabled={pending} onClick={()=>setOpen(value=>!value)}>{open?"收起实物包裹":"登记 / 更正实物包裹"}</button>{open?<><details className="fulfillment-note"><summary>混装规则</summary><p>通货可混装，含不足约 1000、来厂自提。逐项登记，并核对包内合计。</p><p>同一订单可混装尺寸和颜色。每个实物包只有一个包码，逐项核实后再打印贴牌。</p></details><MixedPackageWorkbench collapseIntro authState={formal.authState} fulfillmentId={fulfillmentId} orderLineId={resolvedLineId} onSaved={formal.actions.refreshAll} onBusyChange={setPending}/></>:null}</section>;
 }
 
-function FulfillmentWorkspace({ formal, onNavigate }) {
+function FulfillmentWorkspace({ formal, onNavigate, focus = null }) {
   const records = useMemo(
     () => buildFulfillmentRows(formal.data.fulfillments, formal.data.orderLines),
     [formal.data.fulfillments, formal.data.orderLines],
   );
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("全部状态");
-  const [selectedId, setSelectedId] = useState(records[0]?.id || "");
+  const [selectedId, setSelectedId] = useState(focus?.recordId || records[0]?.id || "");
   const [notice, setNotice] = useState("");
   const statuses = useMemo(() => [...new Set(records.map((record) => record.status).filter(Boolean))], [records]);
   const rows = useMemo(() => records.filter((record) => {
@@ -722,7 +724,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
 
   return <div className="business-workbench fulfillment-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h1>出库交付</h1><StatusToneLegendRow /><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>发货安排</h1><StatusToneLegendRow /><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label="出库交付搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索客户 / 订单 / 货品 / 交付方式" value={query} /></label><select aria-label="出库交付状态" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div aria-label="出库交付列表" className="business-table" role="table">
         <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">客户 / 订单</span><span role="columnheader">货品</span><span role="columnheader">方式</span><span role="columnheader">本次 / 包装</span><span role="columnheader">状态</span></div>
@@ -992,6 +994,51 @@ function todoMatchesView(todo, view) {
 
 
 
+// 负责人 2026-11-08：工作台「今天」。分类按钮 + 一件事一行（客户 ｜ 订单 ｜ 卡在哪 ｜ 按钮），急的在上面。
+export function TodayWorkspace({ formal, onNavigate }) {
+  const items = useMemo(() => buildTodayItems({
+    orderLines: formal.data.orderLines,
+    fulfillments: formal.data.fulfillments,
+    rawMaterialInbounds: formal.data.rawMaterialInbounds,
+    customers: formal.data.customers,
+  }), [formal.data.orderLines, formal.data.fulfillments, formal.data.rawMaterialInbounds, formal.data.customers]);
+  const [group, setGroup] = useState("all");
+  const visible = group === "all" ? items : items.filter((item) => item.group === group);
+  const counts = new Map(TODAY_GROUPS.map((entry) => [entry.key, items.filter((item) => item.group === entry.key).length]));
+  const today = new Date();
+  const dateLabel = `${today.getMonth() + 1}月${today.getDate()}日 · 星期${"日一二三四五六"[today.getDay()]}`;
+  const go = (item) => {
+    const { navId, focus } = item.action;
+    if (navId === "material-receiving") return onNavigate(navId, { receiptId: focus.recordId });
+    return onNavigate(navId, { preserveWorkspaceFocus: true, workspaceFocus: { token: `today:${item.id}:${Date.now()}`, navId, recordId: focus.recordId } });
+  };
+  // 数据没读全、读失败时不能说"没有要办的事"，免得漏办。
+  const status = todayStatus(items, formal.meta);
+  const loading = status.state === "loading";
+  const failed = status.state === "failed";
+  return <div className="today-workbench">
+    <header className="today-head">
+      <div><span>{dateLabel}</span><h1>{failed ? "今天的事没读出来，请点刷新重试" : loading ? "正在读取今天的事…" : items.length ? <>今天要办 <b>{items.length}</b> 件事</> : "今天没有要办的事"}</h1></div>
+      <div className="today-head-actions"><WorkbenchHeadingActions countLabel="" onRefresh={formal.actions.refreshAll} /><button className="primary" onClick={() => onNavigate("order-entry")} type="button"><PlusOutlined />开单</button></div>
+    </header>
+    <div aria-label="要办的事分类" className="today-segs" role="tablist">
+      <button aria-selected={group === "all"} onClick={() => setGroup("all")} role="tab" type="button">全部要办<b>{items.length}</b></button>
+      {TODAY_GROUPS.map((entry) => <button aria-selected={group === entry.key} data-tone={entry.tone} key={entry.key} onClick={() => setGroup(entry.key)} role="tab" type="button"><i aria-hidden="true" />{entry.label}<b>{counts.get(entry.key)}</b></button>)}
+    </div>
+    <section aria-label="今天要办的事" className="today-list">
+      {visible.length ? TODAY_GROUPS.filter((entry) => visible.some((item) => item.group === entry.key)).map((entry) => <div className="today-group" key={entry.key}>
+        <div className="today-group-head" data-tone={entry.tone}><i aria-hidden="true" />{entry.label}<b>{counts.get(entry.key)}</b></div>
+        {visible.filter((item) => item.group === entry.key).map((item) => <div className="today-row" data-tone={entry.tone} key={item.id}>
+          <strong title={item.title}>{item.title}</strong>
+          <span className="today-text" title={item.text}>{item.text}</span>
+          <span className="today-note">{item.note}</span>
+          <button onClick={() => void go(item)} type="button">{item.action.label}</button>
+        </div>)}
+      </div>) : <div className="business-empty"><CheckCircleOutlined /><strong>{failed ? "读取失败" : loading ? "正在读取" : "这一类没有要办的事"}</strong><span>{failed ? "订单、出库或收货数据没读出来，点右上角刷新再试。" : loading ? "订单、出库和收货读取完后会列在这里。" : "办完的事会从这里消失。"}</span></div>}
+    </section>
+  </div>;
+}
+
 export function TodoWorkspace({ formal, onNavigate }) {
   const sortedTodos = useMemo(() => sortTodos(formal.data.todos), [formal.data.todos]);
   const [view, setView] = useState("未处理");
@@ -1054,7 +1101,7 @@ function OrderPoolWorkspace({ formal, onNavigate, focus = null }) {
   const hasRisk = officeOrders.some((order) => order.risk && order.risk !== "—");
   return <div className="business-workbench order-pool-workbench source-grounded-workbench">
     <section className="business-list-panel">
-      <header className="business-panel-heading"><h1>订单池</h1><StatusToneLegendRow /><WorkbenchHeadingActions countLabel={`${rows.length} / ${officeOrders.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <header className="business-panel-heading"><h1>订单跟踪</h1><StatusToneLegendRow /><WorkbenchHeadingActions countLabel={`${rows.length} / ${officeOrders.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
       <div className="order-pool-tools"><div className="business-subtabs" role="tablist">{["全部订单", "待处理", "生产中", "待出库"].map((item) => <button aria-selected={tab === item} key={item} onClick={() => setTab(item)} role="tab" type="button">{item}</button>)}</div><label><SearchOutlined /><input aria-label="订单池搜索" onChange={(event) => setQuery(event.target.value)} placeholder="客户 / 货品 / 规格 / 订单号" value={query} /></label></div>
       <div className={`order-ledger${hasRisk ? "" : " without-risk"}`} role="table" aria-label="订单池明细"><div className="order-ledger-row head"><span>客户</span><span>货品与规格</span><span data-numeric="true">数量</span><span>状态</span><span>交付</span>{hasRisk ? <span>风险</span> : null}</div><div className="business-table-body">{rows.length ? rows.map((order) => <button aria-pressed={selected?.id === order.id} className={`order-ledger-row${selected?.id === order.id ? " selected" : ""}`} key={order.id} onClick={() => { setSelectedId(order.id); setNotice(""); }} type="button"><strong>{order.customer}</strong><span className="order-product-cell"><strong>{order.product}</strong><small>{order.size} · {getLineColorSpecLabel(order) || order.color} <SemanticOrderTag kind="business" value={order.business} />{order.requirement ? <SemanticOrderTag kind="requirement" value={order.requirement} /> : null}</small></span><strong data-numeric="true">{order.qtyBasis === "incoming_rolls" ? <>{formatNumber(order.incomingRollCount)}<small>卷来料</small></> : <>{formatNumber(order.qty)}<small>个</small></>}</strong><span className="order-state-cell"><StateText>{order.status}</StateText>{/制袋中|丝印中|生产中/.test(order.status) ? <small>{order.machine}</small> : null}</span><span>{order.fulfillment}<small>{order.latest}</small></span>{hasRisk ? <span>{order.risk === "—" ? "—" : <StateText>{order.risk}</StateText>}</span> : null}</button>) : <div className="business-empty"><FileTextOutlined /><strong>服务器暂无订单</strong><span>刷新后仍为空时，请先在订单录入中创建订单。</span></div>}</div></div>
     </section>
@@ -1087,10 +1134,11 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   const focus = workspaceFocus?.navId === navId ? workspaceFocus : null;
   if (navId === "production-tasks" && productionFocusId) return <FocusedProductionWorkspace key={`${productionFocusId}:${formal.authState?.session?.accessToken || ""}`} formal={formal} onNavigate={onNavigate} taskId={productionFocusId} />;
   if (["customer-statements", "print-devices"].includes(navId)) return <FinanceOperationsWorkspace key={navId} formal={formal} navId={navId} onNavigate={onNavigate} />;
+  if (navId === "today") return <TodayWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-entry") return <OrderPricingEntryWorkspace key={`${formal.authState?.session?.accessToken || ""}:${formal.entryDraftId || "new"}`} formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-pool") return <OrderPoolWorkspace key={focus?.token || "order-pool"} formal={formal} focus={focus} onNavigate={onNavigate} />;
-  if (navId === "outbound-delivery") return <FulfillmentWorkspace formal={formal} onNavigate={onNavigate} />;
+  if (navId === "outbound-delivery") return <FulfillmentWorkspace key={focus?.token || "outbound-delivery"} focus={focus} formal={formal} onNavigate={onNavigate} />;
   if (navId === "supplier-month-end") return <SupplierSettlementWorkspace formal={formal} />;
   if (navId === "inventory-query") return <FinishedGoodsInventoryWorkspace category="无纺布袋" formal={formal} onNavigate={onNavigate} title="无纺布袋库存" />;
   if (navId === "laminated-inventory") return <FinishedGoodsInventoryWorkspace category="覆膜无纺布袋" formal={formal} onNavigate={onNavigate} title="覆膜袋库存" />;

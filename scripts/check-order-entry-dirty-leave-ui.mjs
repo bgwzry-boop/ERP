@@ -103,7 +103,7 @@ try {
   await page.waitForTimeout(400);
   assert.equal(await page.evaluate(() => window.location.hash), "#order-pool", "接受后地址必须是第一个意图的目标");
   assert.equal(await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').count(), 0, "不得落到第二个意图的页面");
-  assert.match(await page.locator("main").innerText(), /订单池/u);
+  assert.match(await page.locator("main").innerText(), /订单跟踪/u);
 
   // 7) 顶部新建订单确认打开时改 hash：取消后不得再排队一个离开确认
   await page.locator('[data-nav-id="order-entry"]').click();
@@ -136,7 +136,7 @@ try {
   await page.waitForTimeout(400);
   assert.equal(await page.evaluate(() => window.location.hash), "#order-pool", "接受后地址必须提交到第一次的目标");
   assert.equal(await page.locator('[data-nav-id="roll-inventory"][aria-current="page"]').count(), 0, "不得落在被拒绝的第二目标");
-  assert.match(await page.locator("main").innerText(), /订单池/u);
+  assert.match(await page.locator("main").innerText(), /订单跟踪/u);
 
   assert.deepEqual(blockedWrites, [], `不得发生业务写入: ${JSON.stringify(blockedWrites)}`);
   assert.deepEqual(pageErrors, [], `页面不得报错: ${JSON.stringify(pageErrors)}`);

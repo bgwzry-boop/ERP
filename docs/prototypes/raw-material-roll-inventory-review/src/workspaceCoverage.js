@@ -1,4 +1,5 @@
 export const completedBusinessWorkspaceIds = Object.freeze([
+  "today",
   "shared-todos",
   "order-entry",
   "order-pool",

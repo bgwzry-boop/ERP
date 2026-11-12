@@ -223,7 +223,7 @@ try {
   await page
     .getByRole("button", { name: "重新读取所选草稿", exact: true })
     .click();
-  await page.getByRole("heading", { name: "订单录入", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "开单", exact: true }).waitFor();
   assert.equal(
     await page.locator("#pricing-source").inputValue(),
     selected.sourceText,
@@ -347,7 +347,7 @@ try {
   );
   assert.equal(
     await page
-      .getByRole("button", { name: "查看订单池", exact: true })
+      .getByRole("button", { name: "查看订单跟踪", exact: true })
       .isDisabled(),
     true,
   );
@@ -574,7 +574,7 @@ try {
     window.formal.data.orderDrafts = [];
     window.render();
   }, holdDraft.body.draft.draftId);
-  await page.getByRole("heading", { name: "订单录入", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "开单", exact: true }).waitFor();
   assert.equal(await page.locator("#pricing-source").inputValue(), holdText);
   assert.equal(
     await page.getByLabel("第1行数量", { exact: true }).inputValue(),
@@ -660,7 +660,7 @@ try {
       },
     }),
   );
-  await page.getByRole("heading", { name: "订单录入", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "开单", exact: true }).waitFor();
   await page.evaluate(() =>
     window.deferredReads[0].resolve({
       source: "api",

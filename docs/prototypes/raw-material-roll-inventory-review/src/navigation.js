@@ -21,6 +21,8 @@ export const pcNavGroups = [
     label: "工作台",
     icon: "home",
     items: [
+      // 负责人 2026-11-08：办公室一打开先看「今天」——今天要办的事一件一行，点按钮直接去办。
+      { id: "today", label: "今天", allowedRoleKeys: ["office", "management"] },
       { id: "shared-todos", label: "公共待办", allowedRoleKeys: ["office", "management"], permissionKeys: ["todo.read"], countSource: "unhandledTodos" },
     ],
   },
@@ -29,8 +31,9 @@ export const pcNavGroups = [
     label: "订单管理",
     icon: "orders",
     items: [
-      { id: "order-entry", label: "订单录入", allowedRoleKeys: ["office", "management"], permissionKeys: ["order.create", "order.draft.save"] },
-      { id: "order-pool", label: "订单池", allowedRoleKeys: ["office", "management", "finance"] },
+      { id: "order-entry", label: "开单", allowedRoleKeys: ["office", "management"], permissionKeys: ["order.create", "order.draft.save"] },
+      { id: "order-pool", label: "订单跟踪", allowedRoleKeys: ["office", "management", "finance"] },
+      { id: "outbound-delivery", label: "发货安排", allowedRoleKeys: ["office", "management"], permissionKeys: ["fulfillment.read"] },
     ],
   },
   {
@@ -44,14 +47,13 @@ export const pcNavGroups = [
   },
   {
     id: "production",
-    label: "生产交付",
+    label: "生产车间",
     icon: "production",
     items: [
       { id: "production-tasks", label: "生产任务", allowedRoleKeys: ["office", "management"], permissionKeys: ["production.read"] },
       { id: "packing-labels", label: "打包/标签", allowedRoleKeys: ["office", "management"], permissionKeys: ["packing.read"] },
       { id: "print-devices", label: "打印与设备", allowedRoleKeys: ["office", "management"], permissionKeys: ["print.read"] },
       { id: "mold-changes", label: "换模工单", allowedRoleKeys: ["office", "management"], permissionKeys: ["maintenance.task.read"] },
-      { id: "outbound-delivery", label: "出库交付", allowedRoleKeys: ["office", "management"], permissionKeys: ["fulfillment.read"] },
     ],
   },
   {
@@ -95,6 +97,7 @@ export const pcNavGroups = [
 ];
 
 export const navViewMap = Object.freeze({
+  today: "今天",
   "shared-todos": "公共待办",
   "order-entry": "订单录入",
   "order-pool": "订单池",
