@@ -202,6 +202,8 @@ function projectFulfillment(workspace, value) {
       item.paperOutboundDocumentVersion ?? item.paper_outbound_document_version ?? paperOutboundDocument?.documentVersion ?? paperOutboundDocument?.document_version,
     ),
     physicalOutboundAt,
+    stockDeductedAt: cleanText(item.stockDeductedAt ?? item.stock_deducted_at),
+    stockDeductionNote: cleanText(item.stockDeductionNote ?? item.stock_deduction_note),
     physicalExecutorEmployeeId: cleanText(item.physicalExecutorEmployeeId ?? item.physical_executor_employee_id),
     physicalOutboundDocumentId: cleanText(item.physicalOutboundDocumentId ?? item.physical_outbound_document_id),
     physicalOutboundDocumentVersion: nonNegativeInteger(

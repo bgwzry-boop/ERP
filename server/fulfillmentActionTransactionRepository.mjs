@@ -528,7 +528,7 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
   return `
 BEGIN;
 WITH locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, packing_group_anchor_id, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id
+  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, packing_group_anchor_id, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id, stock_deducted_at
   FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
   FOR UPDATE
@@ -673,6 +673,8 @@ updated_fulfillment AS (
     paper_outbound_status = ${parameters.text(fulfillment.paperOutboundStatus)},
     paper_outbound_document_id = COALESCE(${parameters.nullableText(fulfillment.paperOutboundDocumentId)}, fulfillment_records.paper_outbound_document_id),
     physical_outbound_at = COALESCE(${parameters.nullableTimestamp(fulfillment.physicalOutboundAt)}, fulfillment_records.physical_outbound_at),
+    stock_deducted_at = COALESCE(fulfillment_records.stock_deducted_at, ${parameters.nullableTimestamp(fulfillment.stockDeductedAt)}),
+    stock_deduction_note = COALESCE(NULLIF(fulfillment_records.stock_deduction_note, ''), ${parameters.text(fulfillment.stockDeductionNote ?? "")}),
     physical_executor_employee_id = COALESCE(${parameters.nullableText(fulfillment.physicalExecutorEmployeeId)}, fulfillment_records.physical_executor_employee_id),
     physical_outbound_document_id = COALESCE(${parameters.nullableText(fulfillment.physicalOutboundDocumentId)}, fulfillment_records.physical_outbound_document_id),
     physical_outbound_document_version = COALESCE(${parameters.nullableInteger(
@@ -1089,6 +1091,8 @@ function toWorkspaceFulfillment(fulfillment) {
     paperOutboundStatus: normalized.paperOutboundStatus,
     paperOutboundDocumentId: normalized.paperOutboundDocumentId,
     physicalOutboundAt: normalized.physicalOutboundAt,
+    stockDeductedAt: normalized.stockDeductedAt,
+    stockDeductionNote: normalized.stockDeductionNote,
     physicalExecutorEmployeeId: normalized.physicalExecutorEmployeeId,
     physicalOutboundDocumentId: normalized.physicalOutboundDocumentId,
     physicalOutboundDocumentVersion: normalized.physicalOutboundDocumentVersion,
@@ -1265,6 +1269,8 @@ function normalizeFulfillmentRecord(record) {
     paperOutboundStatus: String(record.paperOutboundStatus ?? record.paper_outbound_status ?? "待生成纸单").trim() || "待生成纸单",
     paperOutboundDocumentId: String(record.paperOutboundDocumentId ?? record.paper_outbound_document_id ?? "").trim(),
     physicalOutboundAt: record.physicalOutboundAt ?? record.physical_outbound_at ?? "",
+    stockDeductedAt: record.stockDeductedAt ?? record.stock_deducted_at ?? "",
+    stockDeductionNote: String(record.stockDeductionNote ?? record.stock_deduction_note ?? "").trim(),
     physicalExecutorEmployeeId: String(
       record.physicalExecutorEmployeeId ?? record.physical_executor_employee_id ?? "",
     ).trim(),
@@ -2415,6 +2421,8 @@ function fulfillmentJsonExpression(alias) {
     'paperOutboundStatus', ${alias}.paper_outbound_status,
     'paperOutboundDocumentId', ${alias}.paper_outbound_document_id,
     'physicalOutboundAt', ${alias}.physical_outbound_at,
+    'stockDeductedAt', ${alias}.stock_deducted_at,
+    'stockDeductionNote', ${alias}.stock_deduction_note,
     'physicalExecutorEmployeeId', ${alias}.physical_executor_employee_id,
     'physicalOutboundDocumentId', ${alias}.physical_outbound_document_id,
     'physicalOutboundDocumentVersion', ${alias}.physical_outbound_document_version,
@@ -2821,7 +2829,7 @@ function assertLocalOutboundInventoryConservation(input) {
   const ledgers = input.inventoryLedgerEntries ?? [];
   const noMovements = !adjustments.length && !reservations.length && !ledgers.length;
   const current = workspace.fulfillments.find(row => (row.fulfillmentId ?? row.id) === fulfillmentId);
-  if (input.operationLog.action === "driver_complete_delivery" && current?.physicalOutboundAt) {
+  if ((input.operationLog.action === "driver_complete_delivery" && current?.physicalOutboundAt) || current?.stockDeductedAt) {
     if (!noMovements) fail();
     return;
   }
@@ -2903,7 +2911,9 @@ function buildOutboundInventoryConservationSql(input, fulfillment, parameters) {
   const noMovements = "NOT EXISTS (SELECT 1 FROM inventory_deltas) AND NOT EXISTS (SELECT 1 FROM reservation_updates) AND NOT EXISTS (SELECT 1 FROM inventory_ledger_deltas)";
   const noStockTypes = [...orderTypeAliasesFor("custom_special"), ...orderTypeAliasesFor("external_print")];
   const required = parameters.integer(fulfillment.actualQty);
+  // 负责人 2026-11-08：打送货单 / 自提单时已经扣过库存的，出库、送达时不能再扣。
   return `CASE WHEN ${input.operationLog?.action === "driver_complete_delivery" ? "EXISTS (SELECT 1 FROM locked_fulfillment WHERE physical_outbound_at IS NOT NULL)" : "FALSE"}
+      OR EXISTS (SELECT 1 FROM locked_fulfillment WHERE stock_deducted_at IS NOT NULL)
     THEN (${noMovements})
     ELSE EXISTS (SELECT 1 FROM locked_inventory_order_line)
       AND (${required} > 0)

@@ -5,9 +5,10 @@ import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared
 import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
-import { readCompanyPrintProfile } from "./companyPrintProfileService.mjs";
+import { readCompanyPrintProfile, isNotePrintStockDeductionEnabled } from "./companyPrintProfileService.mjs";
 
 export function createFulfillmentPrintCommandService({
+  buildNotePrintStockDeduction = null,
   buildFulfillmentActionRecord,
   buildFulfillmentPrintTemplate,
   buildOperationLog,
@@ -85,6 +86,23 @@ export function createFulfillmentPrintCommandService({
     // 送货单由司机送，不记提货人。
     const pickerName = documentType === "delivery_note" ? "" : normalizeText(printableBody.pickerName);
     if (pickerName.length > 20) return businessError(422, "FULFILLMENT_PICKER_NAME_INVALID", "拿货人名字不能超过 20 个字。");
+    // 负责人 2026-11-08：送货单 / 自提单打出来就扣成品库存。线上库存不够（或对不上这个货）时，
+    // 要出库工看过实物、确认有货才能打；打出来不扣，记一句提醒盘点。
+    let warehouseStockConfirmation = null;
+    if (["delivery_note", "pickup_note", "outbound_note"].includes(documentType) && printableBody.printAction !== "preview"
+      && typeof buildNotePrintStockDeduction === "function" && !normalizeText(before.stockDeductedAt)
+      && await isNotePrintStockDeductionEnabled(workspace)) {
+      const stockCheck = buildNotePrintStockDeduction(workspace, before, { operatorId });
+      if (stockCheck.error) {
+        const confirmedBy = normalizeText(printableBody.warehouseStockConfirmation?.confirmedBy);
+        if (!confirmedBy) {
+          return { ...businessError(409, "FULFILLMENT_NOTE_STOCK_SHORT", "线上库存不够（或库存里对不上这个货），打出来扣不了库存。请出库工看过实物，确认有货再打。"),
+            details: { stockErrorCode: stockCheck.error.code } };
+        }
+        if (confirmedBy.length > 20) return businessError(422, "FULFILLMENT_STOCK_CONFIRMER_INVALID", "出库工名字不能超过 20 个字。");
+        warehouseStockConfirmation = { confirmedBy, confirmedAt: now().toISOString(), recordedBy: operatorId, stockErrorCode: stockCheck.error.code };
+      }
+    }
     const printRecord = buildFulfillmentPrintRecord({
       workspace,
       fulfillmentId,
@@ -139,6 +157,7 @@ export function createFulfillmentPrintCommandService({
       operatorId,
       now,
     });
+    if (warehouseStockConfirmation) printJob.metadata = { ...(printJob.metadata ?? {}), warehouseStockConfirmation };
     const operationLog = buildOperationLog(workspace, {
       targetType: "fulfillment",
       targetId: fulfillmentId,

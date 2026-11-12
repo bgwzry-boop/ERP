@@ -105,6 +105,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
   }
 
   return {
+    buildNotePrintStockDeduction,
     createFulfillmentException,
     resolveFulfillmentQuantityVariance,
     handoffPaperOutboundDocument,
@@ -1593,7 +1594,9 @@ function cleanText(value) {
   }
 
   function buildInventoryMovements(workspace, fulfillment, input = {}) {
-    const physicalOutbound = input.physicalOutbound === true;
+    // 负责人 2026-11-08：打送货单 / 自提单时已经扣过库存，之后库房出库、送达、拉走都不再扣。
+    if (cleanText(fulfillment.stockDeductedAt) && input.notePrint !== true) return emptyInventoryMovements("deducted_at_note_print");
+    const physicalOutbound = input.physicalOutbound === true || input.notePrint === true;
     if (fulfillment.status !== "已交付" && !physicalOutbound) return emptyInventoryMovements("not_delivered");
     const orderLineId = fulfillment.orderLineId ?? fulfillment.lineId ?? "";
     const activeReservations = (workspace.inventoryReservations ?? []).filter(
@@ -1617,11 +1620,13 @@ function cleanText(value) {
     const inventoryLedgerEntries = [];
     const inventoryAdjustments = [];
     const projectedOnHandByItem = new Map();
-    const sourceType = input.action === "确认已拉走"
-      ? "fulfillment_pickup"
-      : physicalOutbound
-        ? "warehouse_physical_outbound"
-        : "fulfillment_complete";
+    const sourceType = input.notePrint === true
+      ? "fulfillment_note_print"
+      : input.action === "确认已拉走"
+        ? "fulfillment_pickup"
+        : physicalOutbound
+          ? "warehouse_physical_outbound"
+          : "fulfillment_complete";
 
     for (const reservation of activeReservations) {
       const reservedQty = Math.max(0, Number(reservation.reservedQty ?? reservation.qty ?? 0));
@@ -1658,12 +1663,26 @@ function cleanText(value) {
         sourceId: fulfillment.id,
         operatorId: input.operatorId ?? "U-OFFICE-A",
         confirmedBy: input.operatorId ?? "U-OFFICE-A",
-        reason: physicalOutbound ? "库房实物出库扣减库存" : "完成出库扣减库存",
-        remark: physicalOutbound ? `库房实物出库，释放占用 ${reservedQty}` : `释放占用 ${reservedQty}`,
+        reason: input.notePrint === true ? "打印送货单 / 自提单扣减库存" : physicalOutbound ? "库房实物出库扣减库存" : "完成出库扣减库存",
+        remark: input.notePrint === true ? `打单扣减，释放占用 ${reservedQty}` : physicalOutbound ? `库房实物出库，释放占用 ${reservedQty}` : `释放占用 ${reservedQty}`,
       });
     }
 
     return { inventoryReservations, inventoryLedgerEntries, inventoryAdjustments, inventoryDeductionMode: "reservation" };
+  }
+
+  // 负责人 2026-11-08：送货单 / 自提单打出来就扣成品库存。订单有占用按占用扣；没有占用的现货单按同款库存扣。
+  // 定制单（生产直发）不扣。线上库存不够或对不上时返回 error，打印前要出库工确认实物有货。
+  function buildNotePrintStockDeduction(workspace, fulfillment, input = {}) {
+    if (cleanText(fulfillment?.stockDeductedAt)) return emptyInventoryMovements("deducted_at_note_print");
+    if (["已取消", "已作废"].includes(cleanText(fulfillment?.status))) return emptyInventoryMovements("fulfillment_closed");
+    return buildInventoryMovements(workspace, fulfillment, {
+      actualQty: input.actualQty ?? fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty,
+      operatorId: input.operatorId,
+      action: "打印送货单",
+      notePrint: true,
+      allowUnreservedInventoryDeduction: true,
+    });
   }
 
   function emptyInventoryMovements(inventoryDeductionMode = "none") {
@@ -1736,15 +1755,17 @@ function cleanText(value) {
           qtyBefore: onHandBefore,
           qtyChange: -actualQty,
           qtyAfter: Math.max(0, onHandBefore - actualQty),
-          sourceType: input.action === "确认已拉走"
-            ? "fulfillment_pickup_legacy"
-            : input.physicalOutbound === true
-              ? "warehouse_physical_outbound_legacy"
-              : "fulfillment_complete_legacy",
+          sourceType: input.notePrint === true
+            ? "fulfillment_note_print"
+            : input.action === "确认已拉走"
+              ? "fulfillment_pickup_legacy"
+              : input.physicalOutbound === true
+                ? "warehouse_physical_outbound_legacy"
+                : "fulfillment_complete_legacy",
           sourceId: fulfillmentId,
           operatorId: input.operatorId ?? "U-OFFICE-A",
           confirmedBy: input.operatorId ?? "U-OFFICE-A",
-          reason: "旧单无 reservation，经库存匹配后完成出库扣减",
+          reason: input.notePrint === true ? "打印送货单 / 自提单扣减库存（订单没有占用，按同款库存扣）" : "旧单无 reservation，经库存匹配后完成出库扣减",
           remark: shouldReleaseReserved ? `同步释放旧汇总占用 ${Math.abs(reservedQtyChange)}` : "未发现旧汇总占用，仅扣在库",
         },
       ],
@@ -1794,6 +1815,34 @@ function cleanText(value) {
         reason: input.reason ?? "取消出库任务释放占用",
         remark: `取消出库任务释放占用 ${reservedQty}`,
       });
+    }
+
+    // 负责人 2026-11-08：打单时已经扣了库存的，取消时把扣掉的数量退回库存。
+    if (cleanText(fulfillment.stockDeductedAt)) {
+      const deducted = (workspace.inventoryLedgers ?? []).filter((entry) => entry.sourceType === "fulfillment_note_print"
+        && entry.sourceId === fulfillmentId && Number(entry.qtyChange) < 0);
+      const onHandByItem = new Map();
+      for (const entry of deducted) {
+        const qty = Math.abs(Number(entry.qtyChange));
+        const inventoryItem = findInventoryItem(workspace, entry.inventoryItemId);
+        const before = onHandByItem.has(entry.inventoryItemId) ? onHandByItem.get(entry.inventoryItemId) : Number(inventoryItem?.inStock ?? inventoryItem?.onHand ?? 0);
+        onHandByItem.set(entry.inventoryItemId, before + qty);
+        inventoryAdjustments.push({ inventoryItemId: entry.inventoryItemId, onHandQtyChange: qty, reservedQtyChange: 0 });
+        inventoryLedgerEntries.push({
+          ledgerId: nextPlainId("LEDGER", `${fulfillmentId}-${entry.ledgerId ?? entry.id}-RETURN`),
+          inventoryItemId: entry.inventoryItemId,
+          changeType: "取消出库退回库存",
+          qtyBefore: before,
+          qtyChange: qty,
+          qtyAfter: before + qty,
+          sourceType: "fulfillment_cancel_note_print_return",
+          sourceId: fulfillmentId,
+          operatorId: input.operatorId ?? "U-OFFICE-A",
+          confirmedBy: input.operatorId ?? "U-OFFICE-A",
+          reason: input.reason ?? "取消出库任务",
+          remark: `打单时扣了 ${qty}，取消后退回库存`,
+        });
+      }
     }
 
     return { inventoryReservations, inventoryLedgerEntries, inventoryAdjustments };

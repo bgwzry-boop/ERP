@@ -14,4 +14,6 @@
 .company-print-profile-muted { margin: 0; color: var(--erp-text-muted); font-size: 13px; }
 .company-print-profile-error { margin: 0; color: var(--erp-danger); }
 .company-print-profile-ok { margin: 0; color: var(--erp-success); }
+.company-print-profile-form label.company-print-profile-check { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; line-height: 1.5; }
+.company-print-profile-form label.company-print-profile-check input { min-height: 0; width: 16px; height: 16px; margin-top: 2px; flex: 0 0 auto; }
 @media (max-width: 560px) { .company-print-profile-form { grid-template-columns: minmax(0, 1fr); } }

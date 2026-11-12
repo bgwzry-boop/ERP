@@ -1,9 +1,12 @@
+import { isNotePrintStockDeductionEnabled } from "./companyPrintProfileService.mjs";
 import { isActivePackage, packageAnchorId } from "../../shared/packageContents.js";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 
 export function createPrintJobBusinessProjectionService({
   buildFulfillmentActionRecord,
   buildOperationLog,
+  // 负责人 2026-11-08：送货单 / 自提单打出来就扣成品库存（由出库服务算扣多少）。
+  buildNotePrintStockDeduction = null,
 } = {}) {
   assertFunction(buildFulfillmentActionRecord, "buildFulfillmentActionRecord");
   assertFunction(buildOperationLog, "buildOperationLog");
@@ -24,6 +27,7 @@ export function createPrintJobBusinessProjectionService({
         operatorId,
         reason,
         buildOperationLog,
+        buildNotePrintStockDeduction: await isNotePrintStockDeductionEnabled(workspace) ? buildNotePrintStockDeduction : null,
       });
       if (!plan) return { handled: false };
       if (!plan.fulfillment) {
@@ -67,6 +71,7 @@ export function createPrintJobBusinessProjectionService({
         printRecord: plan.printRecord,
         packages: plan.nextPackages,
         labelPrintCompletion: plan.labelPrintCompletion,
+        ...plan.stockDeduction,
         operationLog: plan.operationLog,
         printJob,
         printJobWriteMode,
@@ -99,6 +104,7 @@ export function createPrintJobBusinessProjectionService({
         operatorId,
         reason,
         buildOperationLog,
+        buildNotePrintStockDeduction: await isNotePrintStockDeductionEnabled(workspace) ? buildNotePrintStockDeduction : null,
       });
       if (!plan) return {};
       if (!plan.fulfillment) {
@@ -121,6 +127,7 @@ export function createPrintJobBusinessProjectionService({
         printRecord: plan.printRecord,
         packages: plan.nextPackages,
         labelPrintCompletion: plan.labelPrintCompletion,
+        ...plan.stockDeduction,
         operationLog: plan.operationLog,
       });
 
@@ -149,7 +156,37 @@ function applyFulfillmentProjection(workspace, plan, method, transactionInput) {
   });
 }
 
-function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, reason, buildOperationLog }) {
+const STOCK_NOTE_DOCUMENT_TYPES = new Set(["delivery_note", "pickup_note", "outbound_note"]);
+
+// 负责人 2026-11-08：送货单 / 自提单第一次确认打出来时扣成品库存。线上库存不够（打印前出库工已确认实物有货）
+// 时不扣，写一句说明提醒盘点；定制单生产直发不扣。扣过的单子以后出库、送达、拉走、重打都不再扣。
+function planNoteStockDeduction({ workspace, fulfillment, printJob, beforePrintRecord, documentType, physicalPrintConfirmed, operatorId, buildNotePrintStockDeduction }) {
+  if (!physicalPrintConfirmed || !fulfillment || !STOCK_NOTE_DOCUMENT_TYPES.has(documentType) || typeof buildNotePrintStockDeduction !== "function") return null;
+  if (normalizeText(fulfillment.stockDeductedAt)) return null;
+  const movements = buildNotePrintStockDeduction(workspace, fulfillment, { operatorId });
+  if (movements.inventoryDeductionMode === "fulfillment_closed") return null;
+  const confirmation = printJob?.metadata?.warehouseStockConfirmation ?? beforePrintRecord?.warehouseStockConfirmation ?? null;
+  const confirmedBy = normalizeText(confirmation?.confirmedBy);
+  if (movements.error) {
+    return {
+      movements: { inventoryReservations: [], inventoryLedgerEntries: [], inventoryAdjustments: [] },
+      note: confirmedBy
+        ? `线上库存不够，出库工${confirmedBy}看过实物确认有货后打印，没扣库存，请盘点修正`
+        : "打印时线上库存不够或对不上，没扣库存，请盘点修正",
+    };
+  }
+  const deducted = (movements.inventoryAdjustments ?? []).reduce((sum, item) => sum - Math.min(0, Number(item.onHandQtyChange ?? 0)), 0);
+  return {
+    movements: {
+      inventoryReservations: movements.inventoryReservations ?? [],
+      inventoryLedgerEntries: movements.inventoryLedgerEntries ?? [],
+      inventoryAdjustments: movements.inventoryAdjustments ?? [],
+    },
+    note: movements.inventoryDeductionMode === "production_direct" ? "定制单生产直发，不扣成品库存" : `打单已扣库存 ${deducted} 个`,
+  };
+}
+
+function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, reason, buildOperationLog, buildNotePrintStockDeduction }) {
   const printRecordId = normalizeText(printJob?.printRecordId);
   if (!printRecordId || printJob?.jobStatus === "preview_only" || printJob?.driverMode === "preview_only") return null;
 
@@ -189,9 +226,11 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
         revision: normalizeRevision(item.revision) + 1,
       }))
     : [];
+  const stockPlan = planNoteStockDeduction({ workspace, fulfillment, printJob, beforePrintRecord, documentType, physicalPrintConfirmed, operatorId, buildNotePrintStockDeduction });
   const nextFulfillment = physicalPrintConfirmed && fulfillment
     ? {
         ...fulfillment,
+        ...(stockPlan ? { stockDeductedAt: now, stockDeductionNote: stockPlan.note } : {}),
         ...(isPackageLabel ? { labelsPrinted: true } : { printed: true }),
         status:
           isPackageLabel && normalizeFulfillmentMethod(fulfillment.method) === "express_ltl" && fulfillment.status !== "已交付"
@@ -222,6 +261,7 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
       })
     : null;
   return {
+    stockDeduction: stockPlan?.movements ?? {},
     printRecordId,
     targetType: beforePrintRecord.targetType,
     jobStatus,
