@@ -110,8 +110,10 @@ export function splitLegacyUnitPrices(priceSnapshot) {
   } else if (evidence?.quote && Object.hasOwn(evidence.quote, "basePrice")) {
     handle = positive(evidence.quote.handleAddon);
     snap = positive(evidence.quote.specialRequirementAddon);
-  } else if (evidence?.kind === "erp_published_price" && evidence.handleFallback === true) {
-    handle = 0.03;
+  } else if (evidence?.kind === "erp_published_price") {
+    // 负责人 2026-11-12：加长提手按长度加价、加扣子 +0.10；旧快照没有这两项时，加长提仍按 0.03。
+    if (evidence.handleFallback === true) handle = Object.hasOwn(evidence, "handleAddon") ? positive(evidence.handleAddon) : 0.03;
+    snap = positive(evidence.snapAddon);
   }
   const round = value => Math.round((value + Number.EPSILON) * 10000) / 10000;
   if (handle + snap > bagPrice) { handle = 0; snap = 0; }
