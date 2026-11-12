@@ -1,3 +1,4 @@
+import { readSalesPrices } from "../services/salesPriceService.mjs";
 import { customerDeliveryAddresses, customerWithAddresses } from "../../shared/deliveryAddress.js";
 export async function handleMasterDataReadRoutes({
   url,
@@ -21,6 +22,15 @@ export async function handleMasterDataReadRoutes({
   sendBusinessError,
   sendFile,
 }) {
+  // 负责人 2026-11-12「销售价格」：办公室、负责人、财务都能看，只有负责人能改。
+  if (url.pathname === "/api/sales-prices") {
+    if (!requireActionPermission(response, permissionContext, "order.read")) return true;
+    const result = await readSalesPrices({ workspace });
+    if (result.error) { sendBusinessError(response, result.statusCode, result.code, result.message); return true; }
+    sendJson(response, 200, result);
+    return true;
+  }
+
   if (url.pathname === "/api/master-data/permission-catalog") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageSubaccounts)) return true;
     sendJson(response, 200, masterDataSubaccountCommandService.getPermissionCatalog());

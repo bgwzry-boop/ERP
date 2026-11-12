@@ -23,6 +23,8 @@ export const workspaceReadDependencies = Object.freeze({
   "customer-records": ["orderLines", "statements"],
   "people-machines": ["employeeAccountReviews", "machines"],
   "general-prices": [],
+  // 销售价格页自己读 /api/sales-prices，不需要工作台集合。
+  "sales-prices": [],
   "spec-inventory": [],
   "payroll-attendance": [],
   "launch-status": [],

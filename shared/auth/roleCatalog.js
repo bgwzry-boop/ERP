@@ -251,6 +251,8 @@ const definitions = {
       "fulfillment.cancel",
       "raw_material.inbound.review",
       "master_data.raw_material_color.manage",
+      // 负责人 2026-11-12：销售价格由负责人改。
+      "master_data.sales_price.manage",
       "raw_material.label.print",
       "raw_material.label.attach_confirm",
       "raw_material.issue.create",
@@ -365,6 +367,7 @@ const definitions = {
       "master_data.employee_account.password.issue",
       "master_data.employee_profile.manage",
       "master_data.raw_material_color.manage",
+      "master_data.sales_price.manage",
       "attendance.self.read",
       "attendance.sync",
       "attendance.review",

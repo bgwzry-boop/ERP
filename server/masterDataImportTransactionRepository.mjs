@@ -1,3 +1,4 @@
+import { createPostgresSalesPriceTableMethods, listLocalSalesPriceTables, saveLocalSalesPriceVersion } from "./salesPriceTableRepository.mjs";
 import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -83,6 +84,8 @@ export function createLocalMasterDataImportTransactionRepository(options = {}) {
       return state;
     },
     kind: "local_memory",
+    async listSalesPriceTables(input = {}) { return listLocalSalesPriceTables(input.workspace ?? {}); },
+    async saveSalesPriceVersion(input = {}) { return saveLocalSalesPriceVersion(input.workspace, input); },
 
     // 负责人 2026-11-04：首次送到时把司机手机定位记到这个客户地址上；已有定位不覆盖。
     async recordCustomerAddressLocation(input = {}) {
@@ -262,6 +265,10 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
 
   return {
     kind: "postgres",
+    // 负责人 2026-11-12「销售价格」：读各版本、保存新版本（一把全局锁，防两个人同时改）。
+    ...createPostgresSalesPriceTableMethods((text, values, queryOptions = {}) => options.queryJson
+      ? options.queryJson(text, values, queryOptions)
+      : postgresClient.transactionJson(text, values, queryOptions)),
 
     async updateCustomerProfile(input = {}) {
       const change = normalizeProfileChange(input);

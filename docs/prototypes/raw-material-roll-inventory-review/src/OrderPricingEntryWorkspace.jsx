@@ -14,6 +14,8 @@ import { useFabricStock } from "./useFabricStock.js";
 import { buildOrderFabricHints, needsFabricHint } from "./orderFabricHint.js";
 import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
+import { DEFAULT_SALES_PRICE_RULES } from "../../../../shared/pricing/factorySalesPriceList.js";
+const HANDLE_LENGTH_OPTIONS = DEFAULT_SALES_PRICE_RULES.handleAddons.map((item) => `加长提${item.lengthCm}cm`);
 
 const unresolvedWrites = new Map();
 const emptyPricingInputs = JSON.stringify([{}, [], "", "", false]);
@@ -956,6 +958,9 @@ function OrderPricingEditor({
                     >
                       <option>普通提</option>
                       <option>加长提</option>
+                      {/* 负责人 2026-11-12：加长提手按长度加价，选了长度开单才能套对价。 */}
+                      {HANDLE_LENGTH_OPTIONS.map((option) => <option key={option}>{option}</option>)}
+                      {line.handle && line.handle !== "普通提" && line.handle !== "加长提" && !HANDLE_LENGTH_OPTIONS.includes(line.handle) ? <option>{line.handle}</option> : null}
                     </select>
                   </label>
                   <span className="pricing-line-tags">

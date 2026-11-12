@@ -3,6 +3,7 @@ import { CustomerProfilePanel } from "./CustomerProfilePanel.jsx";
 import { EmptyWorkspace } from "./WorkspaceFeedback.jsx";
 import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
 import OrderPricingEntryWorkspace from "./OrderPricingEntryWorkspace.jsx";
+import { SalesPriceWorkspace } from "./SalesPriceWorkspace.jsx";
 import { InventoryHoldsWorkbench } from "./InventoryHoldsWorkbench.jsx";
 import { OrderMutationDialog } from "./OrderMutationDialog.jsx";
 import { DeliveryEvidenceReviewPanel } from "../../../../src/features/fulfillment/DeliveryEvidenceReviewPanel.jsx";
@@ -86,7 +87,8 @@ function businessTypeFor(line = {}) {
 }
 
 function requirementFor(line = {}) {
-  if (line.handle === "加长提" || String(line.note || "").includes("加长提")) return "加长提";
+  if (String(line.handle || "").startsWith("加长提")) return line.handle;
+  if (String(line.note || "").includes("加长提")) return "加长提";
   if (line.printSide === "双面") return "双面印";
   return "";
 }
@@ -1170,6 +1172,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   if (navId === "supplier-month-end") return <SupplierSettlementWorkspace formal={formal} />;
   if (navId === "inventory-query") return <FinishedGoodsInventoryWorkspace category="无纺布袋" formal={formal} onNavigate={onNavigate} title="无纺布袋库存" />;
   if (navId === "laminated-inventory") return <FinishedGoodsInventoryWorkspace category="覆膜无纺布袋" formal={formal} onNavigate={onNavigate} title="覆膜袋库存" />;
+  if (navId === "sales-prices") return <SalesPriceWorkspace key={formal.authState?.session?.accessToken || "sales-prices"} formal={formal} />;
   if (navId === "general-prices" || navId === "spec-inventory") return <FinishedGoodsMasterWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "payroll-attendance") return <PayrollAttendancePage authState={formal.authState} currentUser={formal.permissionContext?.user} permissionContext={formal.permissionContext} />;
   if (navId === "people-machines") return <PeopleMachinesWorkspace formal={formal} onNavigate={onNavigate} />;

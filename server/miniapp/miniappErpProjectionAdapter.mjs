@@ -8,6 +8,7 @@ import {
   defaultMaterialPriceSnapshot,
   specialBagPricingRules,
 } from "../../shared/pricing/specialBagPricing.js";
+import { extendedHandleAddon, giftQuantityDiscount, snapButtonAddon } from "../../shared/pricing/factorySalesPriceList.js";
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -88,20 +89,26 @@ export function findMiniappPriceItem(master, line, { requireUnique = false, styl
 
 export function quoteMiniappCatalogPrice(master, line, match, { preserveUnitPrecision = false } = {}) {
   const quantity = Math.max(1, Number(line.quantity) || 1);
-  const bagUnitPrice = Number(match.item.bagPrice || 0) + (match.handleFallback ? 0.03 : 0);
+  // 负责人 2026-11-12：加长提手按长度加价、礼品袋满量优惠、加扣子都按价格表上的规则算；
+  // 价格表没存规则时用 2026-10-28 价目表的默认值（没写长度的加长提仍是 +0.03，和以前一样）。
+  const rules = master.priceTable?.rules;
+  const handleAddon = match.handleFallback ? extendedHandleAddon(rules, clean(line.handle) || "加长提").addon : 0;
+  const giftDiscount = giftQuantityDiscount(rules, match.item.styleKey, quantity);
+  const bagUnitPrice = Number(match.item.bagPrice || 0) + handleAddon - giftDiscount;
   // 2026-11-07：这里原本截到 4 色，5 色以上按 4 色收费。上限应与全厂一致。
   const colorCount = Math.min(MAX_PRINT_COLORS, Math.max(1, Number(line.printColorCount) || 1));
   const printing = isPrintingRequired(line);
   const printingUnit = printing ? printUnitPrice(quantity, line.printSideMode || line.printSide, resolvePrintMethod(line, quantity)) * colorCount : 0;
   const requirements = Array.isArray(line.specialRequirements) ? line.specialRequirements : [];
-  const snapUnit = requirements.includes("snap_button") ? 0.1 : 0;
+  const snapUnit = snapButtonAddon(rules, match.item.styleKey, requirements.includes("snap_button"));
   const roundUnit = preserveUnitPrecision ? value => Math.round((Number(value) + Number.EPSILON) * 10_000) / 10_000 : roundMoney;
   const unitPrice = roundUnit(bagUnitPrice + printingUnit + snapUnit);
   const otherFee = Number(match.item.otherFee || 0);
   return {
     priceVersion: `${master.priceTable.bizNo || master.priceTable.id}-v${Number(master.priceTable.versionNo) || 1}`,
     basePrice: roundUnit(Number(match.item.bagPrice || 0)),
-    handleAddon: match.handleFallback ? 0.03 : 0,
+    handleAddon,
+    giftDiscount,
     printColorCount: printing ? colorCount : 0,
     printFeePerColor: printing ? roundUnit(printingUnit / colorCount) : 0,
     printFee: roundUnit(printingUnit),

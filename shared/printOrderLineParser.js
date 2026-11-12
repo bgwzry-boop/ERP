@@ -113,10 +113,13 @@ export function parsePrintOrderLine(text, { now = new Date() } = {}) {
   }
 
   const handleLong = /加长|长提|\d{2}\s*(?:cm|CM|厘米)\s*(?:的)?\s*提|提手\s*\d{2}\s*(?:cm|CM|厘米)/u.test(working);
+  // 负责人 2026-11-12：加长提手按长度加价（50cm +0.03 … 80cm +0.15），长度要带到提手上，开单才能套对价。
+  let handleLengthText = "";
   if (handleLong) {
     const length = working.match(/(\d{2})\s*(?:cm|CM|厘米)\s*(?:的)?\s*提|提手\s*(\d{2})\s*(?:cm|CM|厘米)|加长提?手?\s*(\d{2})\s*(?:cm|CM|厘米)/u);
     const value = length ? (length[1] ?? length[2] ?? length[3]) : "";
     notes.push(value ? `加长提${value}cm` : "加长提");
+    handleLengthText = value ? `${value}cm` : "";
   }
   const printColorCount = /双色|两色/u.test(working) ? 2 : /三色/u.test(working) ? 3 : /四色/u.test(working) ? 4 : 0;
 
@@ -150,7 +153,7 @@ export function parsePrintOrderLine(text, { now = new Date() } = {}) {
     external,
     side,
     latest,
-    handle: handleLong ? "加长提" : "普通提",
+    handle: handleLong ? `加长提${handleLengthText}` : "普通提",
     printColorCount,
     notes: [...new Set(notes)],
     rows,

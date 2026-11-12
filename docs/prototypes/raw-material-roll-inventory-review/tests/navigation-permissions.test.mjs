@@ -50,7 +50,7 @@ test("office navigation is derived from the signed-in account permission context
   assert.deepEqual(getVisibleRawMaterialViews(defaultPermissionContext), ["卷料库存", "收货录入"]);
   assert.deepEqual(getVisibleWorkspaceViews(defaultPermissionContext), [
     "今天", "公共待办", "订单录入", "订单池", "收货录入", "卷料库存", "生产任务", "打包/标签",
-    "打印与设备", "换模工单", "出库交付", "无纺布袋", "覆膜袋", "对账收款", "供应商月结", "客户档案", "成品资料",
+    "打印与设备", "换模工单", "出库交付", "无纺布袋", "覆膜袋", "对账收款", "供应商月结", "销售价格", "客户档案", "成品资料",
     "员工机台",
   ]);
   assert.equal(getDefaultWorkspaceView(defaultPermissionContext), "卷料库存");
@@ -137,7 +137,7 @@ test("finance account sees finance work without raw-material execution menus", (
   assert(!itemIds.includes("roll-inventory"));
   assert(!itemIds.includes("production-tasks"));
   assert.deepEqual(getVisibleRawMaterialViews(finance), []);
-  assert.deepEqual(getVisibleWorkspaceViews(finance), ["订单池", "对账收款", "供应商月结", "原料成本", "工资核算"]);
+  assert.deepEqual(getVisibleWorkspaceViews(finance), ["订单池", "对账收款", "供应商月结", "原料成本", "工资核算", "销售价格"]);
   assert.equal(getDefaultWorkspaceView(finance), "供应商月结");
   assert.equal(hasEffectivePermission(finance, "order.create"), false);
 });
