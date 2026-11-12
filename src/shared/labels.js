@@ -115,6 +115,7 @@ const operationalStateTagAliases = Object.freeze({
   已消耗: "done",
   已消耗确认: "done",
   已确认消耗: "done",
+  已转挂: "done",
   已消耗归档: "done",
   已完成: "done",
   已交付: "done",

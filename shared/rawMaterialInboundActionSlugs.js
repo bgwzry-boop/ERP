@@ -13,6 +13,7 @@ export function toRawMaterialInboundActionSlug(action) {
   if (value === "确认退厂" || value === "confirm_supplier_return_shipment" || value === "confirm-supplier-return-shipment") return "confirm-supplier-return-shipment";
   if (value === "机边领料" || value === "扫码出库" || value === "issue_to_machine" || value === "issue-to-machine") return "issue-to-machine";
   if (value === "确认消耗" || value === "confirm_consumption" || value === "confirm-consumption") return "confirm-consumption";
+  if (value === "转挂订单" || value === "reassign_issue" || value === "reassign-issue") return "reassign-issue";
   if (value === "余料退回" || value === "return_leftover" || value === "return-leftover") return "return-leftover";
   if (value === "复核余料可用" || value === "review_leftover" || value === "review-leftover") return "review-leftover";
   if (value === "生成成本草稿" || value === "generate_cost_draft" || value === "generate-cost-draft") return "generate-cost-draft";

@@ -539,6 +539,7 @@ function normalizeAction(action) {
     ["确认退厂", "confirm_supplier_return_shipment"], ["confirm_supplier_return_shipment", "confirm_supplier_return_shipment"], ["confirm-supplier-return-shipment", "confirm_supplier_return_shipment"],
     ["机边领料", "issue_to_machine"], ["扫码出库", "issue_to_machine"], ["issue_to_machine", "issue_to_machine"], ["issue-to-machine", "issue_to_machine"],
     ["确认消耗", "confirm_consumption"],
+    ["转挂订单", "reassign_issue"], ["reassign_issue", "reassign_issue"], ["reassign-issue", "reassign_issue"],
     ["confirm_consumption", "confirm_consumption"],
     ["confirm-consumption", "confirm_consumption"],
     ["余料退回", "return_leftover"],
@@ -585,6 +586,7 @@ function getRawMaterialActionReason(action) {
   if (action === "stage_supplier_return") return "扫描已有库存卷码并关联已复核退货单，转入供应商退货暂存区";
   if (action === "confirm_supplier_return_shipment") return "确认暂存卷/件已经交还供应商，完成一次实物库存退厂";
   if (action === "issue_to_machine") return "按卷码扫码出库并记录机台；生产任务可在后续阶段关联";
+  if (action === "reassign_issue") return "机边剩余卷料转挂到实际做的订单，之后的消耗和成本算到新订单";
   if (action === "confirm_consumption") return "确认整卷/整件或部分原材料已被生产消耗，不生成成品数量或成本分摊";
   if (action === "return_leftover" || action === "review_leftover") return "整卷进整卷出：机边余料不能退回或复核为可用库存";
   if (action === "generate_cost_draft") return "按已确认消耗和已匹配生产任务生成原材料成本分摊草稿";

@@ -5,9 +5,10 @@ import { RawMaterialInboundReceivingSections } from "../../../../src/features/ra
 import { RawMaterialColorDisplay } from "../../../../src/features/raw-materials/RawMaterialColorDisplay.jsx";
 import { useInboundPageState } from "../../../../src/features/raw-materials/useInboundPageState.js";
 import { rawMaterialRecordIdentitySuffix } from "../../../../shared/rawMaterialRecordIdentity.js";
+import { RawMaterialReassignPanel } from "./RawMaterialReassignPanel.jsx";
 import "./raw-material-stock-operations.css";
 
-const STOCK_ACTIONS = new Set(["扫码出库", "机边领料", "确认消耗"]);
+const STOCK_ACTIONS = new Set(["扫码出库", "机边领料", "确认消耗", "转挂订单"]);
 
 export function RawMaterialStockOperationsDialog({ formal, rollId, inboundId, onClose }) {
   const dialogRef = useRef(null);
@@ -66,13 +67,13 @@ export function RawMaterialStockOperationsDialog({ formal, rollId, inboundId, on
         if (savedRoll.inventoryStatus !== "机边领用") throw new Error("尚未收到整卷出库结果，请保留原内容核实后重试。");
         issueRequestRef.current = null;
       }
-      if (liveRef.current) setNotice(issuing ? "本卷已出库到机边。" : "本次实际消耗已保存。");
+      if (liveRef.current) setNotice(issuing ? "本卷已出库到机边。" : action === "转挂订单" ? "本卷已转挂到新订单，之后的消耗算新订单。" : "本次实际消耗已保存。");
       return result.inbound;
     } catch (failure) {
       if (liveRef.current) setError(failure?.message || "保存失败，请保留原内容重试。");
       // The existing issue form expects a null receipt on failure. Measurement
       // owns its own retained input and retry key and must receive the error.
-      if (!issuing) throw failure;
+      if (!issuing && action !== "转挂订单") throw failure;
       return null;
     } finally {
       busyRef.current = false;
@@ -98,6 +99,7 @@ export function RawMaterialStockOperationsDialog({ formal, rollId, inboundId, on
   const closeBlocked = busy || measurementOpen;
   const canOperate = Boolean(roll && selected.documentDirection !== "supplier_return" && (canIssueRawMaterialRoll(roll) || canConfirmRawMaterialConsumptionRoll(roll)));
   const noPermission = state.issueState.disabled && state.consumptionState.disabled;
+  const reassignState = actionState("rawMaterial", "转挂订单");
 
   useEffect(() => {
     liveRef.current = true;
@@ -155,6 +157,13 @@ export function RawMaterialStockOperationsDialog({ formal, rollId, inboundId, on
               setOcrReviewDraft={state.setOcrReviewDraft}
             />
           </fieldset> : null}
+          {roll.inventoryStatus === "机边领用" && selected.documentDirection !== "supplier_return" && !reassignState.disabled ? <RawMaterialReassignPanel
+            disabled={busy || measurementOpen}
+            onReassign={({ productionTaskId, reason }) => updateInbound("转挂订单", inboundId, { rollId, productionTaskId, reason, idempotencyKey: `erp-stock-reassign-${rawMaterialRecordIdentitySuffix()}` })}
+            orderLines={formal.data?.orderLines || []}
+            productionTasks={formal.data?.productionTasks || []}
+            roll={roll}
+          /> : null}
         </>}
         {error ? <p className="raw-stock-operations-error" role="alert">{error}</p> : null}
         {notice ? <p className="raw-stock-operations-notice" role="status">{notice}</p> : null}
