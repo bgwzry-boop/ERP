@@ -1,0 +1,81 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, existsSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { auditBundles, inspectBundle, auditSessions } from './local-storage-hygiene.mjs';
+
+test('clean only old, verified, canonical legacy transports; retain other evidence', t => {
+  const root = mkdtempSync(join(tmpdir(), 'erp-hygiene-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  git('init', '-q');
+  git('config', 'user.email', 'fixture@example.invalid');
+  git('config', 'user.name', 'Fixture');
+  writeFileSync(join(root, 'fixture.txt'), 'baseline');
+  git('add', 'fixture.txt');
+  git('commit', '-qm', 'baseline');
+  const baseline = git('rev-parse', 'HEAD');
+  git('update-ref', 'refs/remotes/origin/codex/staging-current', baseline);
+  const dir = join(root, '.erp-local-storage/deployment/erp-staging-01/preview22');
+  mkdirSync(dir, { recursive: true });
+  const old = join(dir, 'old.bundle');
+  const recent = join(dir, 'recent.bundle');
+  const divergent = join(dir, 'divergent.bundle');
+  const corrupt = join(dir, 'corrupt.bundle');
+  git('bundle', 'create', old, 'HEAD');
+  git('bundle', 'create', recent, 'HEAD');
+  writeFileSync(join(root, 'fixture.txt'), 'unintegrated');
+  git('commit', '-qam', 'unintegrated');
+  git('bundle', 'create', divergent, 'HEAD');
+  writeFileSync(corrupt, 'not a git bundle');
+  const evidence = join(dir, 'release.lock.json');
+  writeFileSync(evidence, '{}');
+  symlinkSync(old, join(dir, 'symlink.bundle'));
+  const ancient = new Date(Date.now() - 60 * 86_400_000);
+  for (const file of [old, divergent, corrupt, evidence]) utimesSync(file, ancient, ancient);
+  const dry = auditBundles(root);
+  assert.equal(dry.bundles.filter(b => b.eligible).length, 1);
+  assert.equal(dry.removedBytes, 0);
+  assert.equal(existsSync(old), true);
+  assert.equal(inspectBundle(root, recent).reason, 'retain-at-least-30-days');
+  assert.equal(inspectBundle(root, divergent).eligible, false);
+  assert.equal(inspectBundle(root, corrupt).eligible, false);
+  assert.equal(auditSessions(root, join(root, 'no-codex')).available, false);
+  const applied = auditBundles(root, { apply: true });
+  assert.ok(applied.removedBytes > 0);
+  assert.equal(existsSync(old), false);
+  for (const file of [recent, divergent, corrupt, evidence]) assert.equal(existsSync(file), true);
+  assert.equal(auditBundles(root, { apply: true }).removedBytes, 0);
+});
+
+test('reject a symlinked deployment root', t => {
+  const root = mkdtempSync(join(tmpdir(), 'erp-hygiene-link-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, '.erp-local-storage/deployment'), { recursive: true });
+  mkdirSync(join(root, 'external'));
+  symlinkSync(join(root, 'external'), join(root, '.erp-local-storage/deployment/erp-staging-01'));
+  assert.throws(() => auditBundles(root, { apply: true }), /symlink/);
+});
+
+test('count compressed session variants without opening or changing their content', t => {
+  const root = mkdtempSync(join(tmpdir(), 'erp-hygiene-session-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync('git', ['-C', root, 'init', '-q']);
+  const codexRoot = join(root, 'codex-fixture');
+  mkdirSync(codexRoot);
+  const path = join(codexRoot, 'session.jsonl');
+  writeFileSync(`${path}.zst`, 'fixture-not-to-be-decompressed');
+  const bytes = Buffer.byteLength('fixture-not-to-be-decompressed');
+  execFileSync('sqlite3', [join(codexRoot, 'state_5.sqlite'),
+    `CREATE TABLE threads (id TEXT, name TEXT, title TEXT, cwd TEXT, rollout_path TEXT);
+     INSERT INTO threads VALUES ('01a033fd-46b4-77f0-ac35-beaa103f08a4','继续评估旧ERP出入库功能','', '${root}', '${path}');`]);
+  const result = auditSessions(root, codexRoot);
+  assert.equal(result.available, true);
+  assert.equal(result.count, 1);
+  assert.equal(result.bytes, bytes);
+  assert.equal(result.missingFiles, 0);
+  assert.equal(result.protectedThread.protected, true);
+  assert.equal(existsSync(`${path}.zst`), true);
+});
