@@ -5,7 +5,13 @@ export function newConsumptionAssociations(previous = {}, current = {}) {
     && (Number(record.consumedWeightKg) > 0 || Number(record.consumedQuantity) > 0)).map(record => {
     const issue = (current.rawMaterialIssueRecords ?? []).find(item => item.issueRecordId === record.issueRecordId && item.rollId === record.rollId);
     return {taskId:record.productionTaskId || issue?.productionTaskId || "", orderLineId:record.productionTaskOrderLineId || issue?.productionTaskOrderLineId || ""};
-  }).filter(item => item.taskId || item.orderLineId);
+  }).concat(newReassignedIssues(previous, current)).filter(item => item.taskId || item.orderLineId);
+}
+// 转挂订单：新挂上的订单 / 生产任务也要在同一个事务里确认还有效（负责人 2026-11-08）。
+function newReassignedIssues(previous = {}, current = {}) {
+  const oldIds = new Set((previous.rawMaterialIssueRecords ?? []).map(record => record.issueRecordId));
+  return (current.rawMaterialIssueRecords ?? []).filter(record => !oldIds.has(record.issueRecordId) && record.issueMode === "转挂订单")
+    .map(record => ({taskId:record.productionTaskId || "", orderLineId:record.productionTaskOrderLineId || ""}));
 }
 export function assertConsumptionProductionCurrent(workspace, previous, current) {
   for (const link of newConsumptionAssociations(previous, current)) {

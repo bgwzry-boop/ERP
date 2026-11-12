@@ -5,7 +5,7 @@ import { requireRawMaterialCurrentRecord } from "../shared/rawMaterialCurrentRec
 import { requireRawMaterialIssueAssignment } from "../shared/rawMaterialIssueAssignment.js";
 import { rawMaterialRecordIdentitySuffix } from "../shared/rawMaterialRecordIdentity.js";
 import { rawMaterialRollFacts } from "../shared/rawMaterialRollFacts.js";
-import { resolveRawMaterialProductionTaskMatch } from "./rawMaterialInboundRecordService.mjs";
+import { normalizeRawMaterialMachineId, resolveRawMaterialProductionTaskMatch } from "./rawMaterialInboundRecordService.mjs";
 import { assertWholeRollIssue } from "../src/domain/rawMaterialWholeRollPolicy.js";
 import {
   normalizeRawMaterialConsumptionRecords,
@@ -16,6 +16,7 @@ import {
 const RAW_MATERIAL_TRACEABILITY_ACTIONS = new Set([
   "issue_to_machine",
   "confirm_consumption",
+  "reassign_issue",
   "return_leftover",
   "review_leftover",
 ]);
@@ -281,6 +282,9 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       rolls: nextRolls,
     };
   }
+  if (action === "reassign_issue") {
+    after = applyRawMaterialIssueReassignment({ before, workspace, body: input.body, operatorId, operatorName, now });
+  }
   if (action === "confirm_consumption") {
     assertRawMaterialConsumptionMeasurement(input.body);
     const rollId = cleanText(input.body?.rollId);
@@ -406,6 +410,116 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
     };
   }
   return after;
+}
+
+// 负责人 2026-11-08：布照样整卷领；订单改了 / 领错了单，机边这卷剩下的料要能转挂到实际做的订单，
+// 之后的消耗和成本算到新订单上，不算到原来那单。已经确认用掉的部分仍算原来那单（那是真实用在那单上的）。
+const CLOSED_TASK_STATUSES = new Set(["已取消", "已作废"]);
+const CLOSED_LINE_STATUSES = new Set(["已关闭", "已取消", "已作废"]);
+export function applyRawMaterialIssueReassignment({ before, workspace, body = {}, operatorId, operatorName, now }) {
+  const rollId = cleanText(body.rollId);
+  const productionTaskId = cleanText(body.productionTaskId);
+  const reason = cleanText(body.reason);
+  const fail = (statusCode, code, message) => { throw Object.assign(new Error(message), { statusCode, code }); };
+  if (!rollId) fail(422, "RAW_MATERIAL_REASSIGN_ROLL_REQUIRED", "请先选要转挂的那一卷。");
+  if (!productionTaskId) fail(422, "RAW_MATERIAL_REASSIGN_TASK_REQUIRED", "请选这卷料实际要做的订单。");
+  if (!reason) fail(422, "RAW_MATERIAL_REASSIGN_REASON_REQUIRED", "请写转挂原因（例如：订单改了 / 领错单）。");
+  const roll = (before.rolls ?? []).find((item) => item.id === rollId);
+  if (!roll) fail(404, "RAW_MATERIAL_ROLL_NOT_FOUND", `Raw material roll not found: ${rollId}`);
+  if (roll.inventoryStatus !== "机边领用") fail(409, "RAW_MATERIAL_REASSIGN_REQUIRES_MACHINE_SIDE_ROLL", "只有还在机边、没用完的卷才能转挂订单。请刷新后核对这卷的状态。");
+  if (!(Number(roll.weightKg) > 0)) fail(409, "RAW_MATERIAL_REASSIGN_WEIGHT_REQUIRED", "这卷机边剩余重量不清楚，不能转挂；请先核实重量。");
+  const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
+  const currentIssue = requireRawMaterialCurrentRecord(roll, existingIssueRecords, "issueRecordId");
+  if (!currentIssue) fail(409, "RAW_MATERIAL_REASSIGN_ISSUE_NOT_FOUND", "找不到这卷当前的领料记录，不能转挂。");
+  const previousTaskId = cleanText(currentIssue.productionTaskId || roll.productionTaskId);
+  if (previousTaskId === productionTaskId) fail(409, "RAW_MATERIAL_REASSIGN_SAME_TASK", "这卷已经挂在这个订单上了。");
+  const task = (workspace.productionTasks ?? []).find((item) => cleanText(item.productionTaskId ?? item.id) === productionTaskId);
+  const line = task ? (workspace.orderLines ?? []).find((item) => cleanText(item.orderLineId ?? item.id) === cleanText(task.orderLineId ?? task.order_line_id)) : null;
+  if (!task || !line) fail(422, "RAW_MATERIAL_PRODUCTION_TASK_NOT_FOUND", "找不到要转挂的生产任务，请刷新后重选。");
+  if (CLOSED_TASK_STATUSES.has(task.taskStatus ?? task.status) || CLOSED_LINE_STATUSES.has(line.lineStatus ?? line.status)) {
+    fail(409, "ERP_RAW_MATERIAL_PRODUCTION_CONFLICT", "要转挂的订单已经作废或取消，不能挂过去。");
+  }
+  // 卷还在原机台就保持原机台；新订单排在别的机台，就跟着订单换到那台机。
+  const rollMachineId = cleanText(roll.machineId);
+  const taskMachineId = cleanText(task.machineId ?? task.machine_id);
+  const machineId = cleanText(body.machineId)
+    || (taskMachineId && normalizeRawMaterialMachineId(taskMachineId) !== normalizeRawMaterialMachineId(rollMachineId) ? taskMachineId : rollMachineId)
+    || "机边待分配";
+  const match = resolveRawMaterialProductionTaskMatch({
+    workspace,
+    inbound: {
+      ...before,
+      ...rawMaterialRollFacts(before, roll),
+      materialCategory: roll.materialCategory || (roll.ocrLineId ? "" : before.materialCategory),
+      widthCm: Number(roll.widthCm) > 0 ? Number(roll.widthCm) : roll.ocrLineId ? 0 : before.widthCm,
+    },
+    machineId,
+    productionTaskId,
+  });
+  const weightKg = roundWeight(Number(roll.weightKg));
+  const newIssueRecordId = `RMI-ISS-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}-01`;
+  const assignment = {
+    machineId,
+    productionTaskId,
+    productionTaskMatchStatus: match.status,
+    productionTaskMatchReason: match.reason,
+    productionTaskOrderLineId: match.orderLineId,
+    productionTaskMachineId: match.machineId,
+    productionTaskGoodsSpec: match.goodsSpec,
+  };
+  const newIssue = {
+    issueRecordId: newIssueRecordId,
+    inboundId: before.id,
+    rollId: roll.id,
+    sourceRollId: currentIssue.sourceRollId || "",
+    splitRecordId: "",
+    supplierRollNo: roll.supplierRollNo,
+    ...rawMaterialRollFacts(before, roll),
+    issuedWeightKg: weightKg,
+    issuedQuantity: 0,
+    sourceWeightKg: weightKg,
+    remainingWeightKg: 0,
+    unit: before.unit || "kg",
+    ...assignment,
+    issuePurpose: currentIssue.issuePurpose || "生产领料",
+    issueMode: "转挂订单",
+    sourceIssueRecordId: currentIssue.issueRecordId,
+    previousProductionTaskId: previousTaskId,
+    previousOrderLineId: cleanText(currentIssue.productionTaskOrderLineId),
+    reassignReason: reason,
+    consumptionStatus: "待生产消耗确认",
+    issuedBy: operatorName,
+    issuedByUserId: operatorId,
+    issuedAt: now,
+    note: `机边剩余 ${weightKg} kg 转挂到新订单：${reason}`,
+  };
+  const nextIssueRecords = existingIssueRecords.map((record) => record.issueRecordId !== currentIssue.issueRecordId ? record : {
+    ...record,
+    consumptionStatus: "已转挂",
+    reassignedToIssueRecordId: newIssueRecordId,
+    reassignedWeightKg: weightKg,
+    reassignedAt: now,
+    reassignedBy: operatorName,
+    reassignedByUserId: operatorId,
+    reassignReason: reason,
+  });
+  const nextRolls = (before.rolls ?? []).map((item) => item.id !== roll.id ? item : {
+    ...item,
+    ...assignment,
+    issueRecordId: newIssueRecordId,
+    location: machineId === "机边待分配" ? "机边待消耗区" : `机边-${machineId}`,
+    consumptionStatus: "待生产消耗确认",
+    reassignedAt: now,
+    reassignedBy: operatorName,
+    reassignedByUserId: operatorId,
+  });
+  return {
+    ...before,
+    ...assignment,
+    nextStep: "机边这卷已转挂到实际做的订单；之后确认的消耗算到新订单。",
+    rawMaterialIssueRecords: [...nextIssueRecords, newIssue],
+    rolls: nextRolls,
+  };
 }
 
 function buildRawMaterialSplitRollId(rolls = [], sourceRollId = "") {

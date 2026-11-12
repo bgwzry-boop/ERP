@@ -160,6 +160,46 @@ try {
   assert.equal(button("确认消耗"), undefined);
   assert.equal(calls.length, 4);
   await unmount();
+
+  // 2026-11-12 机边卷转挂订单：只列同颜色、还在做的订单；没选订单或没写原因不能点；原订单作废要提示
+  const reassignSource = makeSource("机边领用", 13);
+  Object.assign(reassignSource.rolls[0], { issueRecordId: "ISSUE-A", productionTaskId: "PT-A" });
+  const reassignProps = makeProps(reassignSource);
+  reassignProps.formal.data.productionTasks = [
+    { productionTaskId: "PT-A", orderLineId: "OL-A", taskType: "制袋", taskStatus: "已作废" },
+    { productionTaskId: "PT-B", orderLineId: "OL-B", taskType: "制袋", taskStatus: "制袋中" },
+    { productionTaskId: "PT-W", orderLineId: "OL-W", taskType: "制袋", taskStatus: "制袋中" },
+  ];
+  reassignProps.formal.data.orderLines = [
+    { id: "OL-A", customerName: "客户甲", size: "30*37*10", bagColor: "红色", qty: 1000, lineStatus: "已作废" },
+    { id: "OL-B", customerName: "客户乙", size: "30*37*10", bagColor: "红色", qty: 2000, lineStatus: "制袋中" },
+    { id: "OL-W", customerName: "客户丙", size: "30*37*10", bagColor: "白色", qty: 500, lineStatus: "制袋中" },
+  ];
+  await render(reassignProps);
+  const panel = () => tree.root.findByProps({ className: "raw-stock-reassign" });
+  assert.ok(text(panel()).includes("原来挂的订单已经作废"));
+  assert.deepEqual(panel().findAllByType("option").map((node) => node.props.value), ["", "PT-B"], "只列同颜色、还在做的订单");
+  assert.equal(button("转挂到这个订单").props.disabled, true);
+  await act(async () => panel().findByType("select").props.onChange({ target: { value: "PT-B" } }));
+  assert.equal(button("转挂到这个订单").props.disabled, true, "没写原因不能转挂");
+  await act(async () => panel().findByType("textarea").props.onChange({ target: { value: "订单作废，剩下的布做客户乙" } }));
+  await act(async () => { void button("转挂到这个订单").props.onClick(); });
+  assert.equal(calls.length, 5);
+  assert.equal(calls[4][0], "转挂订单");
+  assert.equal(calls[4][2].productionTaskId, "PT-B");
+  assert.equal(calls[4][2].reason, "订单作废，剩下的布做客户乙");
+  assert.equal(calls[4][2].expectedRevision, 13);
+  assert.match(calls[4][2].idempotencyKey, /^erp-stock-reassign-/u);
+  const moved = structuredClone(reassignSource);
+  moved.revision = 14;
+  Object.assign(moved.rolls[0], { issueRecordId: "ISSUE-B", productionTaskId: "PT-B" });
+  await act(async () => queue.shift().resolve({ source: "api", inbound: moved }));
+  assert.ok(text(outer()).includes("已转挂到新订单"));
+  await unmount();
+  const noConsumePermission = makeProps(makeSource("机边领用", 15), ["raw_material.issue.create"]);
+  await render(noConsumePermission);
+  assert.equal(tree.root.findAllByProps({ className: "raw-stock-reassign" }).length, 0, "没有消耗权限不显示转挂");
+  await unmount();
   console.log("PASS selected real-roll isolation, permission/state gates, single-flight issue, exact CAS, measured whole/partial consumption, retained retry key/input, protected close and no cost actions; anonymous in-memory commands only.");
 } finally {
   if (tree) tree.unmount();
