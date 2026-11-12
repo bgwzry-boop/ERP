@@ -357,6 +357,8 @@ function buildFulfillmentRows(items = [], orderLines = []) {
       orderLineId,
       customer: customerName({ ...orderLine, ...item }),
       goods,
+      // 负责人 2026-11-08：发货安排里一行一单，用订单统一写法。
+      orderText: orderLine.size || orderLine.printContent ? formatOrderLineText(orderLine) : goods,
       // 详情标题只用货品名；完整规格（尺寸、颜色、印刷、数量）放在标题下一行。
       productTitle: orderLine.productName || orderLine.product || String(goods).split(/\s+/)[0] || goods,
       method: item.methodLabel || item.method || "待确认",
@@ -690,6 +692,20 @@ function PhysicalPackagesPanel({formal,fulfillmentId,orderLineId}) {
   return <section className="business-detail-section fulfillment-package-correction"><button className="primary" type="button" disabled={pending} onClick={()=>setOpen(value=>!value)}>{open?"收起实物包裹":"登记 / 更正实物包裹"}</button>{open?<><details className="fulfillment-note"><summary>混装规则</summary><p>通货可混装，含不足约 1000、来厂自提。逐项登记，并核对包内合计。</p><p>同一订单可混装尺寸和颜色。每个实物包只有一个包码，逐项核实后再打印贴牌。</p></details><MixedPackageWorkbench collapseIntro authState={formal.authState} fulfillmentId={fulfillmentId} orderLineId={resolvedLineId} onSaved={formal.actions.refreshAll} onBusyChange={setPending}/></>:null}</section>;
 }
 
+function groupByCustomer(rows) {
+  const groups = new Map();
+  for (const record of rows) {
+    const key = record.customer || "客户待确认";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  }
+  return [...groups.entries()].map(([customer, items]) => {
+    const counts = new Map();
+    for (const item of items) counts.set(item.status, (counts.get(item.status) || 0) + 1);
+    return { customer, rows: items, summary: [...counts.entries()].map(([state, count]) => count > 1 ? `${state} ${count}` : state).join(" · ") };
+  });
+}
+
 function FulfillmentWorkspace({ formal, onNavigate, focus = null }) {
   const records = useMemo(
     () => buildFulfillmentRows(formal.data.fulfillments, formal.data.orderLines),
@@ -702,14 +718,15 @@ function FulfillmentWorkspace({ formal, onNavigate, focus = null }) {
   const statuses = useMemo(() => [...new Set(records.map((record) => record.status).filter(Boolean))], [records]);
   const rows = useMemo(() => records.filter((record) => {
     const statusMatch = status === "全部状态" || record.status === status;
-    const queryMatch = !query.trim() || [record.customer, record.goods, record.method, ...record.searchValues]
+    const queryMatch = !query.trim() || [record.customer, record.goods, record.orderText, record.method, ...record.searchValues]
       .join(" ")
       .toLowerCase()
       .includes(query.trim().toLowerCase());
     return statusMatch && queryMatch;
   }), [query, records, status]);
   const selected = rows.find((record) => record.id === selectedId) || rows[0] || null;
-  const gridTemplateColumns = "minmax(112px, 1.15fr) minmax(128px, 1.35fr) minmax(64px, .55fr) minmax(112px, .95fr) minmax(76px, .72fr)";
+  // 负责人 2026-11-08：按客户分块（同一客户的货合一张送货单）；列宽固定、不换行。
+  const gridTemplateColumns = "minmax(0, 1fr) 72px 132px 96px";
   const reset = () => { setQuery(""); setStatus("全部状态"); setSelectedId(records[0]?.id || ""); setNotice(""); };
   const deliveryFacts = selected ? [["交付方式", selected.method], ["包装", selected.packageLabel], ["要求时间", selected.latestNeededAt], ["出库库位", selected.zone]] : [];
   const pendingFactCount = deliveryFacts.filter(([, value]) => /待确认|待打包|待核实/.test(String(value || ""))).length;
@@ -718,10 +735,10 @@ function FulfillmentWorkspace({ formal, onNavigate, focus = null }) {
   return <div className="business-workbench fulfillment-workbench">
     <section className="business-list-panel">
       <header className="business-panel-heading"><h1>发货安排</h1><StatusToneLegendRow /><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
-      <div className="business-filter-row"><label><SearchOutlined /><input aria-label="出库交付搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索客户 / 订单 / 货品 / 交付方式" value={query} /></label><select aria-label="出库交付状态" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
+      <div className="business-filter-row"><label><SearchOutlined /><input aria-label="出库交付搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索客户 / 印刷内容 / 尺寸 / 交付方式" value={query} /></label><select aria-label="出库交付状态" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div aria-label="出库交付列表" className="business-table" role="table">
-        <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">客户 / 订单</span><span role="columnheader">货品</span><span role="columnheader">方式</span><span role="columnheader">本次 / 包装</span><span role="columnheader">状态</span></div>
-        <div className="business-table-body">{rows.length ? rows.map((record) => <button aria-pressed={selected?.id === record.id} className={`business-row${selected?.id === record.id ? " selected" : ""}`} key={record.id} onClick={() => { setSelectedId(record.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button"><span className="business-primary-cell" role="cell">{record.customer}<small>{record.orderLineId || record.id}</small></span><span role="cell">{record.goods}</span><span role="cell">{record.method}</span><span role="cell">{quantityText(record.currentQty)} / {record.packageLabel}</span><span role="cell"><StateText>{record.status}</StateText></span></button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配的交付任务</strong><span>调整关键词或状态后重试。</span></div>}</div>
+        <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">订单</span><span role="columnheader">方式</span><span role="columnheader">本次 / 包装</span><span role="columnheader">状态</span></div>
+        <div className="business-table-body">{rows.length ? groupByCustomer(rows).map((group) => <div className="ship-group" key={group.customer}><div className="ship-group-head" aria-hidden="true"><strong>{group.customer}</strong><span>{group.rows.length} 样货 · {group.summary}</span></div>{group.rows.map((record) => <button aria-pressed={selected?.id === record.id} className={`business-row ship-row${selected?.id === record.id ? " selected" : ""}`} key={record.id} onClick={() => { setSelectedId(record.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button"><span className="business-primary-cell" role="cell" title={record.orderText}>{record.orderText}<small>{record.orderLineId || record.id}</small></span><span role="cell">{record.method}</span><span role="cell">{quantityText(record.currentQty)} / {record.packageLabel}</span><span role="cell"><StateText>{record.status}</StateText></span></button>)}</div>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配的交付任务</strong><span>调整关键词或状态后重试。</span></div>}</div>
       </div>
     </section>
     <aside className="business-detail-panel fulfillment-detail">
