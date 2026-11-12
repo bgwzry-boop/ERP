@@ -1,4 +1,4 @@
-import { isStockOrderType } from "../../shared/orderRouting.js";
+import { isStockOrderType, REPLENISHMENT_FULFILLMENT } from "../../shared/orderRouting.js";
 import { makeFulfillment, makeOrderLine } from "./officeRecordFactories.js";
 import { enrichDraftRow } from "../lib/orderDraftProjection.js";
 import {
@@ -94,7 +94,8 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
   );
 
   const newFulfillments = newLines
-    .filter((line) => line.fulfillment !== "待确认")
+    // 补库单不发货：做好入库，没有出库任务。
+    .filter((line) => line.fulfillment !== "待确认" && line.fulfillment !== REPLENISHMENT_FULFILLMENT)
     .map((line, index) =>
       makeFulfillment({
         id: nextId("F", fulfillments, index),

@@ -14,6 +14,7 @@ import { useFabricStock } from "./useFabricStock.js";
 import { buildOrderFabricHints, needsFabricHint } from "./orderFabricHint.js";
 import "./finance-dialogs.css";
 import "./order-pricing-entry.css";
+import { REPLENISHMENT_CUSTOMER_ID, REPLENISHMENT_FULFILLMENT } from "../../../../shared/orderRouting.js";
 import { DEFAULT_SALES_PRICE_RULES } from "../../../../shared/pricing/factorySalesPriceList.js";
 const HANDLE_LENGTH_OPTIONS = DEFAULT_SALES_PRICE_RULES.handleAddons.map((item) => `加长提${item.lengthCm}cm`);
 
@@ -795,7 +796,11 @@ function OrderPricingEditor({
             hint={customerHint}
             fulfillment={commonValue(rows, "fulfillment", "送货")}
             latest={commonValue(rows, "latest", "")}
-            onFulfillment={(value) => updateAll("fulfillment", value)}
+            onFulfillment={(value) => {
+              // 负责人 2026-11-08：补库单记在内部客户「本厂补库」名下，做好入库、不发货、不收费。
+              if (value === REPLENISHMENT_FULFILLMENT) pickCustomer({ customerId: REPLENISHMENT_CUSTOMER_ID, name: "本厂补库" });
+              updateAll("fulfillment", value);
+            }}
             onLatest={(value) => updateAll("latest", value)}
           />
           <header>
@@ -991,6 +996,7 @@ function OrderPricingEditor({
                         <option>自提</option>
                         <option>送货</option>
                         <option>快递快运</option>
+                        <option value={REPLENISHMENT_FULFILLMENT}>补库入库</option>
                       </select>
                     </label>
                     <label>
@@ -1719,6 +1725,7 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
           <option>自提</option>
           <option>送货</option>
           <option>快递快运</option>
+          <option value={REPLENISHMENT_FULFILLMENT}>补库入库（通货做好入库，不发货）</option>
         </select>
       </label>
       <label>
