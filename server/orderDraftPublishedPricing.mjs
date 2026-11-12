@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { findMiniappPriceItem, quoteMiniappCatalogPrice } from "./miniapp/miniappErpProjectionAdapter.mjs";
-import { normalizeOrderType } from "../shared/orderRouting.js";
+import { normalizeOrderType, isReplenishmentRow, isStockOrderType } from "../shared/orderRouting.js";
 import { LARGE_MACHINE_PRINT_PRICE_VERSION, quoteLargeMachinePrint, resolvePrintColorCount, resolvePrintMethod } from "../shared/largeMachinePrintPricing.js";
 import { normalizeSalesPriceRules, wantsSnapButton } from "../shared/pricing/factorySalesPriceList.js";
 import { incomingRollCountOf, isIncomingRollsLine, isValidIncomingRollsLine } from "../shared/externalPrintQuantity.js";
@@ -56,6 +56,12 @@ export async function loadOrderDraftPublishedPricing(workspace, lines, at) {
 
 export function resolvePublishedRow(source, row) {
   const type = normalizeOrderType(row.orderType);
+  // 负责人 2026-11-08：补库单（通货做好入本厂库存）不对外收费，金额 0。
+  if (isReplenishmentRow(row) && isStockOrderType(type)) {
+    return { bagPrice: 0, printPrice: 0, otherFee: 0, amount: 0, priceVersion: source.priceTable.priceVersion,
+      sourceEvidence: { kind: "internal_replenishment", priceTableId: source.priceTable.id, priceTableVersion: source.priceTable.versionNo,
+        billingBasis: "补库入本厂库存，不对外收费" } };
+  }
   // An arbitrary custom size cannot become a common-goods quote merely by
   // matching a dimension; its formal quotation remains a separate workflow.
   if (type === "custom_special") throw publishedOrderPriceError();

@@ -1,5 +1,5 @@
 import { calculateLinePricing, p0BagPriceRows } from "../domain/priceTable.js";
-import { isStockOrderType, normalizeOrderType, inferOrderType } from "../../shared/orderRouting.js";
+import { isStockOrderType, normalizeOrderType, inferOrderType, isReplenishmentRow, REPLENISHMENT_INVENTORY_TEXT } from "../../shared/orderRouting.js";
 
 export function enrichDraftRow(row, inventories = []) {
   const sizeParts = String(row.size ?? "").split(/[*×x]/).map(Number);
@@ -20,6 +20,8 @@ export function estimateAmount(rowOrQty, print = "否") {
 }
 
 function estimateInventory(row, inventories) {
+  // 补库单：不占现货，做好后入库。
+  if (isReplenishmentRow(row)) return isStockOrderType(normalizeOrderType(row?.orderType)) ? REPLENISHMENT_INVENTORY_TEXT : "补库只能下通货（纯色或丝印通货），定制单请按客户下单";
   if (!row.customerId || row.size === "待确认" || row.color === "待确认" || !row.qty) return "待确认";
   const orderType = normalizeOrderType(row?.orderType);
   if (orderType && !isStockOrderType(orderType)) return orderType === "external_print" ? "外加工，不走通货库存" : "订单生产，不走通货库存";

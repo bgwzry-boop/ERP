@@ -1,4 +1,4 @@
-import { normalizeOrderType } from "../../shared/orderRouting.js";
+import { normalizeOrderType, isReplenishmentRow } from "../../shared/orderRouting.js";
 import { incomingRollCountOf, isIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 import { LARGE_MACHINE_PRINT_PRICE_VERSION, printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 import { getBlockingProductionExceptions } from "../../shared/productionExceptionPolicy.js";
@@ -667,6 +667,8 @@ export function createProductionReportingCommandService({
       if (!customSpecial && !inventoryItem) return notFound("INVENTORY_ITEM_NOT_FOUND");
 
       const completedAt = body.completedAt ?? nowIso(now);
+      // 负责人 2026-11-08：补库单做好直接入本厂库存，不锁给任何客户、不打包发货，订单到「已入库」就结束。
+      const replenishment = isReplenishmentRow(beforeOrderLine);
       const machineCount =
         body.machineCount === undefined || body.machineCount === null
           ? undefined
@@ -685,8 +687,8 @@ export function createProductionReportingCommandService({
       const orderLine = {
         ...beforeOrderLine,
         orderLineId: beforeOrderLine.orderLineId ?? beforeOrderLine.id,
-        lineStatus: body.createPackingTask === false ? "待出库" : "待打包",
-        status: body.createPackingTask === false ? "待出库" : "待打包",
+        lineStatus: replenishment ? "已入库" : body.createPackingTask === false ? "待出库" : "待打包",
+        status: replenishment ? "已入库" : body.createPackingTask === false ? "待出库" : "待打包",
         exceptionTags: beforeOrderLine.exceptionTags ?? beforeOrderLine.exceptions ?? [],
       };
       const reportId =
@@ -719,7 +721,7 @@ export function createProductionReportingCommandService({
         completedAt,
       });
       const packingTask =
-        body.createPackingTask === false
+        body.createPackingTask === false || replenishment
           ? null
           : {
               packingTaskId: body.packingTaskId ?? nextPlainId("PKT", orderLineId),
@@ -733,7 +735,7 @@ export function createProductionReportingCommandService({
             };
       const onHandBefore = Number(inventoryItem?.inStock ?? inventoryItem?.onHand ?? 0);
       const reservedBefore = Number(inventoryItem?.reserved ?? 0);
-      const reservation = inventoryItem ? {
+      const reservation = inventoryItem && !replenishment ? {
         reservationId: body.reservationId ?? nextPlainId("RSV", `${productionTaskId}-PROD`),
         orderLineId,
         inventoryItemId: inventoryItem.id,
@@ -761,7 +763,7 @@ export function createProductionReportingCommandService({
           confirmedBy: operatorId,
           occurredAt: completedAt,
           createdAt: completedAt,
-          reason: "车间合格报工入库",
+          reason: replenishment ? "补库生产入库（不锁给客户）" : "车间合格报工入库",
           remark: `合格数量 ${qualifiedQty}；机器计数 ${machineCount ?? "未填"} 不参与库存`,
         },
         {
@@ -780,7 +782,7 @@ export function createProductionReportingCommandService({
           reason: "生产完成后锁定给订单明细",
           remark: `订单明细 ${orderLineId} 生产完成占用 ${qualifiedQty}`,
         },
-      ] : [];
+      ].filter((entry) => !replenishment || entry.sourceType !== "production_report_reservation") : [];
       const operationLog = buildOperationLog(workspace, {
         targetType: "production_task",
         targetId: productionTaskId,
@@ -820,7 +822,7 @@ export function createProductionReportingCommandService({
           {
             inventoryItemId: inventoryItem.id,
             onHandQtyChange: qualifiedQty,
-            reservedQtyChange: qualifiedQty,
+            reservedQtyChange: replenishment ? 0 : qualifiedQty,
             expectedRevision: Number(inventoryItem.revision ?? 1),
             expectedOnHandQty: onHandBefore,
             expectedReservedQty: reservedBefore,
