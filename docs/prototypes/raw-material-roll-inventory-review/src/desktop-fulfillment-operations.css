@@ -33,3 +33,9 @@
 .fulfillment-stock-note.warn { padding: 6px 8px; border-left: 3px solid var(--erp-warning); background: var(--erp-warning-bg); color: var(--erp-text); }
 .fulfillment-operation-confirm label { display: grid; gap: 4px; margin: 8px 0; font-size: 13px; }
 .fulfillment-operation-confirm label input { min-height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 13px; }
+/* 负责人 2026-11-12：作废重打 */
+.note-correction label { display: grid; gap: 4px; margin: 6px 0; font-size: 13px; }
+.note-correction label input:not([type="checkbox"]) { min-height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 13px; }
+.note-correction label.note-correction-check { display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
+.note-correction-hint { color: var(--erp-text-muted); font-size: 12px; line-height: 1.6; }
+.note-correction > div:last-of-type { display: flex; gap: 8px; }

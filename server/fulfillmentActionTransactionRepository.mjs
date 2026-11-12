@@ -1,3 +1,4 @@
+import { createLocalNoteCorrectionMethods, createPostgresNoteCorrectionMethods } from "./fulfillmentNoteCorrectionTransaction.mjs";
 import { orderTypeAliasesFor as productionOrderTypeAliasesFor } from "../shared/orderRouting.js";
 import { AUTO_QUANTITY_TOLERANCE_RATE } from "../shared/quantityTolerance.js";
 // P2-05: produced orders whose outbound may differ from the plan by up to 1% without an office decision.
@@ -56,6 +57,8 @@ export function createFulfillmentActionTransactionRepository(options = {}) {
 export function createLocalFulfillmentActionTransactionRepository() {
   return {
     kind: "local_memory",
+    // 负责人 2026-11-12：送货单 / 自提单作废重打。
+    ...createLocalNoteCorrectionMethods(),
     findCarrierHandoffReplay({ workspace, payload, idempotencyKey }) {
       return resolveExactActionReplay((workspace.operationIdempotencyRecords ?? []).find(row => row.scope === "fulfillment.confirm_carrier_final_handoff" && row.idempotencyKey === normalizeIdempotencyKey(idempotencyKey)), payload, payload.fulfillmentId);
     },
@@ -436,6 +439,8 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
     },
     recordFulfillmentAction,
     recordFulfillmentPrint: recordFulfillmentAction,
+    // 负责人 2026-11-12：送货单 / 自提单作废重打。
+    ...createPostgresNoteCorrectionMethods({ idempotentTransactionJson }),
   };
 }
 

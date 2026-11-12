@@ -1676,6 +1676,9 @@ function cleanText(value) {
   function buildNotePrintStockDeduction(workspace, fulfillment, input = {}) {
     if (cleanText(fulfillment?.stockDeductedAt)) return emptyInventoryMovements("deducted_at_note_print");
     if (["已取消", "已作废"].includes(cleanText(fulfillment?.status))) return emptyInventoryMovements("fulfillment_closed");
+    // 货已经出库 / 拉走 / 送到的（按以前的规则已经扣过），作废重打不再扣。
+    if (cleanText(fulfillment?.physicalOutboundAt) || cleanText(fulfillment?.finalDeliveryAt) || cleanText(fulfillment?.deliveredAt)
+      || ["已交付", "已拉走", "已完成"].includes(cleanText(fulfillment?.status))) return emptyInventoryMovements("already_left");
     return buildInventoryMovements(workspace, fulfillment, {
       actualQty: input.actualQty ?? fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty,
       operatorId: input.operatorId,

@@ -82,6 +82,8 @@ export function buildStatementDetail(workspace, item, { includeAttachments = fal
     ...(presentedVariance !== null ? { variance: presentedVariance, varianceAmount: presentedVariance } : {}),
     customerName: text(item.customerName || rows(workspace.customers).find(row => text(row.id ?? row.customerId) === customerId)?.name),
     sent: Boolean(latestSend), sendRecordId: latestSend?.sendRecordId || '',
+    // 负责人 2026-11-12：发给客户以后又作废重打改过的，要重新发一次。
+    needsResendAfterCorrection: Boolean(item.correctedAfterSendAt) && !(latestSend?.sentAt && Date.parse(latestSend.sentAt) >= Date.parse(item.correctedAfterSendAt)),
     sendRecordRevision: latestSend?.revision ?? null,
     sentAt: latestSend?.sentAt || '', sendChannel: latestSend?.channel || '', sendRecipient: latestSend?.sentTo || '',
     sendOperator: latestSend?.sentBy || '', sendReceiptStatus: latestSend ? receiptLabels[latestSend.receiptStatus] || '待回执' : '',
