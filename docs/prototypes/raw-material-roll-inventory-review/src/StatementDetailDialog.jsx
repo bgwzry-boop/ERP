@@ -1,3 +1,4 @@
+import { shareStatementImage } from "./statementImage.js";
 import { useEffect, useRef, useState } from "react";
 import { getOfficeStatementDetail, previewOfficeStatement, downloadOfficeStatementExport } from "../../../../src/services/officeStatementApiClient.js";
 import { downloadOfficeAttachmentContent } from "../../../../src/services/officeAttachmentApiClient.js";
@@ -62,6 +63,14 @@ function StatementDetailSession({ statementId, authState, onClose, onUpdated }) 
       if (live()) { download(new Blob([file.workbookData], { type: file.contentType }), file.fileName); setNotice("已下载服务器留存的对账文件，请核对后通过实际渠道发送。"); }
     });
   }
+  // 负责人 2026-11-08：月底对账单发到客户群——画成一张图，复制后在群里直接粘贴。
+  function shareImage() {
+    if (!detail) return;
+    action.run(async (signal, live) => {
+      const result = await shareStatementImage(detail);
+      if (live()) setNotice(result.message);
+    });
+  }
   function downloadEvidence(row) {
     action.run(async (signal, live) => {
       const result = requireApiResult(await downloadOfficeAttachmentContent({ authState, attachmentId: row.attachmentId }, { serverRequired: true, signal }), value => value.contentBlob instanceof Blob);
@@ -78,7 +87,7 @@ function StatementDetailSession({ statementId, authState, onClose, onUpdated }) 
         <section><h3>本期订单明细</h3>{detail.lineSource === "linked_order" ? <p className="finance-muted">以下为账单关联的订单参考明细，尚未形成留存的对账明细版本；金额以本期账单为准。</p> : null}
           {detail.statementLines.length ? <div className="finance-table-scroll"><table><thead><tr><th>订单 / 产品</th><th>规格</th><th>送货 / 计费数量</th><th>金额</th></tr></thead><tbody>{detail.statementLines.map(row => <tr key={row.statementLineId}><td>{row.orderNo}<br />{row.productName}</td><td>{row.goodsSpec || "未提供"}</td><td>{row.deliveredQty} / {row.chargeableQty}</td><td>{money(row.finalAmount)}</td></tr>)}</tbody></table></div> : <p className="finance-muted">这张账单没有可读取的关联明细。</p>}
         </section>
-        <section><div className="finance-section-heading"><h3>办理对账</h3><button type="button" disabled={busy} onClick={exportStatement}>下载对账文件</button></div>
+        <section><div className="finance-section-heading"><h3>办理对账</h3><span className="finance-heading-actions"><button type="button" disabled={busy || !detail} onClick={shareImage}>复制对账图（发群）</button><button type="button" disabled={busy} onClick={exportStatement}>下载对账文件</button></span></div>
           <div className="finance-tabs" role="group" aria-label="对账办理动作">{[["payment", "登记累计实收"], ["send", "登记已发送"], ["confirmation", "登记客户确认"], ["exact", "足额款结清"], ["variance", "差额处理"], ["writeoff", "授权结算与核销"]].map(([key, label]) => <button type="button" key={key} disabled={busy} aria-pressed={active === key} onClick={() => setActive(key)}>{label}</button>)}</div>
           {["exact", "variance", "writeoff"].includes(active) ? <StatementSettlementPanel key={`${active}-${detail.revision}-${retry}`} detail={detail} authState={authState} mode={active} onBusyChange={setBusy} onSaved={saved} onRefresh={refresh} /> : <StatementActionPanel key={`${active}-${detail.revision}-${retry}`} detail={detail} authState={authState} mode={active} onBusyChange={setBusy} onSaved={saved} onRefresh={refresh} />}
         </section>
