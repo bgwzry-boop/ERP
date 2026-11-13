@@ -145,7 +145,70 @@ try {
   const log = (await pool.query("SELECT action, reason FROM operation_logs WHERE target_id = 'F-FIX-1' AND action = 'correct_fulfillment_note'")).rows[0];
   assert.deepEqual(log, { action: "correct_fulfillment_note", reason: "实际 280 个" });
 
-  console.log(`PASS note correction PG (${migrations.length} migrations): 改数量（对账单行与合计、订单价格快照、重打纸单）、改单价、改地址、已发对账单提示重发、收过款不能改、整张作废退库存、改数量按差额退库存、页面过期拒绝。`);
+  // 5) 连续改数量的库存守恒（#109 复查发现，负责人 2026-11-13）：库存不够时改大只能少扣，再改小只能退回实际净扣的数
+  const net = async () => 0 - (await pool.query("SELECT COALESCE(sum(qty_change), 0)::integer AS n FROM inventory_ledger_entries WHERE source_id = 'F-FIX-1'")).rows[0].n || 0;
+  const fixLine = async () => (await pool.query("SELECT delivered_qty, final_amount::float AS amount FROM statement_lines WHERE id = 'ST-FIX-1'")).rows[0];
+  const otherMove = async (id, change, label) => {
+    const before = await stock();
+    await pool.query("INSERT INTO inventory_ledger_entries (id, inventory_item_id, change_type, qty_before, qty_change, qty_after, source_type, source_id, operator_id, occurred_at, created_at, reason) VALUES ($1, 'INV-FIX-1', $2, $3, $4, $5, 'isolated_test_other', $1, 'U-OFFICE-A', now(), now(), $2)", [id, label, before, change, before + change]);
+    await pool.query("UPDATE inventory_items SET on_hand_qty = $1, revision = revision + 1 WHERE id = 'INV-FIX-1'", [before + change]);
+  };
+  assert.equal(await net(), 280);
+  await otherMove("TEST-OTHER-OUT", -720, "别的单领完剩下的库存");
+  assert.equal(await stock(), 0);
+  await printAndConfirm("F-FIX-1", "chain-1");
+  const raised = await correct("F-FIX-1", { correctedQty: 400, reason: "实际 400 个", idempotencyKey: "chain-raise-400" });
+  assert.ok(raised.response, JSON.stringify(raised));
+  assert.ok(raised.response.changes.some((text) => text.includes("少扣了 120")), JSON.stringify(raised.response.changes));
+  assert.equal(await stock(), 0, "库存为 0，改大扣不到");
+  assert.equal(await net(), 280, "净扣仍是 280");
+  assert.deepEqual(await fixLine(), { delivered_qty: 400, amount: 172 });
+  await printAndConfirm("F-FIX-1", "chain-2");
+  const reduced = await correct("F-FIX-1", { correctedQty: 50, reason: "实际 50 个", idempotencyKey: "chain-down-50" });
+  assert.ok(reduced.response, JSON.stringify(reduced));
+  assert.equal(await stock(), 230, "只退 280 - 50 = 230，不退 350");
+  assert.equal(await net(), 50, "净扣等于交付数量");
+  // 重放同一次改单：原结果返回，库存不再动
+  await correct("F-FIX-1", { correctedQty: 50, reason: "实际 50 个", idempotencyKey: "chain-down-50" });
+  assert.equal(await stock(), 230);
+  // 库存进货后再改大：补扣差额
+  await otherMove("TEST-OTHER-IN", 100, "进货");
+  await printAndConfirm("F-FIX-1", "chain-3");
+  const raised2 = await correct("F-FIX-1", { correctedQty: 120, reason: "实际 120 个", idempotencyKey: "chain-raise-120" });
+  assert.ok(raised2.response, JSON.stringify(raised2));
+  assert.equal(await stock(), 260, "补扣 70");
+  assert.equal(await net(), 120);
+  // 库存只够一部分：扣到有的，提示少扣
+  await otherMove("TEST-OTHER-OUT-2", -250, "别的单又领走");
+  await printAndConfirm("F-FIX-1", "chain-4");
+  const raised3 = await correct("F-FIX-1", { correctedQty: 150, reason: "实际 150 个", idempotencyKey: "chain-raise-150" });
+  assert.ok(raised3.response.changes.some((text) => text.includes("少扣了 20")), JSON.stringify(raised3.response.changes));
+  assert.equal(await stock(), 0);
+  assert.equal(await net(), 130);
+  // 改小到比净扣还多一点点：只退差额
+  await printAndConfirm("F-FIX-1", "chain-5");
+  await correct("F-FIX-1", { correctedQty: 100, reason: "实际 100 个", idempotencyKey: "chain-down-100" });
+  assert.equal(await stock(), 30);
+  assert.equal(await net(), 100);
+  assert.deepEqual(await fixLine(), { delivered_qty: 100, amount: 43 });
+  // 页面读到的净扣过期（别的地方刚动过这次交付的流水）：整笔拒绝
+  const staleWorkspace = await prepare();
+  await pool.query("INSERT INTO inventory_ledger_entries (id, inventory_item_id, change_type, qty_before, qty_change, qty_after, source_type, source_id, operator_id, occurred_at, created_at, reason) VALUES ('TEST-STALE-NET', 'INV-FIX-1', '测试', 30, 0, 30, 'fulfillment_note_correction', 'F-FIX-1', 'U-OFFICE-A', now(), now(), '占位')");
+  await printAndConfirm("F-FIX-1", "chain-6");
+  const ws = await prepare();
+  ws.inventoryLedgers = staleWorkspace.inventoryLedgers.concat([{ id: "TEST-FAKE", inventoryItemId: "INV-FIX-1", sourceId: "F-FIX-1", sourceType: "fulfillment_note_print", qtyChange: -50 }]);
+  const staleNet = await services.fulfillmentPrintCommandService.correctFulfillmentNote({ workspace: ws, fulfillmentId: "F-FIX-1", operatorId: "U-OFFICE-A",
+    body: { expectedRevision: await revision("F-FIX-1"), correctedQty: 20, reason: "试", idempotencyKey: "chain-stale-1" } }).catch((error) => error);
+  assert.equal(staleNet.code ?? staleNet.error?.code, "NOTE_CORRECTION_CHANGED", JSON.stringify(staleNet));
+  assert.equal(await stock(), 30, "被拒绝时库存不动");
+  // 整张作废：把净扣的 100 全部退回
+  const voided = await correct("F-FIX-1", { voidWhole: true, reason: "客户不要了", idempotencyKey: "chain-void-01" });
+  assert.ok(voided.response, JSON.stringify(voided));
+  assert.equal(await stock(), 130);
+  assert.equal(await net(), 0, "作废后这次交付净扣 0");
+  assert.equal((await pool.query("SELECT count(*)::int n FROM statement_lines WHERE id = 'ST-FIX-1'")).rows[0].n, 0, "对账单这一行删掉");
+
+  console.log(`PASS note correction PG (${migrations.length} migrations): 改数量（对账单行与合计、订单价格快照、重打纸单）、改单价、改地址、已发对账单提示重发、收过款不能改、整张作废退库存、改数量按差额退库存、页面过期拒绝、连续改数量（库存不够少扣后再改小只退实际净扣）库存守恒。`);
 } finally {
   if (pool) await pool.end();
   spawnSync("docker", ["rm", "-f", name], { encoding: "utf8" });
