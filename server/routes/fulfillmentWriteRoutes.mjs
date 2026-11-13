@@ -16,7 +16,7 @@ export async function handleFulfillmentWriteRoutes({
 }) {
   if (method !== "POST") return false;
 
-  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|delivery-exception-resolution|quantity-variance-resolution|dispatch|print|paper-handoff|warehouse-execution|prepared|complete|pickup-confirm|cancel|delivery-evidence-review)$/);
+  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|delivery-exception-resolution|quantity-variance-resolution|dispatch|print|paper-handoff|warehouse-execution|prepared|complete|pickup-confirm|cancel|delivery-evidence-review|note-correction)$/);
   if (fulfillmentActionMatch) {
     const fulfillmentId = decodeURIComponent(fulfillmentActionMatch[1]);
     const action = fulfillmentActionMatch[2];
@@ -64,6 +64,11 @@ export async function handleFulfillmentWriteRoutes({
       "pickup-confirm": {
         permission: writeActionPermissions.confirmFulfillmentPickup,
         run: (operatorId) => fulfillmentActionCommandService.updateFulfillmentStatus({ workspace, fulfillmentId, action: "确认已拉走", body, operatorId }),
+      },
+      // 负责人 2026-11-12：送货单 / 自提单作废重打（数量、单价、文字、整张作废）。
+      "note-correction": {
+        permission: writeActionPermissions.printFulfillment,
+        run: (operatorId) => fulfillmentPrintCommandService.correctFulfillmentNote({ workspace, fulfillmentId, body, operatorId }),
       },
       cancel: {
         permission: writeActionPermissions.cancelFulfillment,

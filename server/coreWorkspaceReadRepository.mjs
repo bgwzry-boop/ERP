@@ -1001,6 +1001,8 @@ function toStatement(row, lineRows) {
     lineIds: lineRows.map((line) => clean(line.order_line_id)).filter(Boolean),
     sent: Boolean(row.last_sent_at) || status !== "待生成",
     lastSentAt: timestamp(row.last_sent_at),
+    // 0068：改单作废重打后，对账单要重新发给客户（再次发送后提示消失）。
+    correctedAfterSendAt: timestamp(row.corrected_after_send_at),
     settledAt: timestamp(row.settled_at),
     revision: integer(row.revision, 1),
     createdBy: clean(row.created_by),

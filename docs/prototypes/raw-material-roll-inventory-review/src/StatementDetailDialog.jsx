@@ -81,6 +81,7 @@ function StatementDetailSession({ statementId, authState, onClose, onUpdated }) 
     <header><div><span>{statementId}</span><h2 id="statement-detail-title">对账明细</h2><p>{detail ? `${detail.customerName || detail.customerId} · ${detail.period || "账期待维护"} · ${detail.status === "已核销" ? "已结清" : detail.status}` : "读取当前账单"}</p></div><button aria-label="关闭对账明细" disabled={busy} type="button" onClick={close}>×</button></header>
     <div className="finance-dialog-content" aria-busy={loading || busy}>
       {notice ? <p className="finance-notice" role="status">{notice}</p> : null}
+      {detail?.needsResendAfterCorrection ? <p className="finance-notice" role="status">这张对账单发给客户以后，有送货单作废重打改过数量或金额，请重新复制对账图发给客户。</p> : null}
       {loading ? <p role="status">正在读取账单明细…</p> : loadError ? <div role="alert"><p>{loadError}</p><button type="button" onClick={refresh}>重新读取</button></div> : detail ? <>
         <dl className="finance-summary"><div><dt>本期应收</dt><dd>{money(detail.receivable)}</dd></div><div><dt>本期累计实收</dt><dd>{money(detail.received)}</dd></div>{Number(detail.roundingAmount) > 0 ? <div><dt>抹零</dt><dd>{money(detail.roundingAmount)}</dd></div> : null}<div><dt>本期未收</dt><dd>{money(detail.currentUnpaid)}</dd></div><div><dt>历史欠款</dt><dd>{money(detail.historicalDebt)}</dd></div></dl>
         {detail.annualReceiptSummary ? <p className="finance-muted">{detail.annualReceiptSummary.year} 年账本合计：实收 {money(detail.annualReceiptSummary.receivedTotal)}，抹零 {money(detail.annualReceiptSummary.roundingTotal)}。抹零不改写应收。</p> : null}

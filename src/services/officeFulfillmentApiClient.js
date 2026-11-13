@@ -824,3 +824,30 @@ export async function resolveOfficeDriverDeliveryException({ authState, fulfillm
     return response.ok ? { ...value, source:"api", blocked: false } : { blocked: true, error: toApiError(value, response.status) };
   } catch (error) { return { blocked: true, error: { message: error.message || "提交失败，请保留原内容重试。" } }; }
 }
+
+// 负责人 2026-11-12「作废重打」：送货单 / 自提单打出来以后发现错了（数量、单价、地址提货人，或整张不要），
+// 先作废并改对，再按正常流程重打。
+export async function correctOfficeFulfillmentNote(input, options = {}) {
+  const { authState, fulfillment, operatorId } = input;
+  const body = {
+    fulfillmentId: fulfillment.id,
+    idempotencyKey: input.idempotencyKey,
+    expectedRevision: Number(fulfillment.revision ?? 0),
+    reason: cleanText(input.reason),
+    ...(input.voidWhole === true ? { voidWhole: true } : {}),
+    ...(cleanText(input.correctedQty) ? { correctedQty: Number(input.correctedQty) } : {}),
+    ...(cleanText(input.correctedUnitPrice) ? { correctedUnitPrice: cleanText(input.correctedUnitPrice) } : {}),
+    ...(input.address != null && cleanText(input.address) ? { address: cleanText(input.address) } : {}),
+    ...(cleanText(input.pickerName) ? { pickerName: cleanText(input.pickerName) } : {}),
+  };
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillment.id)}/note-correction`, {
+      ...options, authState, method: "POST", operatorId, idempotencyKey: input.idempotencyKey, body,
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "作废重打没有保存。") };
+    return { source: "api", ...json };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "NOTE_CORRECTION_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
