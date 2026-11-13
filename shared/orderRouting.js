@@ -44,8 +44,19 @@ export function isStockOrderType(value) {
   return type === "stock" || type === "stock_printed";
 }
 
+// 负责人 2026-11-08：通货要先下「补库订单」让车间做（纯色：制袋→打包→入库；丝印通货：丝印→制袋→打包→入库），
+// 做好入本厂成品库存，客户要货时再按需出库。补库单不发货、不对外收费。
+export const REPLENISHMENT_FULFILLMENT = "补库入库";
+export const REPLENISHMENT_CUSTOMER_ID = "C-INTERNAL-STOCK";
+export const REPLENISHMENT_INVENTORY_TEXT = "补库：做好后入本厂库存";
+
+export function isReplenishmentRow(row = {}) {
+  return [row.fulfillment, row.fulfillmentMethod, row.fulfillment_method].some((value) => String(value ?? "").trim() === REPLENISHMENT_FULFILLMENT);
+}
+
 export function requiresProductionOrderType(value, inventory = "") {
   const type = normalizeOrderType(value);
+  if (String(inventory).startsWith("补库")) return isStockOrderType(type);
   // 外加工印刷 is printed in our own silk-screen workshop (owner 2026-11-03), so it is scheduled too.
   if (type === "custom_print" || type === "custom_special" || type === "external_print") return true;
   return isStockOrderType(type) && String(inventory).startsWith("缺货");

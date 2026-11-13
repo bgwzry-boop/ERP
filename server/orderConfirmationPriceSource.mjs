@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { assertPublishedOrderPriceSnapshots } from "./orderDraftPublishedPricing.mjs";
-import { normalizeOrderType } from "../shared/orderRouting.js";
+import { normalizeOrderType, isReplenishmentRow, isStockOrderType } from "../shared/orderRouting.js";
 import { isValidIncomingRollsLine } from "../shared/externalPrintQuantity.js";
 
 const clean = value => String(value ?? "").trim();
@@ -45,6 +45,11 @@ export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnap
       && isValidIncomingRollsLine({ ...line, qty: line.qty ?? line.originalQty })
       && chargeableQty === 0 && finalAmount === 0 && printPrice === 0 && bagPrice === 0;
     if (pricedOnActualPrints) continue;
+    // 负责人 2026-11-08：补库单（通货做好入本厂库存）不对外收费。
+    const internalReplenishment = (snapshot.sourceEvidence ?? snapshot.source_evidence_json)?.kind === "internal_replenishment"
+      && isReplenishmentRow(line) && isStockOrderType(line.orderType ?? line.order_type)
+      && finalAmount === 0 && printPrice === 0 && bagPrice === 0 && otherFee === 0;
+    if (internalReplenishment) continue;
     const hasRequiredPrice = normalizeOrderType(line.orderType ?? line.order_type) === "external_print"
       ? printPrice > 0 : bagPrice > 0;
     if (!hasRequiredPrice && !explicitGift) throw missingPrice(lineId);

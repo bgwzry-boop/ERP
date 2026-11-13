@@ -5,7 +5,7 @@ import {
   FACTORY_STANDARD_COLORS,
   FACTORY_STANDARD_COLOR_INPUT_ALIASES,
 } from "../../shared/factoryStandardColors.js";
-import { normalizeOrderType, orderTypeLabel, requiresProductionOrderType } from "../../shared/orderRouting.js";
+import { normalizeOrderType, orderTypeLabel, requiresProductionOrderType, isReplenishmentRow, isStockOrderType } from "../../shared/orderRouting.js";
 import { isIncomingRollsLine, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 
 export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
@@ -141,6 +141,8 @@ export function getDraftMissingFields(row) {
     if (!isValidIncomingRollsLine(row)) missing.push("来料卷数");
   } else if (!["number", "string"].includes(typeof row.qty) || String(row.qty).trim() === "" || !Number.isSafeInteger(Number(row.qty)) || Number(row.qty) <= 0) missing.push("有效正整数数量");
   if (getPendingDraftFieldReviews(row).length) missing.push("识别字段待确认");
+  // 负责人 2026-11-08：补库只针对通货（纯色、丝印通货），定制单按客户下单。
+  if (isReplenishmentRow(row) && !isStockOrderType(normalizeOrderType(row?.orderType))) missing.push("补库只能下通货");
 
   if (isCustomPrintDraft(row)) {
     if (!row.product || row.product === "空白袋") missing.push("印刷内容/品名");
