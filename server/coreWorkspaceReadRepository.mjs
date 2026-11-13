@@ -386,6 +386,9 @@ function toPriceTable(row) {
     status: clean(row.status) || "active",
     effectiveFrom: timestamp(row.effective_from),
     effectiveTo: timestamp(row.effective_to),
+    // 0066：改价规则（加长提手、礼品袋优惠、加扣子）和改价说明。
+    rules: row.rules_json && typeof row.rules_json === "object" ? row.rules_json : {},
+    changeSummary: clean(row.change_summary),
     createdBy: clean(row.created_by),
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
@@ -405,6 +408,9 @@ function toPriceTableItem(row) {
     otherFee: number(row.other_fee),
     minQty: nullableInteger(row.min_qty),
     enabled: boolean(row.enabled, true),
+    label: clean(row.label),
+    category: clean(row.category),
+    sortOrder: integer(row.sort_order, 0),
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
   };

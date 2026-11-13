@@ -12,6 +12,7 @@ export const completedBusinessWorkspaceIds = Object.freeze([
   "customer-statements",
   "customer-records",
   "general-prices",
+  "sales-prices",
   "people-machines",
   "payroll-attendance",
   "launch-status",

@@ -71,7 +71,11 @@ export function parseOrderText(text, { customers = [], inventories = [], now = n
     // affirmative print instruction still applies to the line.
     const prints = printText === printSideText ? /印|美的|图|logo/u.test(printSideText) : printText.includes("印");
     const print = prints ? "是" : "否";
-    const handle = chunk.includes("长提") || chunk.includes("加长") ? "加长提" : "普通提";
+    // 负责人 2026-11-12：加长提手按长度加价，写了长度（「加长提60cm」「提手65厘米」）就带上。
+    const handleLength = chunk.match(/(?:加长提?手?|长提手?|提手)\s*(\d{2})\s*(?:cm|CM|厘米)|(\d{2})\s*(?:cm|CM|厘米)\s*(?:的)?\s*(?:加长)?提/u);
+    const handle = chunk.includes("长提") || chunk.includes("加长") || handleLength
+      ? `加长提${handleLength ? `${handleLength[1] ?? handleLength[2]}cm` : ""}`
+      : "普通提";
     const latest = detectLatest(chunk);
     const printColor = prints ? detectPrintColor(printText) : "非印刷";
     const printSide = prints ? detectPrintSide(printText) : "非印刷";
@@ -241,7 +245,7 @@ function detectHandleColor(chunk) {
 
 function detectNote(chunk, { handle }) {
   const notes = [];
-  if (handle === "加长提") notes.push("加长提");
+  if (String(handle).startsWith("加长提")) notes.push(handle);
   if (/提手颜色更换|提手更换|换.*提/.test(chunk)) notes.push("提手颜色更换");
 
   const explicitNote = chunk.match(/备注[:：]?\s*([^；;，,]+)/);

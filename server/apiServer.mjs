@@ -1252,6 +1252,7 @@ async function routeWrite(context) {
       customerAddressCommandService,
       phoneIdentityCommandService,
       sendCommandResponse,
+      sendCommandRecord,
     })
   ) {
     return;

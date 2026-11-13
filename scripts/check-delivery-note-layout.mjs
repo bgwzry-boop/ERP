@@ -32,6 +32,8 @@ assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.36, printPrice: 0.09 }), { 
 assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.6, printPrice: 0.1, sourceEvidence: { specialQuote: { handleUnitAddon: 0.05, snapButtonUnitAddon: 0.1 } } }), { bag: 0.45, print: 0.1, handle: 0.05, snap: 0.1 }, "special-size quote");
 assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.6, printPrice: 0, sourceEvidence: { quote: { basePrice: 0.47, handleAddon: 0.03, specialRequirementAddon: 0.1 } } }), { bag: 0.47, print: 0, handle: 0.03, snap: 0.1 }, "mini-program locked quote");
 assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.37, printPrice: 0, sourceEvidence: { kind: "erp_published_price", handleFallback: true } }), { bag: 0.34, print: 0, handle: 0.03, snap: 0 }, "published price with the extended-handle surcharge");
+// 负责人 2026-11-12：加长提手按长度（60cm +0.13）、加扣子 +0.10 分开印在送货单上。
+assert.deepEqual(splitLegacyUnitPrices({ bagPrice: 0.64, printPrice: 0, sourceEvidence: { kind: "erp_published_price", handleFallback: true, handleAddon: 0.13, snapAddon: 0.1, giftDiscount: 0 } }), { bag: 0.41, print: 0, handle: 0.13, snap: 0.1 }, "published price with a 60cm handle and a snap button");
 assert.equal(splitLegacyUnitPrices(null), null);
 
 // The print pricing carries them from the price snapshot in force.

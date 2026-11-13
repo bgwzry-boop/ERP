@@ -81,6 +81,8 @@ export const pcNavGroups = [
     label: "基础资料",
     icon: "master",
     items: [
+      // 负责人 2026-11-12：全厂统一销售价，办公室、负责人、财务都能看，负责人改。
+      { id: "sales-prices", label: "销售价格", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["order.read"] },
       { id: "customer-records", label: "客户档案", allowedRoleKeys: ["office", "management"], permissionKeys: ["master_data.import.plan.create"] },
       { id: "general-prices", label: "成品资料", allowedRoleKeys: ["office", "management"], permissionKeys: ["master_data.import.plan.create"] },
       { id: "people-machines", label: "员工机台", allowedRoleKeys: ["office", "management"], permissionKeys: ["master_data.import.plan.create"] },
@@ -114,6 +116,7 @@ export const navViewMap = Object.freeze({
   "supplier-month-end": "供应商月结",
   "raw-material-cost": "原料成本",
   "payroll-attendance": "工资核算",
+  "sales-prices": "销售价格",
   "customer-records": "客户档案",
   "general-prices": "成品资料",
   "people-machines": "员工机台",

@@ -93,6 +93,7 @@ const uiActionPermissions = {
   },
   rawMaterial: {
     维护厂家颜色: { permissionKey: "master_data.raw_material_color.manage", permissionType: "action" },
+    改销售价格: { permissionKey: "master_data.sales_price.manage", permissionType: "action" },
     复核送货单: { permissionKey: "raw_material.inbound.review", permissionType: "action" },
     作废误录草稿: { permissionKey: "raw_material.inbound.review", permissionType: "action" },
     打印卷标: { permissionKey: "raw_material.label.print", permissionType: "action" },
