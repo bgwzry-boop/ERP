@@ -141,6 +141,12 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const line = (formal?.data?.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === lineId);
   const task = fulfillment.packingTask ?? (formal?.data?.packingTasks ?? []).map(row => row.packingTask ?? row).find(row => (row.orderLineId ?? row.lineId) === lineId);
   const paper = fulfillment.paperOutboundDocument;
+  const paperStatus = paper?.status || fulfillment.paperOutboundStatus || "待生成纸单";
+  const newPaper = paperStatus === "待生成纸单" && !paper && !fulfillment.printed && !fulfillment.activePrintRecordId;
+  const pendingPaper = paperStatus === "待打印确认" && Boolean(paper?.printRecordId || fulfillment.printRecordId);
+  const voidedPaper = paperStatus === "已作废待重打" && fulfillment.printRecordStatus === "voided" && Boolean(paper?.printRecordId);
+  const needsPrint = newPaper || pendingPaper || voidedPaper;
+  const canPrintNote = fulfillment.noteReadiness?.ready === true;
   const employees = candidates.warehouseExecutors;
   const drivers = candidates.drivers;
   const canReadCandidates = can("fulfillment.warehouse.execute") || can("fulfillment.dispatch.update");
@@ -218,7 +224,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
       setConfirmation(null);
       setUncertain(false);
       setChecked(false);
-      const browserJob = current.label === "创建出库单打印任务" && BROWSER_PRINT_MODES.has(String(result.printJob?.driverMode ?? "").trim())
+      const browserJob = ["创建出库单打印任务", "重打已作废纸单"].includes(current.label) && BROWSER_PRINT_MODES.has(String(result.printJob?.driverMode ?? "").trim())
         ? (result.printJobId ?? result.printJob?.printJobId) : "";
       if (browserJob) {
         setNotice("正在打开打印窗口，请选针式打印机…");
@@ -240,7 +246,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
   // 已建了纸单、还没确认打印的：再打一次并确认。
   async function printPendingNote() {
     const printRecordId = paper?.printRecordId ?? fulfillment.printRecordId;
-    if (pending.current || !printRecordId) return;
+    if (pending.current || !printRecordId || !canPrintNote) return;
     pending.current = true;
     setBusy(true);
     try {
@@ -293,7 +299,14 @@ function FulfillmentOperations({ fulfillment, formal }) {
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
       {can("fulfillment.print") && stockOrder && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>备货小票</legend><p>现货先打小票给库房配货，备好后再打正式出库单。小票不带价钱，列出本订单所有现货。</p><button type="button" onClick={() => void printSlip()}>打印备货小票</button></fieldset>}
-      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paper?.status || "尚未创建纸单"}。</p>{fulfillment.stockDeductionNote ? <p className={/没扣/u.test(fulfillment.stockDeductionNote) ? "fulfillment-stock-note warn" : "fulfillment-stock-note"}>库存：{fulfillment.stockDeductionNote}</p> : null}<details className="fulfillment-note"><summary>打印说明</summary><p>出库纸单与包裹挂牌分别打印。</p></details>{pickupNote ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}{paper?.status === "待打印确认" ? <button type="button" className="primary" onClick={() => void printPendingNote()}>打印纸单并确认</button> : null}<button type="button" hidden={paper?.status === "待打印确认"} onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button></fieldset>}
+      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paperStatus}。</p>{fulfillment.stockDeductionNote ? <p className={/没扣/u.test(fulfillment.stockDeductionNote) ? "fulfillment-stock-note warn" : "fulfillment-stock-note"}>库存：{fulfillment.stockDeductionNote}</p> : null}
+        {canPrintNote && needsPrint ? <>
+          {pickupNote && newPaper ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}
+          {pendingPaper ? <button type="button" className="primary" onClick={() => void printPendingNote()}>打印纸单并确认</button> : null}
+          {newPaper ? <button type="button" onClick={() => ask("创建出库单打印任务", printOfficeFulfillment, { action: "打印出库单", printAction: "first_print", ...(pickupNote && pickerName.trim() ? { pickerName: pickerName.trim() } : {}) }, `创建待实际打印的出库单任务${pickupNote && pickerName.trim() ? `，提货人：${pickerName.trim()}` : ""}；打印完成后才能交库房。`)}>创建打印任务</button> : null}
+          {voidedPaper ? <button type="button" onClick={() => ask("重打已作废纸单", printOfficeFulfillment, { action: "打印出库单", printAction: "reprint", previousPrintRecordId: paper.printRecordId, reprintReason: paper.voidReason || "原纸单已作废，重新打印" }, "按已更正的单据重新创建打印任务。")}>重新打印纸单</button> : null}
+        </> : needsPrint && <p>{fulfillment.noteReadiness?.reason || "打单条件尚未读到，请刷新发货安排。"}</p>}
+      </fieldset>}
       {can("fulfillment.paper.handoff") && !fulfillment.legacyStateReviewRequired && paper?.status === "已打印待交库房" && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
       {can("fulfillment.warehouse.execute") && (fulfillment.warehouseTaskVisible || paper?.status === "已交库房") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
         <legend>库房实际执行</legend>

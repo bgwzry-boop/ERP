@@ -1,5 +1,5 @@
 // 负责人 2026-11-08：订单统一写法——「【印刷内容】30*37*10cm 红印白 双面相同 5000个」。
-// 现货（不印刷）写「现货 45*37*10cm 本白 2000个」。工作台、订单跟踪、发货安排、对账都用这一句。
+import { isReplenishmentRow, isStockOrderType, normalizeOrderType, orderTypeLabel, stockSupplyRoute } from "../../../../shared/orderRouting.js";
 const text = (value) => String(value ?? "").trim();
 const NOT_PRINTED = new Set(["", "否", "无", "不印刷", "非印刷", "无印刷", "未印刷", "待确认"]);
 
@@ -37,12 +37,23 @@ export function formatOrderLineText(line = {}) {
   const qtyText = Number.isFinite(qty) && qty > 0 ? `${qty}${unit}` : "";
   const size = sizeText(line.size);
   const bag = colorText(line.color ?? line.bagColor);
-  if (!isPrintedOrderLine(line)) {
-    return ["现货", size, bag, qtyText].filter(Boolean).join(" ");
+  const printed = isPrintedOrderLine(line);
+  let prefix = "";
+  if (isReplenishmentRow(line)) prefix = "补库";
+  else if (normalizeOrderType(line.orderType) === "custom_special") prefix = "特殊尺寸";
+  else if (isStockOrderType(line.orderType)) {
+    const route = stockSupplyRoute(line);
+    if (route === "production") prefix = "通货排产";
+    else if (route === "inventory") prefix = "现货";
+    else prefix = normalizeOrderType(line.orderType) === "stock_printed" ? "印刷通货" : "标准通货";
+  } else if (!printed) {
+    const type = orderTypeLabel(line.orderType);
+    prefix = type ? `${type}（印刷待核对）` : "类型待确认";
   }
+  if (!printed) return [prefix, size, bag, qtyText].filter(Boolean).join(" ");
   const content = text(line.printContent);
   const head = `${content ? (content.startsWith("【") ? content : `【${content}】`) : ""}${size}`;
   const ink = colorText(line.printColor);
   const colors = bag && ink ? `${bag}印${ink}` : bag;
-  return [head, colors, printSideText(line.printSide), qtyText].filter(Boolean).join(" ");
+  return [prefix, head, colors, printSideText(line.printSide), qtyText].filter(Boolean).join(" ");
 }

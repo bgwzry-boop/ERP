@@ -434,7 +434,7 @@ function createHarness({
     packages: packages.map((item) => structuredClone(item)),
     printDevices: printDevices.map((item) => structuredClone(item)),
     operationLogs: [],
-    orderLines: [{ id: "OL-001", orderLineId: "OL-001", customerId: "C-001", qty: 1500, amount: 150 }],
+    orderLines: [{ id: "OL-001", orderLineId: "OL-001", orderType: "现货有货", customerId: "C-001", qty: 1500, amount: 150 }],
     customers: [{ id: "C-001", name: "白鲸自营店" }],
     printDeviceRepository: {
       async listPrintDevices({ filters = {} }) {

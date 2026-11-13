@@ -1,6 +1,7 @@
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { REPLENISHMENT_FULFILLMENT } from "../shared/orderRouting.js";
 
 export function createOrderPoolReadRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -28,13 +29,19 @@ export function createLocalOrderPoolReadRepository() {
     listOrderLines({ workspace, query = {} }) {
       const filters = normalizeOrderPoolQuery(query);
       const customers = new Map((workspace.customers ?? []).map((customer) => [customer.id, customer]));
+      const productionLineIds = new Set((workspace.productionTasks ?? []).filter(isEffectiveProductionTask).map((task) => task.orderLineId));
       const groupByLine=new Map();
       for(const snapshot of [...(workspace.priceSnapshots??[])].sort((a,b)=>(Date.parse(b.createdAt??b.created_at)||0)-(Date.parse(a.createdAt??a.created_at)||0)||Number(b.versionNo??b.version_no)-Number(a.versionNo??a.version_no))){
         const id=snapshot.orderLineId??snapshot.order_line_id;if(!groupByLine.has(id))groupByLine.set(id,{group:safePrintingPriceGroup(snapshot.sourceEvidence?.officePricingGroup),printContent:cleanText(snapshot.sourceEvidence?.officeQuoteInput?.printContent)});
       }
       let items = (workspace.orderLines ?? []).map((line) => {
         const latest=groupByLine.get(line.orderLineId??line.id);
-        return normalizeOrderLineListItem({...line,printingPriceGroup:latest?.group??null,printContent:latest?.printContent||line.printContent}, { customer: customers.get(line.customerId) });
+        return normalizeOrderLineListItem({
+          ...line,
+          printingPriceGroup: latest?.group ?? null,
+          printContent: latest?.printContent || line.printContent,
+          hasProductionTask: productionLineIds.has(line.orderLineId ?? line.id),
+        }, { customer: customers.get(line.customerId) });
       });
       items = filterLocalOrderLines(items, filters);
       return paginateOrderLines(items, filters);
@@ -47,7 +54,11 @@ export function createLocalOrderPoolReadRepository() {
       const latestSnapshot = [...(workspace.priceSnapshots ?? [])]
         .filter((snapshot) => (snapshot.orderLineId ?? snapshot.order_line_id) === (sourceLine.orderLineId ?? sourceLine.id))
         .sort((a, b) => (Date.parse(b.createdAt ?? b.created_at) || 0) - (Date.parse(a.createdAt ?? a.created_at) || 0) || Number(b.versionNo ?? b.version_no) - Number(a.versionNo ?? a.version_no))[0];
-      const orderLine = normalizeOrderLineListItem({ ...sourceLine, printContent: cleanText(latestSnapshot?.sourceEvidence?.officeQuoteInput?.printContent) || sourceLine.printContent }, { customer: customers.get(sourceLine.customerId) });
+      const orderLine = normalizeOrderLineListItem({
+        ...sourceLine,
+        hasProductionTask: (workspace.productionTasks ?? []).some((task) => task.orderLineId === orderLineId && isEffectiveProductionTask(task)),
+        printContent: cleanText(latestSnapshot?.sourceEvidence?.officeQuoteInput?.printContent) || sourceLine.printContent,
+      }, { customer: customers.get(sourceLine.customerId) });
       const originalOrder =
         (workspace.originalOrders ?? []).find(
           (order) => order.orderId === orderLine.orderId || order.id === orderLine.orderId,
@@ -445,6 +456,8 @@ function buildOrderLineWhereClause(filters, parameters) {
 }
 
 function orderLineListItemJsonExpression(alias) {
+  // A historical dispatch placeholder cannot turn an internal stock order into a customer delivery.
+  const method = `CASE WHEN ${alias}.fulfillment_method = '${REPLENISHMENT_FULFILLMENT}' THEN ${alias}.fulfillment_method ELSE COALESCE(${alias}.latest_fulfillment_method, ${alias}.fulfillment_method) END`;
   return `json_build_object(
     'id', ${alias}.id,
     'orderLineId', ${alias}.id,
@@ -474,10 +487,11 @@ function orderLineListItemJsonExpression(alias) {
     'qtyBasis', ${alias}.qty_basis,
     'incomingRollCount', ${alias}.incoming_roll_count,
     'orderType', ${alias}.order_type,
+    'hasProductionTask', EXISTS (SELECT 1 FROM production_tasks AS task WHERE task.order_line_id = ${alias}.id AND task.task_status NOT IN ('已取消', '已作废')),
     'lineStatus', ${alias}.line_status,
     'status', ${alias}.line_status,
-    'fulfillmentMethod', COALESCE(${alias}.latest_fulfillment_method, ${alias}.fulfillment_method),
-    'fulfillment', COALESCE(${alias}.latest_fulfillment_method, ${alias}.fulfillment_method),
+    'fulfillmentMethod', ${method},
+    'fulfillment', ${method},
     'latestNeededAt', ${alias}.latest_needed_at,
     'latest', COALESCE(${alias}.latest_needed_at::TEXT, '待确认'),
     'amount', COALESCE(${alias}.amount, 0),
@@ -544,6 +558,10 @@ function safePrintingPriceGroup(value){
   const groupId=cleanText(value?.groupId),memberCount=Number(value?.memberCount);
   return groupId&&Number.isSafeInteger(memberCount)&&memberCount>0?{groupId,memberCount}:null;
 }
+function isEffectiveProductionTask(task) {
+  return !["已取消", "已作废"].includes(task.taskStatus ?? task.status);
+}
+
 function normalizeOrderLineListItem(line, context = {}) {
   if (!line || typeof line !== "object") return null;
   const id = cleanText(line.id ?? line.orderLineId ?? line.order_line_id);
@@ -590,7 +608,8 @@ function normalizeOrderLineListItem(line, context = {}) {
     handleColor: cleanText(line.handleColor ?? line.handle_color),
     qty,
     originalQty: qty,
-    orderType: cleanText(line.orderType ?? line.order_type) || "stock",
+    orderType: cleanText(line.orderType ?? line.order_type),
+    hasProductionTask: line.hasProductionTask === true,
     lineStatus,
     status: lineStatus,
     fulfillmentMethod,

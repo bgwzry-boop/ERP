@@ -7,7 +7,7 @@ const pages = [
   "production-tasks", "packing-labels", "print-devices", "mold-changes", "outbound-delivery",
   "inventory-query", "laminated-inventory", "customer-statements", "supplier-month-end",
   "raw-material-cost", "payroll-attendance", "customer-records", "general-prices",
-  "people-machines", "launch-status",
+  "people-machines", "today", "sales-prices",
 ];
 const knownExceptions = new Set();
 

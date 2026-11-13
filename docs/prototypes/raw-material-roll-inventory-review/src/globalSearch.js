@@ -38,30 +38,6 @@ function orderColor(line) {
   return text(line?.color || line?.bagColor);
 }
 
-// 与客户档案同一来源：对账单优先，没有对账单时才用订单上的客户名。
-export function collectGlobalSearchCustomers(data = {}) {
-  const records = new Map();
-  for (const statement of data.statements || []) {
-    const id = text(statement?.customerId);
-    if (!id) continue;
-    records.set(id, {
-      id,
-      name: text(statement?.customerName) || id,
-      settlementCycle: text(statement?.settlementCycle),
-    });
-  }
-  for (const line of data.orderLines || []) {
-    const id = text(line?.customerId);
-    if (!id || records.has(id)) continue;
-    records.set(id, {
-      id,
-      name: customerNameOf(line) || id,
-      settlementCycle: "",
-    });
-  }
-  return [...records.values()];
-}
-
 function allowedSet(allowedNavIds) {
   if (allowedNavIds instanceof Set) return allowedNavIds;
   if (Array.isArray(allowedNavIds)) return new Set(allowedNavIds);
@@ -76,23 +52,11 @@ export function searchGlobalDesktopRecords(data = {}, rawQuery, options = {}) {
   const canOpen = (navId) => !allowed || allowed.has(navId);
   const visibleQuery = text(rawQuery);
   const lines = (data.orderLines || []).filter((line) => orderIdentity(line));
-  const linesByCustomer = new Map();
-  for (const line of lines) {
-    const customerId = text(line.customerId);
-    if (!customerId) continue;
-    const group = linesByCustomer.get(customerId) || [];
-    group.push(line);
-    linesByCustomer.set(customerId, group);
-  }
-
   const results = [];
   if (canOpen("customer-records")) {
-    for (const customer of collectGlobalSearchCustomers(data)) {
-      const nameRank = Math.max(
-        matchRank(customer.name, query),
-        ...(linesByCustomer.get(customer.id) || []).map((line) => matchRank(customerNameOf(line), query)),
-      );
-      const idRank = matchRank(customer.id, query);
+    for (const customer of data.customers || []) {
+      const nameRank = Math.max(...[customer.name, customer.shortName, customer.contactName, customer.phone].map(value => matchRank(value, query)));
+      const idRank = matchRank(customer.customerId, query);
       const cycleRank = matchRank(customer.settlementCycle, query);
       const rank = Math.max(nameRank, idRank, cycleRank);
       if (!rank) continue;
@@ -101,10 +65,10 @@ export function searchGlobalDesktopRecords(data = {}, rawQuery, options = {}) {
         score,
         kind: "customer",
         navId: "customer-records",
-        recordId: customer.id,
+        recordId: customer.customerId,
         query: visibleQuery,
         title: customer.name,
-        detail: ["客户档案", customer.id, customer.settlementCycle].filter(Boolean).join(" · "),
+        detail: ["客户档案", customer.customerId, customer.settlementCycle].filter(Boolean).join(" · "),
       });
     }
   }

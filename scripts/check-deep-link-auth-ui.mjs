@@ -44,7 +44,12 @@ try {
     await page.waitForTimeout(700);
     assert.equal(await page.evaluate(() => window.location.hash), target.hash, `${target.hash} 认证前不得被改写`);
     await page.getByText("管理A", { exact: true }).first().waitFor({ timeout: 45000 });
-    await page.locator(`[data-nav-id="${target.navId}"][aria-current="page"]`).waitFor({ timeout: 20000 });
+    await page.locator(`.app-shell[data-active-view]`).filter({ has: page.getByRole("heading", { name: target.title }).first() }).waitFor({ timeout: 20000 });
+    if (target.navId === "launch-status") {
+      assert.equal(await page.locator('[data-nav-id="launch-status"]').count(), 0, "管理深链不在日常导航中显示");
+    } else {
+      await page.locator(`[data-nav-id="${target.navId}"][aria-current="page"]`).waitFor({ timeout: 20000 });
+    }
     await page.waitForTimeout(800);
     assert.equal(await page.evaluate(() => window.location.hash), target.hash, `${target.hash} 认证后地址仍是目标`);
     assert.match(await page.locator("main").first().innerText(), target.title, `${target.navId} 内容必须是目标页`);

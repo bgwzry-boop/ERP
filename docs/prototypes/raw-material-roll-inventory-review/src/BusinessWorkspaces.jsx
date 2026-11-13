@@ -3,6 +3,7 @@ import { CustomerProfilePanel } from "./CustomerProfilePanel.jsx";
 import { EmptyWorkspace } from "./WorkspaceFeedback.jsx";
 import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
 import OrderPricingEntryWorkspace from "./OrderPricingEntryWorkspace.jsx";
+import { hasEffectivePermission } from "./navigation.js";
 import { SalesPriceWorkspace } from "./SalesPriceWorkspace.jsx";
 import { InventoryHoldsWorkbench } from "./InventoryHoldsWorkbench.jsx";
 import { OrderMutationDialog } from "./OrderMutationDialog.jsx";
@@ -418,26 +419,29 @@ function buildStatementRows(items = []) {
   }));
 }
 
-function buildCustomerRows(orderLines = [], statements = []) {
-  const records = new Map();
-  for (const statement of statements) {
-    records.set(statement.customerId, {
-      id: statement.customerId,
-      name: statement.customerName || statement.customerId,
-      settlementCycle: statement.settlementCycle || "待确认",
-      receivable: statement.currentReceivable,
-      status: statementStatusLabel(statement.status),
-    });
+function buildCustomerRows(customers = [], statements = [], canReadStatements) {
+  const byCustomer = new Map();
+  if (canReadStatements) {
+    for (const statement of statements) {
+      if (!byCustomer.has(statement.customerId)) byCustomer.set(statement.customerId, []);
+      byCustomer.get(statement.customerId).push(statement);
+    }
   }
-  for (const line of orderLines) {
-    if (!records.has(line.customerId)) records.set(line.customerId, { id: line.customerId, name: line.customerName || line.customerId, settlementCycle: "待确认", receivable: null, status: "正常" });
-  }
-  return [...records.values()].map((item) => ({
-    id: item.id,
-    cells: [item.name, item.id, item.settlementCycle, statementMoney(item.receivable), item.status],
-    status: item.status,
-    details: [["客户编号", item.id], ["客户名称", item.name], ["结算周期", item.settlementCycle], ["当前应收", statementMoney(item.receivable)]],
-  }));
+  return customers.map(customer => {
+    const { customerId, name, settlementCycle, shortName, contactName, phone } = customer;
+    const status = customer.enabled ? "已启用" : "停用";
+    const bills = byCustomer.get(customerId) || [];
+    const receivable = bills.length > 1 ? `${bills.length} 张对账单`
+      : bills.length ? statementMoney(bills[0].currentReceivable) : "暂无对账记录";
+    return {
+      id: customerId,
+      cells: [name, customerId, settlementCycle, ...(canReadStatements ? [receivable] : []), status],
+      status,
+      searchValues: [shortName, contactName, phone],
+      details: [["客户编号", customerId], ["客户名称", name], ["结算周期", settlementCycle],
+        ...bills.map(bill => [`${bill.statementId} 应收`, statementMoney(bill.currentReceivable)])],
+    };
+  });
 }
 
 function buildPeopleMachineRows(employees = [], machines = []) {
@@ -477,6 +481,7 @@ function buildPeopleMachineRows(employees = [], machines = []) {
 }
 
 function buildWorkspaceConfigs(formal) {
+  const canReadStatements = hasEffectivePermission(formal.permissionContext || {}, "statement.preview");
   const data = formal.data;
   const customerNames = new Map(data.orderLines.map((line) => [line.customerId, line.customerName || line.customerId]));
   const machineLabels = buildMachineLabels(data.machines);
@@ -534,12 +539,13 @@ function buildWorkspaceConfigs(formal) {
   },
   "customer-records": {
     title: "客户档案",
-    showStatusTone: true,
-    columns: ["客户", "客户编号", "结算周期", { label: "当前应收", numeric: true }, "状态"],
-    rows: buildCustomerRows(data.orderLines, data.statements),
+    searchPlaceholder: "搜索客户名称、简称、联系人或电话",
+    emptyDescription: "还没有客户档案。",
+    columns: ["客户", "客户编号", "结算周期", ...(canReadStatements ? [{ label: "账单应收", numeric: true }] : []), "档案状态"],
+    rows: buildCustomerRows(data.customers, data.statements, canReadStatements),
     primaryAction: "查看客户事实",
     keepPrimaryWithExtra: true,
-    source: "正式订单与对账 API",
+    source: "客户档案",
   },
   "people-machines": {
     title: "员工机台",
@@ -955,12 +961,11 @@ function FinishedGoodsMasterWorkspace({ formal, onNavigate }) {
   const [goodsType, setGoodsType] = useState("全部类型");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(finishedGoodsMasterRecords[0]?.id || "");
-  const [notice, setNotice] = useState("");
   const rows = useMemo(() => filterFinishedGoods(finishedGoodsMasterRecords, category, goodsType, query), [category, goodsType, query]);
   const selected = rows.find((row) => row.id === selectedId) || rows[0] || null;
-  const reset = () => { setCategory("全部成品"); setGoodsType("全部类型"); setQuery(""); setSelectedId(finishedGoodsMasterRecords[0]?.id || ""); setNotice(""); };
-  const selectCategory = (value) => { setCategory(value); setSelectedId(""); setNotice(""); };
-  const selectType = (value) => { setGoodsType(value); setSelectedId(""); setNotice(""); };
+  const reset = () => { setCategory("全部成品"); setGoodsType("全部类型"); setQuery(""); setSelectedId(finishedGoodsMasterRecords[0]?.id || ""); };
+  const selectCategory = (value) => { setCategory(value); setSelectedId(""); };
+  const selectType = (value) => { setGoodsType(value); setSelectedId(""); };
 
   return <div className="business-workbench finished-goods-workbench finished-master-workbench">
     <section className="business-list-panel">
@@ -968,14 +973,14 @@ function FinishedGoodsMasterWorkspace({ formal, onNavigate }) {
       <FinishedGoodsClassificationFilters category={category} goodsType={goodsType} onCategoryChange={selectCategory} onGoodsTypeChange={selectType} />
       <div className="finished-goods-search"><label><SearchOutlined /><input aria-label="成品资料搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索袋类 / 类型 / 商品 / 图案 / 规格 / 系列 / 颜色" value={query} /></label><button disabled={!query && category === "全部成品" && goodsType === "全部类型"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="finished-goods-table" role="table" aria-label="成品资料列表">
-        <div className="finished-master-row head" role="row"><span>成品大类</span><span>通货类型</span><span>标准规格</span><span>袋子系列</span><span>提手</span><span>通货单价</span></div>
-        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`finished-master-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" type="button"><strong>{row.category}</strong><span className="finished-master-product"><SemanticOrderTag kind="business" value={row.goodsType} /></span><strong>{row.size}</strong><span className="finished-master-scope"><strong>{row.goodsType === "印刷通货" ? row.pattern : row.seriesScope || "—"}</strong></span><span>{row.handleScope}</span><strong className="finished-master-price">{money(row.unitPrice)}</strong></button>) : <div className="business-empty"><SearchOutlined /><strong>正式成品资料接口尚未提供记录</strong><span>本页不再使用硬编码价格；接口上线后会在这里显示服务器发布的现货资料和价格。</span></div>}</div>
+        <div className="finished-master-row head" role="row"><span>成品大类</span><span>通货类型</span><span>标准规格</span><span>袋子系列</span><span>提手</span></div>
+        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`finished-master-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); }} role="row" type="button"><strong>{row.category}</strong><span className="finished-master-product"><SemanticOrderTag kind="business" value={row.goodsType} /></span><strong>{row.size}</strong><span className="finished-master-scope"><strong>{row.goodsType === "印刷通货" ? row.pattern : row.seriesScope || "—"}</strong></span><span>{row.handleScope}</span></button>) : <div className="business-empty"><SearchOutlined /><strong>成品规格目录尚未接入</strong></div>}</div>
       </div>
     </section>
     <aside className="business-detail-panel finished-goods-detail finished-master-detail">
-      <header><span>{selected?.priceVersion || "成品资料"}</span><h2>{selected ? `${selected.pattern !== "—" ? selected.pattern : selected.goodsType} · ${selected.size}` : "暂无成品"}</h2></header>
-      <div className="business-detail-scroll">{selected ? <><h3>成品定义</h3><dl className="business-facts"><div><dt>成品大类</dt><dd>{selected.category}</dd></div><div><dt>通货类型</dt><dd><SemanticOrderTag kind="business" value={selected.goodsType} /></dd></div>{selected.seriesScope || selected.pattern !== "—" ? <div><dt>袋子系列</dt><dd>{selected.seriesScope || selected.pattern}</dd></div> : null}<div><dt>标准规格</dt><dd>{selected.size}</dd></div><div><dt>匹配别名</dt><dd>{selected.aliases}</dd></div>{selected.goodsType === "印刷通货" ? <div><dt>现货颜色</dt><dd>{selected.colorScope}</dd></div> : null}<div><dt>提手范围</dt><dd>{selected.handleScope}</dd></div>{selected.goodsType === "印刷通货" ? <div><dt>图案规则</dt><dd>{selected.patternRule}</dd></div> : null}</dl><h3 className="finished-master-price-heading">价格信息</h3><dl className="business-facts finished-master-price-facts"><div><dt>通货单价</dt><dd>{money(selected.unitPrice)} / 个</dd></div><div><dt>价格说明</dt><dd>{selected.priceNote}</dd></div></dl></> : <div className="business-empty"><FileTextOutlined /><strong>暂无现货成品资料</strong></div>}<section className="business-boundary"><InfoCircleOutlined /><div><strong>资料范围</strong><p>本页只保存现货成品的内部标准规格和价格。定制尺寸按订单生产，生产多少交付多少，不建立成品资料，也不进入成品库存；实际现货数量继续在成品库存中查看。</p></div></section>{notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}</div>
-      <footer><button className="primary" disabled={!selected} onClick={() => setNotice(`当前查看 ${selected.priceVersion}；评审页不执行价格发布或修改。`)} type="button">查看价格版本</button><button className="secondary-button" onClick={() => onNavigate(selected?.category === "覆膜无纺布袋" ? "laminated-inventory" : "inventory-query")} type="button">查看对应库存</button></footer>
+      <header><span>成品资料</span><h2>{selected ? `${selected.pattern !== "—" ? selected.pattern : selected.goodsType} · ${selected.size}` : "暂无成品"}</h2></header>
+      <div className="business-detail-scroll">{selected ? <><h3>成品定义</h3><dl className="business-facts"><div><dt>成品大类</dt><dd>{selected.category}</dd></div><div><dt>通货类型</dt><dd><SemanticOrderTag kind="business" value={selected.goodsType} /></dd></div>{selected.seriesScope || selected.pattern !== "—" ? <div><dt>袋子系列</dt><dd>{selected.seriesScope || selected.pattern}</dd></div> : null}<div><dt>标准规格</dt><dd>{selected.size}</dd></div><div><dt>匹配别名</dt><dd>{selected.aliases}</dd></div>{selected.goodsType === "印刷通货" ? <div><dt>现货颜色</dt><dd>{selected.colorScope}</dd></div> : null}<div><dt>提手范围</dt><dd>{selected.handleScope}</dd></div>{selected.goodsType === "印刷通货" ? <div><dt>图案规则</dt><dd>{selected.patternRule}</dd></div> : null}</dl></> : <div className="business-empty"><FileTextOutlined /><strong>暂无现货成品资料</strong></div>}<section className="business-boundary"><InfoCircleOutlined /><div><strong>资料范围</strong><p>本页用于查看标准成品规格。</p></div></section></div>
+      <footer>{hasEffectivePermission(formal.permissionContext || {}, "order.read") ? <button className="primary" onClick={() => onNavigate("sales-prices")} type="button">查看销售价格</button> : null}<button className="secondary-button" onClick={() => onNavigate(selected?.category === "覆膜无纺布袋" ? "laminated-inventory" : "inventory-query")} type="button">查看对应库存</button></footer>
     </aside>
   </div>;
 }

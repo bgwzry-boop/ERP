@@ -34,7 +34,11 @@ try {
   }
   await pool.query(`INSERT INTO printer_devices(id,biz_no,name,device_type,connection_type,supported_document_types,default_document_types,settings_json,created_by) VALUES('PRINT-TOL-LABEL','PRINT-TOL-LABEL','合成标签机','label','system_printer',ARRAY['package_label'],ARRAY['package_label'],'{"driverMode":"system_printer"}','U-OFFICE-A');
     INSERT INTO printer_devices(id,biz_no,name,device_type,connection_type,supported_document_types,settings_json,created_by) VALUES('PRINT-TOL-PAPER','PRINT-TOL-PAPER','合成针式机','dot_matrix','system_printer',ARRAY['delivery_note'],'{"driverMode":"system_printer"}','U-OFFICE-A');
-    -- What production completion leaves behind: the qualified 1010 in stock, reserved for the line.
+    -- Workshop reported 1000. A later physical stock count found 1010, all reserved for this line.
+    INSERT INTO production_tasks(id,biz_no,order_line_id,task_type,planned_qty,task_status)
+      VALUES ('PT-TOL-A','PT-TOL-A','OL-TOL-A','制袋',1000,'已完成');
+    INSERT INTO workshop_reports(id,production_task_id,order_line_id,process_type,qualified_qty,completed_at)
+      VALUES ('WR-TOL-A','PT-TOL-A','OL-TOL-A','制袋',1000,now());
     INSERT INTO inventory_items(id,inventory_key,size,standard_color_id,handle_type,style,zone,inventory_state,on_hand_qty,reserved_qty,waiting_pickup_locked_qty,pending_handling_qty,trust_level) VALUES('INV-TOL-A','INV-TOL-A','25*32*10','SC-WHITE','加长提','空白袋','TOL','仓库已清点',1010,1010,0,0,'已清点');
     INSERT INTO inventory_reservations(id,order_line_id,inventory_item_id,reserved_qty,reservation_type,status,created_by) VALUES('RES-TOL-A','OL-TOL-A','INV-TOL-A',1010,'生产完成待出库占用','生效','U-OFFICE-A');`);
   const client=createPostgresPoolClient({pool}),reader=createPostgresCoreWorkspaceReadRepository({postgresClient:client}),repo=createPostgresProductionPackingTransactionRepository({postgresClient:client});

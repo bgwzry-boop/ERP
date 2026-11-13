@@ -1,6 +1,7 @@
 import { readCompanyPrintProfile } from "../services/companyPrintProfileService.mjs";
 import { buildFulfillmentNotePdf, isFulfillmentNoteTemplate } from "../../scripts/fulfillment-note-pdf.mjs";
 import { mergeFulfillmentNoteTemplates } from "../../shared/fulfillmentNoteMerge.js";
+import { queuedNoteError } from "../services/queuedFulfillmentNoteReadiness.mjs";
 export async function handlePrintReadRoutes({
   url,
   response,
@@ -143,6 +144,10 @@ export async function handlePrintReadRoutes({
     });
     const merged = mergeFulfillmentNoteTemplates(templates, { customerIds });
     if (merged.error) { sendJson(response, 422, merged.error); return true; }
+    for (const job of jobs) {
+      const error = queuedNoteError(workspace, job);
+      if (error) { sendJson(response, error.statusCode, error); return true; }
+    }
     try {
       const pdf = await buildFulfillmentNotePdf(merged.template);
       response.writeHead(200, {

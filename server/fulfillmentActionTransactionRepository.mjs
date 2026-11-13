@@ -3,6 +3,9 @@ import { orderTypeAliasesFor as productionOrderTypeAliasesFor } from "../shared/
 import { AUTO_QUANTITY_TOLERANCE_RATE } from "../shared/quantityTolerance.js";
 // P2-05: produced orders whose outbound may differ from the plan by up to 1% without an office decision.
 const PRODUCTION_MADE_ORDER_TYPE_ALIASES = ["custom_print", "custom_special", "external_print"].flatMap((type) => productionOrderTypeAliasesFor(type));
+import { hasVoidedNoteSource } from "./services/queuedFulfillmentNoteReadiness.mjs";
+import { fulfillmentNoteReadinessSql } from "./fulfillmentNoteReadinessSql.mjs";
+import { fulfillmentNoteReadiness, noteDocumentTypes } from "../shared/fulfillmentNoteReadiness.js";
 import { packageAnchorId } from "../shared/packageContents.js";
 import { resolveWarehouseInstructionQuantity } from "./services/warehouseInstructionQuantityService.mjs";
 import { orderTypeAliasesFor } from "../shared/orderRouting.js";
@@ -533,7 +536,7 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
   return `
 BEGIN;
 WITH locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, packing_group_anchor_id, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id, stock_deducted_at
+  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, packing_group_anchor_id, packing_group_revision, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id, stock_deducted_at
   FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
   FOR UPDATE
@@ -609,6 +612,7 @@ fulfillment_write_guard AS MATERIALIZED (
       AND (SELECT order_line_id FROM locked_fulfillment) = ${parameters.text(fulfillment.orderLineId)}
       AND (${input.deliveryEvidenceSnapshot ? `EXISTS (SELECT 1 FROM locked_fulfillment WHERE revision = ${parameters.integer(input.deliveryEvidenceSnapshot.revision)} AND COALESCE(watermarked_photo_attachment_id,'') = ${parameters.text(input.deliveryEvidenceSnapshot.watermarkedPhotoAttachmentId)} AND COALESCE(signature_photo_attachment_id,'') = ${parameters.text(input.deliveryEvidenceSnapshot.signaturePhotoAttachmentId)})` : 'TRUE'})
       AND (${fulfillmentOperationalBoundsSql(operationLog.action,fulfillment,parameters)})
+      AND (${["print_fulfillment", "confirm_fulfillment_print_from_driver"].includes(operationLog.action) ? fulfillmentNoteReadinessSql(printRecord, fulfillment, parameters, operationLog.action, input.confirmingNoteJob ?? input.printJob) : "TRUE"})
       AND (${operationLog.action === "resolve_driver_delivery_exception" ? `${buildDriverExceptionTodoGuardSql(input,parameters)} AND EXISTS (SELECT 1 FROM locked_driver_exceptions WHERE id=${parameters.text(fulfillmentException?.exceptionId)} AND status=${parameters.text(input.driverExceptionBefore?.status)} AND status NOT IN ('已解决','已作废')) AND ${parameters.text(fulfillment.status)} = (SELECT CASE WHEN (SELECT count(*) FROM locked_driver_exceptions WHERE status NOT IN ('已解决','已作废'))>1 THEN '送货异常' WHEN loaded_at IS NOT NULL THEN '配送中' ELSE '待送货' END FROM locked_fulfillment) AND NOT EXISTS (SELECT 1 FROM operation_logs WHERE id=${parameters.text(operationLog.id)})` : 'TRUE'})
       AND (${buildFulfillmentBillingSnapshotGuard(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot, parameters)}),
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
@@ -2743,6 +2747,18 @@ function assertLocalFulfillmentOperationalBounds(input) {
  const current=(input.workspace.fulfillments??[]).find(row=>(row.fulfillmentId??row.id)===id);
  if(!current || (current.orderLineId??current.lineId)!==(next.orderLineId??next.lineId)) throw fulfillmentConflict(next.revision);
  const action=input.operationLog?.action;
+ if (["print_fulfillment", "confirm_fulfillment_print_from_driver"].includes(action) && noteDocumentTypes.includes(input.printRecord?.documentType)) {
+   const lineId = current.orderLineId ?? current.lineId;
+   const line = (input.workspace.orderLines ?? []).find(row => (row.orderLineId ?? row.id) === lineId);
+   const confirming = action === "confirm_fulfillment_print_from_driver";
+   const job = input.confirmingNoteJob ?? input.printJob;
+   const record = input.printRecord;
+   const historicalReprint = hasVoidedNoteSource(input.workspace, record, confirming ? job : undefined);
+   const readiness = fulfillmentNoteReadiness(input.workspace, current, line,
+     confirming ? { historicalReprint, printedQty: job?.payload?.printTemplate?.fields?.totalQuantity } : { historicalReprint });
+   if (!readiness.ready || (current.actualQty ?? null) !== (next.actualQty ?? null)) throw fulfillmentConflict(current.revision);
+ }
+
   if (input.warehouseOutboundExecution) {
     const execution = input.warehouseOutboundExecution;
     const documents = (input.workspace.paperOutboundDocuments ?? []).filter(row => row.fulfillmentId === id)

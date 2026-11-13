@@ -1,6 +1,7 @@
 // 负责人 2026-11-08「打送货单扣库存」在装好全部迁移的真实 PostgreSQL 上：
 // 开关关着时一切照旧；打开后，送货单 / 自提单确认打出来就扣成品库存（有占用按占用扣），重复确认不再扣，
 // 库房登记实物出库不扣第二次；线上库存对不上时要出库工确认才能打，打出来不扣并留提醒；取消出库把扣掉的退回库存。
+import { checkFulfillmentNoteReadinessPostgres } from "./helpers/checkFulfillmentNoteReadinessPostgres.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import pg from "pg";
@@ -50,6 +51,7 @@ try {
     Object.assign(w, await w.printJobRepository.loadState());
     return w;
   };
+  await checkFulfillmentNoteReadinessPostgres({ pool, services, prepare });
   const stock = async () => (await pool.query("SELECT on_hand_qty, reserved_qty FROM inventory_items WHERE id = 'INV-NP-1'")).rows[0];
   const fulfillment = async (id) => (await pool.query("SELECT stock_deducted_at, stock_deduction_note, status FROM fulfillment_records WHERE id = $1", [id])).rows[0];
   const print = async (id, key, extra = {}) => services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: id, operatorId: "U-OFFICE-A",
@@ -58,6 +60,10 @@ try {
 
   // 0) 开关默认关：打印、确认都不扣库存
   assert.equal((await readCompanyPrintProfile({ printDeviceRepository: createPostgresPrintDeviceRepository({ postgresClient: client }) })).deductStockAtNotePrint, false);
+  await pool.query("INSERT INTO production_tasks(id,biz_no,order_line_id,task_type,planned_qty,task_status) VALUES ('PT-NP-CANCEL','PT-NP-CANCEL','ORD-NP-02','制袋',200,'已取消')");
+  await pool.query("UPDATE order_lines SET line_status='缺货待处理' WHERE id='ORD-NP-02'");
+  assert.equal((await print("F-NP-2", "np-short-route")).code, "FULFILLMENT_NOTE_NOT_READY", "缺货记录即使库存有历史占用也不能伪装有货");
+  await pool.query("UPDATE order_lines SET line_status='待出库' WHERE id='ORD-NP-02'");
   const off = await print("F-NP-2", "np-off-print");
   assert.ok(off.printJob, JSON.stringify(off));
   assert.ok((await confirm(off.printJob.printJobId, "np-off-confirm")).printJob);
@@ -101,6 +107,17 @@ try {
   assert.ok(!outbound.error && !outbound.code, JSON.stringify(outbound));
   assert.deepEqual(await stock(), { on_hand_qty: 700, reserved_qty: 200 }, "库房登记实物出库不再扣");
   assert.equal(Number((await pool.query("SELECT count(*) FROM inventory_ledger_entries WHERE source_id = 'F-NP-1'")).rows[0].count), 1);
+
+  // 已经出库的货发现拿货人写错。走正式作废更正、重新生成、冷启动回读并确认打印。
+  const corrected = await services.fulfillmentPrintCommandService.correctFulfillmentNote({ workspace: await prepare(), fulfillmentId: "F-NP-1", operatorId: "U-OFFICE-A",
+    body: { pickerName: "更正提货人", reason: "客户核实后更正提货人", idempotencyKey: "np-shipped-correction" } });
+  assert.ok(corrected.response, JSON.stringify(corrected));
+  const historyNote = await print("F-NP-1", "np-shipped-reprint", { pickerName: "更正提货人", printAction: "reprint", previousPrintRecordId: corrected.response.previousPrintRecordId, reprintReason: "更正提货人" });
+  assert.ok(historyNote.printJob, JSON.stringify(historyNote));
+  assert.equal(historyNote.paperOutboundDocument ?? null, null);
+  assert.equal((await confirm(historyNote.printJob.printJobId, "np-shipped-reconfirm")).printJob.jobStatus, "printed");
+  assert.deepEqual(await stock(), { on_hand_qty: 700, reserved_qty: 200 }, "已出库的单据更正重打仍只扣一次");
+  assert.equal(Number((await pool.query("SELECT count(*) FROM inventory_ledger_entries WHERE source_id='F-NP-1'")).rows[0].count), 1);
 
   // 3) 线上库存对不上（F001 同款有两处库存）：不确认不让打；出库工确认后能打，打出来不扣、留提醒
   const short = await print("F001", "np-short-1");

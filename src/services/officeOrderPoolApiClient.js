@@ -5,6 +5,7 @@ import {
   toOfficeApiError as toApiError,
 } from "./officeApiClientCore.js";
 import { getFulfillmentMethodLabel, getFulfillmentMethodValue } from "../shared/labels.js";
+import { normalizeOrderType, orderTypeLabel, stockSupplyRoute, isReplenishmentRow, REPLENISHMENT_FULFILLMENT } from "../../shared/orderRouting.js";
 
 const defaultOrderPoolPageSize = 200;
 
@@ -263,8 +264,11 @@ export function mapApiOrderLineToLocal(value = {}) {
   const lineNo = cleanText(value.lineNo ?? value.line_no) || id.split("-").at(-1) || "";
   const printFlag = Boolean(value.printFlag ?? value.print_flag ?? value.print === "是");
   const inventory = cleanText(value.inventory) || mapReservationToInventoryLabel(value.reservationStatus ?? value.reservation_status);
-  const orderType = mapOrderTypeToLocal(value.orderType ?? value.order_type, { printFlag, inventory });
   const exceptions = toStringArray(value.exceptionTags ?? value.exception_tags ?? value.exceptions);
+  const hasProductionTask = value.hasProductionTask === true;
+  const orderType = mapOrderTypeToLocal(value.orderType ?? value.order_type, { inventory, hasProductionTask, exceptions });
+  const fulfillment = isReplenishmentRow(value) ? REPLENISHMENT_FULFILLMENT
+    : getFulfillmentMethodLabel(value.fulfillmentMethod ?? value.fulfillment_method ?? value.fulfillment);
   const group=value.printingPriceGroup??value.printing_price_group;
   const printingPriceGroup=cleanText(group?.groupId)&&Number.isSafeInteger(group?.memberCount)&&group.memberCount>0?{groupId:cleanText(group.groupId),memberCount:group.memberCount}:null;
 
@@ -296,10 +300,11 @@ export function mapApiOrderLineToLocal(value = {}) {
     qty: toNumber(value.qty ?? value.originalQty ?? value.original_qty, 0),
     originalQty: toNumber(value.originalQty ?? value.original_qty ?? value.qty, 0),
     orderType,
+    hasProductionTask,
     lineStatus: cleanText(value.lineStatus ?? value.line_status ?? value.status) || "待确认",
     status: cleanText(value.status ?? value.lineStatus ?? value.line_status) || "待确认",
-    fulfillmentMethod: getFulfillmentMethodLabel(value.fulfillmentMethod ?? value.fulfillment_method ?? value.fulfillment),
-    fulfillment: getFulfillmentMethodLabel(value.fulfillment ?? value.fulfillmentMethod ?? value.fulfillment_method),
+    fulfillmentMethod: fulfillment,
+    fulfillment,
     latestNeededAt: cleanText(value.latestNeededAt ?? value.latest_needed_at),
     latest: cleanText(value.latest ?? value.latestNeededAt ?? value.latest_needed_at) || "待确认",
     amount: toNumber(value.amount ?? value.finalAmount ?? value.final_amount, 0),
@@ -318,14 +323,13 @@ export function mapApiOrderLineToLocal(value = {}) {
 }
 
 export function mapOrderTypeToLocal(value, context = {}) {
-  const normalized = cleanText(value);
-  if (normalized === "custom_print") return "定制印刷";
-  if (normalized === "external_print") return "外加工印刷";
-  if (normalized === "replenishment") return "印刷通货";
-  if (normalized === "stock") return context.inventory?.startsWith("缺货") ? "现货缺货" : "现货有货";
-  if (["定制印刷", "外加工印刷", "印刷通货", "现货缺货", "现货有货"].includes(normalized)) return normalized;
-  if (context.printFlag) return "定制印刷";
-  return context.inventory?.startsWith("缺货") ? "现货缺货" : "现货有货";
+  if (normalizeOrderType(value) === "stock") {
+    const route = stockSupplyRoute({ ...context, orderType: value });
+    if (route === "inventory") return "现货有货";
+    if (route === "production") return "现货缺货";
+    return "标准通货";
+  }
+  return orderTypeLabel(value) || "类型待确认";
 }
 
 export function mapQuantityAdjustmentReasonToApi(value) {

@@ -1,6 +1,7 @@
 import { mergeRawMaterialCurrentInbound } from "../../../../shared/rawMaterialCurrentInbound.js";
 import { readCompleteCollection, createReadGenerationGuard } from "./read-complete-collection.js";
 import { UNLOADED_READ, beginRead, finishRead, invalidateRead, workspaceReadDependencies } from "./formal-workspace-read-state.js";
+import { getVisiblePcNavGroups, hasEffectivePermission } from "./navigation.js";
 import { useReceivingData } from "./useReceivingData.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
@@ -34,6 +35,7 @@ import {
   issueOfficeMasterDataEmployeeAccountPassword,
   listOfficeMasterDataEmployeeAccountReviews,
   listOfficeMasterDataMachines,
+  listOfficeCustomerRecords,
   updateOfficeMasterDataEmployeeProfile,
 } from "../../../../src/services/officeMasterDataImportApiClient.js";
 import { prepareRawMaterialDeliveryNoteFile } from "../../../../src/services/rawMaterialDeliveryNoteImageClient.js";
@@ -50,6 +52,7 @@ const authOptions = Object.freeze({
 
 const emptyData = Object.freeze({
   todos: [],
+  customers: [],
   orderDrafts: [],
   orderLines: [],
   inventoryItems: [],
@@ -67,6 +70,7 @@ const emptyData = Object.freeze({
 
 const readDefinitions = Object.freeze({
   todos: (authState, params = {}) => listOfficeTodos({ authState, operatorId, status: "all", pageSize: 50, ...params, ...(params.filters || {}), localTodos: [] }, readOptions),
+  customers: (authState, params) => listOfficeCustomerRecords({ authState, operatorId, ...params }, readOptions),
   orderDrafts: (authState, params = {}) => listOfficeDraftQueue({ authState, operatorId, pageSize: 50, ...params, inventories: [] }, readOptions),
   orderLines: (authState, params = {}) => listOfficeOrderLines({ authState, operatorId, pageSize: 50, includeHistory: false, ...params, localOrderLines: [] }, readOptions),
   inventoryItems: (authState, params = {}) => listOfficeInventoryItems({ authState, operatorId, pageSize: 50, ...params, localInventoryRecords: [] }, readOptions),
@@ -82,6 +86,14 @@ const readDefinitions = Object.freeze({
   machines: (authState, params = {}) => listOfficeMasterDataMachines({ authState, operatorId, pageSize: 50, ...params }, readOptions),
 });
 
+
+function readsForView(navId, permissions) {
+  const keys = workspaceReadDependencies[navId] || [];
+  if (navId === "customer-records" && !hasEffectivePermission(permissions, "statement.preview")) {
+    return keys.filter(key => key !== "statements");
+  }
+  return keys;
+}
 
 function resultError(result, label) {
   if (result?.source === "api") return "";
@@ -204,21 +216,25 @@ export function useFormalDesktopWorkspace() {
     if (!nextAuthState?.authenticated || !nextAuthState?.session?.accessToken) {
       return { source: "api_error", blocked: true };
     }
-    const keys = workspaceReadDependencies[activeViewRef.current] || [];
+    const keys = readsForView(activeViewRef.current, nextAuthState.permissions);
     const entries = await Promise.all(keys.map(async key => [key, await readCollection(key, nextAuthState)]));
     if (activeViewRef.current === "material-receiving") entries.push(["receiving", await refreshReceipts()]);
     const errors = Object.fromEntries(entries.filter(([, value]) => value.source !== "superseded" && resultError(value, "列表")).map(([key, value]) => [key, resultError(value, key)]));
     return { source: Object.keys(errors).length ? "api_partial" : "api", errors };
   }, [readCollection, refreshReceipts]);
 
-  const ensureSearchData = useCallback(() => Promise.all(["orderLines", "statements"].map(key => {
+  const searchKeys = useMemo(() => {
+    const pages = getVisiblePcNavGroups(authState?.permissions || {}).flatMap(group => group.items.map(item => item.id));
+    return [pages.includes("customer-records") && "customers", pages.includes("order-pool") && "orderLines"].filter(Boolean);
+  }, [authState?.permissions]);
+  const ensureSearchData = useCallback(() => Promise.all(searchKeys.map(key => {
     const state = collectionsRef.current[key];
     return state?.hasLoaded && !state.stale ? { source: "api" } : readCollection(key, authStateRef.current, { reusePending: true });
-  })), [readCollection]);
+  })), [readCollection, searchKeys]);
   useEffect(() => {
     if (!authState?.authenticated) return;
     // Each page owns its dependency reads; no background full-ERP timer.
-    for (const key of workspaceReadDependencies[activeView] || []) void readCollection(key, authStateRef.current, { reusePending: true });
+    for (const key of readsForView(activeView, authState.permissions)) void readCollection(key, authStateRef.current, { reusePending: true });
   }, [activeView, authState?.session?.accessToken, authState?.authenticated, readCollection]);
 
   useEffect(() => {
@@ -509,7 +525,7 @@ export function useFormalDesktopWorkspace() {
     confirmSupplierPayment,
   }), [receiptReader.actions, registerOrderEntryEditor, startNewOrderDraft, setActiveView, readCollection, ensureSearchData, precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
 
-  const requiredStates = (workspaceReadDependencies[activeView] || []).map(key => [key, collections[key] || UNLOADED_READ]);
+  const requiredStates = readsForView(activeView, authState?.permissions).map(key => [key, collections[key] || UNLOADED_READ]);
   if (activeView === "material-receiving") requiredStates.push(["receiving", receiptReader.receiving]);
   const errors = Object.fromEntries(requiredStates.filter(([, state]) => state.error).map(([key, state]) => [key, state.error]));
   const authFailed = Boolean(authState && (!authState.authenticated || !authState.session?.accessToken));
@@ -522,8 +538,8 @@ export function useFormalDesktopWorkspace() {
     pendingInitial: !authState || (!authFailed && requiredStates.some(([, state]) => !state.hasLoaded && (state.loading || state.status === "unloaded"))),
     errors, collections, stale: requiredStates.some(([, state]) => state.stale),
     lastSyncedAt: syncedDates.length ? new Date(syncedDates[0]).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "",
-    search: { loading: ["orderLines", "statements"].some(key => !collections[key]?.hasLoaded || collections[key]?.loading),
-      error: ["orderLines", "statements"].map(key => collections[key]?.error).filter(Boolean).join("；") },
+    search: { loading: searchKeys.some(key => !collections[key]?.hasLoaded || collections[key]?.loading),
+      error: searchKeys.map(key => collections[key]?.error).filter(Boolean).join("；") },
   };
 
   return {

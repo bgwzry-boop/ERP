@@ -476,6 +476,14 @@ try {
   const printedFulfillment = liveWorkspace.fulfillments.find(
     (row) => (row.orderLineId ?? row.lineId) === printedOriginal.orderLineId,
   );
+  const actualQty = printedFulfillment.expectedQty ?? printedFulfillment.qty;
+  const bagTaskId = `PT-PAPER-${printedOriginal.orderLineId}`;
+  liveWorkspace.productionTasks.push({ id: bagTaskId, orderLineId: printedOriginal.orderLineId, taskType: "制袋", taskStatus: "已完成" });
+  liveWorkspace.workshopReports.push({ id: "WR-PAPER", productionTaskId: bagTaskId, orderLineId: printedOriginal.orderLineId,
+    processType: "制袋", completedAt: new Date().toISOString(), qualifiedQty: actualQty });
+  liveWorkspace.packingTasks.push({ id: "PK-PAPER", orderLineId: printedOriginal.orderLineId, status: "已完成", actualPackedQty: actualQty });
+  liveWorkspace.packages.push({ id: "PKG-PAPER", orderLineId: printedOriginal.orderLineId, fulfillmentId: printedFulfillment.id, packedQty: actualQty });
+  printedFulfillment.actualQty = actualQty;
   const printed = await api(`/fulfillments/${printedFulfillment.id}/print`, {
     printAction: "first_print",
     printDeviceId: printer.id,

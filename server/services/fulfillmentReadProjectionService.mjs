@@ -1,4 +1,6 @@
 import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
+import { fulfillmentNoteReadiness } from "../../shared/fulfillmentNoteReadiness.js";
+import { queuedNoteError } from "./queuedFulfillmentNoteReadiness.mjs";
 import { hasTrustedCurrentFulfillmentLabel } from "./printJobBusinessProjectionService.mjs";
 import { buildFulfillmentShipmentProgress } from "./fulfillmentShipmentProgressService.mjs";
 import { hasTrustedWarehousePaper } from "../../shared/warehousePaperTrust.js";
@@ -98,6 +100,13 @@ function projectFulfillment(workspace, value) {
       .every((record) => cleanText(record.labelPrintRecordId ?? record.label_print_record_id) === cleanText(latestLabelPrintRecord.printRecordId ?? latestLabelPrintRecord.id)),
   );
   const paperOutboundStatus = resolvePaperOutboundStatus(workspace, item, paperOutboundDocument);
+  let noteReadiness = fulfillmentNoteReadiness(workspace, item, orderLine);
+  if (noteReadiness.ready && paperOutboundStatus === "待打印确认" && currentPrintRecord) {
+    const job = list(workspace.printJobs).find(row => row.printRecordId === (currentPrintRecord.printRecordId ?? currentPrintRecord.id)
+      && row.jobStatus === "queued");
+    const error = job && queuedNoteError(workspace, job);
+    if (error) noteReadiness = { ready: false, reason: error.message };
+  }
   const goodsSpec = buildDriverGoodsSummary({ fulfillment: item, orderLine, qty: expectedQty });
   const status = cleanText(item.status) || "待处理";
   return {
@@ -105,6 +114,7 @@ function projectFulfillment(workspace, value) {
     loadedAt:cleanText(item.loadedAt ?? item.loaded_at),
     deliveryExceptions:list(workspace.fulfillmentExceptions).filter(exception=>cleanText(exception.fulfillmentId)===fulfillmentId && exception.exceptionType === "delivery_exception").map(exception=>({exceptionId:cleanText(exception.exceptionId ?? exception.id),status:cleanText(exception.status),reasonCode:cleanText(exception.reasonCode),reason:cleanText(exception.reason),expectedQty:exception.expectedQty ?? null,actualQty:exception.actualQty ?? null,occurredAt:cleanText(exception.occurredAt),reportedBy:cleanText(exception.reportedBy)})),
     shipmentProgress: buildFulfillmentShipmentProgress(workspace, item, orderLine),
+    noteReadiness,
     customerId,
     orderLineId,
     orderType: cleanText(orderLine.orderType ?? orderLine.order_type),

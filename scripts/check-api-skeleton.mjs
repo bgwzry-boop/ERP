@@ -4,6 +4,8 @@ import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { checkAuthSkeleton } from "./api-skeleton/auth.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
 import { loadSeedWorkspace } from "../server/seedData.mjs";
+import { buildInitialProductionTasks } from "../server/services/demoWorkspaceSeedService.mjs";
+import { createWorkspaceRecordService } from "../server/services/workspaceRecordService.mjs";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -59,6 +61,12 @@ const driverCoreWorkspaceFixture = {
   kind: "local_memory",
   loadState() {
     return {
+      productionTasks: [...buildInitialProductionTasks(driverSeed, createWorkspaceRecordService()), {
+        id: "PT-F006-FINAL", productionTaskId: "PT-F006-FINAL", orderLineId: driverStockOrder.id,
+        taskType: "制袋", taskStatus: "已完成", status: "已完成", plannedQty: driverStockOrder.qty,
+      }],
+      workshopReports: [{ id: "WR-F006-FINAL", orderLineId: driverStockOrder.id, productionTaskId: "PT-F006-FINAL",
+        processType: "制袋", qualifiedQty: driverStockOrder.qty, completedAt: "2026-07-02T07:55:00Z" }],
       inventories: [...structuredClone(driverSeed.inventories), {
         id: driverStockItemId, size: driverStockOrder.size, color: driverStockOrder.color,
         handle: driverStockOrder.handle, style: driverStockOrder.style, zone: "API司机备货区",

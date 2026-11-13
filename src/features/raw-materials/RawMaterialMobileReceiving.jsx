@@ -15,7 +15,6 @@ import {
   canReviewRawMaterialInbound,
   formatRawMaterialDeliveryNoteNo,
 } from "../../domain/rawMaterialInboundListState.js";
-import { formatRawMaterialWeight } from "./RawMaterialInboundWorkbench.jsx";
 import { RawMaterialCode39 } from "./RawMaterialLabelPrintSheet.jsx";
 import { formatRawMaterialMobileSpec } from "../../../shared/rawMaterialSpec.js";
 import { evaluateRawMaterialOneClickInbound } from "../../domain/rawMaterialWholeRollPolicy.js";
@@ -156,7 +155,7 @@ export function RawMaterialMobileReceiving({
                 <button key={record.id} onClick={() => openRecord(record)} type="button">
                   <span>
                     <strong>{record.supplierName || "供应商待确认"}</strong>
-                    <small>{record.rollCount || record.rolls?.length || 0} {getRecordUnit(record)} · {formatRawMaterialWeight(record)}</small>
+                    <small>{formatCompletedReceipt(record)}</small>
                   </span>
                   <em>{formatCompletionTime(record)}</em>
                 </button>
@@ -883,6 +882,14 @@ function getRecordActionLabel(record) {
 
 function getRecordUnit(record) {
   return record?.documentDirection === "supplier_return" ? "件" : "卷";
+}
+
+function formatCompletedReceipt(record) {
+  const isReturn = record.documentDirection === "supplier_return";
+  const count = record.rollCount || record.rolls?.length || 0;
+  const kg = Number(record.totalWeightKg);
+  const weight = Number.isFinite(kg) && kg !== 0 ? `${isReturn ? Math.abs(kg) : kg}kg` : "未填重量";
+  return `${isReturn ? "退货" : "收货"} ${count} ${getRecordUnit(record)} ${weight}`;
 }
 
 function getMobileStageForRecord(record) {
