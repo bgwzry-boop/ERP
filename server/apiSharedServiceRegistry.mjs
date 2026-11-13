@@ -173,6 +173,8 @@ export function createApiSharedServiceRegistry() {
   const printJobBusinessProjectionService = createPrintJobBusinessProjectionService({
     buildFulfillmentActionRecord,
     buildOperationLog,
+    // 出库服务在下面才建；这里在请求时才调用，到那时已经建好。
+    buildNotePrintStockDeduction: (...args) => fulfillmentActionCommandService.buildNotePrintStockDeduction(...args),
   });
   const requestAuthorizationService = createRequestAuthorizationService({
     sendJson,
@@ -189,6 +191,7 @@ export function createApiSharedServiceRegistry() {
     printJobBusinessProjectionService,
   });
   const fulfillmentPrintCommandService = createFulfillmentPrintCommandService({
+    buildNotePrintStockDeduction: (...args) => fulfillmentActionCommandService.buildNotePrintStockDeduction(...args),
     buildFulfillmentActionRecord,
     buildFulfillmentPrintTemplate,
     buildOperationLog,

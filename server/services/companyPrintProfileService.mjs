@@ -25,7 +25,7 @@ export async function saveCompanyPrintProfile({ workspace, body = {}, operatorId
   try {
     const saved = await repository.saveCompanyPrintProfile({
       workspace, profile, expectedRevision, operatorId, updatedAt: occurredAt, idempotencyKey,
-      idempotencyPayload: { companyName: profile.companyName, contactName: profile.contactName, address: profile.address, phone: profile.phone, footerNote: profile.footerNote, expectedRevision, operatorId },
+      idempotencyPayload: { companyName: profile.companyName, contactName: profile.contactName, address: profile.address, phone: profile.phone, footerNote: profile.footerNote, deductStockAtNotePrint: profile.deductStockAtNotePrint, expectedRevision, operatorId },
       operationLog: { id: `LOG-COMPANY-PRINT-${randomUUID()}`, occurredAt, createdAt: occurredAt },
     });
     return { companyPrintProfile: saved.companyPrintProfile, operationLogId: saved.operationLogId };
@@ -36,4 +36,10 @@ export async function saveCompanyPrintProfile({ workspace, body = {}, operatorId
     if (error?.code === "IDEMPOTENCY_KEY_REUSED") return businessError(409, error.code, "这次保存和上一次的内容不一致，请重新点保存。");
     throw error;
   }
+}
+
+/** 负责人 2026-11-08：打送货单 / 自提单就扣成品库存（单据抬头里的开关，默认关）。 */
+export async function isNotePrintStockDeductionEnabled(workspace) {
+  try { return (await readCompanyPrintProfile(workspace)).deductStockAtNotePrint === true; }
+  catch { return false; }
 }

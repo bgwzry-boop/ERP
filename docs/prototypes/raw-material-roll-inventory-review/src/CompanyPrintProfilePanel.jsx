@@ -10,8 +10,8 @@ import { ReviewDialog } from "./ReviewDialog.jsx";
 import "./finance-dialogs.css";
 import "./company-print-profile.css";
 
-const EMPTY = { companyName: "", contactName: "", address: "", phone: "", footerNote: "", revision: 1 };
-const KEYS = ["companyName", "contactName", "address", "phone", "footerNote"];
+const EMPTY = { companyName: "", contactName: "", address: "", phone: "", footerNote: "", deductStockAtNotePrint: false, revision: 1 };
+const KEYS = ["companyName", "contactName", "address", "phone", "footerNote", "deductStockAtNotePrint"];
 
 export function CompanyPrintProfileButton({ formal }) {
   const [open, setOpen] = useState(false);
@@ -73,6 +73,8 @@ function CompanyPrintProfileDialog({ formal, onClose }) {
           <label>电话<input value={form.phone} onChange={update("phone")} maxLength={40} disabled={disabled} /></label>
           <label className="wide">工厂地址<input value={form.address} onChange={update("address")} maxLength={120} disabled={disabled} /></label>
           <label className="wide">单据底部说明<textarea rows={2} value={form.footerNote} onChange={update("footerNote")} maxLength={200} disabled={disabled} /></label>
+          {/* 负责人 2026-11-08：打送货单就扣成品库存。 */}
+          <label className="wide company-print-profile-check"><input checked={form.deductStockAtNotePrint === true} disabled={disabled} onChange={(event) => { pendingKey.current = ""; setForm(current => ({ ...current, deductStockAtNotePrint: event.target.checked })); setState(current => ({ ...current, message: "" })); }} type="checkbox" />送货单、自提单打出来（确认已打印）就扣成品库存；线上库存不够时要出库工看过实物确认后才能打</label>
         </div>
         <div className="company-print-profile-preview" aria-label="抬头预览">
           <strong>{form.companyName || "（公司名称）"}</strong>
