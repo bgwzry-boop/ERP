@@ -105,6 +105,7 @@ const uiActionPermissions = {
     机边领料: { permissionKey: "raw_material.issue.create", permissionType: "action" },
     扫码出库: { permissionKey: "raw_material.issue.create", permissionType: "action" },
     确认消耗: { permissionKey: "raw_material.consumption.confirm", permissionType: "action" },
+    转挂订单: { permissionKey: "raw_material.consumption.confirm", permissionType: "action" },
     余料退回: { permissionKey: "raw_material.leftover.return", permissionType: "action" },
     复核余料可用: { permissionKey: "raw_material.leftover.review", permissionType: "action" },
     标记异常: { permissionKey: "raw_material.exception.create", permissionType: "action" },

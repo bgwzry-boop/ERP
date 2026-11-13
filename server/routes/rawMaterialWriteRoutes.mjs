@@ -168,6 +168,8 @@ function getRawMaterialInboundActionPermission(actionSlug, writeActionPermission
     issue_to_machine: writeActionPermissions.issueRawMaterialToMachine,
     "confirm-consumption": writeActionPermissions.confirmRawMaterialConsumption,
     confirm_consumption: writeActionPermissions.confirmRawMaterialConsumption,
+    "reassign-issue": writeActionPermissions.confirmRawMaterialConsumption,
+    reassign_issue: writeActionPermissions.confirmRawMaterialConsumption,
     "return-leftover": writeActionPermissions.returnRawMaterialLeftover,
     return_leftover: writeActionPermissions.returnRawMaterialLeftover,
     "review-leftover": writeActionPermissions.reviewRawMaterialLeftover,
