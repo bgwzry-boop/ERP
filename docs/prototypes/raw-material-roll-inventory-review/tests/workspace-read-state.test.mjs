@@ -20,7 +20,7 @@ const { useReceivingData, useFormalDesktopWorkspace } = module.exports;
 
 const stages = { 待核对: 34, 退货单: 2, 待打印: 6, 待贴标: 3, 异常: 0 };
 const receipts = Array.from({ length: 46 }, (_, index) => ({ id: `RECEIPT-${index + 1}`, supplierName: "读取测试供应商", revision: 2, status: "已识别待复核", rolls: [] }));
-const auth = { authenticated: true, session: { accessToken: "isolated-read-test", userId: "U-MANAGER-A" }, permissions: { user: { userId: "U-MANAGER-A" } } };
+const auth = { authenticated: true, session: { accessToken: "isolated-read-test", userId: "U-MANAGER-A" }, permissions: { user: { userId: "U-MANAGER-A", defaultRole: "management" }, actionPermissions: ["master_data.import.plan.create", "statement.preview"] } };
 const json = value => new Response(JSON.stringify(value), { status: 200 });
 
 test("failed first load, empty success, and failed refresh have distinct states", () => {
@@ -151,7 +151,11 @@ test("desktop initial reads follow the active page and search loads only its own
     assert.equal(hook.meta.blockingError, false);
     fail = false;
     await act(async () => { await hook.actions.ensureSearchData(); });
-    assert.deepEqual(Object.keys(hook.meta.collections).sort(), ["orderLines", "statements", "todos"]);
+    assert.deepEqual(Object.keys(hook.meta.collections).sort(), ["customers", "orderLines", "todos"]);
+    assert.ok(paths.includes("/api/master-data/customer-records"), "global search must include customer profiles without business records");
+    assert.ok(!paths.some(path => path.includes("/statements")), "customer search must not read finance data");
+    await act(async () => { hook.actions.setActiveView("customer-records"); });
+    assert.ok(paths.some(path => path.includes("/statements")), "archive reads receivables only for an authorized role");
     assert.ok(!paths.some(path => path.includes("raw-material-inbounds")));
     assert.equal(env.timers.size, 0, "non-receipt pages must not start a whole-material timer");
   } finally { if (tree) await act(async () => tree.unmount()); env.restore(); }

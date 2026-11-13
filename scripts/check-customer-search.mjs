@@ -1,6 +1,7 @@
 // 负责人 2026-11-05：开单时客户整单选一次（必填），按名称、简称、联系人、电话找，选完带出联系人、电话、结算周期。
 import assert from "node:assert/strict";
 import { createCustomerAddressCommandService } from "../server/services/customerAddressCommandService.mjs";
+import { paginate } from "../server/seedData.mjs";
 import { handleMasterDataReadRoutes } from "../server/routes/masterDataReadRoutes.mjs";
 
 const workspace = {
@@ -32,7 +33,7 @@ assert.equal(service.searchCustomers({ workspace, query: "", limit: 1 }).respons
 const sent = [];
 const call = (path, allowed = true) => handleMasterDataReadRoutes({
   url: new URL(`http://erp.test${path}`), response: {}, workspace, permissionContext: {},
-  writeActionPermissions: { saveOrderDraft: "order.draft.save" },
+  paginate, writeActionPermissions: { saveOrderDraft: "order.draft.save", createMasterDataImportConfirmationPlan: "master_data.import.plan.create" },
   requireActionPermission: (_response, _context, permission) => { if (!allowed) sent.push({ status: 403, permission }); return allowed; },
   sendJson: (_response, status, body) => sent.push({ status, body }), sendNotFound: (_response, code) => sent.push({ status: 404, code }),
   customerAddressCommandService: service,
@@ -41,6 +42,12 @@ assert.equal(await call(`/api/master-data/customers?q=${encodeURIComponent("华�
 assert.deepEqual([sent.at(-1).status, sent.at(-1).body.items.map(item => item.customerId)], [200, ["C1"]]);
 await call("/api/master-data/customers?q=", false);
 assert.deepEqual(sent.at(-1), { status: 403, permission: "order.draft.save" });
+
+await call("/api/master-data/customer-records?page=2&pageSize=2");
+assert.deepEqual(sent.at(-1).body.items.map(({customerId, enabled}) => [customerId, enabled]), [["C3", false], ["C4", true]]);
+assert.equal(sent.at(-1).body.total, 4);
+await call("/api/master-data/customer-records", false);
+assert.deepEqual(sent.at(-1), { status: 403, permission: "master_data.import.plan.create" });
 
 console.log("customer search ok: name, short name, contact and phone; disabled customers hidden; order-draft permission required.");
 

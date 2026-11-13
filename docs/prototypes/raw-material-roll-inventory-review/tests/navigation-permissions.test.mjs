@@ -185,9 +185,12 @@ test("raw-material cost stays in finance and requires its exact view permission"
 test("management account receives the complete desktop hierarchy", () => {
   const management = permissionContextFor("management", "管理A");
   const itemIds = visibleItemIds(management);
-  for (const required of ["shared-todos", "order-entry", "roll-inventory", "production-tasks", "inventory-query", "laminated-inventory", "launch-status"]) {
+  for (const required of ["shared-todos", "order-entry", "roll-inventory", "production-tasks", "inventory-query", "laminated-inventory"]) {
     assert(itemIds.includes(required), `${required} should be visible to management`);
   }
+  assert(!itemIds.includes("launch-status"), "日常导航隐藏未接入的上线状态页");
+  assert(getVisibleWorkspaceViews(management).includes("上线状态"), "管理者的既有诊断深链保留");
+  assert(!getVisibleWorkspaceViews(defaultPermissionContext).includes("上线状态"));
   for (const unsupported of ["overview", "finance-todos", "purchase-advice", "cost-margin", "accounts"]) {
     assert(!itemIds.includes(unsupported), `${unsupported} is not an independently deployed PC page`);
   }

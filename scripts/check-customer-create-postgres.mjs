@@ -51,6 +51,21 @@ try {
   const nameOnly = await service.createCustomer({ workspace: after, body: { name: "李哥" }, operatorId: operator });
   assert.equal(nameOnly.statusCode, 201, JSON.stringify(nameOnly));
   assert.equal(Number((await pool.query("SELECT count(*) FROM customer_contacts WHERE customer_id = $1", [nameOnly.response.customer.customerId])).rows[0].count), 0);
+  await pool.query("INSERT INTO customers (id, biz_no, name, enabled) SELECT 'P' || i, 'P' || i, '分页客户' || i, false FROM generate_series(1, 215) i");
+  const firstPage = await reader.listCustomerRecords({ page: 1, pageSize: 200 });
+  const secondPage = await reader.listCustomerRecords({ page: 2, pageSize: 200 });
+  const allIds = [...firstPage.items, ...secondPage.items].map(record => record.customerId);
+  assert.equal(firstPage.items.length, 200);
+  assert.equal(new Set(allIds).size, firstPage.total);
+  assert.equal(allIds.length, firstPage.total);
+  assert(secondPage.items.some(record => record.enabled === false), "档案分页应包括停用客户");
+  const findNew = async () => (await reader.listCustomerRecords({ page: 1, pageSize: 200 })).items.find(record => record.customerId === id);
+  assert.deepEqual(await findNew(), { customerId: id, name: "张大姐", shortName: "张大姐", settlementCycle: "未设置",
+    enabled: true, contactName: "张姐", phone: "13600000009" });
+  const profile = service.readCustomerProfile({ workspace: await workspace(), customerId: id }).response.profile;
+  const changed = await service.updateCustomerProfile({ workspace: await workspace(), customerId: id, operatorId: operator, body: { expected: profile, settlementCycle: "月结" } });
+  assert.equal(changed.response.changed, true);
+  assert.equal((await findNew()).settlementCycle, "月结", "保存后的档案和列表使用同一结算周期");
   console.log(`PASS customer create PG (${migrations.length} migrations): customer, default contact and address, audit log; found right away; same name not created twice.`);
 } finally {
   await pool?.end().catch(() => {});

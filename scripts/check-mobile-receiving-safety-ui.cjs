@@ -50,6 +50,10 @@ import { MobileRoleShellHeader } from './src/app/MobileRoleShellHeader.jsx';
 ${['tokens', 'base', 'shared', 'semantic-tags', 'shell', 'components', 'interface-polish'].map(name => `import './src/styles/${name}.css';`).join('\n')}
 ${['mobile-roles', 'role-tools', 'warehouse', 'raw-material', 'raw-material-foundation', 'raw-material-mobile', 'raw-material-mobile-atlas', 'raw-material-source-evidence', 'attachments', 'office-inbound-flow'].map(name => `import './src/styles/features/${name}.css';`).join('\n')}
 const receipt = ${JSON.stringify(receipt)};
+const completedReturn = { id: 'UI-RETURN', documentDirection: 'supplier_return', status: '退货单已复核',
+  supplierName: '退货供应商', rollCount: 1, totalWeightKg: -144.7 };
+const completedDelivery = { id: 'UI-DELIVERY', documentDirection: 'supplier_delivery', status: '已贴标/可用库存',
+  supplierName: '送货供应商', rolls: [{ inventoryStatus: '可用' }], totalWeightKg: 72.5 };
 const role = window.fixtureRole;
 const user = { userId: 'UI-ONLY-USER', displayName: '隔离界面测试', defaultRole: role };
 const auth = { source: 'api_runtime', authenticated: true, session: { accessToken: 'UI_FIXTURE_INVALID_NOT_REAL' }, permissions: { user, actionPermissions: [], buttonPermissions: [] } };
@@ -76,7 +80,7 @@ function Office() {
         onLineFieldChange={(id, key, value) => setLineDrafts(current => ({ ...current, [id]: { ...(current[id] ?? receipt.ocrLines.find(line => line.lineId === id).values), [key]: value } }))}
         onBack={() => setStage('home')} onDiscard={simulatePendingDiscard} onSubmit={forbidWrite} onOpenColorMapping={forbidWrite}
       /></div>
-    : <RawMaterialMobileReceiving records={[receipt]} selected={receipt} mobileStage="home" onStageChange={setStage}
+    : <RawMaterialMobileReceiving records={[receipt, completedReturn, completedDelivery]} selected={receipt} mobileStage="home" onStageChange={setStage}
         reviewState={{ disabled: false }} attachState={{ disabled: false }} printState={{ disabled: false }}
         onDeliveryNoteRecognize={forbidWrite} onDeliveryNotePageSelect={forbidWrite} />;
 }
@@ -153,6 +157,9 @@ async function withPhone(browser, role, width, check) {
 }
 
 async function checkReceiptGeometry(page) {
+  const recent = page.getByRole('region', { name: '最近完成的原材料收货单' });
+  assert.equal(await recent.getByRole('button', { name: /退货供应商/ }).locator('small').innerText(), '退货 1 件 144.7kg');
+  assert.equal(await recent.getByRole('button', { name: /送货供应商/ }).locator('small').innerText(), '收货 1 卷 72.5kg');
   await page.getByRole('button', { name: '核对全部卷材', exact: true }).tap();
   const geometry = await page.locator('.raw-material-mobile-review-list article').first().evaluate(article => {
     const summary = article.querySelector('.raw-material-mobile-review-line-summary');

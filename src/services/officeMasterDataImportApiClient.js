@@ -896,6 +896,18 @@ export async function updateOfficeMasterDataEmployeeProfile(input = {}, options 
   }
 }
 
+export async function listOfficeCustomerRecords({ authState, operatorId, page = 1, pageSize = 50 }, options = {}) {
+  try {
+    const query = new URLSearchParams({ page, pageSize });
+    const response = await requestMasterDataImportApi(`/master-data/customer-records?${query}`, { ...options, authState, operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "客户档案读取失败。") };
+    return { source: "api", items: json.items, page: json.page, pageSize: json.pageSize, total: json.total };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { message: error?.message || "客户档案读取失败。" } };
+  }
+}
+
 export async function listOfficeMasterDataMachines(input = {}, options = {}) {
   const { authState, operatorId, filters = {}, page = 1, pageSize = 100 } = input;
   try {

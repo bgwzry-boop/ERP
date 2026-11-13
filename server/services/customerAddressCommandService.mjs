@@ -19,6 +19,17 @@ function projectProfile(workspace, customer) {
   };
 }
 
+function customerEnabled(customer) {
+  return customer.enabled !== false && !["停用", "disabled", "inactive"].includes(clean(customer.status));
+}
+
+export function listWorkspaceCustomerRecords(workspace) {
+  return (workspace.customers ?? [])
+    .filter(customer => clean(customer.id ?? customer.customerId))
+    .map(customer => ({ ...projectProfile(workspace, customer), enabled: customerEnabled(customer) }))
+    .sort((left, right) => left.customerId.localeCompare(right.customerId));
+}
+
 const ADDRESS_SOURCES = new Set(["order_entry", "office", "driver_delivery", "miniapp"]);
 
 export function createCustomerAddressCommandService({ buildOperationLog, now = () => new Date() } = {}) {
@@ -100,7 +111,7 @@ export function createCustomerAddressCommandService({ buildOperationLog, now = (
     const words = clean(query).toLowerCase().split(/\s+/u).filter(Boolean);
     const max = Math.min(Math.max(Number(limit) || 20, 1), 50);
     const rows = (workspace.customers ?? [])
-      .filter((customer) => clean(customer.id ?? customer.customerId) && customer.enabled !== false && !["停用", "disabled", "inactive"].includes(clean(customer.status)))
+      .filter((customer) => clean(customer.id ?? customer.customerId) && customerEnabled(customer))
       .map((customer) => projectProfile(workspace, customer))
       .map((profile) => ({ profile, haystack: [profile.name, profile.shortName, profile.contactName, profile.phone, profile.customerId].join(" ").toLowerCase() }))
       .filter(({ haystack }) => words.every((word) => haystack.includes(word)))

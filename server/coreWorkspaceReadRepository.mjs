@@ -126,6 +126,21 @@ export function createPostgresCoreWorkspaceReadRepository(options = {}) {
   const queryJson = options.queryJson ?? ((text, values) => postgresClient.queryJson(text, values));
   return {
     kind: "postgres",
+    async listCustomerRecords({ page, pageSize }) {
+      return queryJson(`SELECT json_build_object(
+        'items', COALESCE((SELECT json_agg(page_rows ORDER BY page_rows."customerId") FROM (
+          SELECT c.id AS "customerId", c.name, COALESCE(NULLIF(c.short_name, ''), c.name) AS "shortName",
+            COALESCE(NULLIF(c.settlement_cycle, ''), '未设置') AS "settlementCycle", c.enabled,
+            COALESCE(contact.contact_name, '') AS "contactName", COALESCE(contact.phone, '') AS phone
+          FROM customers c LEFT JOIN LATERAL (
+            SELECT contact_name, phone FROM customer_contacts
+            WHERE customer_id = c.id ORDER BY is_default DESC, id LIMIT 1
+          ) contact ON TRUE
+          ORDER BY c.id LIMIT $2 OFFSET $3
+        ) page_rows), '[]'::json),
+        'total', (SELECT count(*) FROM customers), 'page', $1::integer, 'pageSize', $2::integer
+      ) AS result`, [page, pageSize, (page - 1) * pageSize]);
+    },
     async loadState() {
       const query = buildCoreWorkspaceSnapshotQuery();
       return normalizeCoreWorkspaceState(await queryJson(query.text, query.values));

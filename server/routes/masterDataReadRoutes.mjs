@@ -1,3 +1,4 @@
+import { listWorkspaceCustomerRecords } from "../services/customerAddressCommandService.mjs";
 import { readSalesPrices } from "../services/salesPriceService.mjs";
 import { customerDeliveryAddresses, customerWithAddresses } from "../../shared/deliveryAddress.js";
 export async function handleMasterDataReadRoutes({
@@ -34,6 +35,23 @@ export async function handleMasterDataReadRoutes({
   if (url.pathname === "/api/master-data/permission-catalog") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageSubaccounts)) return true;
     sendJson(response, 200, masterDataSubaccountCommandService.getPermissionCatalog());
+    return true;
+  }
+
+  if (url.pathname === "/api/master-data/customer-records") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.createMasterDataImportConfirmationPlan)) return true;
+    const page = Number(url.searchParams.get("page") ?? 1);
+    const pageSize = Number(url.searchParams.get("pageSize") ?? 50);
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 200
+      || !Number.isSafeInteger((page - 1) * pageSize)) {
+      sendBusinessError(response, 422, "CUSTOMER_RECORDS_PAGE_INVALID", "客户档案页码或每页条数无效。");
+      return true;
+    }
+    const repository = workspace.coreWorkspaceReadRepository;
+    const result = repository?.listCustomerRecords
+      ? await repository.listCustomerRecords({ page, pageSize })
+      : paginate(listWorkspaceCustomerRecords(workspace), url.searchParams);
+    sendJson(response, 200, result);
     return true;
   }
 

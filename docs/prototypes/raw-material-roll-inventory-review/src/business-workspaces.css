@@ -555,7 +555,7 @@ button.business-row > span.business-primary-cell { font-weight: 650; }
 .finished-inventory-row,
 .finished-master-row { min-width: 700px; display: grid; align-items: center; gap: 8px; padding: 0 12px; text-align: left; }
 .finished-inventory-row { min-width: 780px; grid-template-columns: 1.03fr .84fr 1.18fr .78fr .46fr 2.08fr; }
-.finished-master-row { grid-template-columns: 1.08fr 1.2fr .72fr 1.36fr .92fr .72fr; }
+.finished-master-row { grid-template-columns: 1.08fr 1.2fr .72fr 1.36fr .92fr; }
 .finished-inventory-row.head,
 .finished-master-row.head { border-bottom: 1px solid var(--line-strong); background: var(--surface-soft); color: var(--ink-soft); font-size: 11px; }
 button.finished-inventory-row,
@@ -585,9 +585,6 @@ button.finished-inventory-row.selected,
 .finished-master-product small,
 .finished-master-scope small { color: var(--ink-soft); font-size: 11px; }
 .finished-master-product .erp-semantic-tag { flex: 0 0 auto; }
-.finished-master-price { font-size: 12px; }
-.finished-master-price-heading { margin-top: 18px; }
-.finished-master-price-facts { grid-template-columns: .7fr 1.3fr; }
 .finished-inventory-detail-title,
 .finished-inventory-color-fact { display: flex; align-items: center; gap: 7px; }
 .finished-inventory-detail-title > strong,

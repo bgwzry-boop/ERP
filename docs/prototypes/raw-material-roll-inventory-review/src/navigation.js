@@ -93,7 +93,7 @@ export const pcNavGroups = [
     label: "系统管理",
     icon: "system",
     items: [
-      { id: "launch-status", label: "上线状态", allowedRoleKeys: ["management"], permissionPrefixes: ["system.v1_"] },
+      { id: "launch-status", hideFromMenu: true, label: "上线状态", allowedRoleKeys: ["management"], permissionPrefixes: ["system.v1_"] },
     ],
   },
 ];
@@ -129,15 +129,15 @@ export const viewNavMap = Object.freeze(
 
 const rawMaterialViewNames = Object.freeze(["卷料库存", "收货录入"]);
 
-export function getVisiblePcNavGroups(permissionContext = {}) {
+export function getVisiblePcNavGroups(permissionContext = {}, { includeHidden = false } = {}) {
   return pcNavGroups.map((group) => ({
     ...group,
-    items: group.items.filter((item) => navigationItemMatchesAccount(item, permissionContext)),
+    items: group.items.filter((item) => (includeHidden || !item.hideFromMenu) && navigationItemMatchesAccount(item, permissionContext)),
   })).filter((group) => group.items.length);
 }
 
 export function getVisibleWorkspaceViews(permissionContext = {}) {
-  const allowedNavIds = new Set(getVisiblePcNavGroups(permissionContext).flatMap((group) => group.items.map((item) => item.id)));
+  const allowedNavIds = new Set(getVisiblePcNavGroups(permissionContext, { includeHidden: true }).flatMap((group) => group.items.map((item) => item.id)));
   return Object.entries(navViewMap).filter(([navId]) => allowedNavIds.has(navId)).map(([, view]) => view);
 }
 

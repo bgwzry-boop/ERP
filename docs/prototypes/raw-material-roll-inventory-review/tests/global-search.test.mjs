@@ -4,6 +4,11 @@ import test from "node:test";
 import { searchGlobalDesktopRecords } from "../src/globalSearch.js";
 
 const desktopData = {
+  customers: [
+    { customerId: "C001", name: "张三服饰" }, { customerId: "C002", name: "李四电商" },
+    { customerId: "C003", name: "王五包装", settlementCycle: "月结" },
+    { customerId: "C004", name: "黄松", shortName: "黄老板", phone: "13800000004" },
+  ],
   statements: [
     { customerId: "C003", customerName: "王五包装", settlementCycle: "现结", statementId: "ST-3" },
   ],
@@ -30,6 +35,14 @@ test("a statement-only customer is searchable even without an order line", () =>
   assert.equal(result.kind, "customer");
   assert.equal(result.recordId, "C003");
   assert.equal(result.title, "王五包装");
+});
+
+test("global search opens master profiles without orders or statements, using current master fields", () => {
+  for (const query of ["黄松", "黄老板", "13800000004"]) {
+    assert.equal(searchGlobalDesktopRecords(desktopData, query)[0]?.recordId, "C004");
+  }
+  assert.equal(searchGlobalDesktopRecords(desktopData, "月结")[0]?.recordId, "C003");
+  assert.deepEqual(searchGlobalDesktopRecords(desktopData, "现结"), []);
 });
 
 test("size, colour and order number search land on the matching order", () => {
