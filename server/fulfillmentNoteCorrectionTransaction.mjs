@@ -17,6 +17,9 @@ export function createLocalNoteCorrectionMethods() {
       for (const adjustment of plan.inventoryAdjustments) {
         const item = (workspace.inventories ?? []).find((row) => row.id === adjustment.inventoryItemId);
         if (!item || Number(item.inStock ?? item.onHandQty ?? 0) !== adjustment.expectedOnHand) throw conflict("库存刚有变化，请刷新后再改。");
+        const net = -(workspace.inventoryLedgers ?? []).filter((entry) => entry.inventoryItemId === adjustment.inventoryItemId && clean(entry.sourceId) === plan.fulfillment.id
+          && NET_DEDUCTION_SOURCE_TYPES.includes(clean(entry.sourceType))).reduce((sum, entry) => sum + Number(entry.qtyChange), 0);
+        if (Math.max(0, net) !== Number(adjustment.expectedNetDeducted ?? 0) || net - adjustment.onHandQtyChange < 0) throw conflict("库存流水刚有变化，请刷新后再改。");
       }
       if (plan.statementLine) {
         const line = (workspace.statementLines ?? []).find((row) => (row.statementLineId ?? row.id) === plan.statementLine.id);
@@ -57,11 +60,16 @@ export function createLocalNoteCorrectionMethods() {
   };
 }
 
+// 和改单服务里算「净扣」用的同一组来源（扣库存的各种来源 + 改单补扣 / 退回）。
+export const NET_DEDUCTION_SOURCE_TYPES = ["fulfillment_note_print", "warehouse_physical_outbound", "warehouse_physical_outbound_legacy", "fulfillment_complete",
+  "fulfillment_complete_legacy", "fulfillment_pickup", "fulfillment_pickup_legacy", "fulfillment_note_correction", "fulfillment_note_correction_return"];
+
 export function buildNoteCorrectionQuery(plan) {
   const p = createPostgresParameterBinder();
   const now = p.timestamp(plan.now);
   const fulfillmentId = p.text(plan.fulfillment.id);
-  const inventory = p.json(plan.inventoryAdjustments.map((item) => ({ id: item.inventoryItemId, change: item.onHandQtyChange, expected: item.expectedOnHand })));
+  const inventory = p.json(plan.inventoryAdjustments.map((item) => ({ id: item.inventoryItemId, change: item.onHandQtyChange, expected: item.expectedOnHand,
+    expected_net: item.expectedNetDeducted ?? 0 })));
   const ledgers = p.json(plan.inventoryLedgerEntries.map((entry) => ({ id: entry.ledgerId, item: entry.inventoryItemId, change_type: entry.changeType, before: entry.qtyBefore,
     change: entry.qtyChange, after: entry.qtyAfter, source_type: entry.sourceType, source_id: entry.sourceId, reason: entry.reason, remark: entry.remark })));
   const line = plan.statementLine;
@@ -77,9 +85,16 @@ locked_print AS MATERIALIZED (
   SELECT id, status FROM print_records WHERE id = ${p.text(plan.printRecord.id)} FOR UPDATE
 ),
 locked_items AS MATERIALIZED (
-  SELECT item.id, item.on_hand_qty, x.change, x.expected
-  FROM inventory_items item JOIN jsonb_to_recordset(${inventory}) AS x(id text, change integer, expected integer) ON x.id = item.id
+  SELECT item.id, item.on_hand_qty, x.change, x.expected, x.expected_net
+  FROM inventory_items item JOIN jsonb_to_recordset(${inventory}) AS x(id text, change integer, expected integer, expected_net integer) ON x.id = item.id
   ORDER BY item.id FOR UPDATE OF item
+),
+-- 这次交付在每个库存项上实际净扣了多少（锁住库存项后从流水现算）：退回不能超过净扣数，也必须和页面读到的一致。
+item_net_deducted AS MATERIALIZED (
+  SELECT locked_items.id, COALESCE(-SUM(ledger.qty_change), 0)::integer AS net
+  FROM locked_items LEFT JOIN inventory_ledger_entries ledger ON ledger.inventory_item_id = locked_items.id AND ledger.source_id = ${fulfillmentId}
+    AND ledger.source_type IN (${NET_DEDUCTION_SOURCE_TYPES.map((type) => p.text(type)).join(", ")})
+  GROUP BY locked_items.id
 ),
 locked_line AS MATERIALIZED (
   SELECT id, delivered_qty, final_amount FROM statement_lines WHERE id = ${p.text(line?.id ?? "")} FOR UPDATE
@@ -93,6 +108,8 @@ guard AS MATERIALIZED (
     AND EXISTS (SELECT 1 FROM locked_print WHERE status IN ('printed', 'reprinted'))
     AND (SELECT count(*) FROM locked_items) = jsonb_array_length(${inventory})
     AND NOT EXISTS (SELECT 1 FROM locked_items WHERE on_hand_qty <> expected OR on_hand_qty + change < 0)
+    AND NOT EXISTS (SELECT 1 FROM locked_items JOIN item_net_deducted net ON net.id = locked_items.id
+      WHERE GREATEST(net.net, 0) <> locked_items.expected_net OR net.net - locked_items.change < 0)
     AND (${line ? `EXISTS (SELECT 1 FROM locked_line WHERE delivered_qty = ${p.integer(line.expectedDeliveredQty)} AND final_amount = ${p.number(line.expectedFinalAmount)})` : "TRUE"})
     AND (${statement ? `EXISTS (SELECT 1 FROM locked_statement WHERE revision = ${p.integer(statement.expectedRevision)} AND received_amount = 0
       AND status NOT IN ('已核销', '已结清', '已确认欠款', '已作废', '作废'))` : "TRUE"}),

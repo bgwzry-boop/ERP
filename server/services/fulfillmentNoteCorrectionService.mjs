@@ -86,7 +86,9 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
       return businessError(422, "NOTE_CORRECTION_NOTHING_CHANGED", "没有要改的内容。只是重新打一张，请用「重打」。");
     }
 
-    // 库存：这次交付已经扣掉的（按库存项汇总），改数量按差额退 / 补，整张作废全部退回。
+    // 库存：按库存流水算这次交付「实际净扣了多少」（按库存项汇总），改数量后让净扣数等于新数量：
+    // 多扣的退回、少扣的补扣（库存不够只扣到有的）；整张作废把净扣的全部退回。
+    // 不按「旧数量 - 新数量」退：之前补扣时库存不够少扣过，再改小就会多退（#109 复查发现，负责人 2026-11-13）。
     const deductedByItem = new Map();
     for (const entry of workspace.inventoryLedgers ?? []) {
       if (clean(entry.sourceId) !== idOf(fulfillment)) continue;
@@ -95,6 +97,7 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
       deductedByItem.set(entry.inventoryItemId, (deductedByItem.get(entry.inventoryItemId) ?? 0) - Number(entry.qtyChange));
     }
     const deductedItems = [...deductedByItem].filter(([, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
+    const netDeducted = deductedItems.reduce((sum, [, qty]) => sum + qty, 0);
     const inventoryAdjustments = [];
     const inventoryLedgerEntries = [];
     const stockNotes = [];
@@ -103,7 +106,8 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
       const before = Number(item?.inStock ?? item?.onHandQty ?? item?.onHand ?? 0);
       const existing = inventoryAdjustments.find((row) => row.inventoryItemId === itemId);
       const projected = existing ? existing.expectedOnHand + existing.onHandQtyChange : before;
-      if (existing) existing.onHandQtyChange += change; else inventoryAdjustments.push({ inventoryItemId: itemId, onHandQtyChange: change, expectedOnHand: before });
+      if (existing) existing.onHandQtyChange += change;
+      else inventoryAdjustments.push({ inventoryItemId: itemId, onHandQtyChange: change, expectedOnHand: before, expectedNetDeducted: Math.max(0, deductedByItem.get(itemId) ?? 0), fulfillmentId: idOf(fulfillment) });
       inventoryLedgerEntries.push({
         ledgerId: `LEDGER-${idOf(fulfillment)}-FIX-${randomUUID().slice(0, 8)}`, inventoryItemId: itemId,
         changeType: change > 0 ? "改单退回库存" : "改单补扣库存", qtyBefore: projected, qtyChange: change, qtyAfter: projected + change,
@@ -113,16 +117,24 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
     };
     if (voidWhole) {
       for (const [itemId, qty] of deductedItems) pushLedger(itemId, qty, `整张作废，退回 ${qty}`);
-    } else if (qtyChanged && deductedItems.length) {
-      const [itemId] = deductedItems[0];
-      const diff = oldQty - newQty;
-      if (diff > 0) pushLedger(itemId, diff, `数量 ${oldQty} 改成 ${newQty}，退回 ${diff}`);
-      else {
+    } else if (qtyChanged && deductedByItem.size) {
+      const gap = netDeducted - newQty;
+      if (gap > 0) {
+        // 多扣了：从扣得多的库存项开始退，每项最多退它净扣的数
+        let left = gap;
+        for (const [itemId, qty] of deductedItems) {
+          if (left <= 0) break;
+          const back = Math.min(qty, left);
+          pushLedger(itemId, back, `数量 ${oldQty} 改成 ${newQty}，实际净扣 ${netDeducted}，退回 ${back}`);
+          left -= back;
+        }
+      } else if (gap < 0) {
+        const itemId = deductedItems[0]?.[0] ?? [...deductedByItem.keys()][0];
         const item = findInventoryItem(workspace, itemId);
         const onHand = Number(item?.inStock ?? item?.onHandQty ?? item?.onHand ?? 0);
-        const take = Math.min(onHand, -diff);
-        if (take > 0) pushLedger(itemId, -take, `数量 ${oldQty} 改成 ${newQty}，补扣 ${take}`);
-        if (take < -diff) stockNotes.push(`线上库存不够，少扣了 ${-diff - take} 个，请盘点修正`);
+        const take = Math.min(Math.max(0, onHand), -gap);
+        if (take > 0) pushLedger(itemId, -take, `数量 ${oldQty} 改成 ${newQty}，实际净扣 ${netDeducted}，补扣 ${take}`);
+        if (take < -gap) stockNotes.push(`线上库存不够，少扣了 ${-gap - take} 个，请盘点修正`);
       }
     }
 
