@@ -41,7 +41,7 @@ try {
   await pool.query(postgresLiveBusinessSeedSql);
   await pool.query(`INSERT INTO printer_devices(id,biz_no,name,device_type,connection_type,supported_document_types,settings_json) VALUES('PRINT-DRIVER-PAPER','PRINT-DRIVER-PAPER','程序回报的针式机','dot_matrix','system_printer',ARRAY['pickup_note','delivery_note'],'{"driverMode":"system_printer"}');
     INSERT INTO price_snapshots(id,order_line_id,snapshot_type,version_no,bag_price,chargeable_qty,final_amount,created_by) VALUES('PRICE-BROWSER-1','ORD-0629-001-01','confirmation',1,0.36,500,180,'U-OFFICE-A');
-    INSERT INTO price_snapshots(id,order_line_id,snapshot_type,version_no,bag_price,chargeable_qty,final_amount,created_by) SELECT 'PRICE-BROWSER-8', order_line_id, 'confirmation', 1, 0.5, expected_qty, 0.5*expected_qty, 'U-OFFICE-A' FROM fulfillment_records WHERE id='F008';`);
+    INSERT INTO price_snapshots(id,order_line_id,snapshot_type,version_no,bag_price,chargeable_qty,final_amount,created_by) SELECT 'PRICE-BROWSER-2', order_line_id, 'confirmation', 1, 0.5, expected_qty, 0.5*expected_qty, 'U-OFFICE-A' FROM fulfillment_records WHERE id='F002';`);
   const client = createPostgresPoolClient({ pool });
   const services = createApiSharedServiceRegistry();
   const prepare = async () => {
@@ -83,7 +83,7 @@ try {
   assert.equal(again.alreadyConfirmed, true, "confirming twice changes nothing");
 
   // 程序回报的打印机：页面上不能确认已打印。
-  const driverJob = await services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: "F008", operatorId: "U-OFFICE-A",
+  const driverJob = await services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: "F002", operatorId: "U-OFFICE-A",
     body: { documentType: "delivery_note", printDeviceId: "PRINT-DRIVER-PAPER", idempotencyKey: "driver-note-print-1" } });
   assert.ok(driverJob.printJob, JSON.stringify(driverJob));
   {
@@ -141,6 +141,20 @@ try {
   assert.equal(sameCustomer.headers["content-type"], "application/pdf");
   const single = await callNotePdf([jobId], []);
   assert.equal(single.status, 200, "one note prints on its own");
+
+  // Simulate two legacy queued jobs: they were created before the unfinished production was noticed.
+  await pool.query("UPDATE order_lines SET order_type='custom_special', line_status='制袋中' WHERE id='ORD-0629-002-01'");
+  const driverJobId = driverJob.printJob.printJobId;
+  const blockedPdf = await callNotePdf([driverJobId], []);
+  assert.deepEqual([blockedPdf.status, blockedPdf.body.code], [409, "FULFILLMENT_NOTE_NOT_READY"]);
+  const driverWorkspace = await prepare();
+  driverWorkspace.printDriverAdapter = { dispatchPrintJob() { assert.fail("unfinished goods reached the printer"); } };
+  const blockedDispatch = await lifecycle.dispatchPrintJob({ workspace: driverWorkspace, printJobId: driverJobId, operatorId: "U-OFFICE-A" });
+  assert.equal(blockedDispatch.code, "FULFILLMENT_NOTE_NOT_READY");
+  await pool.query("UPDATE print_jobs SET driver_mode='browser_download' WHERE id=$1", [driverJobId]);
+  const blockedConfirm = await lifecycle.confirmBrowserPrint({ workspace: await prepare(), printJobId: driverJobId, operatorId: "U-OFFICE-A", body: { confirmed: true } });
+  assert.equal(blockedConfirm.code, "FULFILLMENT_NOTE_NOT_READY");
+  assert.equal((await pool.query("SELECT job_status FROM print_jobs WHERE id=$1", [driverJobId])).rows[0].job_status, "queued");
 
   console.log(`PASS browser note print PG (${migrations.length} migrations): dot-matrix browser device and note templates seeded, job waits for office confirmation, confirmation marks record printed and paper ready for the warehouse, driver printers refused, one customer's notes merged into one sheet; customers with the same name but different numbers are never merged (checked through the real PDF route).`);
 } finally {

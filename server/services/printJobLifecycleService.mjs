@@ -1,3 +1,5 @@
+import { queuedNoteError } from "./queuedFulfillmentNoteReadiness.mjs";
+
 export function createPrintJobLifecycleService({
   buildOperationLog,
   printJobBusinessProjectionService,
@@ -92,6 +94,8 @@ export function createPrintJobLifecycleService({
       );
     }
 
+    const noteError = queuedNoteError(workspace, before);
+    if (noteError) return noteError;
     const dispatchResult = await workspace.printDriverAdapter.dispatchPrintJob({
       printJob: before,
       operatorId,
@@ -303,6 +307,8 @@ export function createPrintJobLifecycleService({
     if (before.jobStatus !== "queued") {
       return businessError(409, "PRINT_JOB_NOT_WAITING_FOR_PRINT", "这张单子的打印任务已经结束或作废，请重新打印。");
     }
+    const noteError = queuedNoteError(workspace, before);
+    if (noteError) return noteError;
     const confirmedAt = nowIso(now);
     const after = {
       ...before,

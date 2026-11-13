@@ -793,6 +793,11 @@ function OrderPricingEditor({
             rows={rows}
             picked={pickedCustomer}
             onPick={pickCustomer}
+            onCustomerCreated={() => {
+              if (formal.meta.collections?.customers?.hasLoaded || formal.meta.collections?.customers?.loading) {
+                void formal.actions.readCollection("customers");
+              }
+            }}
             hint={customerHint}
             fulfillment={commonValue(rows, "fulfillment", "送货")}
             latest={commonValue(rows, "latest", "")}
@@ -1614,7 +1619,7 @@ function NewCustomerDialog({ authState, operatorId, initialName = "", onClose, o
 }
 
 // 负责人 2026-11-05：客户整单选一次（必填）；选完自动带出联系人、电话、结算周期。交付、需要日期也整单填一次。
-function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, onPick, hint, fulfillment, latest, onFulfillment, onLatest }) {
+function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, onPick, onCustomerCreated, hint, fulfillment, latest, onFulfillment, onLatest }) {
   const ids = customerIdsOf(rows);
   const someMissing = rows.some((line) => !line.customerId);
   const currentId = rows.length ? (ids.length === 1 && !someMissing ? ids[0] : "") : picked?.customerId ?? "";
@@ -1705,7 +1710,7 @@ function OrderCustomerHeader({ authState, operatorId, disabled, rows, picked, on
             operatorId={operatorId}
             initialName={creating.name}
             onClose={() => setCreating(null)}
-            onCreated={(customer) => { setCreating(null); onPick(customer); }}
+            onCreated={(customer) => { setCreating(null); onPick(customer); onCustomerCreated(); }}
           />
         ) : null}
         {currentId && profile ? (

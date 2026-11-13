@@ -44,6 +44,9 @@ try {
     try {await printer.query('BEGIN');await printer.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`order-line:${id}`]);await insertPrint(printer,`RACE-${action}`);pending=request(action,`${action}-print-race`).then(value=>({value}),error=>({error}));await waitForBlock(printer);await printer.query('COMMIT');const printed=await state();const outcome=await pending;assert.equal(outcome.error?.statusCode,409);assert.match(observedSqlErrors.at(-1),/ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT/);assert.deepEqual(await state(),printed);} finally {await printer.query('ROLLBACK');printer.release();if(pending)await pending;await resetPaper();}
   }
   // Real atomic print service/repository, not a test-only advisory-lock facsimile.
+  // Use available stock for this race so the paper remains the only blocker for order edits.
+  await pool.query("UPDATE order_lines SET order_type='stock' WHERE id=$1", [id]);
+  await pool.query("DELETE FROM production_tasks WHERE id='TASK-PAPER-GUARD'");
   await pool.query("INSERT INTO printer_devices(id,biz_no,name,device_type,status,connection_type,supported_document_types,default_document_types) VALUES('PRINTER-PAPER-GUARD','PRINTER-PAPER-GUARD','合成打印机','document','active','system_printer',ARRAY['delivery_note'],ARRAY['delivery_note'])");
   let releasePrint, enteredPrint;const printEntered=new Promise(r=>enteredPrint=r),printGate=new Promise(r=>releasePrint=r);
   const printPool={query:(...args)=>pool.query(...args),async connect(){const c=await pool.connect();return {query:async(...args)=>{const q=args[0];if((typeof q==='string'?q:q.text)==='COMMIT'){enteredPrint();await printGate;}return c.query(...args);},release:()=>c.release()};}};
@@ -59,6 +62,9 @@ try {
   for(const outcome of await Promise.all(editing)){assert.equal(outcome.error?.statusCode,409);}
   assert.ok(observedSqlErrors.filter(message=>/ERP_ORDER_DOCUMENTS_ACTIVE_CONFLICT/.test(message)).length>=10);
   await resetPaper();
+  // The following scenario tests consumption against an unstarted production order.
+  await pool.query("UPDATE order_lines SET order_type='custom_special' WHERE id=$1", [id]);
+  await pool.query("INSERT INTO production_tasks(id,biz_no,order_line_id,task_type,planned_qty,task_status,machine_id,created_by) VALUES('TASK-PAPER-GUARD','TASK-PAPER-GUARD',$1,'制袋',10,'待排产','BAG-03','U-OFFICE-A')",[id]);
   await pool.query("INSERT INTO raw_material_inbounds(id,status,payload_json,revision) VALUES($1,'已入库',$2::jsonb,1)",[rawBefore.id,JSON.stringify(rawBefore)]);
   const issuedOnly=await state();
   // No consumption: both actions execute in a rollback-only transaction; all task facts remain unchanged.

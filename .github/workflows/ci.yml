@@ -53,6 +53,8 @@ jobs:
           node scripts/check-deep-link-auth-ui.mjs
           node scripts/check-route-guard-composition-ui.mjs
           node scripts/check-business-table-overflow-ui.mjs
+          node scripts/check-customer-records-ui.mjs
+          node scripts/check-fulfillment-note-readiness-ui.mjs
       - run: node scripts/check-mobile-draft-exit-dialog-ui.mjs
       - run: node scripts/check-mobile-receiving-safety-ui.cjs
       - run: npm test

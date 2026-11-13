@@ -66,11 +66,12 @@ export function createPrintJobBusinessProjectionService({
         },
         fulfillment: buildFulfillmentActionRecord(workspace, plan.nextFulfillment, {
           operatorId,
-          actualQty: plan.nextFulfillment.actualQty ?? plan.nextFulfillment.qty,
+          actualQty: plan.nextFulfillment.actualQty ?? null,
         }),
         printRecord: plan.printRecord,
         packages: plan.nextPackages,
         labelPrintCompletion: plan.labelPrintCompletion,
+        confirmingNoteJob: plan.confirmingNoteJob,
         ...plan.stockDeduction,
         operationLog: plan.operationLog,
         printJob,
@@ -122,11 +123,12 @@ export function createPrintJobBusinessProjectionService({
         },
         fulfillment: buildFulfillmentActionRecord(workspace, plan.nextFulfillment, {
           operatorId,
-          actualQty: plan.nextFulfillment.actualQty ?? plan.nextFulfillment.qty,
+          actualQty: plan.nextFulfillment.actualQty ?? null,
         }),
         printRecord: plan.printRecord,
         packages: plan.nextPackages,
         labelPrintCompletion: plan.labelPrintCompletion,
+        confirmingNoteJob: plan.confirmingNoteJob,
         ...plan.stockDeduction,
         operationLog: plan.operationLog,
       });
@@ -261,6 +263,7 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
       })
     : null;
   return {
+    confirmingNoteJob: physicalPrintConfirmed && STOCK_NOTE_DOCUMENT_TYPES.has(documentType) ? printJob : null,
     stockDeduction: stockPlan?.movements ?? {},
     printRecordId,
     targetType: beforePrintRecord.targetType,

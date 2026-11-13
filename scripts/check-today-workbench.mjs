@@ -18,7 +18,32 @@ assert.ok(completedBusinessWorkspaceIds.includes("today"));
 // 订单统一写法
 assert.equal(formatOrderLineText({ printContent: "鑫源超市", size: "30*37*10", color: "红色", print: "是", printColor: "白", printSide: "双面", qty: 5000 }), "【鑫源超市】30*37*10cm 红印白 双面相同 5000个");
 assert.equal(formatOrderLineText({ printContent: "【高佳】", size: "25×32×10", color: "天兰", print: "是", printColor: "白", printSide: "双面不同", qty: 3000 }), "【高佳】25*32*10cm 天兰印白 双面不同 3000个");
-assert.equal(formatOrderLineText({ product: "空白袋", size: "45*37*10", color: "本白", print: "否", qty: 2000 }), "现货 45*37*10cm 本白 2000个");
+const commonLine = { id: "L1", orderType: "stock", product: "空白袋", size: "45*37*10", color: "本白", print: "否", qty: 2000 };
+const phrase = "45*37*10cm 本白 2000个";
+for (const [changes, prefix] of [
+  [{ inventory: "已占用" }, "现货"],
+  [{}, "标准通货"],
+  [{ orderType: "" }, "类型待确认"],
+  [{ fulfillmentMethod: "补库入库", inventory: "已占用" }, "补库"],
+  [{ inventory: "缺货 60" }, "通货排产"],
+  [{ orderType: "custom_special", inventory: "已占用" }, "特殊尺寸"],
+  [{ orderType: "custom_print" }, "定制印刷（印刷待核对）"],
+]) {
+  assert.equal(formatOrderLineText(mapApiOrderLineToLocal({ ...commonLine, ...changes })), `${prefix} ${phrase}`);
+}
+const printedReplenishment = { ...commonLine, orderType: "stock_printed", fulfillmentMethod: "补库入库", printFlag: true, printContent: "福", printSide: "single", printColor: "红色" };
+assert.equal(formatOrderLineText(mapApiOrderLineToLocal(printedReplenishment)), "补库 【福】45*37*10cm 本白印红 单面印刷 2000个");
+const routedWorkspace = {
+  orderLines: [commonLine, { ...commonLine, id: "L2" }],
+  productionTasks: [{ orderLineId: "L1", taskStatus: "已完成" }, { orderLineId: "L2", taskStatus: "已作废" }],
+};
+const orderPool = createLocalOrderPoolReadRepository();
+for (const item of orderPool.listOrderLines({ workspace: routedWorkspace }).items) {
+  const fromDetail = orderPool.getOrderLineDetail({ workspace: routedWorkspace, orderLineId: item.id }).orderLine;
+  for (const line of [item, fromDetail]) {
+    assert.equal(formatOrderLineText(mapApiOrderLineToLocal(line)), `${line.id === "L1" ? "通货排产" : "标准通货"} ${phrase}`);
+  }
+}
 assert.equal(printSideText("单面"), "单面印刷");
 assert.equal(printSideText("双面待确认"), "双面待确认");
 
@@ -31,8 +56,11 @@ const items = buildTodayItems({
     { id: "L3", customerId: "C1", size: "30*38*10", color: "红色", print: "否", qty: 10, inventory: "缺货", status: "已交付" },
   ],
   fulfillments: [
-    { id: "F1", lineId: "L2", status: "待出库", packageCount: 8 },
-    { id: "F2", lineId: "L2", status: "待出库", paperOutboundDocument: { status: "已交库房" } },
+    { id: "F1", lineId: "L2", status: "待出库", paperOutboundStatus: "待生成纸单", qty: 3000, actualQty: 2400, actualPackageCount: 8, noteReadiness: { ready: true } },
+    { id: "F4", lineId: "L1", status: "待出库", packageCount: 8, noteReadiness: { ready: false, reason: "请先完成本批制袋报工。" } },
+    { id: "F5", lineId: "L2", status: "待出库", packageCount: 8 },
+    { id: "F2", lineId: "L2", status: "待出库", paperOutboundDocument: { status: "已交库房" }, noteReadiness: { ready: true } },
+    { id: "F6", lineId: "L2", status: "待出库", paperOutboundStatus: "已交库房", noteReadiness: { ready: true } },
     { id: "F3", lineId: "L2", status: "已交付" },
   ],
   rawMaterialInbounds: [
@@ -50,6 +78,7 @@ assert.deepEqual(items.map((item) => [item.group, item.title, item.note, item.ac
 ]);
 assert.equal(items[0].text, "【鑫源超市】30*37*10cm 红印白 双面相同 5000个");
 assert.equal(items[1].action.navId, "outbound-delivery");
+assert.match(items[1].text, /2400个$/u);
 assert.equal(items[2].text, "送货单 16卷 1570.3kg · 11月1日到");
 // 「今天」没读完 / 读失败不能说"今天没有要办的事"
 assert.equal(todayStatus([], { loading: true, hasLoaded: false }).state, "loading");

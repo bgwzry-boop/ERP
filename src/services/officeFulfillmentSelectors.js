@@ -76,6 +76,7 @@ export function mapApiFulfillmentToLocal(value = {}) {
     packingGroupAnchorId: cleanText(value.packingGroupAnchorId ?? value.packing_group_anchor_id),
     packageLabelRows: Array.isArray(value.packageLabelRows) ? value.packageLabelRows : [],
     shipmentProgress: value.shipmentProgress ?? null,
+    noteReadiness: value.noteReadiness ?? null,
     packingTask: value.packingTask ?? null,
     method: getFulfillmentMethodLabel(value.method),
     goods: cleanText(value.goodsSpec ?? value.goods),

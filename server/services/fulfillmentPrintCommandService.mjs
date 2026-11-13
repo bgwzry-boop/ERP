@@ -1,3 +1,4 @@
+import { fulfillmentNoteReadiness, noteDocumentTypes } from "../../shared/fulfillmentNoteReadiness.js";
 import { autoQuantityDifference } from "../../shared/quantityTolerance.js";
 import { buildDeliveryBatchFamily, describeBatchProgress } from "../../shared/deliveryBatches.js";
 import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
@@ -67,6 +68,11 @@ export function createFulfillmentPrintCommandService({
     };
     const printValidation = validateFulfillmentPrintRequest(workspace, fulfillmentId, printableBody);
     if (printValidation.error) return printValidation;
+    const orderLine = findOrderLine(workspace, before.lineId ?? before.orderLineId);
+    if (noteDocumentTypes.includes(documentType)) {
+      const readiness = fulfillmentNoteReadiness(workspace, before, orderLine, { historicalReprint: printableBody.printAction === "reprint" });
+      if (!readiness.ready) return businessError(409, "FULFILLMENT_NOTE_NOT_READY", readiness.reason);
+    }
     const printDeviceResolution = await resolvePrintDeviceForDocument(workspace, {
       printDeviceId: printableBody.printDeviceId ?? printableBody.printerDeviceId,
       documentType,
@@ -133,7 +139,6 @@ export function createFulfillmentPrintCommandService({
           operatorId,
           now,
         });
-    const orderLine = findOrderLine(workspace, before.lineId ?? before.orderLineId);
     const customer = (workspace.customers ?? []).find((item) => item.id === before.customerId) ?? {};
     const pricingResult = ["express_ltl_label","package_label"].includes(documentType) ? null : resolveFulfillmentPrintPricing({ workspace, fulfillment: before, orderLine });
     const printTemplate = buildFulfillmentPrintTemplate({
@@ -197,7 +202,7 @@ export function createFulfillmentPrintCommandService({
         : {}),
     }, {
       operatorId,
-      actualQty: before.actualQty ?? before.qty,
+      actualQty: before.actualQty ?? null,
     });
     const transactionInput = {
       workspace,
@@ -364,7 +369,7 @@ export function createFulfillmentPrintCommandService({
     if (fulfillment) {
       const nextActionRecord = buildFulfillmentActionRecord(workspace, fulfillmentAfterPaperVoid, {
         operatorId,
-        actualQty: fulfillment.actualQty ?? fulfillment.qty,
+        actualQty: fulfillment.actualQty ?? null,
       });
       const transaction = await createFulfillmentActionOrchestrator(
         workspace.fulfillmentActionTransactionRepository,
@@ -529,6 +534,7 @@ function buildPrintJobRecord({ workspace, printRecord, printTemplate, body, oper
       printTemplate,
       request: {
         printAction: printRecord.printAction,
+        ...(printRecord.previousPrintRecordId ? { previousPrintRecordId: printRecord.previousPrintRecordId } : {}),
         packageIds: printRecord.packageSnapshot.map((item) => item.packageId),
         paperNo: body.paperNo ?? "",
       },

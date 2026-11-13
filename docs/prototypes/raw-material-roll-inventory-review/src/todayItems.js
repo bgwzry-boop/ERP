@@ -5,7 +5,7 @@ import { formatOrderLineText } from "./orderLineText.js";
 const text = (value) => String(value ?? "").trim();
 const DONE_ORDER = /已交付|已完成|已取消|已作废|已关闭/u;
 const DONE_FULFILLMENT = new Set(["已交付", "已提货", "已完成", "已取消", "已作废"]);
-const UNPRINTED_PAPER = new Set(["", "待打印确认"]);
+const UNPRINTED_PAPER = new Set(["", "待生成纸单", "待打印确认"]);
 
 export const TODAY_GROUPS = Object.freeze([
   Object.freeze({ key: "shortage", label: "缺货缺料", tone: "danger" }),
@@ -61,15 +61,17 @@ export function buildTodayItems({ orderLines = [], fulfillments = [], rawMateria
 
   for (const fulfillment of fulfillments) {
     const id = fulfillment.id ?? fulfillment.fulfillmentId;
-    if (DONE_FULFILLMENT.has(text(fulfillment.status)) || fulfillment.physicalOutboundAt) continue;
-    if (!UNPRINTED_PAPER.has(text(fulfillment.paperOutboundDocument?.status))) continue;
+    if (DONE_FULFILLMENT.has(text(fulfillment.status)) || fulfillment.physicalOutboundAt || fulfillment.finalDeliveryAt) continue;
+    if (fulfillment.noteReadiness?.ready !== true) continue;
+    const paperStatus = text(fulfillment.paperOutboundDocument?.status) || text(fulfillment.paperOutboundStatus);
+    if (!UNPRINTED_PAPER.has(paperStatus)) continue;
     const line = lineById.get(fulfillment.lineId ?? fulfillment.orderLineId) ?? {};
-    const packages = Number(fulfillment.packageCount ?? fulfillment.actualPackageCount);
+    const packages = Number(fulfillment.actualPackageCount);
     items.push({
       id: `note:${id}`,
       group: "note",
       title: customerOf({ ...line, ...fulfillment }, customerNames),
-      text: formatOrderLineText({ ...line, qty: fulfillment.qty ?? fulfillment.expectedQty ?? line.qty }),
+      text: formatOrderLineText({ ...line, qty: fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty ?? line.qty }),
       note: packages > 0 ? `已打包 ${packages} 包` : text(fulfillment.status) || "待出库",
       action: { label: "去打单", navId: "outbound-delivery", focus: { recordId: id } },
     });

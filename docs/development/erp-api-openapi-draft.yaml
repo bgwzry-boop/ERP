@@ -6005,6 +6005,51 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /master-data/customer-records:
+    get:
+      tags: [MasterData]
+      summary: 分页查询客户档案
+      description: >
+        需要 master_data.import.plan.create 权限。按客户编号排序，包含停用客户和还没有订单、对账单的客户。
+        名称和结算周期取自客户档案，联系人和电话取默认联系人。应收款项另外按对账读取权限查看。
+      operationId: listMasterDataCustomerRecords
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: 客户档案和符合条件的总数
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, page, pageSize]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [customerId, name, shortName, settlementCycle, enabled, contactName, phone]
+                      properties:
+                        customerId: { type: string }
+                        name: { type: string }
+                        shortName: { type: string }
+                        settlementCycle: { type: string }
+                        enabled: { type: boolean }
+                        contactName: { type: string }
+                        phone: { type: string }
+                  total: { type: integer, minimum: 0 }
+                  page: { type: integer, minimum: 1 }
+                  pageSize: { type: integer, minimum: 1, maximum: 200 }
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /master-data/machines:
     get:
       tags: [MasterData]
@@ -19870,6 +19915,7 @@ components:
         - goodsSpec
         - expectedQty
         - packageCount
+        - noteReadiness
         - status
       properties:
         fulfillmentId:
@@ -19896,6 +19942,15 @@ components:
           oneOf:
             - type: integer
             - type: "null"
+        noteReadiness:
+          type: object
+          description: 本批货按当前生产、打包和实数证据能否进入销售纸单打印。执行打印时由服务端再次核验。
+          required: [ready, reason]
+          properties:
+            ready: { type: boolean }
+            reason:
+              type: string
+              description: 可以打单时为空，暂不能打单时说明原因。
         packageCount:
           type: integer
         package:

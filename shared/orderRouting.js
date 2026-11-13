@@ -44,6 +44,15 @@ export function isStockOrderType(value) {
   return type === "stock" || type === "stock_printed";
 }
 
+/** Fulfillment evidence for displaying a common-goods line. Product type alone does not establish stock availability. */
+export function stockSupplyRoute(line = {}) {
+  const inventory = String(line.inventory ?? "").trim();
+  if (line.hasProductionTask === true || inventory.startsWith("缺货") || line.orderType === "现货缺货"
+    || line.exceptionTags?.includes("库存不足") || line.exceptions?.includes("库存不足")) return "production";
+  if (["可用", "有货", "已占用", "已出库"].includes(inventory) || line.orderType === "现货有货") return "inventory";
+  return "";
+}
+
 // 负责人 2026-11-08：通货要先下「补库订单」让车间做（纯色：制袋→打包→入库；丝印通货：丝印→制袋→打包→入库），
 // 做好入本厂成品库存，客户要货时再按需出库。补库单不发货、不对外收费。
 export const REPLENISHMENT_FULFILLMENT = "补库入库";
