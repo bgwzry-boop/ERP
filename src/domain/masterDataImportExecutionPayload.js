@@ -8,7 +8,7 @@ import {
   isValidEmployeeNumber,
   normalizeEmployeeNumberKey,
 } from "../../shared/auth/employeeIdentity.js";
-import { resolveImportedMasterDataMachineId } from "../../shared/masterDataMachineIdentity.js";
+import { resolveEmployeeImportMachine } from "./masterDataImportMachine.js";
 import { findPayrollPosition } from "../../shared/payrollPositionCatalog.js";
 
 export const MASTER_DATA_IMPORT_EXECUTION_PAYLOAD_VERSION = "p0-master-data-import-execution-payload-v3";
@@ -17,7 +17,7 @@ const supportedSheetKeys = new Set(["customers", "product_specs", "price_tables"
 
 const unsupportedSheetReasons = {};
 
-export function buildMasterDataImportExecutionPayload(confirmationPlan = {}) {
+export function buildMasterDataImportExecutionPayload(confirmationPlan = {}, { configuredMachines = [] } = {}) {
   const stagedSheets = normalizeStagedRows(confirmationPlan.stagedRows);
   const targetRecords = createEmptyTargetRecords();
   const failedRows = [];
@@ -38,7 +38,7 @@ export function buildMasterDataImportExecutionPayload(confirmationPlan = {}) {
         failedRows.push(createFailedRow(sheet, row, `员工编号重复：${cleanText(row.values["员工编号"])}。`));
         continue;
       }
-      const mapped = mapRowToTargetRecords(sheet, row);
+      const mapped = mapRowToTargetRecords(sheet, row, configuredMachines);
       if (mapped.failedReason) {
         failedRows.push(createFailedRow(sheet, row, mapped.failedReason));
         continue;
@@ -113,12 +113,12 @@ export function normalizeStagedRows(stagedRows) {
     .filter((sheet) => sheet.sheetKey && sheet.rows.length > 0);
 }
 
-function mapRowToTargetRecords(sheet, row) {
+function mapRowToTargetRecords(sheet, row, configuredMachines) {
   if (sheet.sheetKey === "customers") return mapCustomerRow(row);
   if (sheet.sheetKey === "product_specs") return mapProductSpecRow(row);
   if (sheet.sheetKey === "price_tables") return mapPriceTableRow(row);
   if (sheet.sheetKey === "inventory_items") return mapInventoryItemRow(row);
-  if (sheet.sheetKey === "employees_machines") return mapEmployeeMachineRow(row);
+  if (sheet.sheetKey === "employees_machines") return mapEmployeeMachineRow(row, configuredMachines);
   return { failedReason: "该 sheet 暂未接入正式导入写入器。" };
 }
 
@@ -322,7 +322,7 @@ function mapInventoryItemRow(row) {
   return { targetRecords };
 }
 
-function mapEmployeeMachineRow(row) {
+function mapEmployeeMachineRow(row, configuredMachines) {
   const employeeId = cleanText(row.values["员工编号"]);
   const employeeName = cleanText(row.values["员工姓名"]);
   const roleName = cleanText(row.values["角色"]);
@@ -363,16 +363,11 @@ function mapEmployeeMachineRow(row) {
   }
   const roleKeys = normalizeV1RuntimeEmployeeRoleKeys([roleKey, additionalRoleInputs]);
   const persistedRoleName = roleKeys.map((candidate) => roleCatalog[candidate].displayName).join("；");
-  const defaultMachineName = cleanText(row.values["机台名称"]) || cleanText(row.values["默认机台"]);
-  const machineName = defaultMachineName;
-  const machineWorkshop = cleanText(row.values["机台车间"]) || defaultWorkshop;
-  const machineId = machineName
-    ? resolveImportedMasterDataMachineId({
-        explicitMachineId: row.values["机台编号"],
-        machineName,
-        workshop: machineWorkshop,
-      })
-    : "";
+  const machine = resolveEmployeeImportMachine(row.values, configuredMachines);
+  if (machine.failedReason) return { failedReason: machine.failedReason };
+  const machineId = machine.machineId;
+  const machineName = machine.name;
+  const machineWorkshop = machine.workshop;
   const capacitySize = cleanText(row.values["产能尺寸"]);
   const dailyCapacityQty = toFiniteNumber(row.values["粗略日产量"]);
   const effectiveFrom = wageEffectiveFrom;
@@ -385,7 +380,7 @@ function mapEmployeeMachineRow(row) {
     name: employeeName,
     roleName: persistedRoleName,
     roleKeys,
-    defaultWorkshop,
+    defaultWorkshop: defaultWorkshop || (machineId ? machineWorkshop : ""),
     defaultMachineId: machineId,
     birthDate,
     hireDate,
@@ -412,12 +407,12 @@ function mapEmployeeMachineRow(row) {
     remark: cleanText(row.values["备注"]),
   });
 
-  if (machineId && machineName) {
+  if (machineId && machineName && !machine.existing) {
     targetRecords.machines.push({
       id: machineId,
       bizNo: machineId,
       name: machineName,
-      machineType: "bag_making",
+      machineType: machine.machineType,
       workshop: machineWorkshop,
       status: normalizeEnabled(row.values["启用状态"]) ? "active" : "inactive",
       enabled: normalizeEnabled(row.values["启用状态"]),
@@ -426,6 +421,8 @@ function mapEmployeeMachineRow(row) {
         defaultWorkshop,
       },
     });
+  }
+  if (machineId) {
     targetRecords.employeeMachineAssignments.push({
       id: stableId("EMA-IMP", `${employeeId}|${machineId}|default|${effectiveFrom}`),
       employeeId,

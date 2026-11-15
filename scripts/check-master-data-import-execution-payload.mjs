@@ -12,6 +12,7 @@ import {
   createMasterDataImportExecution,
 } from "../src/domain/masterDataImportExecution.js";
 import { resolveImportedMasterDataMachineId } from "../shared/masterDataMachineIdentity.js";
+import { buildDefaultMasterDataMachines } from "../server/masterDataMachineConfigurationRepository.mjs";
 
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const workbook = buildMasterDataImportTemplateWorkbook({
@@ -57,10 +58,97 @@ assert(payload.targetRecords.employees.some((record) => (
     && record.accountEnabled === false
     && record.profileStatus === "pending_admin_review"
 )));
-assert(payload.targetRecords.machines.some((record) => record.id === "M-01" && record.name === "1号制袋机" && record.workshop === "1号车间"));
-assert(payload.targetRecords.employees.some((record) => record.defaultMachineId === "M-01"));
+assert(payload.targetRecords.machines.some((record) => record.id === "BAG-01" && record.name === "1号制袋机" && record.workshop === "1号车间"));
+assert(payload.targetRecords.employees.some((record) => record.defaultMachineId === "BAG-01"));
 assert.equal(resolveImportedMasterDataMachineId({ machineName: "1号机", workshop: "1号车间" }), "BAG-01");
 assert.equal(resolveImportedMasterDataMachineId({ machineName: "9号制袋机", workshop: "3号车间" }), "BAG-09");
+
+function machinePayload(rows, configuredMachines) {
+  return buildMasterDataImportExecutionPayload({
+    planId: "MDP-MACHINE-IDENTITY",
+    stagedRows: [{
+      sheetKey: "employees_machines",
+      worksheetName: "员工机台",
+      rows: rows.map((values, index) => ({
+        rowNumber: index + 3,
+        values: { 员工编号: `EMP-FICTITIOUS-${index + 1}`, 员工姓名: `测试人员${index + 1}`, 角色: "车间报工", ...values },
+      })),
+    }],
+  }, { configuredMachines });
+}
+
+const printMachinePayload = machinePayload(Array.from({ length: 4 }, (_, index) => ({
+  默认车间: "丝印车间",
+  默认机台: `${index + 1}号丝印机`,
+  ...(index % 2 === 0 ? { 机台编号: `PRINT-0${index + 1}` } : {}),
+})));
+assert.equal(printMachinePayload.summary.failedRowCount, 0);
+assert.deepEqual(printMachinePayload.targetRecords.machines.map(({ id, machineType }) => ({ id, machineType })),
+  [1, 2, 3, 4].map((number) => ({ id: `PRINT-0${number}`, machineType: "screen_printing" })));
+assert.deepEqual(printMachinePayload.targetRecords.employees.map((employee) => employee.defaultMachineId),
+  ["PRINT-01", "PRINT-02", "PRINT-03", "PRINT-04"]);
+assert.equal(printMachinePayload.targetRecords.machines.some((machine) => machine.id.startsWith("MACH-IMP-")), false);
+const defaultCatalog = buildDefaultMasterDataMachines();
+const defaultMachinePayload = machinePayload(defaultCatalog.map((machine) => ({
+  默认机台: machine.name, 默认车间: machine.workshop,
+})));
+assert.equal(defaultMachinePayload.summary.failedRowCount, 0);
+assert.deepEqual(defaultMachinePayload.targetRecords.machines.map(({ id, name, machineType, workshop }) => ({ id, name, machineType, workshop })),
+  defaultCatalog.map(({ id, name, machineType, workshop }) => ({ id, name, machineType, workshop })));
+
+const legacyNamedMachine = machinePayload([{ 默认机台: "1号机", 默认车间: "1号车间" }], [
+  { id: "MAINTAINED-BAG", name: "1号制袋机", machineType: "bag_making", workshop: "1号车间" },
+]);
+assert.equal(legacyNamedMachine.summary.failedRowCount, 0);
+assert.equal(legacyNamedMachine.targetRecords.employees[0].defaultMachineId, "MAINTAINED-BAG");
+assert.deepEqual(legacyNamedMachine.targetRecords.machines, [], "已维护旧编号及确认的短名称不得再生成第二台机台");
+
+const maintainedMachine = {
+  id: "MAINTAINED-1", machineId: "MAINTAINED-1", name: "已维护设备", machineType: "cutting",
+  workshop: "裁切车间", status: "maintenance", enabled: false,
+  settings: { legacyMachineIds: ["OLD-MACHINE-1"], approvedSetting: "keep" },
+};
+const preservedMachine = structuredClone(maintainedMachine);
+for (const row of [
+  { 机台编号: "MAINTAINED-1" },
+  { 机台编号: "old-machine-1" },
+  { 默认机台: "已维护设备", 默认车间: "裁切车间" },
+]) {
+  const existingPayload = machinePayload([row], [maintainedMachine]);
+  assert.equal(existingPayload.summary.failedRowCount, 0);
+  assert.equal(existingPayload.targetRecords.employees[0].defaultMachineId, "MAINTAINED-1");
+  assert.equal(existingPayload.targetRecords.employeeMachineAssignments[0].machineId, "MAINTAINED-1");
+  assert.deepEqual(existingPayload.targetRecords.machines, [], "员工导入只绑定已维护机台，不覆盖类型、状态或设置");
+  assert.deepEqual(maintainedMachine, preservedMachine);
+}
+
+const rejectedMachines = machinePayload([
+  { 默认机台: "新购丝印设备", 默认车间: "丝印车间" },
+  { 机台编号: "PRINT-99", 默认机台: "99号丝印机", 默认车间: "丝印车间" },
+  { 机台编号: "PRINT-01", 默认机台: "1号制袋机", 默认车间: "1号车间" },
+  { 默认机台: "2号丝印机", 默认车间: "1号车间" },
+  { 默认机台: "1号丝印机", 默认车间: "1号车间", 机台车间: "丝印车间" },
+  { 默认机台: "1号丝印机", 机台名称: "2号丝印机", 默认车间: "丝印车间" },
+]);
+assert.equal(rejectedMachines.summary.failedRowCount, 6);
+assert.equal(rejectedMachines.summary.writableRowCount, 0);
+assert.equal(rejectedMachines.targetRecords.employees.length, 0);
+assert.equal(rejectedMachines.targetRecords.machines.length, 0);
+assert.equal(rejectedMachines.targetRecords.employeeMachineAssignments.length, 0);
+assert.equal(rejectedMachines.failedRowsDownload.required, true);
+
+const mismatchedExisting = machinePayload([
+  { 机台编号: "NEW-ID", 默认机台: "已维护设备", 默认车间: "裁切车间" },
+  { 机台编号: "MAINTAINED-1", 默认机台: "已维护设备", 默认车间: "错误车间" },
+], [maintainedMachine]);
+assert.equal(mismatchedExisting.summary.failedRowCount, 2, "编号或车间冲突不能创建重复机台或移动已有机台");
+
+const ambiguousExisting = machinePayload([{ 默认机台: "同名设备", 默认车间: "测试车间" }], [
+  { id: "DUP-1", name: "同名设备", machineType: "packing", workshop: "测试车间" },
+  { id: "DUP-2", name: "同名设备", machineType: "cutting", workshop: "测试车间" },
+]);
+assert.equal(ambiguousExisting.summary.failedRowCount, 1);
+assert.match(ambiguousExisting.failedRows[0].reason, /不唯一/);
 assert(payload.targetRecords.employeeMachineAssignments.some((record) => record.assignmentType === "default"));
 assert(payload.targetRecords.machineCapacityBaselines.some((record) => (
   record.dailyCapacityQty === 12000

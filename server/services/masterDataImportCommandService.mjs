@@ -207,8 +207,10 @@ export function createMasterDataImportCommandService(dependencies = {}) {
       const officialImportEnabled =
         body.officialImportEnabled === true || body.confirmOfficialImport === true;
       const officialWriterKind = cleanText(getOfficialWriterKind(workspace)) || "not_configured";
+      const configuredMachines = await loadCurrentImportMachines(workspace, confirmationPlan, officialWriterKind);
       importExecution = createMasterDataImportExecution({
         confirmationPlan,
+        configuredMachines,
         requestedBy: getOperatorName(workspace, operatorId),
         requestedAt: body.requestedAt ?? now().toISOString(),
         officialImportEnabled,
@@ -345,6 +347,23 @@ export function createMasterDataImportCommandService(dependencies = {}) {
       });
     }
   }
+}
+
+async function loadCurrentImportMachines(workspace, confirmationPlan, writerKind) {
+  const hasMachineRows = (confirmationPlan.stagedRows ?? []).some((sheet) =>
+    sheet.sheetKey === "employees_machines" && (sheet.rows ?? []).some((row) =>
+      ["机台编号", "机台名称", "默认机台"].some((field) => cleanText(row.values?.[field]))));
+  if (!hasMachineRows) return workspace.machines;
+  if (writerKind !== "postgres") return workspace.machines;
+  const machineRepository = workspace.masterDataMachineConfigurationRepository;
+  const coreRepository = workspace.coreWorkspaceReadRepository;
+  const repository = [machineRepository, coreRepository].find((candidate) => candidate?.kind === "postgres" && typeof candidate.loadState === "function");
+  if (typeof repository?.loadState !== "function") {
+    throw new Error("当前正式机台目录读取能力不可用，导入未执行；请恢复读取后重试。");
+  }
+  const state = await repository.loadState();
+  if (!Array.isArray(state?.machines)) throw new Error("当前正式机台目录读取不完整，导入未执行；请重新核对。");
+  return state.machines;
 }
 
 function inferOfficialWriterKind(workspace) {

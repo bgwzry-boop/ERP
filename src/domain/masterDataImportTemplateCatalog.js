@@ -174,7 +174,7 @@ const templateDefinitions = [
   {
     key: "employees_machines",
     label: "员工机台",
-    description: "员工编号是稳定身份；主岗位与工资岗位分开维护；可批量维护出生/入职日期、工资岗位键和外部考勤编号，绝不按姓名关联打卡。旧工资字段仅兼容历史表，不作为正式费率权威。",
+    description: "员工编号是稳定身份；主岗位与工资岗位分开维护；可批量维护出生/入职日期、工资岗位键和外部考勤编号，绝不按姓名关联打卡。机台优先按正式编号绑定，未知机台须先维护类型和车间；员工导入不改写已维护机台。旧工资字段仅兼容历史表，不作为正式费率权威。",
     worksheetName: "员工机台",
     requiredFields: ["员工编号", "员工姓名", "角色"],
     conditionalRequiredFields: [],
@@ -217,7 +217,7 @@ const templateDefinitions = [
       "2026-07-01",
       "deli",
       "DL-1001",
-      "M-01",
+      "BAG-01",
       "1号制袋机",
       "1号车间",
       "30*37*10",

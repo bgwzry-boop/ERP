@@ -1,4 +1,5 @@
 import { optionalFinancialAmount } from "../../shared/financialAmount.js";
+import { isVoidedStatement } from "../../shared/statementPaymentPolicy.js";
 export { optionalFinancialAmount } from "../../shared/financialAmount.js";
 
 export function normalizeStatementCustomerSummary(item) {
@@ -24,7 +25,8 @@ export function mapLocalStatementCustomerSummary(statement) {
     ...statement,
     currentReceivable: statement.receivable,
     currentReceived: statement.received,
-    varianceAmount: statement.variance,
+    varianceAmount: isVoidedStatement(statement) ? 0 : statement.variance,
+    ...(isVoidedStatement(statement) ? { currentUnpaid: 0 } : {}),
     paymentPending: String(statement.status ?? "").includes("收款"),
     status: mapLocalStatementStatus(statement.status),
     statementId: statement.id,
@@ -32,6 +34,7 @@ export function mapLocalStatementCustomerSummary(statement) {
 }
 
 function mapLocalStatementStatus(status) {
+  if (isVoidedStatement(status)) return "voided";
   const value = String(status ?? "");
   if (value.includes("欠款") || value.includes("差额")) return "debt_or_variance";
   if (value.includes("收款")) return "payment_pending";
@@ -45,6 +48,7 @@ function mapStatementSummaryStatus(status) {
     debt_or_variance: "有欠款",
     payment_pending: "收款待确认",
     settled: "已结清",
+    voided: "已作废",
   };
   return labels[status] ?? status ?? "待生成";
 }

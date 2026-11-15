@@ -1,5 +1,6 @@
 import { getFulfillmentMethodLabel } from "../shared/labels.js";
 import { optionalFinancialAmount } from "../../shared/financialAmount.js";
+import { isVoidedStatement } from "../../shared/statementPaymentPolicy.js";
 import { getPendingDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 import {
   FACTORY_STANDARD_COLORS,
@@ -430,7 +431,7 @@ export const defaultStatementFilters = {
   status: "默认待处理",
 };
 
-export const statementFilterOptions = ["默认待处理", "本期待对账", "欠款/差额", "收款待确认", "已结清", "全部"];
+export const statementFilterOptions = ["默认待处理", "本期待对账", "欠款/差额", "收款待确认", "已结清", "已作废", "全部"];
 export const varianceHandlingOptions = ["未收差额转欠款", "抹零/减免已审批", "账单有误待重算", "多笔付款待齐", "其他"];
 export const writeOffAllowedVarianceHandling = ["未收差额转欠款", "抹零/减免已审批"];
 
@@ -453,7 +454,7 @@ export function getOrderFinanceState(row, statements, customers) {
 }
 
 export function getStatementBlockingAmount(statement) {
-  if (!statement || hasSettledStatementBalance(statement)) return 0;
+  if (!statement || isVoidedStatement(statement) || hasSettledStatementBalance(statement)) return 0;
   const currentGap = Math.max(0, Math.round(Number(statement.receivable || 0) * 100) - Math.round(Number(statement.received || 0) * 100)) / 100;
   const hasPaymentProgress =
     Number(statement.received || 0) > 0 ||
@@ -483,7 +484,7 @@ export function getStatementFinancialSummary(statement, customers) {
   const customer = findStatementCustomer(customers, statement.customerId);
   const currentReceivable = nonNegativeFinancialAmount(statement.receivable);
   const currentReceived = nonNegativeFinancialAmount(statement.received);
-  const currentUnpaid = currentReceivable === null || currentReceived === null ? null : hasSettledStatementBalance(statement)
+  const currentUnpaid = isVoidedStatement(statement) ? 0 : currentReceivable === null || currentReceived === null ? null : hasSettledStatementBalance(statement)
     ? 0
     : Math.max(0, Math.round(currentReceivable * 100) - Math.round(currentReceived * 100)) / 100;
   const historicalDebt = customer ? nonNegativeFinancialAmount(customer.debtAmountSnapshot ?? customer.debt) : null;
@@ -509,6 +510,7 @@ export function presentedStatementVariance(statement) {
 
 export function getStatementBucket(statement, customers) {
   if (!statement) return "本期待对账";
+  if (isVoidedStatement(statement)) return "已作废";
   const blockingAmount = getStatementBlockingAmount(statement, customers);
   if ((statement.status.includes("已核销") || statement.status.includes("已结清")) && blockingAmount <= 0) return "已结清";
   if (statement.status.includes("收款")) return "收款待确认";
@@ -547,6 +549,7 @@ export function statementMatchesFilters(statement, filters, customers) {
   const queryText = [customer.name, customer.cycle, customer.contact, statement.id, statement.period, statement.status].join(" ").toLowerCase();
   if (query && !queryText.includes(query)) return false;
   if (filters.status === "全部") return true;
+  if (bucket === "已作废") return filters.status === "已作废";
   if (filters.status === "默认待处理") return bucket !== "已结清";
   if (filters.status === "欠款/差额") return bucket === "欠款/差额" || getStatementDisplayDebt(statement, customers) > 0;
   return bucket === filters.status;

@@ -26,6 +26,7 @@ assert.equal(readyExecution.officialImportEnabled, true);
 assert.equal(readyExecution.officialWriteScope, "master_data_import_v1");
 
 await checkLocalMasterDataImportTransaction();
+await checkLocalMachineCreateConflict();
 await checkLocalEmployeeProfileReimportPreservesAccountLifecycle();
 await checkLocalAttendanceIdentityConflictRollback();
 await checkDepartedEmployeeProfileImportBlocked();
@@ -160,6 +161,20 @@ async function checkLocalEmployeeProfileReimportPreservesAccountLifecycle() {
   assert.equal(employee.payrollPositionKey, "PAY-OFFICE");
   assert.equal(employee.baseHourlyWage, 18);
   assert.equal(employee.attendanceExternalId, "D5FN-EXISTING");
+}
+
+async function checkLocalMachineCreateConflict() {
+  const repository = createLocalMasterDataImportTransactionRepository();
+  const maintainedMachine = {
+    id: "BAG-01", name: "已维护机台", machineType: "cutting", workshop: "裁切车间",
+    status: "maintenance", enabled: false, settings: { maintained: true },
+  };
+  const workspace = { machines: [maintainedMachine], operationLogs: [] };
+  const before = structuredClone(workspace);
+  await assert.rejects(repository.applyImportExecution({
+    workspace, importExecution: readyExecution, operationLog: buildOperationLog("LOG-MD-MACHINE-CONFLICT"),
+  }), /MASTER_DATA_IMPORT_MACHINE_CREATE_CONFLICT/);
+  assert.deepEqual(workspace, before, "读取后同编号机台出现时，整批人员及其他主数据均不能落入本地状态");
 }
 
 async function checkLocalAttendanceIdentityConflictRollback() {
@@ -390,6 +405,9 @@ async function checkPostgresSqlBoundary() {
   assert.doesNotMatch(builtQuery.text, /account_enabled = EXCLUDED\.account_enabled/);
   assert.doesNotMatch(builtQuery.text, /profile_status = EXCLUDED\.profile_status/);
   assert.match(builtQuery.text, /INSERT INTO machines/);
+  const machineStatement = builtQuery.text.match(/INSERT INTO machines[\s\S]*?;/)?.[0];
+  assert(machineStatement);
+  assert.doesNotMatch(machineStatement, /ON CONFLICT|DO UPDATE/, "导入机器只允许新增，主键冲突必须整批回滚");
   assert.match(builtQuery.text, /INSERT INTO employee_machine_assignments/);
   assert.match(builtQuery.text, /INSERT INTO machine_capacity_baselines/);
   assert.match(builtQuery.text, /INSERT INTO operation_logs/);

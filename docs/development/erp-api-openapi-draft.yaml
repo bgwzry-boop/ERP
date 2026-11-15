@@ -4227,7 +4227,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [default_pending, current_period, debt_or_variance, payment_pending, settled, all]
+            enum: [default_pending, current_period, debt_or_variance, payment_pending, settled, voided, all]
         - name: keyword
           in: query
           schema:
@@ -23314,7 +23314,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [current_period, debt_or_variance, payment_pending, settled]
+          enum: [current_period, debt_or_variance, payment_pending, settled, voided]
         statementId:
           type: string
 

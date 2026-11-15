@@ -105,6 +105,32 @@ try {
   })[0];
   assert.equal(settledRounding.currentUnpaid, 0);
   assert.equal(settledRounding.varianceAmount, 0, "抹零结清后差额保持 0，不把应收减实收再显示成未结差额");
+  const voided = getStatementCustomers({
+    customers: workspace.customers,
+    statements: [{ ...workspace.statements[0], id: "ST-VOIDED", status: "已作废", receivable: 273, received: 0 }],
+  })[0];
+  await render([voided]);
+  assert.deepEqual((await page.locator(".business-table-body [role=cell]").allTextContents()).slice(1), ["¥273", "¥0", "¥0", "已作废"]);
+  const customerFormal = formal([voided, summary]);
+  customerFormal.data.customers = [{ customerId: summary.customerId, name: "合成金额客户", settlementCycle: "月结", enabled: true }];
+  customerFormal.permissionContext = { actionPermissions: ["statement.preview"] };
+  const renderCustomer = async () => page.setContent(renderToStaticMarkup(createElement(module.exports.BusinessWorkspace, { formal: customerFormal, navId: "customer-records", onNavigate() {} })));
+  await renderCustomer();
+  assert.equal((await page.locator(".business-table-body [role=cell]").allTextContents())[3], "¥1,000", "作废单不计入客户档案的有效账单张数和应收");
+  assert.match(await page.locator(".business-facts").innerText(), /ST-VOIDED 已作废 · 账单金额[\s\S]*¥273/u, "如实展示作废单当前保存的非零金额");
+  assert.doesNotMatch(await page.locator(".business-facts").innerText(), /原应收/u);
+  customerFormal.data.statements = [voided];
+  await renderCustomer();
+  assert.equal((await page.locator(".business-table-body [role=cell]").allTextContents())[3], "无有效账单");
+  const voidedZero = getStatementCustomers({
+    customers: workspace.customers,
+    statements: [{ ...workspace.statements[0], id: "ST-VOIDED-ZERO", status: "已作废", receivable: 0, received: 0 }],
+  })[0];
+  customerFormal.data.statements = [voidedZero];
+  await renderCustomer();
+  assert.equal((await page.locator(".business-table-body [role=cell]").allTextContents())[3], "无有效账单");
+  assert.match(await page.locator(".business-facts").innerText(), /ST-VOIDED-ZERO 已作废 · 账单金额[\s\S]*¥0/u, "作废后归零的当前金额不能冒充作废前金额");
+  assert.doesNotMatch(await page.locator(".business-facts").innerText(), /原应收/u);
   const seeded = loadSeedWorkspace();
   const monthly = seeded.statements.find((row) => row.id === "ST-0629-005");
   assert.equal(monthly.variance, 1510);

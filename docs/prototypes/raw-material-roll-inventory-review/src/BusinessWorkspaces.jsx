@@ -1,4 +1,5 @@
 import { CustomerAddressPanel } from "./CustomerAddressPanel.jsx";
+import { isVoidedStatement } from "../../../../shared/statementPaymentPolicy.js";
 import { CustomerProfilePanel } from "./CustomerProfilePanel.jsx";
 import { EmptyWorkspace } from "./WorkspaceFeedback.jsx";
 import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
@@ -382,7 +383,7 @@ function buildFulfillmentRows(items = [], orderLines = []) {
 }
 
 function statementStatusLabel(status) {
-  return ({ current_period: "本期待对账", debt_or_variance: "有欠款/差异", payment_pending: "收款待确认", settled: "已结清" })[status] || status || "待确认";
+  return ({ current_period: "本期待对账", debt_or_variance: "有欠款/差异", payment_pending: "收款待确认", settled: "已结清", voided: "已作废" })[status] || status || "待确认";
 }
 
 // 2026-11-07：对账的"本期未收"直接取权威 currentUnpaid；缺失显示待核实，
@@ -430,16 +431,17 @@ function buildCustomerRows(customers = [], statements = [], canReadStatements) {
   return customers.map(customer => {
     const { customerId, name, settlementCycle, shortName, contactName, phone } = customer;
     const status = customer.enabled ? "已启用" : "停用";
-    const bills = byCustomer.get(customerId) || [];
+    const history = byCustomer.get(customerId) || [];
+    const bills = history.filter(bill => !isVoidedStatement(bill));
     const receivable = bills.length > 1 ? `${bills.length} 张对账单`
-      : bills.length ? statementMoney(bills[0].currentReceivable) : "暂无对账记录";
+      : bills.length ? statementMoney(bills[0].currentReceivable) : history.length ? "无有效账单" : "暂无对账记录";
     return {
       id: customerId,
       cells: [name, customerId, settlementCycle, ...(canReadStatements ? [receivable] : []), status],
       status,
       searchValues: [shortName, contactName, phone],
       details: [["客户编号", customerId], ["客户名称", name], ["结算周期", settlementCycle],
-        ...bills.map(bill => [`${bill.statementId} 应收`, statementMoney(bill.currentReceivable)])],
+        ...history.map(bill => [`${bill.statementId} ${isVoidedStatement(bill) ? "已作废 · 账单金额" : "应收"}`, statementMoney(bill.currentReceivable)])],
     };
   });
 }

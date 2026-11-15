@@ -176,6 +176,7 @@ export function createLocalMasterDataImportTransactionRepository(options = {}) {
       const snapshot = snapshotWorkspace(input.workspace);
       try {
         const normalizedRecords = normalizeTargetRecords(input.importExecution.importPayload?.targetRecords);
+        assertImportedMachinesAreNew(input.workspace?.machines, normalizedRecords.machines);
         assertImportedEmployeesEligible(input.workspace?.employees, normalizedRecords.employees);
         normalizedRecords.employees = prepareImportedEmployeeProfiles(
           input.workspace?.employees,
@@ -332,7 +333,10 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
         ...rawResult.summary,
         repositoryKind: "postgres",
       };
-      applyTargetRecordsToWorkspace(input.workspace, normalizedRecords);
+      // PostgreSQL already checked machine foreign keys. The startup cache may
+      // omit a machine resolved from the fresh directory; do not turn a committed
+      // transaction into a false rollback report or copy that snapshot globally.
+      applyTargetRecordsToWorkspace(input.workspace, normalizedRecords, { committedMachineReferences: true });
       if (rawResult.supplierColourAlias) {
         const index = input.workspace.colorAliases.findIndex(row => row.id === rawResult.supplierColourAlias.id);
         if (index >= 0) input.workspace.colorAliases[index] = rawResult.supplierColourAlias;
@@ -442,7 +446,7 @@ export function summarizeTargetRecords(targetRecords = {}) {
   };
 }
 
-function applyTargetRecordsToWorkspace(workspace = {}, targetRecords = {}) {
+function applyTargetRecordsToWorkspace(workspace = {}, targetRecords = {}, options = {}) {
   const summary = {
     appliedRecordCount: 0,
     affectedTableCount: 0,
@@ -462,7 +466,7 @@ function applyTargetRecordsToWorkspace(workspace = {}, targetRecords = {}) {
     if (recordType === "employees") {
       assertExistingEmployeeIdentityKeys(workspace[contract.workspaceKey], records);
     }
-    assertLocalReferences(workspace, recordType, records);
+    assertLocalReferences(workspace, recordType, records, options);
     const result = upsertManyById(workspace[contract.workspaceKey], records, {
       preserveExistingFields: recordType === "employees"
         ? ["userId", "accountEnabled", "profileStatus", "requestedEnabled"]
@@ -495,6 +499,13 @@ function assertIncomingEmployeeIdentityKeys(records = []) {
     const key = normalizeEmployeeNumberKey(employeeId);
     if (seen.has(key)) throw new Error(`employees records contain duplicate employee number: ${employeeId}`);
     seen.add(key);
+  }
+}
+
+function assertImportedMachinesAreNew(currentRecords = [], incomingRecords = []) {
+  const existingIds = new Set(currentRecords.map((record) => cleanText(record.machineId ?? record.id).toUpperCase()));
+  if (incomingRecords.some((record) => existingIds.has(cleanText(record.id).toUpperCase()))) {
+    throw new Error("MASTER_DATA_IMPORT_MACHINE_CREATE_CONFLICT: 机台已由其他操作建立，请重新读取机台资料后重试。");
   }
 }
 
@@ -596,7 +607,7 @@ function prepareImportedEmployeeProfiles(currentRecords = [], incomingRecords = 
   });
 }
 
-function assertLocalReferences(workspace, recordType, records) {
+function assertLocalReferences(workspace, recordType, records, { committedMachineReferences = false } = {}) {
   if (recordType === "customerContacts" || recordType === "customerAddresses" || recordType === "customerNotes") {
     for (const record of records) {
       assertWorkspaceRecordExists(workspace, "customers", record.customerId, `${recordType}.${record.id}.customerId`);
@@ -630,12 +641,12 @@ function assertLocalReferences(workspace, recordType, records) {
   if (recordType === "employeeMachineAssignments") {
     for (const record of records) {
       assertWorkspaceRecordExists(workspace, "employees", record.employeeId, `${recordType}.${record.id}.employeeId`);
-      assertWorkspaceRecordExists(workspace, "machines", record.machineId, `${recordType}.${record.id}.machineId`);
+      if (!committedMachineReferences) assertWorkspaceRecordExists(workspace, "machines", record.machineId, `${recordType}.${record.id}.machineId`);
     }
   }
   if (recordType === "machineCapacityBaselines") {
     for (const record of records) {
-      assertWorkspaceRecordExists(workspace, "machines", record.machineId, `${recordType}.${record.id}.machineId`);
+      if (!committedMachineReferences) assertWorkspaceRecordExists(workspace, "machines", record.machineId, `${recordType}.${record.id}.machineId`);
     }
   }
 }
@@ -1091,7 +1102,7 @@ function buildInsertRecordsSql(recordType, records, operatorId, parameters) {
       sqlBoolean(record.enabled),
       sqlJson(record.settings),
       sqlNullableLiteral(operatorId),
-    ]);
+    ], { createOnly: true });
   }
   if (recordType === "employees") {
     return buildInsertSql("employees", ["id", "biz_no", "user_id", "name", "role_name", "default_workshop", "default_machine_id", "birth_date", "hire_date", "payroll_position_key", "base_hourly_wage", "position_allowance_hourly", "wage_effective_from", "attendance_provider", "attendance_external_id", "attendance_mapping_updated_by", "attendance_mapping_updated_at", "account_enabled", "profile_status", "requested_enabled", "remark", "created_by"], records, (record) => [
@@ -1153,6 +1164,13 @@ function buildInsertRecordsSql(recordType, records, operatorId, parameters) {
 }
 
 function buildInsertSql(tableName, columns, records, toValues, options = {}) {
+  const insert = `INSERT INTO ${tableName} (
+  ${columns.join(",\n  ")}
+) VALUES
+  ${records.map((record) => `(${toValues(record).join(", ")})`).join(",\n  ")}`;
+  // Imported machines are new records only. A concurrent insert must raise the
+  // primary-key violation and roll back the entire batch, never overwrite it.
+  if (options.createOnly) return `${insert};`;
   const excludedUpdateColumns = new Set(options.excludedUpdateColumns ?? []);
   const updateColumns = columns.filter(
     (column) => column !== "id" && column !== "created_by" && !excludedUpdateColumns.has(column),
@@ -1162,10 +1180,7 @@ function buildInsertSql(tableName, columns, records, toValues, options = {}) {
     ...updateColumns.map((column) => `${column} = EXCLUDED.${column}`),
     ...(updatedAt ? ["updated_at = now()"] : []),
   ].join(",\n  ");
-  return `INSERT INTO ${tableName} (
-  ${columns.join(",\n  ")}
-) VALUES
-  ${records.map((record) => `(${toValues(record).join(", ")})`).join(",\n  ")}
+  return `${insert}
 ON CONFLICT (id) DO UPDATE SET
   ${updateClause};`;
 }

@@ -31,7 +31,7 @@ export function createMasterDataImportExecution(input = {}) {
   const officialWriteScope = officialImportEnabled
     ? cleanText(input.officialWriteScope) || "master_data_import_v1"
     : "none";
-  const importPayload = buildMasterDataImportExecutionPayload(confirmationPlan);
+  const importPayload = buildMasterDataImportExecutionPayload(confirmationPlan, { configuredMachines: input.configuredMachines });
   const status = resolveExecutionStatus({ confirmationPlan, writerKind, officialImportEnabled, importPayload });
   const blockingReasons = buildBlockingReasons({ confirmationPlan, writerKind, officialImportEnabled, importPayload });
   const targetTables = unique(confirmationPlan.targetTables ?? []);

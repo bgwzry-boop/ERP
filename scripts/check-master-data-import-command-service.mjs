@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createMasterDataImportCommandService } from "../server/services/masterDataImportCommandService.mjs";
+import { createLocalMasterDataImportTransactionRepository, createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 
 const fixedNow = new Date("2026-07-12T08:00:00.000Z");
 let logSequence = 0;
@@ -203,6 +204,138 @@ downloadWorkspace.importExecutions = [{
 assert.deepEqual(await service.getFailedRowsDownload({ workspace: downloadWorkspace, executionId: "MDE-DOWNLOAD" }), {
   file: { body: "row,error", options: { contentType: "text/csv", fileName: "failed.csv" } },
 });
+
+const machineWorkspace = createWorkspace();
+officialWriterKind = "local_transaction";
+machineWorkspace.machines = [{
+  id: "PRINT-02", machineId: "PRINT-02", name: "已维护旋转印机", machineType: "screen_printing",
+  workshop: "丝印车间", status: "maintenance", enabled: false,
+  settings: { legacyMachineIds: ["LEGACY-PRINT-2"], maintained: true },
+}];
+machineWorkspace.employees = [];
+machineWorkspace.operationLogs = [];
+machineWorkspace.masterDataImportTransactionRepository = createLocalMasterDataImportTransactionRepository();
+const existingMachineBefore = structuredClone(machineWorkspace.machines[0]);
+const usersBefore = structuredClone(machineWorkspace.users);
+const machineRows = [
+  { 员工编号: "EMP-FICTITIOUS-PRINT-1", 员工姓名: "虚构印刷员甲", 角色: "车间报工", 机台编号: "LEGACY-PRINT-2", 默认车间: "丝印车间" },
+  { 员工编号: "EMP-FICTITIOUS-PRINT-2", 员工姓名: "虚构印刷员乙", 角色: "车间报工", 默认机台: "3号丝印机", 默认车间: "丝印车间" },
+];
+const machineReviewDraft = createReviewDraft();
+machineReviewDraft.draftId = "MDI-FICTITIOUS-MACHINES";
+machineReviewDraft.summary.dataRowCount = machineRows.length;
+machineReviewDraft.sheets = [{ key: "employees_machines", label: "员工机台", worksheetName: "员工机台", dataRowCount: machineRows.length }];
+machineReviewDraft.stagedRows = [{
+  sheetKey: "employees_machines", worksheetName: "员工机台",
+  rows: machineRows.map((values, index) => ({ rowNumber: index + 3, values })),
+}];
+const machinePlanResult = await service.createConfirmationPlan({
+  workspace: machineWorkspace, body: { reviewDraft: machineReviewDraft }, operatorId: "U-MANAGER",
+});
+for (let attempt = 0; attempt < 2; attempt += 1) {
+  const result = await service.createImportExecution({
+    workspace: machineWorkspace,
+    body: { planId: machinePlanResult.response.confirmationPlan.planId, officialImportEnabled: true, requestedAt: fixedNow.toISOString() },
+    operatorId: "U-MANAGER",
+  });
+  assert.equal(result.response.importExecution.status, "committed");
+  assert.deepEqual(machineWorkspace.machines.find((machine) => machine.id === "PRINT-02"), existingMachineBefore);
+  assert.equal(machineWorkspace.machines.length, 2);
+  assert.equal(machineWorkspace.machines.find((machine) => machine.id === "PRINT-03").machineType, "screen_printing");
+  assert.equal(machineWorkspace.employees.length, 2);
+  assert.deepEqual(machineWorkspace.employees.map((employee) => employee.defaultMachineId), ["PRINT-02", "PRINT-03"]);
+  assert.equal(machineWorkspace.employeeMachineAssignments.length, 2);
+  assert.deepEqual(machineWorkspace.users, usersBefore);
+}
+const storedMachines = structuredClone(machineWorkspace.machines);
+const staleWorkspace = createWorkspace();
+staleWorkspace.machines = [];
+staleWorkspace.employees = [];
+staleWorkspace.operationLogs = [];
+staleWorkspace.confirmationPlans = [machinePlanResult.response.confirmationPlan];
+officialWriterKind = "postgres";
+let machineReads = 0;
+staleWorkspace.masterDataMachineConfigurationRepository = {
+  kind: "postgres",
+  async loadState() { machineReads += 1; return { machines: structuredClone(storedMachines) }; },
+};
+staleWorkspace.masterDataImportTransactionRepository = createPostgresMasterDataImportTransactionRepository({
+  async queryJson(text) {
+    assert.doesNotMatch(text, /INSERT INTO machines/, "权威目录已经存在的机台不应再进入新增SQL");
+    return { status: "committed", operationLogId: "LOG-PG-STALE-MACHINE" };
+  },
+});
+for (let attempt = 0; attempt < 2; attempt += 1) {
+  const cacheBefore = staleWorkspace.machines;
+  const result = await service.createImportExecution({
+    workspace: staleWorkspace,
+    body: { planId: machinePlanResult.response.confirmationPlan.planId, officialImportEnabled: true },
+    operatorId: "U-MANAGER",
+  });
+  assert.equal(result.response.importExecution.status, "committed", "PG成功提交后不得因启动缓存缺机器误报回滚");
+  assert.deepEqual(result.response.importExecution.importPayload.targetRecords.machines, []);
+  assert.strictEqual(staleWorkspace.machines, cacheBefore, "异步权威快照不能倒写共享机器目录");
+  assert.deepEqual(staleWorkspace.employees.map((employee) => employee.defaultMachineId), ["PRINT-02", "PRINT-03"]);
+}
+assert.equal(machineReads, 2, "每次正式导入均须读取权威机台目录，不能使用启动缓存");
+
+const unavailableMachines = createWorkspace();
+unavailableMachines.confirmationPlans = [machinePlanResult.response.confirmationPlan];
+unavailableMachines.machines = storedMachines;
+let unavailableWrites = 0;
+unavailableMachines.masterDataImportTransactionRepository.applyImportExecution = async () => { unavailableWrites += 1; };
+const unavailableResult = await service.createImportExecution({
+  workspace: unavailableMachines,
+  body: { planId: machinePlanResult.response.confirmationPlan.planId, officialImportEnabled: true },
+  operatorId: "U-MANAGER",
+});
+assert.equal(unavailableResult.code, "MASTER_DATA_IMPORT_EXECUTION_INVALID");
+assert.match(unavailableResult.message, /机台目录读取能力不可用/);
+assert.equal(unavailableWrites, 0);
+unavailableMachines.coreWorkspaceReadRepository = { kind: "postgres", async loadState() { return {}; } };
+const incompleteResult = await service.createImportExecution({
+  workspace: unavailableMachines,
+  body: { planId: machinePlanResult.response.confirmationPlan.planId, officialImportEnabled: true },
+  operatorId: "U-MANAGER",
+});
+assert.match(incompleteResult.message, /机台目录读取不完整/);
+assert.equal(unavailableWrites, 0);
+
+// The core PostgreSQL snapshot is a valid fallback when a dedicated reader is absent.
+unavailableMachines.coreWorkspaceReadRepository.loadState = async () => ({ machines: storedMachines });
+const refreshedPreview = await service.createImportExecution({
+  workspace: unavailableMachines,
+  body: { planId: machinePlanResult.response.confirmationPlan.planId },
+  operatorId: "U-MANAGER",
+});
+assert.equal(refreshedPreview.response.importExecution.status, "blocked_official_writer_not_configured");
+assert.deepEqual(refreshedPreview.response.importExecution.importPayload.targetRecords.machines, []);
+assert.equal(unavailableWrites, 0);
+
+const invalidMachineWorkspace = createWorkspace();
+officialWriterKind = "local_transaction";
+const invalidMachineDraft = structuredClone(machineReviewDraft);
+invalidMachineDraft.draftId = "MDI-FICTITIOUS-UNKNOWN-MACHINE";
+invalidMachineDraft.stagedRows[0].rows[0].values = {
+  员工编号: "EMP-FICTITIOUS-UNKNOWN", 员工姓名: "虚构人员丙", 角色: "车间报工",
+  机台编号: "UNKNOWN-1", 默认机台: "丝印自动设备", 默认车间: "丝印车间",
+};
+const invalidMachinePlan = await service.createConfirmationPlan({
+  workspace: invalidMachineWorkspace, body: { reviewDraft: invalidMachineDraft }, operatorId: "U-MANAGER",
+});
+let invalidWriterCalls = 0;
+invalidMachineWorkspace.masterDataImportTransactionRepository.applyImportExecution = async () => { invalidWriterCalls += 1; };
+const invalidMachineExecution = await service.createImportExecution({
+  workspace: invalidMachineWorkspace,
+  body: {
+    planId: invalidMachinePlan.response.confirmationPlan.planId, officialImportEnabled: true,
+    configuredMachines: [{ id: "UNKNOWN-1", name: "丝印自动设备", machineType: "bag_making", workshop: "丝印车间" }],
+  },
+  operatorId: "U-MANAGER",
+});
+assert.equal(invalidMachineExecution.response.importExecution.status, "blocked_failed_rows_ready");
+assert.equal(invalidMachineExecution.response.officialWriteAttempted, false);
+assert.equal(invalidWriterCalls, 0, "未知机台阻断整批写入，不能信任客户端提供的机台目录");
 
 console.log(
   "Master-data import command service checks passed: plan, blocked/committed/rolled-back execution, failed-row correction, and failed-row download are isolated.",

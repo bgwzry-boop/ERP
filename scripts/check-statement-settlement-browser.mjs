@@ -15,6 +15,7 @@ import { createLocalBusinessDecisionAuthorizationRepository } from "../server/bu
 const fixture = exactPaymentFixture(), storage = await mkdtemp(join(tmpdir(), "erp-settlement-browser-"));
 const varianceCases = ["carry_to_debt", "approved_allowance", "bill_needs_recalc", "waiting_more_payments", "other"];
 fixture.statements.push(...varianceCases.map(handling => ({ ...fixture.statements[0], id: `ST-UI-${handling}`, received: 90, variance: 10, status: "差额待确认" })));
+fixture.statements.push({ ...fixture.statements[0], id: "ST-UI-VOIDED", status: "已作废", receivable: 273, received: 0, variance: 273 });
 const employee = { id: "EMP-UI-DECIDER", bizNo: "UI-DECIDER", name: "合成授权决定人", profileStatus: "active", source: "master_data_import_review" };
 const authorizations = ["statement_variance", "statement_write_off"].map(decisionScope => ({ authorizationId: `AUTH-UI-${decisionScope}`, employeeId: employee.id,
   decisionScope, maxAmount: 1000, activeFrom: "2020-01-01T00:00:00Z", status: "active", authorizationNote: "合成浏览器验收授权", revision: 1 }));
@@ -62,6 +63,13 @@ try {
   await page.goto(base + "/");
   for (const file of bundle.outputFiles.filter(row => row.path.endsWith(".css"))) await page.addStyleTag({ content: file.text });
   await page.addScriptTag({ content: bundle.outputFiles.find(row => row.path.endsWith(".js")).text });
+  await page.evaluate(() => window.mountStatement("ST-UI-VOIDED"));
+  await page.getByText("本账单已作废，以下记录仅供历史核查，不再办理对账或收款。", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("group", { name: "对账办理动作" }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "复制对账图（发群）", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("heading", { name: "实收登记记录", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("heading", { name: "本期订单明细", exact: true }).count(), 1);
+  await page.evaluate(id => window.mountStatement(id), fixture.statements[0].id);
   await page.getByRole("button", { name: "足额款结清", exact: true }).click();
   await page.getByLabel("匹配收款记录").selectOption("PAY-EXACT-SYNTHETIC");
   await page.getByLabel("到账留存凭证").selectOption("ATT-EXACT-PAY");

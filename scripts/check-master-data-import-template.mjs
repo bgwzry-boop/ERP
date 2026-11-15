@@ -80,6 +80,8 @@ assert(readmeXml.includes(MASTER_DATA_IMPORT_TEMPLATE_VERSION), "readme should i
 assert(readmeXml.includes("整表预检查"), "readme should include precheck rule");
 assert(readmeXml.includes("正式数据 Sheet 默认留空"), "readme should explain example isolation");
 assert(readmeXml.includes("员工编号为1-32位"), "readme should explain the stable employee number format");
+assert(readmeXml.includes("未知机台须先维护类型和车间"), "readme should explain that unknown machine types are never inferred from names");
+assert(employeeExampleXml.includes("BAG-01"), "employee example must use the confirmed machine identity instead of creating a duplicate M-01");
 assert(customerXml.includes("客户名称"), "customer sheet should include customer name column");
 assert(customerXml.includes("联系人姓名"), "customer sheet should include contact column");
 assert(!customerXml.includes("张三服饰"), "customer import sheet should not include sample customer");

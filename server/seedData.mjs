@@ -1,4 +1,5 @@
 import {getStatementFinancialSummary, presentedStatementVariance} from "../src/domain/officeRules.js";
+import { isVoidedStatement } from "../shared/statementPaymentPolicy.js";
 import { loadOfficeSeedWorkspace } from "./seeds/officeSeedLoader.mjs";
 import { getEffectivePermissionsForRuntimeUser, getEffectivePermissionsForUser } from "./authSeed.mjs";
 
@@ -64,6 +65,7 @@ export function findCustomer(workspace, customerId) {
 }
 
 function mapStatementCustomerStatus(statement) {
+  if (isVoidedStatement(statement)) return "voided";
   if (statement.status.includes("欠款") || statement.status.includes("差额")) return "debt_or_variance";
   if (statement.status.includes("收款")) return "payment_pending";
   if (statement.status.includes("已核销") || statement.status.includes("已结清")) return "settled";

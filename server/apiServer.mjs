@@ -127,6 +127,7 @@ import { handleInventoryWriteRoutes } from "./routes/inventoryWriteRoutes.mjs";
 import { handleFulfillmentReadRoutes } from "./routes/fulfillmentReadRoutes.mjs";
 import { handleFulfillmentWriteRoutes } from "./routes/fulfillmentWriteRoutes.mjs";
 import { handleStatementReadRoutes } from "./routes/statementReadRoutes.mjs";
+import { operationalReadWorkspace } from "./services/operationalReadWorkspace.mjs";
 import { handleStatementWriteRoutes } from "./routes/statementWriteRoutes.mjs";
 import { handleTodoReadRoutes } from "./routes/todoReadRoutes.mjs";
 import { handleTodoWriteRoutes } from "./routes/todoWriteRoutes.mjs";
@@ -544,9 +545,10 @@ export function createApiServer(options = {}) {
 }
 
 async function routeGet(context) {
-  const { url, response, workspace, openapi, permissionContext, authContext } = context;
+  const { url, response, workspace: sharedWorkspace, openapi, permissionContext, authContext } = context;
 
   if (!authorizeBusinessRead({ url, response, permissionContext, requireAnyActionPermission })) return;
+  const workspace = await operationalReadWorkspace(sharedWorkspace, url.pathname);
 
   if (url.pathname === "/api/health") {
     return sendJson(response, 200, buildSystemHealthResponse({ workspace, openapi }));
