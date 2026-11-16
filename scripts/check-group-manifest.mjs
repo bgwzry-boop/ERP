@@ -52,6 +52,8 @@ export const CHECK_GROUPS = Object.freeze({
     "graceful-shutdown:check",
     "role-catalog:check",
     "app-navigation:check",
+    "fixed-preview-field-entry:check",
+    "signed-preview-session-renewal:check",
     "review:identity:check",
     "review:ocr-env:check",
     "review:p1:check",

@@ -2,6 +2,7 @@ import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRel
 import { OfficeWorkbenchShell } from "./app/OfficeWorkbenchShell.jsx";
 import { createOfficeWorkbenchRuntimes } from "./app/createOfficeWorkbenchRuntimes.js";
 import { useOfficeWorkbenchNavigation } from "./app/useOfficeWorkbenchNavigation.js";
+import { getFixedPreviewFieldAccess } from "./app/fixedPreviewFieldAccess.js";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
 import { useOfficeActivePageEffects } from "./app/useOfficeActivePageEffects.js";
@@ -120,6 +121,7 @@ function OfficeWorkbenchRuntime({
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
   const canUsePrintDiagnostics = permissionContext.actionPermissions?.includes("fulfillment.print") === true;
+  const fieldPreviewAccess = getFixedPreviewFieldAccess({ signedPreviewMode, authState });
   const {
     activeMeta,
     activePage,
@@ -128,7 +130,7 @@ function OfficeWorkbenchRuntime({
     setActivePage,
     setSidebarCollapsed,
     sidebarCollapsed,
-  } = useOfficeWorkbenchNavigation({ permissionContext, signedPreviewMode });
+  } = useOfficeWorkbenchNavigation({ permissionContext, signedPreviewMode, fieldPreviewAccess });
   const officeWorkspace = useOfficeWorkspace({
     activePage,
     authState,
@@ -607,6 +609,7 @@ function OfficeWorkbenchRuntime({
     currentUserId,
     firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
     formalLoginRequired,
+    fieldPreviewAccess,
     logoutRuntimeUserSession,
     overlayRuntime,
     pageRuntime,

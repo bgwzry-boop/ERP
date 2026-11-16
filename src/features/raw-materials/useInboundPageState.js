@@ -1,3 +1,4 @@
+import { getAuthWorkspaceIdentity } from "../../app/useSignedPreviewSessionRenewal.js";
 import { useRawMaterialMeasurement } from "./RawMaterialMeasurementDialog.jsx";
 import { canApplySupplierColorToReview } from "./supplierColorReviewScope.js";
 import { submitInboundAction } from "./submitInbound.js";
@@ -108,7 +109,7 @@ export function useInboundPageState({
     ? inbounds.find((item) => item.id === selectedId && item.status !== "已作废") ?? null
     : visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
   const { handleMeasuredAction: onAction, measurementDialog } = useRawMaterialMeasurement({
-    inbounds, selectedId: selected?.id, scope: JSON.stringify([currentUser?.userId, authState?.session?.accessToken, authState?.permissions?.actionPermissions]),
+    inbounds, selectedId: selected?.id, scope: JSON.stringify([currentUser?.userId, getAuthWorkspaceIdentity(authState), authState?.permissions?.actionPermissions]),
     getUiActionState, onAction: serverAction,
   });
   const selectedStock = selected ? buildRawMaterialStockLookup(inbounds, {

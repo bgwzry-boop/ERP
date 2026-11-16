@@ -501,7 +501,8 @@ export function createApiServer(options = {}) {
       if (request.method === "OPTIONS") {
         return sendJson(response, 204, {});
       }
-      if (securityPolicy.strictAuth && !isPublicApiRoute(request.method, url.pathname, securityPolicy) && !authContext.authenticated) {
+      const rejectedCredentials = Boolean(authContext.authError && authContext.source !== "unauthenticated");
+      if ((securityPolicy.strictAuth || rejectedCredentials) && !isPublicApiRoute(request.method, url.pathname, securityPolicy) && !authContext.authenticated) {
         return sendJson(response, 401, {
           code: authContext.authError ?? "AUTH_SESSION_REQUIRED",
           message: "A valid authenticated session is required.",

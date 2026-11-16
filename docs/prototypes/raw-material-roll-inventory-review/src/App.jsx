@@ -55,6 +55,7 @@ import { GlobalSearch } from "./GlobalSearch.jsx";
 // 应用内确认框（例如卷标打印后的“确认打印结果”）。没挂这个时会退回浏览器自带的小弹窗，
 // 那个弹窗出现在浏览器最上面、很容易看漏；挂上后改为屏幕正中间、背景变暗的确认框。
 import { ConfirmDialogHost } from "../../../../src/shared/ui/ConfirmDialogHost.jsx";
+import { SignedPreviewSessionNotice } from "../../../../src/app/SignedPreviewSessionNotice.jsx";
 import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
 
 function buildInventoryRolls(inbounds = []) {
@@ -553,7 +554,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
     }
   };
 
-  return <div className={`app-shell${navOpen ? " nav-open" : ""}`} data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
+  return <><SignedPreviewSessionNotice status={formal.previewSession} /><div className={`app-shell${navOpen ? " nav-open" : ""}`} inert={formal.previewSession.blocked || undefined} data-active-view={activeView} data-user-id={resolvedPermissionContext.user?.userId || ""}>
     {navOpen ? <div aria-hidden="true" className="nav-drawer-backdrop" onClick={() => setNavOpen(false)} /> : null}
     <Sidebar navOpen={navOpen} activeNavId={activeNavId} expandedGroups={expandedGroups} onNavigate={navigate} onToggleGroup={toggleGroup} permissionContext={resolvedPermissionContext} unhandledTodoCount={unhandledTodoCount} /><Topbar navOpen={navOpen} onToggleNav={() => setNavOpen((open) => !open)} allowedNavIds={allowedNavIds} createOrderDisabled={formal.orderEntryWritePending || formal.orderEntryEditorBlocked} onCreateOrder={openNewOrder} onSearchSelect={openSearchResult} permissionContext={resolvedPermissionContext} onSearchRequest={formal.actions.ensureSearchData} searchData={formal.data} searchPending={formal.meta.search.loading} searchError={formal.meta.search.error} unhandledTodoCount={unhandledTodoCount} />
     <main className={`page${isRawMaterialView ? "" : " business-page"}${activeView === "收货录入" ? " receiving-main-page" : ""}`}>
@@ -588,5 +589,5 @@ export function App({ permissionContext = defaultPermissionContext }) {
       onClose={() => setColorMappingOpen(false)}
     /> : null}
     <ConfirmDialogHost />
-  </div>;
+  </div></>;
 }

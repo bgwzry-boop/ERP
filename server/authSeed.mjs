@@ -327,16 +327,14 @@ function verifySignedSessionToken(token, tokenPrefix, userKind, options = {}) {
   const runtimeUser = findRuntimeUser(options.runtimeUsers, { userId: payload.userId });
   const userAvailable = userKind === "runtime"
     ? !seedUser && runtimeUser && isRuntimeUserLoginEnabled(runtimeUser)
-    : seedUser && seedUser.enabled !== false;
+    : seedUser && seedUser.enabled !== false && runtimeUser?.enabled !== false;
   if (!userAvailable) {
     return { valid: false, reason: "AUTH_USER_DISABLED" };
   }
 
   const nowMs = Number(options.nowMs ?? Date.now());
   const expiresAtMs = Date.parse(payload.expiresAt);
-  if (expiresAtMs <= nowMs) {
-    return { valid: false, reason: "AUTH_TOKEN_EXPIRED" };
-  }
+  if (!Number.isFinite(expiresAtMs)) return { valid: false, reason: "AUTH_TOKEN_INVALID" };
 
   const jti = String(payload.jti ?? "").trim();
   const revokedSessionIds = new Set(
@@ -358,6 +356,12 @@ function verifySignedSessionToken(token, tokenPrefix, userKind, options = {}) {
     if (!Number.isFinite(payloadSessionVersion) || payloadSessionVersion !== expectedSessionVersion) {
       return { valid: false, reason: "AUTH_TOKEN_REVOKED" };
     }
+  }
+
+  // Expiry can be renewed for the fixed preview only after revocation and
+  // account-version checks. An expired revoked credential stays revoked.
+  if (expiresAtMs <= nowMs && !(userKind === "seed" && options.allowExpiredSeedSession === true)) {
+    return { valid: false, reason: "AUTH_TOKEN_EXPIRED" };
   }
 
   return {

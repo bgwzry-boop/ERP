@@ -194,7 +194,7 @@ function createCase(overrides = {}) {
   };
   const actions = createOfficeProductionWriteActions({
     api,
-    authState: { permissions: { user: { userId: "U-OFFICE-A" } } },
+    authState: overrides.authState ?? { permissions: { user: { userId: "U-OFFICE-A" } } },
     createSampleFile: () => ({
       name: "finished-goods.jpg",
       type: "image/jpeg",
@@ -509,6 +509,32 @@ const permissionResult = await permissionCase.actions.executeProductionPackingAc
 assert.equal(permissionResult.blocked, true);
 assert.match(permissionResult.feedback, /production\.schedule\.publish/);
 assert.equal(permissionCase.counters.production, 0);
+
+let firstStockCommand;
+const firstStockCase = createCase({
+  inventory: [],
+  authState: { session: { accessToken: "isolated-signed-session" }, permissions: { user: { userId: "U-OFFICE-A" } } },
+  api: { reportOfficeProductionComplete: async (input, options) => {
+    firstStockCommand = { input, options };
+    return { source: "api", orderLineId: "OL-001", orderLineStatus: "待打包", inventoryItemId: "INV-FIRST", qualifiedQty: 800 };
+  } },
+});
+const firstStockResult = await firstStockCase.actions.executeProductionPackingAction({ action: "报工完成",
+  payload: { orderLineId: "OL-001", qualifiedQty: 800, productionReportConfirmed: true } });
+assert.equal(Boolean(firstStockResult.blocked), false);
+assert.equal(Boolean(firstStockCommand.input.inventoryItem), false, "first stock ID must be resolved by the authoritative server");
+assert.equal(firstStockCommand.options.serverRequired, true, "signed completion must never silently fall back locally");
+const unsignedFirstStockCase = createCase({ inventory: [] });
+assert.equal((await unsignedFirstStockCase.actions.executeProductionPackingAction({ action: "报工完成",
+  payload: { orderLineId: "OL-001", qualifiedQty: 800, productionReportConfirmed: true } })).blocked, true);
+const signedFallbackCase = createCase({ inventory: [],
+  authState: { session: { accessToken: "isolated-signed-session" } },
+  api: { reportOfficeProductionComplete: async () => ({ source: "local_fallback", orderLineId: "OL-001", qualifiedQty: 800 }) },
+});
+assert.equal((await signedFallbackCase.actions.executeProductionPackingAction({ action: "报工完成",
+  payload: { orderLineId: "OL-001", qualifiedQty: 800, productionReportConfirmed: true } })).blocked, true);
+assert.deepEqual(signedFallbackCase.states.inventory.value, []);
+assert.equal(signedFallbackCase.states.orderLines.value[0].status, baseOrderLine.status);
 
 const conflictCase = createCase({
   api: {

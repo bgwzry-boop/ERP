@@ -1,6 +1,7 @@
 import { incomingRollsLabel } from "../../../shared/externalPrintQuantity.js";
+import { getFixedPreviewFieldAccess } from "../../app/fixedPreviewFieldAccess.js";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { isStockOrderType } from "../../../shared/orderRouting.js";
+import { isStockOrderType, normalizeOrderType } from "../../../shared/orderRouting.js";
 import {
   AppstoreOutlined,
   BarcodeOutlined,
@@ -58,7 +59,7 @@ const SILK_CLAIM_VIEW = ["claim", "领任务", LockOutlined];
 const MixedPackageWorkbench = lazy(() => import("../packing/MixedPackageWorkbench.jsx").then(module => ({ default: module.MixedPackageWorkbench })));
 const SinglePackingWorkbench = lazy(() => import("../packing/SinglePackingWorkbench.jsx").then(module => ({ default: module.SinglePackingWorkbench })));
 
-export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inventoryRecords, productionPacking, onAction, onNavigate, helpers }) {
+export function WorkshopMobilePage({ authState, signedPreviewMode = false, onPackagesSaved, orderLines, inventoryRecords, productionPacking, onAction, onNavigate, helpers }) {
   const {
     buildProductionTaskId,
     findCustomer,
@@ -71,10 +72,17 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
     currentUser,
     permissionContext,
   } = helpers;
+  // Legacy helper falls back to the first cached customer. Never attach that
+  // unrelated identity to a server task whose customer is absent locally.
+  const findCurrentCustomer = (id) => {
+    const customer = findCustomer(id);
+    return customer && String(customer.id ?? customer.customerId) === String(id) ? customer : null;
+  };
   const roleKeys = new Set([...(permissionContext?.roles ?? []), currentUser?.defaultRole].filter(Boolean));
+  const fieldPreviewAccess = getFixedPreviewFieldAccess({ signedPreviewMode, authState });
   const permissionKeys = new Set([...(permissionContext?.buttonPermissions ?? []), ...(permissionContext?.actionPermissions ?? [])]);
-  const canUseProductionMode = roleKeys.has("workshop");
-  const canUsePackingMode = roleKeys.has("packing");
+  const canUseProductionMode = roleKeys.has("workshop") || fieldPreviewAccess.production;
+  const canUsePackingMode = roleKeys.has("packing") || fieldPreviewAccess.packing;
   const canUseRawMaterialScan = permissionKeys.has("raw_material.issue.create");
   const modeItems = [
     canUseProductionMode ? "生产报工" : "",
@@ -145,8 +153,13 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
     ] : []),
   ];
   const selectedProductionPaused = String(selectedProductionLine?.status ?? selectedProductionLine?.lineStatus ?? "") === "异常暂停";
-  const reportDisabled = reportState.disabled || !selectedProductionLine || !selectedInventoryItem || selectedProductionPaused;
-  const reportTitle = reportState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : !selectedInventoryItem ? "未找到匹配库存键，不能报工入库" : "");
+  // Signed reporting lets the server validate/create the first maintained SKU.
+  // Silk-screen intermediate work and special-size work never require stock.
+  const requiresLocalInventory = (line) => !authState?.session?.accessToken
+    && getProductionProcessLabel(line) !== "丝印" && normalizeOrderType(line?.orderType) !== "custom_special";
+  const missingRequiredInventory = requiresLocalInventory(selectedProductionLine) && !selectedInventoryItem;
+  const reportDisabled = reportState.disabled || !selectedProductionLine || missingRequiredInventory || selectedProductionPaused;
+  const reportTitle = reportState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : missingRequiredInventory ? "请连接服务器核对首批商品后报工" : "");
   const reportDailyDisabled = reportDailyState.disabled || !selectedProductionLine || selectedProductionPaused;
   const reportDailyTitle = reportDailyState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : "");
   const productionExceptionDisabled = productionExceptionState.disabled || !selectedProductionLine || !productionExceptionType;
@@ -240,7 +253,7 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
 
   function buildProductionReportPayload(kind) {
     if (!selectedProductionLine) return null;
-    const customer = findCustomer(selectedProductionLine.customerId);
+    const customer = findCurrentCustomer(selectedProductionLine.customerId);
     const qualifiedQty = Number(reportQualifiedQty || 0);
     return {
       entryLabel: "车间手机端",
@@ -337,7 +350,7 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
   function buildPackingCompletionPayload() {
     if (!selectedPackingTask?.orderLine) return null;
     const orderLine = selectedPackingTask.orderLine;
-    const customer = findCustomer(orderLine.customerId);
+    const customer = findCurrentCustomer(orderLine.customerId);
     return {
       entryLabel: "打包手机端",
       packingTaskId: selectedPackingTask.packingTaskId,
@@ -393,9 +406,7 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
   const roleTitle = mode === "打包任务" ? "打包任务" : `${getProductionProcessLabel(selectedLine || productionLines[0]) || "车间"}报工`;
   const selectedTaskStatus = mode === "打包任务"
     ? selectedPackingTask?.status
-    : selectedInventoryItem
-      ? selectedProductionLine?.status
-      : "缺库存键";
+    : missingRequiredInventory ? "待服务器核对" : selectedProductionLine?.status;
 
   return (
     <section className={`guided-mobile-page workshop-mobile-workbench view-${mobileView}`}>
@@ -423,19 +434,19 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
         <div className="mobile-task-list">
           {mode === "生产报工" ? (
             productionLines.length ? productionLines.map((line) => {
-              const customer = findCustomer(line.customerId);
+              const customer = findCurrentCustomer(line.customerId);
               const inventoryItem = resolveInventoryItem(line);
               const lineTitle = `${getProductionProcessLabel(line)} · ${getOrderLineShortNo(line)}`;
               return (
                 <button className={`mobile-task-row ${line.id === selectedProductionLine?.id ? "active" : ""}`} key={line.id} onClick={() => selectProductionLine(line.id)}>
                   <div>
                     <strong>{lineTitle}</strong>
-                    <span>{customer.name} · {line.product} {line.size}</span>
+                    <span>{customer?.name || line.customerName || "客户待核对"} · {line.product} {line.size}</span>
                     <small>{getLineColorSpecLabel(line)} · {line.qty} 个 · {formatProductionDailyProgressLabel(line) || line.latest}</small>
                   </div>
                   <WorkshopTaskTagGroup
                     line={line}
-                    stateLabel={inventoryItem ? line.status : "缺库存键"}
+                    stateLabel={!inventoryItem && requiresLocalInventory(line) ? "待服务器核对" : line.status}
                   />
                 </button>
               );
@@ -443,12 +454,12 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
           ) : (
             openPackingTasks.length ? openPackingTasks.map((task) => {
               const line = task.orderLine;
-              const customer = findCustomer(line.customerId);
+              const customer = findCurrentCustomer(line.customerId);
               return (
                 <button className={`mobile-task-row ${task.packingTaskId === selectedPackingTask?.packingTaskId ? "active" : ""}`} key={task.packingTaskId} onClick={() => selectPackingTask(task.packingTaskId)}>
                   <div>
                     <strong>打包 · {getOrderLineShortNo(line)}</strong>
-                    <span>{customer.name} · {line.product} {line.size}</span>
+                    <span>{customer?.name || line.customerName || "客户待核对"} · {line.product} {line.size}</span>
                     <small>{getLineColorSpecLabel(line)} · 计划 {task.plannedQty} 个 · {task.packageCount ?? inferPackageCountFromQty(task.plannedQty)} 包</small>
                   </div>
                   <WorkshopTaskTagGroup line={line} stateLabel={task.status} />
@@ -461,7 +472,7 @@ export function WorkshopMobilePage({ authState, onPackagesSaved, orderLines, inv
       {mobileView === "current" ? <DetailPane
         className="mobile-role-detail-pane workshop-detail-pane"
         title={mode === "打包任务" ? selectedPackingTask?.packingTaskId ?? "打包任务" : selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "生产报工"}
-        subtitle={selectedLine ? `${findCustomer(selectedLine.customerId).name} · ${selectedLine.id}` : "未选择"}
+        subtitle={selectedLine ? `${findCurrentCustomer(selectedLine.customerId)?.name || selectedLine.customerName || "客户待核对"} · ${selectedLine.id}` : "未选择"}
       >
         {selectedLine ? (
           <>

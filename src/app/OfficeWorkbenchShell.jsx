@@ -20,6 +20,7 @@ export function OfficeWorkbenchShell({ runtime }) {
     currentUser,
     currentUserId,
     firstReleaseMode,
+    fieldPreviewAccess,
     formalLoginRequired,
     logoutRuntimeUserSession,
     overlayRuntime,
@@ -73,6 +74,7 @@ export function OfficeWorkbenchShell({ runtime }) {
             currentUserId={currentUserId}
             demoMode={!formalLoginRequired && !signedPreviewMode}
             fixedPreviewMode={signedPreviewMode}
+            fieldPreviewAvailable={fieldPreviewAccess?.enabled === true}
             logoutLoading={runtimeLoginLoading}
             onLogout={logoutRuntimeUserSession}
             onNavigate={setActivePage}
@@ -110,7 +112,7 @@ export function OfficeWorkbenchShell({ runtime }) {
             />
           ) : null}
           <PageErrorBoundary resetKey={renderedPage} scope={renderedPage}>
-            <OfficeWorkspacePages renderedPage={renderedPage} runtime={pageRuntime} />
+            <OfficeWorkspacePages renderedPage={renderedPage} runtime={pageRuntime} signedPreviewMode={signedPreviewMode} />
           </PageErrorBoundary>
         </main>
       </div>

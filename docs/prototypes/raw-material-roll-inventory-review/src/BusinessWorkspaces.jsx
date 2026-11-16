@@ -1,4 +1,5 @@
 import { CustomerAddressPanel } from "./CustomerAddressPanel.jsx";
+import { getAuthWorkspaceIdentity } from "../../../../src/app/useSignedPreviewSessionRenewal.js";
 import { isVoidedStatement } from "../../../../shared/statementPaymentPolicy.js";
 import { CustomerProfilePanel } from "./CustomerProfilePanel.jsx";
 import { EmptyWorkspace } from "./WorkspaceFeedback.jsx";
@@ -758,7 +759,7 @@ function FulfillmentWorkspace({ formal, onNavigate, focus = null }) {
         <div className="fulfillment-primary-actions">{canOpenStatement ? <button className="primary" type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</div>
         {selected.status === "送货异常" ? <DriverExceptionResolutionPanel authState={{...formal.authState,permissions:formal.permissionContext}} fulfillmentId={selected.id} onResolved={()=>void formal.actions.refreshAll()} /> : null}
         <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
-        <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} fulfillmentId={selected.id}/>
+        <PhysicalPackagesPanel key={`${selected.id}:${getAuthWorkspaceIdentity(formal.authState)}`} formal={formal} fulfillmentId={selected.id}/>
         <details className="fulfillment-fold"><summary>交付事实{pendingFactCount ? ` · ${pendingFactCount} 项待确认` : ""}</summary><dl className="business-facts">{deliveryFacts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details>
         <details className="fulfillment-fold"><summary>对账说明</summary><section className="business-detail-section"><h3>对账关联</h3><div className="business-boundary"><InfoCircleOutlined /><div><strong>金额以正式对账记录为准</strong><p>分批出货、赠送数量和差异处理都会影响计费，本页不按数量估算应收或欠款。</p></div></div></section></details>
         {selected.method === "送货" ? <DeliveryEvidenceReviewPanel authState={formal.authState} fulfillmentId={selected.id} onReviewed={(message) => { setNotice(message); void formal.actions.refreshAll(); }} /> : null}
@@ -1164,22 +1165,22 @@ export function FocusedProductionWorkspace({ formal, onNavigate, taskId, loadDet
   }
   const focusedFormal = { ...formal, data: { ...formal.data, productionTasks: [detail] } };
   const config = buildWorkspaceConfigs(focusedFormal)["production-tasks"];
-  return <GenericWorkspace key={taskId} config={{ ...config, onRefresh: () => setAttempt(value => value + 1) }} formal={focusedFormal} focusId={taskId} detailExtra={() => <ProductionPhotoReview key={`${taskId}:${detail.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}:${JSON.stringify(formal.authState?.permissions?.actionPermissions)}`} detail={detail} authState={formal.authState} onSaved={() => refreshAfterProductionPhotoReview({ readTodos: () => formal.actions.readCollection("todos"), refreshDetail: () => setAttempt(value => value + 1) })} />} onNavigate={onNavigate} />;
+  return <GenericWorkspace key={taskId} config={{ ...config, onRefresh: () => setAttempt(value => value + 1) }} formal={focusedFormal} focusId={taskId} detailExtra={() => <ProductionPhotoReview key={`${taskId}:${detail.productionTask?.revision}:${getAuthWorkspaceIdentity(formal.authState)}:${JSON.stringify(formal.authState?.permissions?.actionPermissions)}`} detail={detail} authState={formal.authState} onSaved={() => refreshAfterProductionPhotoReview({ readTodos: () => formal.actions.readCollection("todos"), refreshDetail: () => setAttempt(value => value + 1) })} />} onNavigate={onNavigate} />;
 }
 
 export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId = "", workspaceFocus = null }) {
   const focus = workspaceFocus?.navId === navId ? workspaceFocus : null;
-  if (navId === "production-tasks" && productionFocusId) return <FocusedProductionWorkspace key={`${productionFocusId}:${formal.authState?.session?.accessToken || ""}`} formal={formal} onNavigate={onNavigate} taskId={productionFocusId} />;
+  if (navId === "production-tasks" && productionFocusId) return <FocusedProductionWorkspace key={`${productionFocusId}:${getAuthWorkspaceIdentity(formal.authState)}`} formal={formal} onNavigate={onNavigate} taskId={productionFocusId} />;
   if (["customer-statements", "print-devices"].includes(navId)) return <FinanceOperationsWorkspace key={navId} formal={formal} navId={navId} onNavigate={onNavigate} />;
   if (navId === "today") return <TodayWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
-  if (navId === "order-entry") return <OrderPricingEntryWorkspace key={`${formal.authState?.session?.accessToken || ""}:${formal.entryDraftId || "new"}`} formal={formal} onNavigate={onNavigate} />;
+  if (navId === "order-entry") return <OrderPricingEntryWorkspace key={`${getAuthWorkspaceIdentity(formal.authState)}:${formal.entryDraftId || "new"}`} formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-pool") return <OrderPoolWorkspace key={focus?.token || "order-pool"} formal={formal} focus={focus} onNavigate={onNavigate} />;
   if (navId === "outbound-delivery") return <FulfillmentWorkspace key={focus?.token || "outbound-delivery"} focus={focus} formal={formal} onNavigate={onNavigate} />;
   if (navId === "supplier-month-end") return <SupplierSettlementWorkspace formal={formal} />;
   if (navId === "inventory-query") return <FinishedGoodsInventoryWorkspace category="无纺布袋" formal={formal} onNavigate={onNavigate} title="无纺布袋库存" />;
   if (navId === "laminated-inventory") return <FinishedGoodsInventoryWorkspace category="覆膜无纺布袋" formal={formal} onNavigate={onNavigate} title="覆膜袋库存" />;
-  if (navId === "sales-prices") return <SalesPriceWorkspace key={formal.authState?.session?.accessToken || "sales-prices"} formal={formal} />;
+  if (navId === "sales-prices") return <SalesPriceWorkspace key={getAuthWorkspaceIdentity(formal.authState) || "sales-prices"} formal={formal} />;
   if (navId === "general-prices" || navId === "spec-inventory") return <FinishedGoodsMasterWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "payroll-attendance") return <PayrollAttendancePage authState={formal.authState} currentUser={formal.permissionContext?.user} permissionContext={formal.permissionContext} />;
   if (navId === "people-machines") return <PeopleMachinesWorkspace formal={formal} onNavigate={onNavigate} />;
@@ -1187,7 +1188,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate, productionFocusId
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;
   return <GenericWorkspace key={focus?.token || navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} focus={focus} onNavigate={onNavigate}
-    detailExtra={navId === "customer-records" ? selected => selected?.id ? <><CustomerProfilePanel key={`profile:${selected.id}:${formal.authState?.session?.accessToken || ""}`} authState={formal.authState} customerId={selected.id} onSaved={formal.actions.refreshAll} /><CustomerAddressPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} authState={formal.authState} customerId={selected.id} /></> : null : navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${formal.authState?.session?.accessToken || ""}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} /><EarlyShipmentPanel key={`early:${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${formal.authState?.session?.accessToken || ""}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
+    detailExtra={navId === "customer-records" ? selected => selected?.id ? <><CustomerProfilePanel key={`profile:${selected.id}:${getAuthWorkspaceIdentity(formal.authState)}`} authState={formal.authState} customerId={selected.id} onSaved={formal.actions.refreshAll} /><CustomerAddressPanel key={`${selected.id}:${getAuthWorkspaceIdentity(formal.authState)}`} authState={formal.authState} customerId={selected.id} /></> : null : navId === "packing-labels" ? selected => selected?.orderLineId ? <PhysicalPackagesPanel key={`${selected.id}:${getAuthWorkspaceIdentity(formal.authState)}`} formal={formal} orderLineId={selected.orderLineId}/> : null : navId === "production-tasks" ? selected => <><ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} /><EarlyShipmentPanel key={`early:${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} />{selected?.sourceTask?.finishedGoodsPhoto?.attachmentId ? <ProductionPhotoReview key={`${selected.id}:${selected.sourceTask.productionTask?.revision}:${getAuthWorkspaceIdentity(formal.authState)}`} detail={selected.sourceTask} authState={formal.authState} onSaved={formal.actions.refreshAll} /> : null}</> : null} />;
 }
 
 export { completedBusinessWorkspaceIds };

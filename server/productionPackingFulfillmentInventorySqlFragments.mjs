@@ -1,3 +1,24 @@
+export function buildInsertProductionInventoryItemSql(item, parameters) {
+  if (!item) return "SELECT NULL::json AS result WHERE false";
+  // Insert the completed quantities directly: a sibling UPDATE cannot see a row
+  // inserted within the same WITH statement's snapshot.
+  return `INSERT INTO inventory_items (
+    id, inventory_key, size, standard_color_id, handle_type, style, zone, inventory_state,
+    on_hand_qty, reserved_qty, waiting_pickup_locked_qty, pending_handling_qty, trust_level
+  ) SELECT ${parameters.text(item.id)}, ${parameters.text(item.inventoryKey)}, ${parameters.text(item.size)},
+    ${parameters.text(item.standardColorId)}, ${parameters.text(item.handle)}, ${parameters.text(item.style)},
+    ${parameters.text(item.zone)}, ${parameters.text(item.state)}, ${parameters.integer(item.onHandQty)},
+    ${parameters.integer(item.reservedQty)}, 0, 0, ${parameters.text(item.trustLevel)}
+  FROM write_guard WHERE ok
+  RETURNING json_build_object(
+    'inventoryItemId', id, 'inventoryKey', inventory_key, 'size', size,
+    'standardColorId', standard_color_id, 'color', ${parameters.text(item.color)},
+    'handle', handle_type, 'style', style, 'zone', zone, 'state', inventory_state, 'trustLevel', trust_level,
+    'onHandQty', on_hand_qty, 'reservedQty', reserved_qty, 'waitingPickupLockedQty', waiting_pickup_locked_qty,
+    'pendingHandlingQty', pending_handling_qty, 'revision', revision
+  ) AS result`;
+}
+
 export function buildInsertPackagesSql(packages, parameters, dependency = "") {
   if (packages.length === 0) return "SELECT NULL::json AS result WHERE false";
   const values = packages
@@ -123,6 +144,7 @@ RETURNING json_build_object(
   'onHandQty', item.on_hand_qty,
   'reservedQty', item.reserved_qty,
   'waitingPickupLockedQty', item.waiting_pickup_locked_qty,
+  'pendingHandlingQty', item.pending_handling_qty,
   'revision', item.revision
 ) AS result`;
 }

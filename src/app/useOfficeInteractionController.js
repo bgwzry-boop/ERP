@@ -1,3 +1,4 @@
+import { getAuthWorkspaceIdentity } from "./useSignedPreviewSessionRenewal.js";
 import { useEffect, useRef, useState } from "react";
 import {
   canUseUiAction,
@@ -403,7 +404,7 @@ export function useOfficeInteractionController(options) {
   const [attachmentViewer, setAttachmentViewer] = useState(null);
   const attachmentRequestRef = useRef(0);
   const attachmentOwnerRef = useRef(null);
-  const attachmentOwner = `${options.currentUserId ?? ""}:${options.authState?.session?.accessToken ?? ""}`;
+  const attachmentOwner = `${options.currentUserId ?? ""}:${getAuthWorkspaceIdentity(options.authState)}`;
   attachmentOwnerRef.current = attachmentOwner;
   const beginAttachmentRead = () => {
     const revision = ++attachmentRequestRef.current;
@@ -419,10 +420,10 @@ export function useOfficeInteractionController(options) {
   };
   const openModal = (nextModal) => {modalRef.current=["dispatch", "print", "printVoid"].includes(nextModal?.type) ? {...nextModal,sessionOwner:options.currentUserId} : nextModal ?? null;setModal(modalRef.current);};
   const closeModal = () => {modalRef.current=null;setModal(null);};
-  useEffect(()=>{if(["dispatch", "print", "printVoid"].includes(modalRef.current?.type)){modalRef.current=null;setModal(null);}},[options.currentUserId,options.authState?.session?.accessToken]);
+  useEffect(()=>{if(["dispatch", "print", "printVoid"].includes(modalRef.current?.type)){modalRef.current=null;setModal(null);}},[options.currentUserId,getAuthWorkspaceIdentity(options.authState)]);
   const openOrderActionModal=(nextModal)=>{orderActionModalRef.current=nextModal ?? null;setOrderActionModal(orderActionModalRef.current);};
   const closeOrderActionModal=()=>{orderActionModalRef.current=null;setOrderActionModal(null);};
-  useEffect(()=>{orderActionModalRef.current=null;setOrderActionModal(null);},[options.currentUserId,options.authState?.session?.accessToken]);
+  useEffect(()=>{orderActionModalRef.current=null;setOrderActionModal(null);},[options.currentUserId,getAuthWorkspaceIdentity(options.authState)]);
   const openAttachmentViewer = (attachment) => setAttachmentViewer(attachment ?? null);
   const closeAttachmentViewer = () => { attachmentRequestRef.current += 1; setAttachmentViewer(null); };
   const openMasterDataTemplatePanel = (panel) => setMasterDataTemplatePanel(panel ?? null);

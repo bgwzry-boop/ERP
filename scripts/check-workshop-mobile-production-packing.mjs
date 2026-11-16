@@ -298,6 +298,7 @@ const packingResult = await completeOfficePackingTask(
         fulfillmentStatus: "待打印标签",
         orderLineStatus: "待打印标签",
         inventoryDeducted: false,
+        operationLogId: "OP-MOBILE-PACKING-COMPLETE",
       });
     },
   },
@@ -307,6 +308,15 @@ assert(packingCalls[0]?.init.headers["x-erp-user-id"] === "U-PACKING-A", "mobile
 assert(packingCalls[0]?.body.remark.includes("打包手机端"), "mobile packing remark did not identify mobile entry");
 assert(!Object.hasOwn(packingCalls[0]?.body ?? {}, "labelsPrinted"), "mobile packing must not send a browser-reported label flag");
 assert(packingResult.inventoryDeducted === false, "mobile packing completion must not deduct inventory");
+
+const incompletePackingResult = await completeOfficePackingTask(
+  { authState: createLocalSeedAuthState("U-PACKING-A"), packingTask, orderLine: productionLine,
+    actualPackedQty: 1000, packageCount: 3, operatorId: "U-PACKING-A" },
+  { fetchImpl: async () => createJsonResponse(200, { packingTaskId: packingTask.packingTaskId,
+    orderLineId: productionLine.id, packageIds: ["PKG-MOBILE-1", "PKG-MOBILE-2", "PKG-MOBILE-3"] }) },
+);
+assert(incompletePackingResult.error?.code === "PACKING_COMPLETION_RECEIPT_INCOMPLETE",
+  "a response without the saved operation receipt must remain unconfirmed");
 
 console.log("Workshop mobile production/packing check passed: seed roles, UI permissions, finished-goods photo upload, and API client headers are covered.");
 

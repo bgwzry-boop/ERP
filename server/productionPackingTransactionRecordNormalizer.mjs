@@ -359,9 +359,19 @@ export function normalizeInventoryItem(record) {
   if (!inventoryItemId) return null;
   return {
     inventoryItemId,
+    ...(record.size !== undefined ? {
+      inventoryKey: String(record.inventoryKey ?? ""), size: String(record.size),
+      standardColorId: String(record.standardColorId ?? ""), color: String(record.color ?? ""),
+      handle: String(record.handle ?? record.handleType ?? ""), handleType: String(record.handle ?? record.handleType ?? ""),
+      style: String(record.style ?? ""), zone: String(record.zone ?? ""),
+      state: String(record.state ?? record.inventoryState ?? ""), inventoryState: String(record.state ?? record.inventoryState ?? ""),
+      trustLevel: String(record.trustLevel ?? ""),
+    } : {}),
     onHandQty: toFiniteInteger(record.onHandQty ?? record.on_hand_qty ?? record.inStock),
     reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty ?? record.reserved),
     waitingPickupLockedQty: toFiniteInteger(record.waitingPickupLockedQty ?? record.waiting_pickup_locked_qty ?? record.locked),
+    ...(record.pendingHandlingQty !== undefined || record.pending_handling_qty !== undefined || record.pending !== undefined
+      ? { pendingHandlingQty: toFiniteInteger(record.pendingHandlingQty ?? record.pending_handling_qty ?? record.pending) } : {}),
     revision: positiveRevision(record.revision),
   };
 }

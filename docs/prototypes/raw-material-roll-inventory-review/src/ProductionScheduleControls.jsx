@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getAuthWorkspaceIdentity } from "../../../../src/app/useSignedPreviewSessionRenewal.js";
 import { listOfficeProductionMachineQueue, publishOfficeProductionSchedule, resequenceOfficeProductionMachineQueue } from "../../../../src/services/officeProductionPackingLazyApi.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { releaseSilkScreenTask } from "../../../../src/services/silkScreenClaimApiClient.js";
@@ -30,6 +31,15 @@ export function ProductionScheduleControls({ selected, formal, onSaved }) {
   const queueVersion = useRef(0);
   const authState = formal.authState;
   const operatorId = formal.permissionContext?.user?.userId;
+  const identity = JSON.stringify([getAuthWorkspaceIdentity(authState), operatorId, [...permissions].sort()]);
+  const writeGeneration = useRef(0);
+  useEffect(() => {
+    writeGeneration.current += 1;
+    attempt.current = null; pending.current = false;
+    setBusy(false); setUncertain(false); setMessage(""); setReason("");
+    setDecision({}); setQueueDecision({});
+    return () => { writeGeneration.current += 1; };
+  }, [identity]);
   const processType = task.taskType || (line.printFlag || line.print === "是" ? "丝印" : "制袋");
   const machines = eligibleProductionMachines(formal.data.machines, processType);
   const selectedMachineAllowed = isSelectedProductionMachineAllowed(machines, machineId);
@@ -52,14 +62,17 @@ export function ProductionScheduleControls({ selected, formal, onSaved }) {
 
   async function write(kind, payload) {
     if (pending.current) return;
-    attempt.current ||= { kind, payload: { ...payload, authState, operatorId, idempotencyKey: createOfficeIdempotencyKey() } };
+    const action = attempt.current?.kind || kind;
+    if (!permissions.includes(action === "publish" ? "production.schedule.publish" : "production.schedule.sequence.update")) return;
+    attempt.current ||= { kind, payload: { ...payload, operatorId, idempotencyKey: createOfficeIdempotencyKey() } };
+    const generation = writeGeneration.current;
     pending.current = true; setBusy(true); setMessage("");
     let result;
     try {
       const send = attempt.current.kind === "publish" ? publishOfficeProductionSchedule : resequenceOfficeProductionMachineQueue;
-      result = await send(attempt.current.payload, { serverRequired: true });
+      result = await send({ ...attempt.current.payload, authState }, { serverRequired: true });
     } catch { result = null; }
-    if (!live.current) return;
+    if (!live.current || generation !== writeGeneration.current) return;
     pending.current = false; setBusy(false);
     if (result?.source === "api" && !result.blocked && result.operationLogId) {
       attempt.current = null; setUncertain(false); setReason("");
@@ -67,7 +80,7 @@ export function ProductionScheduleControls({ selected, formal, onSaved }) {
       await loadQueue(); await onSaved?.();
     } else {
       const code = result?.error?.code || "";
-      const unknown = !code || result?.source === "api" || /UNAVAILABLE|UNCONFIRMED|TIMEOUT/.test(code) || Number(result?.error?.status) >= 500;
+      const unknown = uncertain || !code || result?.source === "api" || /UNAVAILABLE|UNCONFIRMED|TIMEOUT/.test(code) || Number(result?.error?.status) >= 500;
       setUncertain(unknown);
       if (!unknown) { attempt.current = null; await loadQueue(); }
       setMessage(unknown ? "提交结果尚未确认，请按原内容重试；离开后先核对服务器排产，勿重复安排。" : result?.error?.message || "排产未保存，请刷新核对。");

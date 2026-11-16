@@ -795,7 +795,8 @@ export function createOfficeProductionWriteActions({
     const inventoryItem = findProductionInventoryItem(line, inventoryRecordsRef.current);
     const task = payload.productionTask ?? line.productionTask;
     const noStock = task?.taskType === "丝印" || normalizeOrderType(line.orderType) === "custom_special";
-    if (!inventoryItem && !noStock) {
+    const signedServerRequired = () => Boolean(authState?.session?.accessToken) || serverRequired();
+    if (!inventoryItem && !noStock && !signedServerRequired()) {
       return withFeedback(
         { source: "ui_error", blocked: true },
         "未找到匹配的成品库存键，不能把报工数量直接入库；需先补库存主数据。",
@@ -813,8 +814,8 @@ export function createOfficeProductionWriteActions({
         machineCount: payload.machineCount,
         operatorId: currentUserId,
         remark: payload.remark || `${currentUserDisplayName} 在${payload.entryLabel || "打包/标签页"}提交生产报工完成`,
-      }),
-      { label: "生产报工", serverRequired },
+      }, { serverRequired: signedServerRequired() }),
+      { label: "生产报工", serverRequired: signedServerRequired },
     );
     if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝生产报工", result));
     setOrderLines((current) => current.map((item) =>

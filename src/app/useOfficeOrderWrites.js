@@ -1,3 +1,4 @@
+import { getAuthWorkspaceIdentity } from "./useSignedPreviewSessionRenewal.js";
 import { useCallback, useEffect, useRef } from "react";
 import { createSetterBackedDraftActions } from "../state/orderEntryDraftState.js";
 import {
@@ -739,7 +740,7 @@ export function createOfficeOrderWriteActions({
 
 export function useOfficeOrderWrites(options) {
   const sessionRef=useRef(null);
-  const owner=`${options.currentUserId ?? ""}:${options.authState?.session?.accessToken ?? ""}`;
+  const owner=`${options.currentUserId ?? ""}:${getAuthWorkspaceIdentity(options.authState)}`;
   if(sessionRef.current?.owner !== owner){if(sessionRef.current)sessionRef.current.active=false;sessionRef.current={owner,active:true};}
   const mutationSession=sessionRef.current;
   useEffect(()=>{mutationSession.active=true;return ()=>{mutationSession.active=false;};},[mutationSession]);

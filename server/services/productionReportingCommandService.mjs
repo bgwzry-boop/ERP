@@ -2,6 +2,7 @@ import { normalizeOrderType, isReplenishmentRow } from "../../shared/orderRoutin
 import { incomingRollCountOf, isIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 import { LARGE_MACHINE_PRINT_PRICE_VERSION, printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 import { getBlockingProductionExceptions } from "../../shared/productionExceptionPolicy.js";
+import { resolveProductionInventory } from "./productionInventoryItem.mjs";
 export function createProductionReportingCommandService({
   buildOperationLog,
   buildProductionTaskFromBody,
@@ -661,10 +662,9 @@ export function createProductionReportingCommandService({
       }
       const customSpecial = normalizeOrderType(beforeOrderLine.orderType) === "custom_special" || externalPrint;
       if (customSpecial && cleanText(body.inventoryItemId)) return businessError(409, "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY", "特殊尺寸按订单生产，不建立通货库存。");
-      const inventoryItem = customSpecial ? null : body.inventoryItemId
-        ? findInventoryItem(workspace, body.inventoryItemId)
-        : findUniqueMatchingInventory(workspace, beforeOrderLine);
-      if (!customSpecial && !inventoryItem) return notFound("INVENTORY_ITEM_NOT_FOUND");
+      const inventoryResolution = customSpecial ? {} : resolveProductionInventory(workspace, beforeOrderLine, body.inventoryItemId);
+      if (inventoryResolution.code) return businessError(inventoryResolution.statusCode, inventoryResolution.code, inventoryResolution.message);
+      const { inventoryItem = null, newInventoryItem = null } = inventoryResolution;
 
       const completedAt = body.completedAt ?? nowIso(now);
       // 负责人 2026-11-08：补库单做好直接入本厂库存，不锁给任何客户、不打包发货，订单到「已入库」就结束。
@@ -733,8 +733,8 @@ export function createProductionReportingCommandService({
               createdBy: operatorId,
               createdAt: completedAt,
             };
-      const onHandBefore = Number(inventoryItem?.inStock ?? inventoryItem?.onHand ?? 0);
-      const reservedBefore = Number(inventoryItem?.reserved ?? 0);
+      const onHandBefore = Number(inventoryItem?.inStock ?? inventoryItem?.onHandQty ?? inventoryItem?.onHand ?? 0);
+      const reservedBefore = Number(inventoryItem?.reserved ?? inventoryItem?.reservedQty ?? 0);
       const reservation = inventoryItem && !replenishment ? {
         reservationId: body.reservationId ?? nextPlainId("RSV", `${productionTaskId}-PROD`),
         orderLineId,
@@ -745,7 +745,7 @@ export function createProductionReportingCommandService({
         createdBy: operatorId,
         createdAt: completedAt,
       } : null;
-      workshopReport.evidence = { ...workshopReport.evidence, inventoryCreated: Boolean(inventoryItem), reservationCreated: Boolean(reservation), packingTaskCreated: Boolean(packingTask),
+      workshopReport.evidence = { ...workshopReport.evidence, inventoryCreated: Boolean(inventoryItem), inventoryItemCreated: Boolean(newInventoryItem), reservationCreated: Boolean(reservation), packingTaskCreated: Boolean(packingTask),
         ...(externalPrint ? { externalPrint: true, actualPrintedQty: qualifiedQty, orderedQty: Number(beforeOrderLine.qty ?? beforeOrderLine.originalQty ?? 0),
           exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? (Number(body.machineCount) - qualifiedQty)) || 0)),
           billingBasis: "按实际印好、交付的数量计费；单价档位按下单数量" } : {}) };
@@ -818,7 +818,8 @@ export function createProductionReportingCommandService({
         machineCapacityBaseline,
         priceSnapshots: actualPrintPriceSnapshot ? [actualPrintPriceSnapshot] : [],
         inventoryReservations: reservation ? [reservation] : [],
-        inventoryAdjustments: inventoryItem ? [
+        newInventoryItem: newInventoryItem ? { ...newInventoryItem, onHandQty: qualifiedQty, reservedQty: replenishment ? 0 : qualifiedQty, waitingPickupLockedQty: 0, pendingHandlingQty: 0 } : null,
+        inventoryAdjustments: inventoryItem && !newInventoryItem ? [
           {
             inventoryItemId: inventoryItem.id,
             onHandQtyChange: qualifiedQty,
@@ -976,19 +977,6 @@ function buildProductionCapacitySizeKey(orderLine, inventoryItem) {
       inventoryItem?.model,
   );
   return sizeText.replace(/\s+/g, "");
-}
-
-function findUniqueMatchingInventory(workspace, line) {
-  const matches = (workspace.inventories ?? []).filter(
-    (item) =>
-      item.size === line.size &&
-      item.color === (line.color ?? line.bagColor) &&
-      item.handle === (line.handle ?? line.handleType) &&
-      item.style === line.style &&
-      !String(item.state ?? "").includes("待处理") &&
-      !String(item.state ?? "").includes("报废"),
-  );
-  return matches.length === 1 ? matches[0] : null;
 }
 
 const productionExceptionTypes = new Set([

@@ -199,6 +199,7 @@ export async function loginSeedUser(userId = defaultSeedUserId, options = {}) {
       method: "POST",
       body: {
         userId: normalizedUserId,
+        ...(options.previousAccessToken ? { previousAccessToken: options.previousAccessToken } : {}),
       },
     });
     const json = await readJson(response);

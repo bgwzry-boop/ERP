@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getAuthWorkspaceIdentity } from "../../app/useSignedPreviewSessionRenewal.js";
 import { createOfficeIdempotencyKey, packageGroupRequest } from "./packageGroupApiClient.js";
 import { isStockOrderType } from "../../../shared/orderRouting.js";
 import "./mixed-packages.css";
@@ -13,7 +14,7 @@ export function SinglePackingWorkbench({ authState, packingTaskId, orderLineId, 
   const generation = useRef(0), unknown = useRef(false), sending = useRef(false), restoreFocus = useRef(false), trigger = useRef(null), summary = useRef(null), callbacks = useRef({ onSaved, onBusyChange });
   callbacks.current = { onSaved, onBusyChange };
   const permissions = authState?.permissions?.actionPermissions ?? [];
-  const identity = JSON.stringify([authState?.session?.accessToken, authState?.permissions?.user?.userId, [...permissions].sort()]);
+  const identity = JSON.stringify([getAuthWorkspaceIdentity(authState), authState?.permissions?.user?.userId, [...permissions].sort()]);
   const cacheKey = JSON.stringify([identity, packingTaskId, orderLineId]);
   const request = (path, options = {}) => packageGroupRequest(path, { authState, serverRequired: true, ...options });
   useEffect(() => {
@@ -66,7 +67,7 @@ export function SinglePackingWorkbench({ authState, packingTaskId, orderLineId, 
   }
   function returnToEdit() { if (busy || uncertain) return; restoreFocus.current = true; setPending(null); setMessage(""); }
   async function save() {
-    if (!pending || sending.current) return;
+    if (!pending || sending.current || !permissions.includes("packing.complete")) return;
     const gen = generation.current, body = pending;
     sending.current = true; setBusy(true);
     retainedRequests.set(cacheKey, { pending: body, rows, reason });

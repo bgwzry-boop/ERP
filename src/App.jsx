@@ -3,6 +3,8 @@ import { RuntimeAuthBoundary } from "./app/RuntimeAuthBoundary.jsx";
 import { createRuntimeAuthActions } from "./app/createRuntimeAuthActions.js";
 import { shouldShowRuntimeAuthBoundary } from "./app/runtimeAuthViewState.js";
 import { useRuntimeAuthInitialization } from "./app/useRuntimeAuthInitialization.js";
+import { useSignedPreviewSessionRenewal } from "./app/useSignedPreviewSessionRenewal.js";
+import { SignedPreviewSessionNotice } from "./app/SignedPreviewSessionNotice.jsx";
 import {
   useRuntimeAuthInvalidation,
   useRuntimeSessionExpiry,
@@ -83,6 +85,7 @@ export function App({ signedPreviewUserId = "" } = {}) {
   useRuntimeSessionExpiry({ authState, enabled: formalLoginRequired, onExpire: expireRuntimeUserSession });
   useRuntimeAuthInvalidation({ enabled: formalLoginRequired, onInvalidate: invalidateRuntimeUserSession });
   useRuntimeSessionRevalidation({ authState, enabled: formalLoginRequired, onRevalidate: revalidateRuntimeUserSession });
+  const previewSession = useSignedPreviewSessionRenewal({ authState, authOptions: signedPreviewAuthOptions, setAuthState });
 
   if (shouldShowRuntimeAuthBoundary({ authState, formalLoginRequired })) {
     return (
@@ -110,7 +113,7 @@ export function App({ signedPreviewUserId = "" } = {}) {
     );
   }
 
-  return (
+  return (<><SignedPreviewSessionNotice status={previewSession} /><div style={{ display: "contents" }} inert={previewSession.blocked || undefined}>
     <PageErrorBoundary scope="workbench" title="业务工作台加载出错">
       <ConfirmDialogHost />
       <Suspense fallback={<DataState title="业务工作台加载中" />}>
@@ -126,5 +129,5 @@ export function App({ signedPreviewUserId = "" } = {}) {
         />
       </Suspense>
     </PageErrorBoundary>
-  );
+  </div></>);
 }

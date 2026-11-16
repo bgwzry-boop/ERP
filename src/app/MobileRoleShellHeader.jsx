@@ -5,6 +5,7 @@ export function MobileRoleShellHeader({
   currentUserId,
   demoMode = false,
   fixedPreviewMode = false,
+  fieldPreviewAvailable = false,
   logoutLoading = false,
   onLogout,
   onNavigate,
@@ -13,7 +14,8 @@ export function MobileRoleShellHeader({
   canViewOwnAttendance = false,
   userOptions = [],
 }) {
-  const title = getMobileRoleTitle(pageKey, currentUser);
+  const title = fieldPreviewAvailable && pageKey === "workshopMobile"
+    ? "现场流程测试" : getMobileRoleTitle(pageKey, currentUser);
 
   return (
     <header className="mobile-role-shell-header">
@@ -22,6 +24,9 @@ export function MobileRoleShellHeader({
         <strong>{currentUser?.displayName || "当前员工"}</strong>
       </div>
       <div className="mobile-role-shell-session">
+        {fieldPreviewAvailable ? <button type="button" onClick={() => onNavigate?.(pageKey === "workshopMobile" ? "todos" : "workshopMobile")}>
+          {pageKey === "workshopMobile" ? "返回收货" : "现场流程测试"}
+        </button> : null}
         {canViewOwnAttendance ? <button onClick={() => onNavigate?.(pageKey === "attendanceMobile" ? getMobileRoleHomePage(currentUser) : "attendanceMobile")} type="button">
           {pageKey === "attendanceMobile" ? "返回任务" : "我的考勤"}
         </button> : null}

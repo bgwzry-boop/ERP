@@ -5,7 +5,8 @@ import { getVisiblePcNavGroups, hasEffectivePermission } from "./navigation.js";
 import { useReceivingData } from "./useReceivingData.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
-import { initializeSeedAuth } from "../../../../src/services/officeAuthService.js";
+import { useRuntimeAuthInitialization } from "../../../../src/app/useRuntimeAuthInitialization.js";
+import { getAuthWorkspaceIdentity, useSignedPreviewSessionRenewal } from "../../../../src/app/useSignedPreviewSessionRenewal.js";
 import { listOfficeTodos } from "../../../../src/services/officeTodoApiClient.js";
 import { listOfficeDraftQueue, recognizeOfficeDraft, saveOfficeDraft, confirmOfficeDraftViaApi, previewOfficeDraftSplit, confirmOfficeDraftSplit } from "../../../../src/services/officeOrderApiClient.js";
 import { listOfficeOrderLines } from "../../../../src/services/officeOrderPoolApiClient.js";
@@ -107,6 +108,8 @@ function replaceEmployeeReview(items, review) {
 
 export function useFormalDesktopWorkspace() {
   const [authState, setAuthState] = useState(null);
+  useRuntimeAuthInitialization({ authOptions, authState, serverRequired: false, setAuthState });
+  const previewSession = useSignedPreviewSessionRenewal({ authState, authOptions, setAuthState });
   const [entryDraftId, focusOrderDraft] = useState("");
   const [entryCreationId, setEntryCreationId] = useState(0);
   const [entryWriteGuard, setEntryWriteGuard] = useState({ pending: false, ownerKey: "", session: "" });
@@ -127,7 +130,7 @@ export function useFormalDesktopWorkspace() {
       promptOwner.current = null;
     }
   }, []);
-  const orderEntryWritePending = entryWriteGuard.pending && entryWriteGuard.session === authState?.session?.accessToken;
+  const orderEntryWritePending = entryWriteGuard.pending && entryWriteGuard.session === getAuthWorkspaceIdentity(authState);
   const registerOrderEntryEditor = useCallback((editor) => {
     entryEditor.current = editor;
     setOrderEntryEditorBlocked(editor.blocked);
@@ -161,10 +164,11 @@ export function useFormalDesktopWorkspace() {
   const setOrderEntryWritePending = useCallback((pending, ownerKey) => {
     if (!ownerKey) return;
     setEntryWriteGuard(current => pending
-      ? { pending: true, ownerKey, session: authStateRef.current?.session?.accessToken || "" }
+      ? { pending: true, ownerKey, session: getAuthWorkspaceIdentity(authStateRef.current) }
       : current.ownerKey === ownerKey ? { pending: false, ownerKey: "", session: "" } : current);
   }, []);
   const authStateRef = useRef(null);
+  authStateRef.current = authState;
   const [data, setData] = useState(emptyData);
   const [activeView, setActiveViewState] = useState("");
   const activeViewRef = useRef("");
@@ -236,16 +240,6 @@ export function useFormalDesktopWorkspace() {
     // Each page owns its dependency reads; no background full-ERP timer.
     for (const key of readsForView(activeView, authState.permissions)) void readCollection(key, authStateRef.current, { reusePending: true });
   }, [activeView, authState?.session?.accessToken, authState?.authenticated, readCollection]);
-
-  useEffect(() => {
-    let active = true;
-    void initializeSeedAuth(authOptions).then((nextAuthState) => {
-      if (!active) return;
-      authStateRef.current = nextAuthState;
-      setAuthState(nextAuthState);
-    });
-    return () => { active = false; };
-  }, []);
 
   const acceptRawMaterialInbound = useCallback(inbound => {
     acceptInbound(inbound);
@@ -553,6 +547,7 @@ export function useFormalDesktopWorkspace() {
     orderEntryEditorBlocked,
     orderEntryWritePending,
     authState,
+    previewSession,
     data,
     receiving: receiptReader.receiving,
     meta,

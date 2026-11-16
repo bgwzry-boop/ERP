@@ -1,4 +1,5 @@
 export const runtimeAuthInvalidationEventName = "erp:runtime-auth-invalidated";
+export const signedPreviewAuthInvalidationEventName = "erp:signed-preview-auth-invalidated";
 
 const runtimeAuthInvalidationDefinitions = {
   AUTH_TOKEN_REVOKED: {
@@ -37,24 +38,32 @@ export async function notifyRuntimeAuthInvalidationForResponse(response, options
   if (Number(response?.status) !== 401) return null;
   const error = await readResponseJsonClone(response);
   const invalidation = getRuntimeAuthInvalidation({ ...options, error, status: response.status });
-  if (!invalidation) return null;
-  dispatchRuntimeAuthInvalidation(invalidation);
-  return invalidation;
+  if (invalidation) {
+    dispatchRuntimeAuthInvalidation(invalidation);
+    return invalidation;
+  }
+  const session = options.authState?.session;
+  if (session?.sessionType === "seed" && session.accessToken && runtimeAuthInvalidationDefinitions[error?.code]) {
+    const previewInvalidation = { error, accessToken: session.accessToken };
+    dispatchRuntimeAuthInvalidation(previewInvalidation, signedPreviewAuthInvalidationEventName);
+    return previewInvalidation;
+  }
+  return null;
 }
 
-export function dispatchRuntimeAuthInvalidation(invalidation) {
+export function dispatchRuntimeAuthInvalidation(invalidation, eventName = runtimeAuthInvalidationEventName) {
   const browser = globalThis.window;
   if (!browser?.dispatchEvent || typeof globalThis.CustomEvent !== "function") return false;
-  browser.dispatchEvent(new globalThis.CustomEvent(runtimeAuthInvalidationEventName, { detail: invalidation }));
+  browser.dispatchEvent(new globalThis.CustomEvent(eventName, { detail: invalidation }));
   return true;
 }
 
-export function subscribeRuntimeAuthInvalidation(handler) {
+export function subscribeRuntimeAuthInvalidation(handler, eventName = runtimeAuthInvalidationEventName) {
   const browser = globalThis.window;
   if (!browser?.addEventListener || typeof handler !== "function") return () => {};
   const listener = (event) => handler(event?.detail ?? {});
-  browser.addEventListener(runtimeAuthInvalidationEventName, listener);
-  return () => browser.removeEventListener(runtimeAuthInvalidationEventName, listener);
+  browser.addEventListener(eventName, listener);
+  return () => browser.removeEventListener(eventName, listener);
 }
 
 async function readResponseJsonClone(response) {

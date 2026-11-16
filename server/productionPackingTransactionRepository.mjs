@@ -1,4 +1,4 @@
-import { normalizeOrderType } from "../shared/orderRouting.js";
+import { normalizeOrderType, isStockOrderType, isReplenishmentRow } from "../shared/orderRouting.js";
 import { createPackageGroupRepository } from "./packageGroupRepository.mjs";
 import { createLocalSilkScreenClaimRepository, createPostgresSilkScreenClaimRepository } from "./silkScreenTaskClaimRepository.mjs";
 import { createLocalEarlyShipmentSplitRepository, createPostgresEarlyShipmentSplitRepository } from "./earlyShipmentSplitRepository.mjs";
@@ -39,6 +39,7 @@ import {
 } from "./productionPackingTaskSqlFragments.mjs";
 import {
   buildInsertInventoryLedgerEntriesSql,
+  buildInsertProductionInventoryItemSql,
   buildInsertInventoryReservationsSql,
   buildInsertPackagesSql,
   buildUpdateFulfillmentSql,
@@ -105,6 +106,7 @@ export function createLocalProductionPackingTransactionRepository() {
       if (replay) return replay;
       assertProductionStage(input);
       assertNewWorkshopReport(input);
+      if (input.newInventoryItem && (input.workspace?.inventories ?? []).some(row => row.id === input.newInventoryItem.id || row.inventoryKey === input.newInventoryItem.inventoryKey)) throw contractError("ERP_INVENTORY_CONCURRENCY_CONFLICT");
       const transaction = normalizeProductionReportTransactionResult({
         downstreamProductionTask: input.downstreamProductionTask,
         todo: input.todo,
@@ -115,6 +117,7 @@ export function createLocalProductionPackingTransactionRepository() {
         machineCapacityBaseline: input.machineCapacityBaseline ?? null,
         inventoryReservations: input.inventoryReservations ?? [],
         inventoryLedgerEntries: input.inventoryLedgerEntries ?? [],
+        inventoryItems: input.newInventoryItem ? [input.newInventoryItem] : [],
         operationLogId: input.operationLog?.id ?? "",
       });
       if ((input.priceSnapshots ?? []).length) {
@@ -123,6 +126,8 @@ export function createLocalProductionPackingTransactionRepository() {
       }
       applyProductionPackingWorkspaceMutation({
         workspace: input.workspace,
+        authoritative: Boolean(input.newInventoryItem),
+        inventoryItems: transaction.inventoryItems,
         productionTask: transaction.productionTask,
         downstreamProductionTask: transaction.downstreamProductionTask,
         todo: transaction.todo,
@@ -552,6 +557,7 @@ function buildProductionResourceLocks(input) {
     `production-task:${input.productionTask?.productionTaskId ?? input.productionTask?.id ?? ""}`,
     `order-line:${input.orderLine?.orderLineId ?? input.productionTask?.orderLineId ?? ""}`,
     ...(input.inventoryAdjustments ?? []).map((item) => `inventory-item:${item.inventoryItemId ?? ""}`),
+    ...(input.newInventoryItem ? [`inventory-item:${input.newInventoryItem.id}`, `inventory-key:${input.newInventoryItem.inventoryKey}`] : []),
     ...(input.inventoryReservations ?? []).map((item) => `inventory-reservation:${item.reservationId ?? ""}`),
   ];
 }
@@ -591,12 +597,19 @@ export function buildRecordProductionReportTransactionQuery(input) {
     productionTask,
     orderLine,
     inventoryAdjustments,
+    newInventoryItem: input.newInventoryItem,
     disallowedStatuses: ["已完成", "异常暂停", "数量差异待处理", "已作废"],
   }, parameters);
   return {
     text: `
 BEGIN;
 WITH ${writeGuardCtes}
+inserted_inventory_item AS (
+  ${buildInsertProductionInventoryItemSql(input.newInventoryItem, parameters)}
+),
+inventory_ready AS MATERIALIZED (
+  SELECT ok FROM write_guard WHERE (SELECT count(*) FROM inserted_inventory_item) >= 0
+),
 upserted_production_task AS (
   ${buildUpsertProductionTaskSql(productionTask, parameters, "write_guard")}
 ),
@@ -619,13 +632,13 @@ upserted_machine_capacity_baseline AS (
   ${buildUpsertMachineCapacityBaselineSql(machineCapacityBaseline, parameters, "write_guard")}
 ),
 inserted_inventory_reservations AS (
-  ${buildInsertInventoryReservationsSql(inventoryReservations, parameters, "write_guard")}
+  ${buildInsertInventoryReservationsSql(inventoryReservations, parameters, "inventory_ready")}
 ),
 updated_inventory_items AS (
   ${buildUpdateInventoryItemsSql(inventoryAdjustments, parameters, "write_guard")}
 ),
 inserted_inventory_ledger_entries AS (
-  ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters, "write_guard")}
+  ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters, "inventory_ready")}
 ),
 inserted_price_snapshots AS (
   ${buildInsertActualPrintPriceSnapshotsSql(priceSnapshots, parameters)}
@@ -643,7 +656,7 @@ SELECT json_build_object(
   'packingTask', (SELECT result FROM upserted_packing_task),
   'machineCapacityBaseline', (SELECT result FROM upserted_machine_capacity_baseline),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM inserted_inventory_reservations),
-  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
+  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM (SELECT result FROM updated_inventory_items UNION ALL SELECT result FROM inserted_inventory_item) AS saved_inventory),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
@@ -922,7 +935,7 @@ COMMIT;
   };
 }
 
-function buildProductionWriteGuardCtes({ productionTask, orderLine, inventoryAdjustments, disallowedStatuses, allowCreate = false, validateMachine = false }, parameters) {
+function buildProductionWriteGuardCtes({ productionTask, orderLine, inventoryAdjustments, newInventoryItem, disallowedStatuses, allowCreate = false, validateMachine = false }, parameters) {
   const inventoryIds = inventoryAdjustments.map((item) => item.inventoryItemId);
   const taskStatusGuard = disallowedStatuses.length
     ? `AND task_status <> ALL(${parameters.textArray(disallowedStatuses)})`
@@ -951,7 +964,7 @@ function buildProductionWriteGuardCtes({ productionTask, orderLine, inventoryAdj
   FOR UPDATE
 ),
 locked_order_line AS MATERIALIZED (
-  SELECT id, revision FROM order_lines
+  SELECT id, revision, size, bag_color, handle_type, style, order_type FROM order_lines
   WHERE id = ${parameters.text(orderLine?.orderLineId ?? productionTask.orderLineId)}
   FOR UPDATE
 ),
@@ -975,6 +988,18 @@ write_guard AS MATERIALIZED (
     'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT'
   )
   AND erp_require(${orderLineCondition}, 'ERP_ORDER_LINE_CONCURRENCY_CONFLICT')
+  ${newInventoryItem ? `AND erp_require(
+    EXISTS (SELECT 1 FROM locked_order_line WHERE size = ${parameters.text(newInventoryItem.size)}
+      AND bag_color = ${parameters.text(newInventoryItem.color)} AND handle_type = ${parameters.text(newInventoryItem.handle)}
+      AND style = ${parameters.text(newInventoryItem.style)}
+      AND order_type = ANY(${parameters.textArray(["stock", "stock_plain", "stock_printed", "laminated_plain", "laminated_printed", "replenishment", "现货", "现货有货", "现货缺货", "现货通货", "标准通货", "印刷通货"])}))
+    AND EXISTS (SELECT 1 FROM standard_colors WHERE id = ${parameters.text(newInventoryItem.standardColorId)} AND name = ${parameters.text(newInventoryItem.color)} AND enabled = true)
+    AND NOT EXISTS (SELECT 1 FROM inventory_items item LEFT JOIN standard_colors color ON color.id = item.standard_color_id
+      WHERE item.id = ${parameters.text(newInventoryItem.id)} OR item.inventory_key = ${parameters.text(newInventoryItem.inventoryKey)}
+      OR (item.size = ${parameters.text(newInventoryItem.size)} AND color.name = ${parameters.text(newInventoryItem.color)}
+        AND item.handle_type = ${parameters.text(newInventoryItem.handle)} AND item.style = ${parameters.text(newInventoryItem.style)}
+        AND item.inventory_state NOT LIKE '%待处理%' AND item.inventory_state NOT LIKE '%报废%')),
+    'ERP_INVENTORY_CONCURRENCY_CONFLICT')` : ""}
   ${validateMachine ? `AND erp_require(EXISTS (SELECT 1 FROM machines WHERE id = ${parameters.text(productionTask.machineId)} AND enabled = true AND status = 'active' AND machine_type = ${parameters.text(productionTask.taskType === "制袋" ? "bag_making" : productionTask.taskType === "丝印" ? "screen_printing" : "unsupported")} FOR SHARE), 'ERP_PRODUCTION_MACHINE_NOT_AVAILABLE_CONFLICT')` : ""}
   ${inventoryConditions ? `AND ${inventoryConditions}` : ""} AS ok
 ),`;
@@ -1144,7 +1169,13 @@ function assertProductionStage(input) {
   if (input.workshopReport?.processType !== task?.taskType || input.workshopReport?.orderLineId !== lineId || (input.orderLine && (input.orderLine.orderLineId ?? input.orderLine.id) !== lineId)) throw contractError("PRODUCTION_TASK_BINDING_MISMATCH");
   // 外加工印刷: printing is the final process — packing next, no bag-making task, no stock.
   const externalPrint = normalizeOrderType(input.orderLine?.orderType) === "external_print";
-  const noStockEffects = !(input.inventoryAdjustments ?? []).length && !(input.inventoryReservations ?? []).length && !(input.inventoryLedgerEntries ?? []).length;
+  const noStockEffects = !input.newInventoryItem && !(input.inventoryAdjustments ?? []).length && !(input.inventoryReservations ?? []).length && !(input.inventoryLedgerEntries ?? []).length;
+  const createdItem = input.newInventoryItem;
+  if (createdItem && (task.taskType !== "制袋" || !isStockOrderType(input.orderLine?.orderType)
+    || createdItem.onHandQty !== input.workshopReport?.qualifiedQty
+    || createdItem.reservedQty !== (isReplenishmentRow(input.orderLine) ? 0 : input.workshopReport?.qualifiedQty)
+    || createdItem.waitingPickupLockedQty !== 0 || createdItem.pendingHandlingQty !== 0
+    || (input.inventoryAdjustments ?? []).length)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
   if (task?.taskType === "丝印" && externalPrint && (!noStockEffects || !input.packingTask || input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");
   // Only an external print ordered by incoming rolls gets its price at completion.
   if ((input.priceSnapshots ?? []).length && (!externalPrint || task?.taskType !== "丝印"

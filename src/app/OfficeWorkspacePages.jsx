@@ -30,7 +30,7 @@ import { buildV1StatusRouteContract } from "./buildV1StatusRouteContract.js";
 
 
 
-export function OfficeWorkspacePages({ renderedPage, runtime }) {
+export function OfficeWorkspacePages({ renderedPage, runtime, signedPreviewMode = false }) {
   const masterDataRouteContract = buildMasterDataRouteContract(runtime);
   const statementRouteContract = buildStatementRouteContract(runtime);
   const v1StatusRouteContract = buildV1StatusRouteContract(runtime);
@@ -366,6 +366,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
           {renderedPage === "workshopMobile" && (
             <PageLoader component={WorkshopMobilePage} fallback="车间工作台加载中"
               authState={authState}
+              signedPreviewMode={signedPreviewMode}
               onPackagesSaved={() => refreshProductionPackingTaskLists({ showToast: false })}
               orderLines={orderLines}
               inventoryRecords={inventoryRecords}

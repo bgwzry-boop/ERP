@@ -95,6 +95,16 @@ export function getRequestAuthContext(request, workspace = {}) {
     };
   }
 
+  // A supplied but unrecognized bearer must not fall back to a local identity.
+  if (/^Bearer(?:\s|$)/i.test(getRequestHeaderValue(request, "authorization"))) {
+    return {
+      authenticated: false,
+      source: "invalid_bearer_session",
+      userId: "INVALID-BEARER-SESSION",
+      authError: "AUTH_TOKEN_INVALID",
+    };
+  }
+
   const userIdHeader = getRequestHeaderValue(request, "x-erp-user-id");
   if (securityPolicy.allowLegacyIdentityHeaders && unsignedIdentityAllowed && userIdHeader) {
     return {

@@ -9,6 +9,7 @@ import {
   hashRuntimeUserPasswordAsync,
   isRuntimeUserPasswordHashUpgradeRequired,
   verifyRuntimeUserPasswordAsync,
+  verifySeedSessionToken,
 } from "../authSeed.mjs";
 import { getWorkspaceSecurityPolicy } from "../apiSecurityPolicy.mjs";
 import { getEffectivePermissions } from "../seedData.mjs";
@@ -107,15 +108,29 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     const authentication = authenticatePrototypeSeedUser(requestedUserId);
     if (!authentication.authenticated) return result(401, authentication.error);
 
+    const identity = (workspace.users ?? []).find(user => String(user.userId ?? user.id) === requestedUserId);
+    if (identity?.enabled === false) return result(401, { code: "AUTH_USER_DISABLED", message: "当前账号已停用。" });
+    if (body.previousAccessToken !== undefined) {
+      const previous = verifySeedSessionToken(body.previousAccessToken, {
+        runtimeUsers: workspace.users,
+        revokedSessionIds: workspace.revokedSeedSessionJtis,
+        authSecret: securityPolicy.authSecret,
+        allowExpiredSeedSession: true,
+      });
+      if (!previous.valid || previous.userId !== requestedUserId) {
+        return result(401, { code: previous.reason ?? "AUTH_TOKEN_INVALID", message: "测试会话无法续签，请重新核对身份。" });
+      }
+    }
+
     const runtimeUser = findRuntimeUserById(
       workspace,
       authentication.permissions.user.userId,
     );
     const session = createSeedSession(authentication.permissions.user.userId, {
-      sessionVersion: runtimeUser?.sessionVersion,
+      sessionVersion: identity?.sessionVersion ?? runtimeUser?.sessionVersion,
       authSecret: securityPolicy.authSecret,
     });
-    return result(200, { session, permissions: authentication.permissions });
+    return result(200, { session, permissions: getEffectivePermissions(requestedUserId, { runtimeUsers: workspace.users }) });
   }
 
   async function loginRuntimeUser({ workspace, body, runtimeUser, securityPolicy }) {

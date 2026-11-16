@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { getAuthWorkspaceIdentity } from "../../../../src/app/useSignedPreviewSessionRenewal.js";
 import { addOfficeCustomerDeliveryAddress, createOfficeCustomer, getOfficeCustomerDeliveryAddresses, getOfficeCustomerProfile, getOfficeDraft, searchOfficeCustomers } from "../../../../src/services/officeOrderApiClient.js";
 import { quoteOfficeOrderDraft } from "../../../../src/services/officeOrderPricingApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
@@ -53,7 +54,7 @@ export default function OrderPricingEntryWorkspace({
 }) {
   const selectedId = formal.entryDraftId || "";
   const newEntry = !selectedId && formal.entryCreationId > 0;
-  const session = formal.authState?.session?.accessToken || "";
+  const session = getAuthWorkspaceIdentity(formal.authState);
   // Keep the accepted default draft stable while editing or showing its receipt.
   // Refreshing the queue can remove a confirmed draft; it must not silently
   // remount the editor on a different draft and erase the successful result.

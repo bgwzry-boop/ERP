@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getAuthWorkspaceIdentity } from "../../../../src/app/useSignedPreviewSessionRenewal.js";
 import { getOfficeRawMaterialInbound, listOfficeRawMaterialInbounds } from "../../../../src/services/officeRawMaterialApiClient.js";
 import { createReadGenerationGuard } from "./read-complete-collection.js";
 import { UNLOADED_READ, beginRead, finishRead, invalidateRead, normalizeReceiptQuery, validateReceiptPage } from "./formal-workspace-read-state.js";
@@ -40,6 +41,7 @@ export function useReceivingData({ authState, active, operatorId }) {
   queryRef.current = query;
   selectionRef.current = selectedId;
   const session = authState?.session?.accessToken || "";
+  const workspaceIdentity = getAuthWorkspaceIdentity(authState);
 
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
   const updateDetailState = useCallback((id, next) => {
@@ -157,7 +159,7 @@ export function useReceivingData({ authState, active, operatorId }) {
     detailStates.current = {};
     setDetails({});
     setPageState(emptyPage());
-  }, [session]);
+  }, [workspaceIdentity]);
 
   useEffect(() => {
     if (!active || !session) return;

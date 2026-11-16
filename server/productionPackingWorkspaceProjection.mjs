@@ -206,17 +206,20 @@ function applyAuthoritativeWorkspaceInventoryItems(workspace, inventoryItems) {
     if (!saved) return inventory;
     return {
       ...inventory,
+      ...saved,
       inStock: saved.onHandQty,
       onHand: saved.onHandQty,
       reserved: saved.reservedQty,
       locked: saved.waitingPickupLockedQty,
       waitingPickupLocked: saved.waitingPickupLockedQty,
+      ...(saved.pendingHandlingQty !== undefined ? { pending: saved.pendingHandlingQty } : {}),
       revision: saved.revision,
     };
   });
   for (const saved of normalizedItems) {
     if (existingIds.has(saved.inventoryItemId)) continue;
     workspace.inventories.push({
+      ...saved,
       id: saved.inventoryItemId,
       inventoryItemId: saved.inventoryItemId,
       inStock: saved.onHandQty,
@@ -224,6 +227,7 @@ function applyAuthoritativeWorkspaceInventoryItems(workspace, inventoryItems) {
       reserved: saved.reservedQty,
       locked: saved.waitingPickupLockedQty,
       waitingPickupLocked: saved.waitingPickupLockedQty,
+      ...(saved.pendingHandlingQty !== undefined ? { pending: saved.pendingHandlingQty } : {}),
       revision: saved.revision,
     });
   }

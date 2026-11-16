@@ -16,13 +16,17 @@ export function resolveOfficeWorkbenchNavigation({
   mobileViewport,
   permissionContext,
   signedPreviewMode = false,
+  fieldPreviewAccess,
 }) {
   const defaultNavigationPage = getDefaultNavigationPage(permissionContext);
+  const fieldPreviewRequested = fieldPreviewAccess?.enabled === true && activePage === "workshopMobile";
   const requestedPage = mobileViewport
-    ? signedPreviewMode && activePage === "todos" && isNavigationPageVisible("rawMaterials", permissionContext)
+    ? fieldPreviewRequested ? "workshopMobile"
+      : signedPreviewMode && activePage === "todos" && isNavigationPageVisible("rawMaterials", permissionContext)
       ? "rawMaterials" : getMobileViewportPage(activePage, permissionContext)
     : activePage;
   const renderedPage = requestedPage === desktopRequiredMobilePage.key
+    || (fieldPreviewRequested && requestedPage === "workshopMobile")
     || isNavigationPageVisible(requestedPage, permissionContext)
     ? requestedPage
     : defaultNavigationPage;
@@ -39,7 +43,7 @@ export function resolveOfficeWorkbenchNavigation({
   };
 }
 
-export function useOfficeWorkbenchNavigation({ permissionContext, signedPreviewMode = false }) {
+export function useOfficeWorkbenchNavigation({ permissionContext, signedPreviewMode = false, fieldPreviewAccess }) {
   const [activePage, setActivePage] = useState("todos");
   const [mobileViewport, setMobileViewport] = useState(() => (
     typeof window !== "undefined" && window.matchMedia(mobileViewportQuery).matches
@@ -47,10 +51,11 @@ export function useOfficeWorkbenchNavigation({ permissionContext, signedPreviewM
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
-    if (!isNavigationPageVisible(activePage, permissionContext)) {
+    if (!(activePage === "workshopMobile" && fieldPreviewAccess?.enabled)
+      && !isNavigationPageVisible(activePage, permissionContext)) {
       setActivePage(getDefaultNavigationPage(permissionContext));
     }
-  }, [activePage, permissionContext]);
+  }, [activePage, permissionContext, fieldPreviewAccess?.enabled]);
 
   useEffect(() => {
     const media = window.matchMedia(mobileViewportQuery);
@@ -71,6 +76,7 @@ export function useOfficeWorkbenchNavigation({ permissionContext, signedPreviewM
       mobileViewport,
       permissionContext,
       signedPreviewMode,
+      fieldPreviewAccess,
     }),
   };
 }

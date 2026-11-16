@@ -1,3 +1,4 @@
+import { getAuthWorkspaceIdentity } from "./useSignedPreviewSessionRenewal.js";
 import {useEffect, useMemo, useRef} from "react";
 import {createOfficeRawMaterialActions} from "./createOfficeRawMaterialActions.js";
 
@@ -14,7 +15,7 @@ export function useOfficeRawMaterialActions(options) {
   const permissions = authState?.permissions;
   const key = JSON.stringify([
     currentUserId, authState?.authenticated, authState?.source,
-    authState?.session?.accessToken,
+    getAuthWorkspaceIdentity(authState),
     [...(permissions?.actionPermissions || [])].sort(),
     [...(permissions?.buttonPermissions || [])].sort(),
     [...(permissions?.roles || [])].sort(), permissions?.user?.enabled,

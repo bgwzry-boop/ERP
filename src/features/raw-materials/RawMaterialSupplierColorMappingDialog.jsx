@@ -1,3 +1,4 @@
+import { getAuthWorkspaceIdentity } from "../../app/useSignedPreviewSessionRenewal.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseOutlined, ReloadOutlined } from "@ant-design/icons";
 import { RAW_MATERIAL_FACTORY_COLORS, normalizeRawMaterialSupplierColor, normalizeRawMaterialSupplierSourceId } from "../../../shared/rawMaterialFactoryColors.js";
@@ -15,7 +16,7 @@ const EMPTY_FORM = Object.freeze({
 });
 
 export function RawMaterialSupplierColorMappingDialog(props) {
-  const sessionKey = JSON.stringify([props.currentUser?.userId ?? "", props.authState?.session?.accessToken ?? "", props.authState?.permissions?.actionPermissions?.includes("master_data.raw_material_color.manage") === true]);
+  const sessionKey = JSON.stringify([props.currentUser?.userId ?? "", getAuthWorkspaceIdentity(props.authState), props.authState?.permissions?.actionPermissions?.includes("master_data.raw_material_color.manage") === true]);
   return <SupplierColorMappingSession key={sessionKey} {...props} />;
 }
 
@@ -26,7 +27,7 @@ function SupplierColorMappingSession({ authState, currentUser, initialValues = n
   const savedNeedsReloadRef = useRef(false);
   const [savedNeedsReload, setSavedNeedsReload] = useState(false);
   const mountedRef = useRef(false);
-  const sessionScope = `${currentUser?.userId || ""}:${authState?.session?.accessToken || ""}`;
+  const sessionScope = `${currentUser?.userId || ""}:${getAuthWorkspaceIdentity(authState)}`;
   const sessionScopeRef = useRef(sessionScope);
   sessionScopeRef.current = sessionScope;
   const firstFieldRef = useRef(null);
