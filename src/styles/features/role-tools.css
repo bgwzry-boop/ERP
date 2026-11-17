@@ -1434,3 +1434,6 @@
 .schedule-action-confirmation h3 {
   margin: 0;
 }
+
+/* 2026-11-17：成本动作被拦截时说明下一步去哪里，而不是只给一句原因 */
+.raw-material-action-hint { margin: 8px 0 0; color: var(--erp-text-muted); font-size: 12px; line-height: 1.5; }

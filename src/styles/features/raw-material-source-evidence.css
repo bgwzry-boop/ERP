@@ -20,6 +20,15 @@
   cursor: default;
 }
 
+/* 2026-11-17：没有原单照片时只显示说明，不做成禁用按钮 */
+.raw-material-source-evidence .raw-material-source-missing {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  color: var(--erp-text-muted);
+  font-size: 13px;
+}
+
 .raw-material-source-evidence button:focus-visible,
 .raw-material-source-dialog button:focus-visible {
   outline: 2px solid var(--erp-focus);
