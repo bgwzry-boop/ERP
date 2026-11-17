@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { UNLOADED_READ, beginRead, finishRead, validateReceiptPage, workspaceReadDependencies } from "../src/formal-workspace-read-state.js";
 import { readCompleteCollection } from "../src/read-complete-collection.js";
+import { applyRuntimeAuthInitializationResult } from "../../../../src/app/useRuntimeAuthInitialization.js";
 
 // The review app and root have separate React installations. Use the same
 // runtime as the renderer, just as Vite dedupes React for the mounted app.
@@ -20,8 +21,41 @@ const { useReceivingData, useFormalDesktopWorkspace } = module.exports;
 
 const stages = { 待核对: 34, 退货单: 2, 待打印: 6, 待贴标: 3, 异常: 0 };
 const receipts = Array.from({ length: 46 }, (_, index) => ({ id: `RECEIPT-${index + 1}`, supplierName: "读取测试供应商", revision: 2, status: "已识别待复核", rolls: [] }));
-const auth = { authenticated: true, session: { accessToken: "isolated-read-test", userId: "U-MANAGER-A" }, permissions: { user: { userId: "U-MANAGER-A", defaultRole: "management" }, actionPermissions: ["master_data.import.plan.create", "statement.preview"] } };
+// Match the signed seed-session response, including its type and valid lifetime.
+// The initialization CAS must not be weakened to accept an incomplete fixture.
+const auth = { authenticated: true, session: { accessToken: "isolated-read-test", userId: "U-MANAGER-A", sessionType: "seed", expiresAt: "2099-01-01T00:00:00.000Z" }, permissions: { user: { userId: "U-MANAGER-A", defaultRole: "management" }, actionPermissions: ["master_data.import.plan.create", "statement.preview"] } };
 const json = value => new Response(JSON.stringify(value), { status: 200 });
+
+test("initialization accepts the complete seed fixture but refuses missing or wrong new-session types without changing state", () => {
+  for (const session of [
+    auth.session,
+    { accessToken: auth.session.accessToken, userId: auth.session.userId },
+    { ...auth.session, sessionType: "runtime" },
+  ]) {
+    let authState = null;
+    let storedSession = null;
+    let mutations = 0;
+    const nextAuthState = { ...auth, source: "api_seed", reason: "login_seed_session", session };
+    const accepted = applyRuntimeAuthInitializationResult({
+      expectedAuthState: null, expectedSession: null, nextAuthState,
+      getCurrentAuthState: () => authState,
+      readSession: () => storedSession,
+      writeSession: value => { mutations++; storedSession = value; },
+      clearSession: () => { mutations++; storedSession = null; },
+      setAuthState: update => { mutations++; authState = update(authState); },
+    });
+    assert.equal(accepted, session === auth.session);
+    if (accepted) {
+      assert.equal(authState, nextAuthState);
+      assert.equal(storedSession, session);
+      assert.equal(mutations, 2);
+    } else {
+      assert.equal(authState, null);
+      assert.equal(storedSession, null);
+      assert.equal(mutations, 0, "a malformed response must not replace identity or storage");
+    }
+  }
+});
 
 test("failed first load, empty success, and failed refresh have distinct states", () => {
   const fail = { source: "api_error", error: { message: "断网" } };
