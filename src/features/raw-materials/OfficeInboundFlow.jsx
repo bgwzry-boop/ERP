@@ -180,7 +180,12 @@ export function OfficeInboundFlow({
         onSave={saveCorrection}
         rows={rows}
       /> : null}
-      {!directionConflict && !ambiguousDirection && rows.length ? <div className="office-roll-summary"><span>本页明细 <strong>{rows.length}</strong> {isReturn ? "项" : "卷"} · <strong>{formatFactNumber(Math.round(rows.reduce((total, row) => total + (Number(row.weightKg) || 0), 0) * 1000) / 1000)}</strong> kg</span><span>原单总重 {inbound.totalWeightKg == null ? "待确认" : `${formatFactNumber(inbound.totalWeightKg)} kg`}</span></div> : null}
+      {!directionConflict && !ambiguousDirection && rows.length ? (() => {
+  const countedUnit = isReturn ? "项" : `${inbound.materialType || ""}${inbound.materialCategory || ""}`.includes("提手") ? "件" : "卷";
+  const weights = rows.map((row) => Number(row.weightKg)).filter((value) => Number.isFinite(value) && value > 0);
+  const weightLabel = weights.length ? `${formatFactNumber(Math.round(weights.reduce((total, value) => total + value, 0) * 1000) / 1000)} kg` : "重量待补";
+  return <div className="office-roll-summary"><span>本页明细 <strong>{rows.length}</strong> {countedUnit} · <strong>{weightLabel}</strong></span><span>原单总重 {Number(inbound.totalWeightKg) > 0 ? `${formatFactNumber(inbound.totalWeightKg)} kg` : "待确认"}</span></div>;
+})() : null}
       {canEdit && blockedRow && !directionConflict ? <div className="office-inbound-block office-inbound-block-locate" role="status"><span>第 {blockedRow.physicalRollIndex} 卷{blockedRow.blocker}{!blockedRow.lineId ? "。该历史卷缺少可编辑的识别明细，需先核实并维护原始逐卷资料。" : ""}</span>{blockedRow.lineId ? <button disabled={submitting || Boolean(reviewState?.disabled)} onClick={() => setEditingId(blockedRow.reviewId)} type="button">定位第 {blockedRow.physicalRollIndex} 卷</button> : null}</div> : null}
       {step === "complete" && completion.reason ? (
         <p className="office-inbound-block" role="status">{completion.reason}</p>

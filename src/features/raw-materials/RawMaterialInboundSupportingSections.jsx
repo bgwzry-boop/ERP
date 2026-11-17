@@ -85,6 +85,7 @@ export function RawMaterialCostProcessingSections({
           type="button"
         >复核毛利快照</button>
       </div>
+      {!canGenerateRawMaterialCostDraft(selected) ? <p className="raw-material-action-hint">生成成本草稿前，需要先有已确认的物料消耗；领料记录还要匹配到生产任务。可先去「卷料库存 → 机边卷」确认消耗，再回来生成。</p> : null}
     </section>
     {showRecords ? <>
       <section className="detail-section">

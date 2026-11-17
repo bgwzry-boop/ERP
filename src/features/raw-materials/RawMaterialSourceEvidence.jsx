@@ -60,9 +60,9 @@ export function RawMaterialSourceEvidence({ authState, operatorId, selected, sou
   }, [open, attachmentId, inlineUrl, authState, operatorId]);
 
   return <div className="raw-material-source-evidence">
-    <button disabled={!pageCount} onClick={() => { setPageIndex(0); setOpen(true); }} ref={triggerRef} type="button">
-      {pageCount ? `查看原单（${pageCount}页）` : "暂无原单照片"}
-    </button>
+    {pageCount
+      ? <button onClick={() => { setPageIndex(0); setOpen(true); }} ref={triggerRef} type="button">查看原单（{pageCount}页）</button>
+      : <span className="raw-material-source-missing">暂无原单照片</span>}
     {open ? <dialog aria-labelledby={titleId} className="raw-material-source-dialog" onCancel={() => setOpen(false)} ref={dialogRef}>
       <header><h2 id={titleId}>原单照片</h2><button onClick={() => setOpen(false)} type="button">关闭</button></header>
       {pageCount > 1 ? <nav aria-label="原单页码">
