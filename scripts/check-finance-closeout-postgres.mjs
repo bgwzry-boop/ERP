@@ -1,3 +1,5 @@
+import { confirmFixtureStockPreparation } from "./helpers/confirmFixtureStockPreparation.mjs";
+import { createApiSharedServiceRegistry } from "../server/apiSharedServiceRegistry.mjs";
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
@@ -42,8 +44,10 @@ try {
     buildPrintDeviceSnapshot:d=>d,
   });
   const request=(w,key,action='first_print')=>({workspace:w,fulfillmentId:'F002',operatorId:'U-OFFICE-A',body:{idempotencyKey:key,printAction:action,documentType:'delivery_note'}});
+  await confirmFixtureStockPreparation(createApiSharedServiceRegistry().fulfillmentActionCommandService, await workspace(), "F002", 400, "finance-paper-stock-preparation");
   const [firstWorkspace,secondWorkspace]=await Promise.all([workspace(),workspace()]);
   const results=await Promise.all([service.printFulfillment(request(firstWorkspace,'pg-print-price-once')),service.printFulfillment(request(secondWorkspace,'pg-print-price-once'))]);
+  for (const result of results) assert.ok(result.printJobId, JSON.stringify(result));
   assert.equal(results[0].printJobId,results[1].printJobId);
   const first=results[0];
   const persisted=(await pool.query('SELECT payload_json FROM print_jobs WHERE id=$1',[first.printJobId])).rows[0].payload_json.printTemplate;

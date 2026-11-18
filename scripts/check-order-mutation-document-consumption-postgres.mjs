@@ -1,3 +1,4 @@
+import { confirmFixtureStockPreparation } from "./helpers/confirmFixtureStockPreparation.mjs";
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import {startLivePostgres,stopLivePostgres} from './postgres-live/runtime.mjs';
@@ -48,6 +49,7 @@ try {
   await pool.query("UPDATE order_lines SET order_type='stock' WHERE id=$1", [id]);
   await pool.query("DELETE FROM production_tasks WHERE id='TASK-PAPER-GUARD'");
   await pool.query("INSERT INTO printer_devices(id,biz_no,name,device_type,status,connection_type,supported_document_types,default_document_types) VALUES('PRINTER-PAPER-GUARD','PRINTER-PAPER-GUARD','合成打印机','document','active','system_printer',ARRAY['delivery_note'],ARRAY['delivery_note'])");
+  await confirmFixtureStockPreparation(services.fulfillmentActionCommandService, await workspace(), fid, 10, "actual-print-preparation");
   let releasePrint, enteredPrint;const printEntered=new Promise(r=>enteredPrint=r),printGate=new Promise(r=>releasePrint=r);
   const printPool={query:(...args)=>pool.query(...args),async connect(){const c=await pool.connect();return {query:async(...args)=>{const q=args[0];if((typeof q==='string'?q:q.text)==='COMMIT'){enteredPrint();await printGate;}return c.query(...args);},release:()=>c.release()};}};
   const printWorkspace=await workspace();printWorkspace.fulfillmentActionTransactionRepository=createPostgresFulfillmentActionTransactionRepository({postgresClient:createPostgresPoolClient({pool:printPool})});

@@ -398,7 +398,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
         {canRecordPrep && can("fulfillment.warehouse.execute") ? <details open={!preparation?.confirmed}>
           <summary>{preparation?.confirmed ? "重新核对备货" : "登记实点数量"}</summary>
           <div className="fulfillment-operation-grid">
-            <label>实际备货人<select value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">请选择</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}</select></label>
+            <label>实际备货人<select aria-label="实际备货人" value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">请选择</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}</select></label>
             <label>实点数量（个）<input type="number" min="0" max="10000000" step="1" value={preparedQty} onChange={event => setPreparedQty(event.target.value)} /></label>
           </div>
           {!employees.length ? <p>{candidates.loading ? "正在读取在岗员工…" : "暂无在岗人员可选，请核对员工档案。"}</p> : null}

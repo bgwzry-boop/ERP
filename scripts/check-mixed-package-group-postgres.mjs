@@ -1,3 +1,4 @@
+import { confirmFixtureStockPreparation } from "./helpers/confirmFixtureStockPreparation.mjs";
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import pg from 'pg';
@@ -84,6 +85,7 @@ try {
  // current paper to warehouse, then execute actual inventory movements. No SQL
  // setting physical_outbound_at substitutes for this chain.
  for(const fid of ['F-MIX-B','F002']){
+  await confirmFixtureStockPreparation(services.fulfillmentActionCommandService, await preparePrint(), fid, fid === 'F002' ? 1000 : 800, `mixed-preparation-${fid}`);
   let w=await preparePrint();const paper=await services.fulfillmentPrintCommandService.printFulfillment({workspace:w,fulfillmentId:fid,body:{documentType:'delivery_note',printDeviceId:'PRINT-MIX-PAPER',idempotencyKey:`mixed-paper-${fid}`},operatorId:'U-OFFICE-A'});assert.ok(paper.printJob,JSON.stringify(paper));if(fid==='F002'){assert.equal(paper.paperOutboundDocument.instructionQty,1000);assert.ok(paper.paperOutboundDocument.instructionResolutionId);assert.equal(paper.printTemplate.fields.quantity,1000);}
   assert.equal((await confirmPrint(paper,`mixed-paper-confirm-${fid}`)).physicalPrintConfirmed,true);
   w=await preparePrint();let f=w.fulfillments.find(f=>f.id===fid),doc=w.paperOutboundDocuments.find(p=>(p.id??p.paperOutboundDocumentId)===f.paperOutboundDocumentId);

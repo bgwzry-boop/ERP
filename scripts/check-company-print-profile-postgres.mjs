@@ -1,3 +1,4 @@
+import { confirmFixtureStockPreparation } from "./helpers/confirmFixtureStockPreparation.mjs";
 // P2-07 单据抬头 on a database with every migration applied: the default header is seeded from
 // the old sheet, the office's edit is saved with an audit log, a stale page is refused, and a
 // retried save with the same key does not save twice.
@@ -59,14 +60,7 @@ try {
     Object.assign(w, await w.printJobRepository.loadState());
     return w;
   };
-  const preparationWorkspace = await prepare();
-  const batch = preparationWorkspace.fulfillments.find(row => row.id === "F001");
-  const preparation = await services.fulfillmentActionCommandService.recordStockPreparation({
-    workspace: preparationWorkspace, fulfillmentId: batch.id, operatorId: "U-OFFICE-A",
-    body: { expectedRevision: batch.revision, preparedQty: batch.expectedQty, employeeId: "EMP-LIVE-MANAGER-001",
-      idempotencyKey: "pickup-note-warehouse-preparation" },
-  });
-  assert.ok(preparation.response?.operationLogId, JSON.stringify(preparation));
+  await confirmFixtureStockPreparation(services.fulfillmentActionCommandService, await prepare(), "F001", 500, "pickup-note-warehouse-preparation");
   const printed = await services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: "F001", operatorId: "U-OFFICE-A",
     body: { documentType: "pickup_note", printDeviceId: "PRINT-PICKUP-PAPER", pickerName: "印刷工乙", idempotencyKey: "pickup-note-picker-1" } });
   assert.ok(printed.printJob, JSON.stringify(printed));
