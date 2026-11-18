@@ -2678,6 +2678,14 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/pickup-confirm bypassed the paper-led outbound boundary");
   }
 
+  async function prepareStockForPaper(batch) {
+    const result = await postJson(baseUrl, `/api/fulfillments/${batch.fulfillmentId}/stock-preparation`, {
+      expectedRevision: batch.revision, preparedQty: batch.expectedQty, employeeId: "E2E-WAREHOUSE-001",
+      idempotencyKey: `api-paper-preparation-${batch.fulfillmentId}`,
+    });
+    if (!result.operationLogId) throw new Error("Stock preparation must return its saved warehouse record");
+  }
+  await prepareStockForPaper(await getJson(baseUrl, "/api/fulfillments/F002"));
   const historicalDeliveryPrint = await postJson(baseUrl, "/api/fulfillments/F002/print", {
     templateId: "tpl-p0-delivery-note", documentType: "delivery_note", printAction: "preview",
   }, { expectedStatus: 409 });
@@ -2697,6 +2705,7 @@ try {
     throw new Error("/api/fulfillments did not return a delivery fulfillment for completion checks");
   }
 
+  await prepareStockForPaper(deliveryFulfillment);
   const deliveryPrintPreview = await postJson(baseUrl, `/api/fulfillments/${deliveryFulfillment.fulfillmentId}/print`, {
     templateId: "tpl-p0-delivery-note",
     documentType: "delivery_note",

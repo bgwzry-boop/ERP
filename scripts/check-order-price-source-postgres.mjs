@@ -71,6 +71,7 @@ try {
   workspace.orderConfirmationTransactionRepository.confirmOrder = input => { confirmedInput = input; return confirmOrder(input); };
   const confirmed = await confirmKnown("pg-known-price");
   assert.ok(confirmed.response, JSON.stringify(confirmed));
+  assert.deepEqual(confirmed.response.productionTasks, [], "Available stock in PostgreSQL ships directly even if the process started without that inventory");
   const lineId = confirmed.response.orderLines[0].id;
   const persistedPrice = (await pool.query("SELECT bag_price,final_amount,source_evidence_json FROM price_snapshots WHERE order_line_id=$1", [lineId])).rows[0];
   assert.equal(Number(persistedPrice.bag_price), 0.9);
@@ -92,7 +93,8 @@ try {
   assert.equal((await queryStatus()).status, "production", "Persisted incomplete line cannot become completed from a fulfillment subset");
   await pool.query("UPDATE order_lines SET line_status='已作废' WHERE id='OL-PRICE-PENDING'");
   assert.equal((await queryStatus()).status, "completed", "Cancelled line does not block the completed active line");
-  await pool.query("UPDATE production_tasks SET task_status='制袋中' WHERE order_line_id=$1", [lineId]);
+  await pool.query(`INSERT INTO production_tasks (id,biz_no,order_line_id,task_type,task_status,planned_qty,created_by)
+    VALUES ('PT-PRICE-STATUS','PT-PRICE-STATUS',$1,'制袋','制袋中',100,'U-PRICE')`, [lineId]);
   assert.equal((await queryStatus()).status, "production", "An explicit unfinished production fact blocks completion despite delivered lines");
   await pool.query("UPDATE production_tasks SET task_status='已完成' WHERE order_line_id=$1", [lineId]);
   await pool.query("UPDATE fulfillment_records SET status='配送中' WHERE order_line_id=$1", [lineId]);

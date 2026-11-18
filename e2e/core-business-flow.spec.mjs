@@ -410,6 +410,11 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   );
   await switchAccount(page, officeOperatorId);
   await configureSystemPrinter(request, "PRN-DOT-A", officeOperatorId);
+  const prep = await apiPost(request, `/fulfillments/${createdFulfillment.fulfillmentId}/stock-preparation`, {
+    expectedRevision: createdFulfillment.revision, preparedQty: 10, employeeId: warehousePhysicalExecutorEmployeeId,
+    idempotencyKey: "core-pickup-stock-preparation",
+  }, officeOperatorId);
+  expect(prep.operationLogId).toBeTruthy();
   const pickupPrintJob = await submitFulfillmentPrint(page, request, {
     fulfillmentId: createdFulfillment.fulfillmentId,
     methodTab: "自提",

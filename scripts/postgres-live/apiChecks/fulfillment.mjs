@@ -6,6 +6,12 @@ export async function checkFulfillmentApi({
   postJson, getJson, queryJson, runPsql, sqlLiteral, assertPostgresOperationLogOperator,
 }) {
   const finalFulfillmentId = confirmedOrder.fulfillmentTasks[0].fulfillmentId;
+  const batch = await getJson(baseUrl, `/api/fulfillments/${finalFulfillmentId}`, { headers });
+  const prepared = await postJson(baseUrl, `/api/fulfillments/${finalFulfillmentId}/stock-preparation`, {
+    expectedRevision: batch.revision, preparedQty: 10, employeeId: "EMP-MD-LIVE-001",
+    idempotencyKey: "warehouse-prep-final-outbound-live-001",
+  }, { headers });
+  assert.ok(prepared.operationLogId);
   const finalOutboundPrint = await postJson(
     baseUrl,
     `/api/fulfillments/${finalFulfillmentId}/print`,

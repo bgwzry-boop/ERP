@@ -24,7 +24,7 @@ export async function operationalReadWorkspace(workspace, pathname, method = 'GE
   const noteVoid = method === 'POST' && /^\/api\/print-records\/[^/]+\/void$/.test(pathname);
   const noteRead = method === 'GET' && pathname === '/api/print-jobs/note.pdf';
   const noteWrite = method === 'POST' && (pathname === '/api/print-jobs/status-poll'
-    || /^\/api\/print-jobs\/[^/]+\/(?:browser-printed|dispatch|driver-status|poll-status)$/.test(pathname));
+    || /^\/api\/print-jobs\/[^/]+\/(?:browser-printed|dispatch|driver-status|poll-status|status|retry)$/.test(pathname));
   const operationalRead = method === 'GET' && (pathname === '/api/todos'
     || pathname === '/api/operation-logs'
     || pathname === '/api/inventory/items'
