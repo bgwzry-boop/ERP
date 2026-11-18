@@ -59,6 +59,14 @@ try {
     Object.assign(w, await w.printJobRepository.loadState());
     return w;
   };
+  const preparationWorkspace = await prepare();
+  const batch = preparationWorkspace.fulfillments.find(row => row.id === "F001");
+  const preparation = await services.fulfillmentActionCommandService.recordStockPreparation({
+    workspace: preparationWorkspace, fulfillmentId: batch.id, operatorId: "U-OFFICE-A",
+    body: { expectedRevision: batch.revision, preparedQty: batch.expectedQty, employeeId: "EMP-LIVE-MANAGER-001",
+      idempotencyKey: "pickup-note-warehouse-preparation" },
+  });
+  assert.ok(preparation.response?.operationLogId, JSON.stringify(preparation));
   const printed = await services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: "F001", operatorId: "U-OFFICE-A",
     body: { documentType: "pickup_note", printDeviceId: "PRINT-PICKUP-PAPER", pickerName: "印刷工乙", idempotencyKey: "pickup-note-picker-1" } });
   assert.ok(printed.printJob, JSON.stringify(printed));
