@@ -40,6 +40,7 @@ for (const [serviceName, commandName, kind] of [
   ["fulfillmentActionCommandService", "createFulfillmentException", "exception"],
   ["fulfillmentActionCommandService", "upsertDriverDispatch", "dispatch"],
   ["fulfillmentActionCommandService", "handoffPaperOutboundDocument", "paperHandoff"],
+  ["fulfillmentActionCommandService", "recordStockPreparation", "stockPreparation"],
   ["fulfillmentActionCommandService", "recordWarehouseOutboundExecution", "warehouseExecution"],
   ["fulfillmentActionCommandService", "updateFulfillmentStatus", "status"],
   ["fulfillmentActionCommandService", "cancelFulfillment", "cancel"],
@@ -57,7 +58,12 @@ await expectHandled("/api/fulfillments/F-1/exception", "fulfillment.exception.cr
 await expectHandled("/api/fulfillments/F-1/dispatch", "fulfillment.dispatch.update", "dispatch", { fulfillmentId: "F-1" });
 await expectHandled("/api/fulfillments/F-1/paper-handoff", "fulfillment.paper.handoff", "paperHandoff", { fulfillmentId: "F-1" });
 await expectHandled("/api/fulfillments/F-1/warehouse-execution", "fulfillment.warehouse.execute", "warehouseExecution", { fulfillmentId: "F-1" });
-await expectHandled("/api/fulfillments/F-1/print", "fulfillment.print", "print", { fulfillmentId: "F-1" }, "record", { notFoundCode: "FULFILLMENT_NOT_FOUND" });
+await expectHandled("/api/fulfillments/F-1/stock-preparation", "fulfillment.warehouse.execute", "stockPreparation", { fulfillmentId: "F-1" });
+for (const canRecordWarehouseExecution of [false, true]) {
+  dependencies.permissionContext.actionPermissions = canRecordWarehouseExecution ? ["fulfillment.print", "fulfillment.warehouse.execute"] : ["fulfillment.print"];
+  await expectHandled("/api/fulfillments/F-1/print", "fulfillment.print", "print", { fulfillmentId: "F-1", canRecordWarehouseExecution }, "record", { notFoundCode: "FULFILLMENT_NOT_FOUND" });
+}
+dependencies.permissionContext.actionPermissions = [];
 await expectHandled("/api/print-records/PR-1/void", "fulfillment.print", "void", { printRecordId: "PR-1" }, "record", { notFoundCode: "PRINT_RECORD_NOT_FOUND" });
 await expectHandled("/api/fulfillments/F-1/prepared", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "标记已备货" });
 await expectHandled("/api/fulfillments/F-1/complete", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "完成出库/交付" });
@@ -65,20 +71,22 @@ await expectHandled("/api/fulfillments/F-1/pickup-confirm", "fulfillment.pickup.
 await expectHandled("/api/fulfillments/F-1/cancel", "fulfillment.cancel", "cancel", { fulfillmentId: "F-1" });
 await expectHandled("/api/fulfillments/F-1/delivery-evidence-review", "delivery.evidence.review", "review", { fulfillmentId: "F-1" });
 
-calls.length = 0;
-assert.equal(
-  await handleFulfillmentWriteRoutes({
-    ...dependencies,
-    method: "POST",
-    url: new URL("http://erp.test/api/fulfillments/F-1/complete"),
-    requireActionPermission() {
-      calls.push({ kind: "denied" });
-      return false;
-    },
-  }),
-  true,
-);
-assert.deepEqual(calls, [{ kind: "denied" }]);
+for (const action of ["complete", "stock-preparation"]) {
+  calls.length = 0;
+  assert.equal(
+    await handleFulfillmentWriteRoutes({
+      ...dependencies,
+      method: "POST",
+      url: new URL(`http://erp.test/api/fulfillments/F-1/${action}`),
+      requireActionPermission() {
+        calls.push({ kind: "denied" });
+        return false;
+      },
+    }),
+    true,
+  );
+  assert.deepEqual(calls, [{ kind: "denied" }]);
+}
 assert.equal(
   await handleFulfillmentWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/fulfillments/F-1/complete") }),
   false,

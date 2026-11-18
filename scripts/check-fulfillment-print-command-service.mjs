@@ -296,7 +296,7 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
   assert.equal(voided.paperOutboundDocument.status, "已作废");
   assert.equal(harness.workspace.paperOutboundDocuments[0].status, "已作废");
 
-  const reprinted = await harness.service.printFulfillment({
+  const reprint = () => harness.service.printFulfillment({
     workspace: harness.workspace,
     fulfillmentId: "F-001",
     body: {
@@ -307,7 +307,31 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
     },
     operatorId: "U-OFFICE-A",
   });
+  const unresolved = await reprint();
+  assert.equal(unresolved.code, "FULFILLMENT_NOTE_NOT_READY");
+  assert.match(unresolved.message, /数量或出库差异/);
+  const fulfillment = harness.workspace.fulfillments[0];
+  Object.assign(fulfillment, { status: "待出库", actualQty: 1430 });
+  harness.workspace.fulfillmentQuantityVarianceResolutions = [{
+    id: "RES-1430", fulfillmentId: "F-001", expectedQty: 1500, actualQty: 1430,
+    resolutionResult: "按实际数量出库", businessDecisionId: "DEC-1430", createdAt: fixedNow,
+  }];
+  harness.workspace.businessDecisionRecords = [{
+    id: "DEC-1430", businessId: "F-001", decisionScope: "fulfillment_quantity_variance", status: "active",
+  }];
+  const awaitingPreparation = await reprint();
+  assert.equal(awaitingPreparation.code, "FULFILLMENT_NOTE_NOT_READY");
+  assert.match(awaitingPreparation.message, /备货/);
+  assert.equal(harness.workspace.paperOutboundDocuments.length, 1);
+  harness.workspace.operationLogs.push({
+    id: "PREP-1430", action: "record_stock_preparation", targetType: "fulfillment", targetId: "F-001",
+    after: { stockPreparation: { method: fulfillment.method, orderLineId: "OL-001", requiredQty: 1430, quantity: 1430,
+      employeeId: "EMP-WAREHOUSE", employeeName: "库房测试员", fulfillmentRevision: 3 } },
+  });
+  const reprinted = await reprint();
   assert.equal(reprinted.paperOutboundDocument.documentVersion, 2);
+  assert.equal(reprinted.paperOutboundDocument.instructionQty, 1430);
+  assert.equal(reprinted.paperOutboundDocument.instructionDecisionId, "DEC-1430");
 
   const physicalHarness = createHarness({
     fulfillments: [createFulfillment({ physicalOutboundDocumentId: "POD-OLD", physicalOutboundAt: fixedNow })],

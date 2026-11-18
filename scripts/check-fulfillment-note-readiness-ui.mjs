@@ -4,9 +4,10 @@ import { createFulfillmentReadProjectionService } from "../server/services/fulfi
 
 // Exercise the real 4174 desktop shell with read-only synthetic business facts.
 const stock = { id: "L-STOCK", customerId: "C-STOCK", customerName: "现货客户", orderType: "stock", inventory: "已占用", status: "待出库", qty: 500 };
+const unprepared = { ...stock, id: "L-UNPREPARED", customerId: "C-UNPREPARED", customerName: "待备货客户", qty: 300 };
 const partial = { id: "L-PART", customerId: "C-PART", customerName: "分批客户", orderType: "custom_special", status: "制袋中", qty: 1000 };
 const printing = { id: "L-PRINT", customerId: "C-PRINT", customerName: "在印客户", orderType: "custom_print", status: "丝印中", qty: 1500 };
-const orderLines = [stock, partial, printing].map(line => ({ ...line, size: "30*37*10", color: "红色", printFlag: line === printing }));
+const orderLines = [stock, unprepared, partial, printing].map(line => ({ ...line, size: "30*37*10", color: "红色", printFlag: line === printing }));
 function shipment(id, line, expectedQty, actualQty) {
   return { id, orderLineId: line.id, customerId: line.customerId, qty: expectedQty, actualQty, method: "送货", status: "待出库", revision: 1 };
 }
@@ -14,7 +15,12 @@ const workspace = {
   orderLines,
   customers: orderLines.map(line => ({ id: line.customerId, name: line.customerName })),
   fulfillments: [shipment("F-PRINT", printing, 1500, null), shipment("F-STOCK", stock, 500, null),
-    shipment("F-READY", partial, 500, 400), shipment("F-REST", partial, 600, null)],
+    shipment("F-UNPREPARED", unprepared, 300, null), shipment("F-READY", partial, 500, 400), shipment("F-REST", partial, 600, null)],
+  operationLogs: [{
+    id: "PREP-STOCK", targetType: "fulfillment", targetId: "F-STOCK", action: "record_stock_preparation",
+    after: { stockPreparation: { orderLineId: stock.id, method: "送货", requiredQty: 500, quantity: 500,
+      employeeId: "EMP-WAREHOUSE", employeeName: "库房测试员", fulfillmentRevision: 1 } },
+  }],
   productionTasks: [
     { id: "PT1", orderLineId: printing.id, taskType: "丝印", taskStatus: "丝印中" },
     { id: "PT2", orderLineId: partial.id, taskType: "制袋", taskStatus: "已完成" },
@@ -55,7 +61,7 @@ try {
   const readyRow = todayRows.filter({ hasText: "400个" });
   await readyRow.getByRole("button", { name: "去打单" }).waitFor();
   assert.equal(await todayRows.filter({ hasText: "500个" }).count(), 1);
-  assert.equal(await todayRows.filter({ hasText: /1500个|600个/ }).count(), 0);
+  assert.equal(await todayRows.filter({ hasText: /1500个|600个|300个/ }).count(), 0);
   await readyRow.getByRole("button", { name: "去打单" }).click();
 
   const table = page.getByRole("table", { name: "出库交付列表" });
@@ -73,6 +79,10 @@ try {
   await checkCanStart();
   await table.getByRole("row").filter({ hasText: stock.id }).click();
   await checkCanStart();
+
+  await table.getByRole("row").filter({ hasText: unprepared.id }).click();
+  await paper.getByText("先核对库房备货数量和经手人，再打印正式单。").waitFor();
+  assert.equal(await create.count(), 0);
 
   // Select the other (unpacked) batch on the same order line first, then the printing order.
   await table.getByRole("row").filter({ hasText: partial.id }).filter({ hasText: "待打包" }).click();
