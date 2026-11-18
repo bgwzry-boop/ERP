@@ -52,6 +52,13 @@ try {
     Object.assign(w, await w.printJobRepository.loadState());
     return w;
   };
+  for (const fulfillmentId of ["F001", "F002"]) {
+    const workspace = await prepare();
+    const row = workspace.fulfillments.find(record => record.id === fulfillmentId);
+    const recorded = await services.fulfillmentActionCommandService.recordStockPreparation({ workspace, fulfillmentId, operatorId: "U-OFFICE-A",
+      body: { expectedRevision: row.revision, employeeId: "EMP-LIVE-MANAGER-001", preparedQty: row.expectedQty, idempotencyKey: `browser-print-prep-${fulfillmentId}` } });
+    assert.ok(recorded.response?.operationLogId, JSON.stringify(recorded));
+  }
 
   // 不指定打印机：自提单走默认的浏览器打印针式机，任务排队等办公室确认。
   const printed = await services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: "F001", operatorId: "U-OFFICE-A",

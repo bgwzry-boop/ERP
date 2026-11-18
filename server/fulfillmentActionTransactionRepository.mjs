@@ -1,14 +1,17 @@
-import { createLocalNoteCorrectionMethods, createPostgresNoteCorrectionMethods, netDeductedFulfillmentQuantity, netDeductedFulfillmentQuantitySql } from "./fulfillmentNoteCorrectionTransaction.mjs";
+import {
+  createLocalNoteCorrectionMethods, createPostgresNoteCorrectionMethods, netDeductedFulfillmentQuantity,
+  netDeductedFulfillmentQuantitySql, operationalPaperNetDeduction,
+} from "./fulfillmentNoteCorrectionTransaction.mjs";
 import { directProductionOrderTypeAliases, isDirectProductionOrderType } from "../shared/orderRouting.js";
 import { AUTO_QUANTITY_TOLERANCE_RATE } from "../shared/quantityTolerance.js";
 // P2-05: produced orders whose outbound may differ from the plan by up to 1% without an office decision.
 const PRODUCTION_MADE_ORDER_TYPE_ALIASES = directProductionOrderTypeAliases();
 import { hasVoidedNoteSource } from "./services/queuedFulfillmentNoteReadiness.mjs";
 import { fulfillmentNoteReadinessSql } from "./fulfillmentNoteReadinessSql.mjs";
-import { fulfillmentNoteReadiness, noteDocumentTypes } from "../shared/fulfillmentNoteReadiness.js";
+import { fulfillmentNoteReadiness, noteDocumentTypes, stockPreparationAction } from "../shared/fulfillmentNoteReadiness.js";
 import { invalidPackageStatuses, packageAnchorId } from "../shared/packageContents.js";
 import { deliveryMethods, outboundPackageEvidence, outboundPackageLabels } from "./services/outboundPackageEvidence.mjs";
-import { resolveWarehouseInstructionQuantity } from "./services/warehouseInstructionQuantityService.mjs";
+import { captureWarehouseInstruction, mayReportDeductedPaperMismatchBeforeHandoff, resolveWarehouseInstructionQuantity } from "./services/warehouseInstructionQuantityService.mjs";
 import { isReleasableInventoryReservation, releasableInventoryReservationStatuses } from "./services/inventoryReservationPolicyService.mjs";
 import { acceptsWorkspaceRecordVersion } from "./workspaceRecordVersion.mjs";
 import { hasTrustedWarehousePaper } from "../shared/warehousePaperTrust.js";
@@ -68,6 +71,10 @@ export function createLocalFulfillmentActionTransactionRepository() {
     },
     findWarehouseExecutionReplay({ workspace, fulfillmentId, body, operatorId }) {
       return resolveExactActionReplay((workspace.operationIdempotencyRecords ?? []).find(row => row.scope === "fulfillment.record_warehouse_outbound_execution" && row.idempotencyKey === normalizeIdempotencyKey(body.idempotencyKey)), { ...body, operatorId }, fulfillmentId);
+    },
+    findStockPreparationReplay({ workspace, payload }) {
+      return resolveExactActionReplay((workspace.operationIdempotencyRecords ?? []).find(row => row.scope === `fulfillment.${stockPreparationAction}`
+        && row.idempotencyKey === normalizeIdempotencyKey(payload.idempotencyKey)), payload, payload.fulfillmentId);
     },
     findFulfillmentPrintReplay({ workspace, ...request }) {
       const key = normalizeIdempotencyKey(request.body.idempotencyKey);
@@ -426,6 +433,12 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       mergeFulfillmentPrintCurrentState(workspace, current);
       return { ...saved, replayed: true };
     },
+    async findStockPreparationReplay({ payload }) {
+      const key = normalizeIdempotencyKey(payload.idempotencyKey);
+      if (!key) return null;
+      const existing = await queryJson("SELECT json_build_object('requestHash', request_hash, 'response', response_json) AS result FROM operation_idempotency_keys WHERE scope=$1 AND idempotency_key=$2", [`fulfillment.${stockPreparationAction}`, key]);
+      return resolveExactActionReplay(existing, payload, payload.fulfillmentId);
+    },
     async findPrintVoidReplay({ workspace, printRecordId, body, operatorId }) {
       const key = normalizeIdempotencyKey(body.idempotencyKey);
       if (!key) return null;
@@ -444,7 +457,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
     recordFulfillmentAction,
     recordFulfillmentPrint: recordFulfillmentAction,
     // 负责人 2026-11-12：送货单 / 自提单作废重打。
-    ...createPostgresNoteCorrectionMethods({ idempotentTransactionJson }),
+    ...createPostgresNoteCorrectionMethods({ idempotentTransactionJson, queryJson }),
   };
 }
 
@@ -1969,10 +1982,22 @@ FOR UPDATE OF document, record`;
 
 function buildWarehouseExecutionGuardSql(execution, parameters) {
   if (!execution) return "true";
+  const paperStatus = "(SELECT status FROM locked_execution_paper_document)";
+  const validPaperStage = execution.result === "已备货"
+    ? `${paperStatus} NOT IN ('已作废', 'voided')`
+    : execution.result === "数量不符"
+      ? `(${paperStatus} = '已交库房' OR (${paperStatus} NOT IN ('已作废', 'voided') AND EXISTS (
+        SELECT 1 FROM locked_fulfillment f WHERE f.stock_deducted_at IS NOT NULL
+          AND f.physical_outbound_at IS NULL AND f.loaded_at IS NULL AND f.final_delivery_at IS NULL AND f.delivered_at IS NULL
+          AND f.status NOT IN ('已取消','已作废','已送达','已交付','已提货','已拉走','已完成')
+          AND EXISTS (SELECT 1 FROM inventory_ledger_entries l WHERE l.source_id=f.id AND l.source_type='fulfillment_note_print' AND l.qty_change<0)
+      )))`
+      : `${paperStatus} = '已交库房'`;
   return `(SELECT COUNT(*) FROM locked_execution_paper_document) = 1
+    AND (SELECT status FROM locked_fulfillment) NOT IN ('已取消', '已作废')
     AND (SELECT revision FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentRevision)}
     AND (SELECT print_status FROM locked_execution_paper_document) IN ('printed', 'reprinted')
-    AND (SELECT status FROM locked_execution_paper_document) ${execution.result === "已备货" ? "NOT IN ('已作废', 'voided')" : "= '已交库房'"}
+    AND ${validPaperStage}
     AND (SELECT document_version FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentVersion)}
     ${execution.result === "实物已出库" ? `AND (SELECT COALESCE(p.instruction_qty,f.expected_qty) FROM locked_execution_paper_document p CROSS JOIN locked_fulfillment f)=${parameters.integer(execution.actualQty)}
     AND (NOT EXISTS(SELECT 1 FROM locked_execution_paper_document WHERE instruction_resolution_id IS NOT NULL OR instruction_decision_id IS NOT NULL)
@@ -2801,12 +2826,18 @@ function assertLocalFulfillmentOperationalBounds(input) {
    const job = input.confirmingNoteJob ?? input.printJob;
    const record = input.printRecord;
    const historicalReprint = hasVoidedNoteSource(input.workspace, record, confirming ? job : undefined);
-   const readiness = fulfillmentNoteReadiness(input.workspace, current, line,
-     confirming ? { historicalReprint, printedQty: job?.payload?.printTemplate?.fields?.totalQuantity } : { historicalReprint });
+   const readiness = fulfillmentNoteReadiness(input.workspace, current, line, {
+     historicalReprint,
+     requiredStockQty: captureWarehouseInstruction(input.workspace, current).instructionQty,
+     operationalNetDeduction: operationalPaperNetDeduction(input.workspace, current),
+     ...(confirming ? { printedQty: job?.payload?.printTemplate?.fields?.totalQuantity } : {}),
+     onSitePickup: record.documentType === "pickup_note" && record.printAction === "first_print" && !!job?.payload?.request?.onSitePickup?.employeeId,
+   });
    if (!readiness.ready || (current.actualQty ?? null) !== (next.actualQty ?? null)) throw fulfillmentConflict(current.revision);
  }
 
   if (input.warehouseOutboundExecution) {
+    if (["已取消", "已作废"].includes(current.status)) throw fulfillmentConflict(current.revision);
     const execution = input.warehouseOutboundExecution;
     const documents = (input.workspace.paperOutboundDocuments ?? []).filter(row => row.fulfillmentId === id)
       .sort((left, right) => Number(right.documentVersion) - Number(left.documentVersion) || String(right.createdAt).localeCompare(String(left.createdAt)));
@@ -2814,7 +2845,8 @@ function assertLocalFulfillmentOperationalBounds(input) {
     const print = (input.workspace.printRecords ?? []).find(row => (row.printRecordId ?? row.id) === paper?.printRecordId);
     if (!paper || (paper.paperOutboundDocumentId ?? paper.id) !== execution.paperOutboundDocumentId || Number(paper.revision) !== Number(execution.paperDocumentRevision)
       || Number(paper.documentVersion) !== Number(execution.paperDocumentVersion) || !hasTrustedWarehousePaper(paper, print, id)
-      || (execution.result !== "已备货" && paper.status !== "已交库房")) throw fulfillmentConflict(current.revision);
+      || (execution.result !== "已备货" && paper.status !== "已交库房"
+        && !mayReportDeductedPaperMismatchBeforeHandoff(input.workspace, current, execution.result))) throw fulfillmentConflict(current.revision);
     if (execution.result === "实物已出库" && resolveWarehouseInstructionQuantity(input.workspace, current, paper) !== Number(execution.actualQty)) throw fulfillmentConflict(current.revision);
   }
   const packageEvidenceQty = outboundPackageEvidenceQuantity(input, next, input.warehouseOutboundExecution);

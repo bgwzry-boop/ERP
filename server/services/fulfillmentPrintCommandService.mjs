@@ -1,9 +1,11 @@
-import { fulfillmentNoteReadiness, noteDocumentTypes } from "../../shared/fulfillmentNoteReadiness.js";
+import { fulfillmentNoteReadiness, isDirectStockShipment, noteDocumentTypes } from "../../shared/fulfillmentNoteReadiness.js";
+import { findAvailableWarehouseExecutor } from "./fulfillmentOperatorCandidatesService.mjs";
 import { autoQuantityDifference } from "../../shared/quantityTolerance.js";
 import { buildDeliveryBatchFamily, describeBatchProgress } from "../../shared/deliveryBatches.js";
 import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
 import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
 import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
+import { operationalPaperNetDeduction } from "../fulfillmentNoteCorrectionTransaction.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
 import { readCompanyPrintProfile, isNotePrintStockDeductionEnabled } from "./companyPrintProfileService.mjs";
@@ -35,7 +37,7 @@ export function createFulfillmentPrintCommandService({
     return fulfillmentNoteCorrectionService.correctFulfillmentNote(input);
   }
 
-  async function printFulfillment({ workspace, fulfillmentId, body = {}, operatorId }) {
+  async function printFulfillment({ workspace, fulfillmentId, body = {}, operatorId, canRecordWarehouseExecution = false }) {
     const replay = await workspace.fulfillmentActionTransactionRepository?.findFulfillmentPrintReplay?.({
       workspace, fulfillmentId, body, operatorId,
     });
@@ -68,8 +70,25 @@ export function createFulfillmentPrintCommandService({
     const printValidation = validateFulfillmentPrintRequest(workspace, fulfillmentId, printableBody);
     if (printValidation.error) return printValidation;
     const orderLine = findOrderLine(workspace, before.lineId ?? before.orderLineId);
+    let onSitePickup = null;
+    if (body.onSitePickupEmployeeId != null) {
+      const employee = findAvailableWarehouseExecutor(workspace, normalizeText(body.onSitePickupEmployeeId));
+      if (!canRecordWarehouseExecution || !employee || documentType !== "pickup_note" || printableBody.printAction !== "first_print"
+        || !["pickup", "自提"].includes(before.method) || !isDirectStockShipment(workspace, before, orderLine)
+        || ["待补货", "数量差异待处理", "无法出库", "送货异常"].includes(before.status)
+        || before.legacyStateReviewRequired || before.physicalOutboundAt || before.loadedAt || before.finalDeliveryAt || before.deliveredAt) {
+        return businessError(409, "WALK_IN_PRINT_NOT_AVAILABLE", "仅限客户在场的现货自提，且已选实际经手人。");
+      }
+      onSitePickup = { employeeId: employee.id, recordedBy: operatorId };
+    }
     if (noteDocumentTypes.includes(documentType)) {
-      const readiness = fulfillmentNoteReadiness(workspace, before, orderLine, { historicalReprint: printableBody.printAction === "reprint" });
+      const requiredStockQty = captureWarehouseInstruction(workspace, before).instructionQty;
+      const readiness = fulfillmentNoteReadiness(workspace, before, orderLine, {
+        historicalReprint: printableBody.printAction === "reprint", onSitePickup, requiredStockQty,
+        operationalNetDeduction: operationalPaperNetDeduction(workspace, before),
+        // For a live paper, the amount printed must match the same quantity as the warehouse instruction.
+        ...(isDirectStockShipment(workspace, before, orderLine) ? { printedQty: before.actualQty ?? before.expectedQty ?? before.qty } : {}),
+      });
       if (!readiness.ready) return businessError(409, "FULFILLMENT_NOTE_NOT_READY", readiness.reason);
     }
     const printDeviceResolution = await resolvePrintDeviceForDocument(workspace, {
@@ -165,6 +184,7 @@ export function createFulfillmentPrintCommandService({
       printTemplate,
       body: {
         ...printableBody,
+        onSitePickup,
         packageIds: packageSnapshot.map((item) => item.packageId),
       },
       operatorId,
@@ -294,6 +314,17 @@ export function createFulfillmentPrintCommandService({
     const paperOutboundDocument = fulfillment
       ? findPaperOutboundDocumentByPrintRecord(workspace, before.printRecordId ?? before.id)
       : null;
+    if (paperOutboundDocument && (["printed", "reprinted"].includes(before.status))) {
+      const netDeduction = operationalPaperNetDeduction(workspace, fulfillment);
+      const plannedQuantity = Number(fulfillment.expectedQty ?? fulfillment.qty);
+      const paperQuantity = Number(paperOutboundDocument.instructionQty ?? plannedQuantity);
+      const hasOpenVariance = (workspace.fulfillmentExceptions ?? []).some((row) => row.fulfillmentId === paperOutboundDocument.fulfillmentId
+        && row.exceptionType === "quantity_mismatch" && !["已解决", "已作废"].includes(row.status));
+      if (netDeduction > 0 && (hasOpenVariance || paperQuantity !== netDeduction
+        || Number(fulfillment.actualQty ?? plannedQuantity) !== netDeduction)) {
+        return businessError(409, "FULFILLMENT_NOTE_CORRECTION_REQUIRED", "这张纸单已扣库存并存在数量差异，请从出库交付按实数作废重打，同步退补库存。");
+      }
+    }
     if (paperOutboundDocument?.status === "已交库房") {
       const executions = listWarehouseExecutionsForPaperDocument(workspace, paperOutboundDocument);
       const physicalExecutionRecorded = executions.some((item) => normalizeText(item.result) === "实物已出库") ||
@@ -534,6 +565,7 @@ function buildPrintJobRecord({ workspace, printRecord, printTemplate, body, oper
       request: {
         printAction: printRecord.printAction,
         ...(printRecord.previousPrintRecordId ? { previousPrintRecordId: printRecord.previousPrintRecordId } : {}),
+        ...(body.onSitePickup ? { onSitePickup: body.onSitePickup } : {}),
         packageIds: printRecord.packageSnapshot.map((item) => item.packageId),
         paperNo: body.paperNo ?? "",
       },

@@ -16,7 +16,7 @@ export async function handleFulfillmentWriteRoutes({
 }) {
   if (method !== "POST") return false;
 
-  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|delivery-exception-resolution|quantity-variance-resolution|dispatch|print|paper-handoff|warehouse-execution|prepared|complete|pickup-confirm|cancel|delivery-evidence-review|note-correction)$/);
+  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|delivery-exception-resolution|quantity-variance-resolution|dispatch|print|paper-handoff|warehouse-execution|stock-preparation|prepared|complete|pickup-confirm|cancel|delivery-evidence-review|note-correction)$/);
   if (fulfillmentActionMatch) {
     const fulfillmentId = decodeURIComponent(fulfillmentActionMatch[1]);
     const action = fulfillmentActionMatch[2];
@@ -42,7 +42,9 @@ export async function handleFulfillmentWriteRoutes({
       },
       print: {
         permission: writeActionPermissions.printFulfillment,
-        run: (operatorId) => fulfillmentPrintCommandService.printFulfillment({ workspace, fulfillmentId, body, operatorId }),
+        run: (operatorId) => fulfillmentPrintCommandService.printFulfillment({ workspace, fulfillmentId, body, operatorId,
+          canRecordWarehouseExecution: (permissionContext?.actionPermissions ?? []).includes(writeActionPermissions.recordWarehouseOutboundExecution),
+        }),
         recordOptions: { notFoundCode: "FULFILLMENT_NOT_FOUND" },
       },
       "paper-handoff": {
@@ -52,6 +54,10 @@ export async function handleFulfillmentWriteRoutes({
       "warehouse-execution": {
         permission: writeActionPermissions.recordWarehouseOutboundExecution,
         run: (operatorId) => fulfillmentActionCommandService.recordWarehouseOutboundExecution({ workspace, fulfillmentId, body, operatorId }),
+      },
+      "stock-preparation": {
+        permission: writeActionPermissions.recordWarehouseOutboundExecution,
+        run: (operatorId) => fulfillmentActionCommandService.recordStockPreparation({ workspace, fulfillmentId, body, operatorId }),
       },
       prepared: {
         permission: writeActionPermissions.completeFulfillment,

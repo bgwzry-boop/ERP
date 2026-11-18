@@ -1,6 +1,7 @@
-import { noteDocumentTypes, productionLineStages, shippedNoteStatuses, voidNoteStatuses } from "../shared/fulfillmentNoteReadiness.js";
+import { noteDocumentTypes, productionLineStages, shippedNoteStatuses, stockPreparationAction, voidNoteStatuses } from "../shared/fulfillmentNoteReadiness.js";
 import { orderTypeAliasesFor, REPLENISHMENT_FULFILLMENT } from "../shared/orderRouting.js";
 import { invalidPackageStatuses } from "../shared/packageContents.js";
+import { NET_DEDUCTION_SOURCE_TYPES } from "./fulfillmentNoteCorrectionTransaction.mjs";
 
 // Per-delivery evidence written by the single-task and mixed-package packing commands.
 function packingReceiptSql(batch) {
@@ -48,16 +49,51 @@ export function fulfillmentNoteReadinessSql(printRecord, fulfillment, parameters
     ? `EXISTS (SELECT 1 FROM print_jobs j WHERE j.id=${parameters.text(job?.printJobId)}
          AND j.print_record_id=${parameters.text(printRecord.printRecordId)} AND j.target_type='fulfillment' AND j.target_id=f.id
          AND j.payload_json#>>'{printTemplate,fields,totalQuantity}'=f.actual_qty::text)` : "TRUE";
+  const stockQty = "COALESCE(f.actual_qty,f.expected_qty)::text";
+  const netDeductionMatches = `(f.stock_deducted_at IS NULL OR (SELECT COALESCE(-SUM(ledger.qty_change),0)
+        FROM inventory_ledger_entries ledger WHERE ledger.source_id=f.id AND ledger.source_type = ANY(${parameters.textArray(NET_DEDUCTION_SOURCE_TYPES)})) IN (0, ${stockQty}::bigint))`;
+  const currentStockPaperQty = confirming
+    ? `EXISTS (SELECT 1 FROM print_jobs j WHERE j.id=${parameters.text(job?.printJobId)}
+         AND j.print_record_id=${parameters.text(printRecord.printRecordId)} AND j.target_type='fulfillment' AND j.target_id=f.id
+         AND j.payload_json#>>'{printTemplate,fields,totalQuantity}'=${stockQty})`
+    : `${parameters.text(job?.payload?.printTemplate?.fields?.totalQuantity)}=${stockQty}`;
+  const onSitePickup = printRecord.documentType === "pickup_note" && printRecord.printAction === "first_print"
+    ? `(f.method IN ('pickup','自提') AND ${confirming
+      ? `EXISTS (SELECT 1 FROM print_jobs j WHERE j.id=${parameters.text(job?.printJobId)}
+             AND j.print_record_id=${parameters.text(printRecord.printRecordId)} AND j.target_type='fulfillment' AND j.target_id=f.id
+             AND NULLIF(j.payload_json#>>'{request,onSitePickup,employeeId}','') IS NOT NULL)`
+      : parameters.boolean(Boolean(job?.payload?.request?.onSitePickup?.employeeId))})`
+    : "FALSE";
+  const preparedStock = `EXISTS (SELECT 1 FROM LATERAL (
+      SELECT log.after_json->'stockPreparation' AS facts FROM operation_logs log
+      WHERE log.target_id=f.id AND log.target_type='fulfillment' AND log.action=${parameters.text(stockPreparationAction)}
+      ORDER BY (log.after_json#>>'{stockPreparation,fulfillmentRevision}')::bigint DESC, log.id DESC LIMIT 1
+    ) prep WHERE prep.facts->>'method'=f.method AND prep.facts->>'orderLineId'=l.id
+      AND prep.facts->>'requiredQty'=${stockQty} AND prep.facts->>'quantity'=${stockQty})`;
+  const hasCorrectedQuantity = `EXISTS (
+      SELECT 1 FROM operation_logs log WHERE log.target_type='fulfillment' AND log.target_id=f.id
+        AND log.action='correct_fulfillment_note' AND log.after_json->>'preDepartureQuantityCorrection'='true'
+    )`;
+  const correctedStockPackagesCurrent = `(COALESCE(f.packing_group_anchor_id,'')='' OR NOT ${hasCorrectedQuantity}
+    OR (SELECT bool_and(item->>'orderLineId'=l.id AND (item->>'packedQty')::bigint>0)
+                 AND sum((item->>'packedQty')::bigint)=${stockQty}::bigint
+          FROM packages p CROSS JOIN LATERAL jsonb_array_elements(p.contents_json) item
+          WHERE p.fulfillment_id=f.packing_group_anchor_id
+            AND p.status <> ALL(${parameters.textArray(invalidPackageStatuses)}) AND item->>'fulfillmentId'=f.id))`;
   return `EXISTS (
     SELECT 1 FROM locked_fulfillment f JOIN order_lines l ON l.id=f.order_line_id
     WHERE l.fulfillment_method <> ${parameters.text(REPLENISHMENT_FULFILLMENT)}
       AND l.line_status <> ALL(${parameters.textArray(voidNoteStatuses)})
       AND f.status <> ALL(${parameters.textArray(voidNoteStatuses)})
-      AND (${isHistorical} OR (l.order_type = ANY(${parameters.textArray(allTypes)}) AND (
+      AND (${isHistorical} OR (${netDeductionMatches} AND l.order_type = ANY(${parameters.textArray(allTypes)}) AND (
         (l.order_type = ANY(${parameters.textArray(stockTypes)}) AND l.order_type <> '现货缺货'
           AND l.line_status NOT LIKE '%缺货%' AND l.line_status <> ALL(${parameters.textArray(productionLineStages)})
           AND NOT ('库存不足' = ANY(l.exception_tags))
-          AND NOT EXISTS (SELECT 1 FROM production_tasks t WHERE t.order_line_id=l.id AND t.task_status NOT IN ('已作废','已取消')))
+          AND NOT EXISTS (SELECT 1 FROM production_tasks t WHERE t.order_line_id=l.id AND t.task_status NOT IN ('已作废','已取消'))
+          AND f.status NOT IN ('待补货','数量差异待处理','无法出库','送货异常')
+          AND COALESCE(f.actual_qty,f.expected_qty)>0 AND (${currentStockPaperQty})
+          AND ((${onSitePickup} AND NOT ${hasCorrectedQuantity}) OR ${preparedStock})
+          AND ${correctedStockPackagesCurrent})
         OR (
           f.actual_qty > 0 AND (${printedQuantityMatches}) AND f.actual_qty = ${parameters.nullableInteger(fulfillment.actualQty)}
           AND EXISTS (

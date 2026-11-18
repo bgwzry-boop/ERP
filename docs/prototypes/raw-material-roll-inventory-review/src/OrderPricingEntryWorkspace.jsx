@@ -571,7 +571,7 @@ function OrderPricingEditor({
         const partial = (result.confirmation.inventoryChecks ?? []).filter(check => check.stockQty > 0 && check.shortageQty > 0);
         const partialSummary = partial.length ? `部分缺货明细：现货 ${partial.reduce((sum, check) => sum + check.stockQty, 0)} 个，缺 ${partial.reduce((sum, check) => sum + check.shortageQty, 0)} 个已${shortageChoice === "ship_available" ? "取消" : "转待排产"}。` : "";
         setNotice(`正式订单已生成。${partialSummary}${walkInOrder
-          ? "先办这批现货自提。打印自提单，客户实际取货后再点「客户已拿走」。"
+          ? "客户已到厂可在下方办现场自提。常规现货到「发货安排」先确认备货。"
           : shortageChoice === "ship_available" && shortageVisible
           ? "能发的数量已开单，缺的按客户意见取消。"
           : "办公室仍需安排出库或生产排单。"}`);
@@ -1538,7 +1538,7 @@ function WalkInPickupPanel({ walkIn, formal }) {
   };
   async function print() {
     setState((current) => ({ ...current, busy: "print", message: "正在打开打印窗口，请选针式打印机…" }));
-    const result = await printWalkInPickupNote({ fulfillmentIds: walkIn.fulfillmentIds, pickerName, ...auth });
+    const result = await printWalkInPickupNote({ fulfillmentIds: walkIn.fulfillmentIds, pickerName, executorEmployeeId: executorId, ...auth });
     if (!live.current) return;
     setState((current) => ({ ...current, busy: "", printed: result.printed, message: result.message }));
   }
@@ -1563,8 +1563,8 @@ function WalkInPickupPanel({ walkIn, formal }) {
       </div>
       {state.message ? <p role="status">{state.message}</p> : null}
       <div className="pricing-walk-in-actions">
-        <button type="button" className={state.printed ? "secondary-button" : "primary-button"} disabled={state.printed || state.done || !!state.busy} onClick={() => void print()}>
-          {state.busy === "print" ? "正在打印…" : state.printed ? "自提单已打印" : "打印自提单"}
+        <button type="button" className={state.printed ? "secondary-button" : "primary-button"} disabled={!executorId || state.printed || state.done || !!state.busy} onClick={() => void print()}>
+          {state.busy === "print" ? "正在打印…" : state.printed ? "自提单已打印" : "客户已到厂，打印自提单"}
         </button>
         <button type="button" className={state.printed ? "primary-button" : "secondary-button"} disabled={!state.printed || !executorId || state.done || !!state.busy}
           title={!state.printed ? "先打印自提单并确认打出来" : !executorId ? "先选经手人" : undefined} onClick={() => void finish()}>

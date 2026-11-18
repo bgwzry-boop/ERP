@@ -53,8 +53,19 @@ try {
   };
   const revision = async (id) => (await pool.query("SELECT revision FROM fulfillment_records WHERE id = $1", [id])).rows[0].revision;
   const printAndConfirm = async (id, key, extra = {}) => {
-    const printed = await services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: id, operatorId: "U-OFFICE-A",
-      body: { documentType: "pickup_note", idempotencyKey: `${key}-print`, ...extra } });
+    let workspace = await prepare();
+    const row = workspace.fulfillments.find((entry) => entry.id === id);
+    const previous = workspace.printRecords.filter((entry) => entry.targetId === id && entry.documentType === "pickup_note" && entry.status === "voided")
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+    if (!row.physicalOutboundAt) {
+      const prep = await services.fulfillmentActionCommandService.recordStockPreparation({ workspace, fulfillmentId: id, operatorId: "U-OFFICE-A",
+        body: { expectedRevision: row.revision, employeeId: "EMP-LIVE-MANAGER-001", preparedQty: row.expectedQty, idempotencyKey: `${key}-prep` } });
+      assert.ok(prep.response, JSON.stringify(prep));
+      workspace = await prepare();
+    }
+    const reprint = previous ? { printAction: "reprint", previousPrintRecordId: previous.printRecordId ?? previous.id, reprintReason: "已作废单据重新打印" } : {};
+    const printed = await services.fulfillmentPrintCommandService.printFulfillment({ workspace, fulfillmentId: id, operatorId: "U-OFFICE-A",
+      body: { documentType: "pickup_note", idempotencyKey: `${key}-print`, ...reprint, ...extra } });
     assert.ok(printed.printJob, JSON.stringify(printed));
     const confirmed = await services.printJobLifecycleService.confirmBrowserPrint({ workspace: await prepare(), printJobId: printed.printJob.printJobId, operatorId: "U-OFFICE-A", body: { confirmed: true, idempotencyKey: `${key}-confirm` } });
     assert.ok(confirmed.printJob, JSON.stringify(confirmed));
@@ -68,6 +79,7 @@ try {
   // 1) 已入对账单（F001：500 个 180 元），对账单已发给客户
   await pool.query("UPDATE statements SET last_sent_at = now() - interval '1 day' WHERE id = 'ST-0629-001'");
   const first = await printAndConfirm("F001", "fix-f001");
+  await pool.query("UPDATE fulfillment_records SET physical_outbound_at = now(), final_delivery_at = now(), status = '已交付' WHERE id = 'F001'");
   assert.equal((await correct("F001", { reason: "", idempotencyKey: "fix-noreason" })).code, "NOTE_CORRECTION_REASON_REQUIRED");
   assert.equal((await correct("F001", { reason: "没改", idempotencyKey: "fix-nothing" })).code, "NOTE_CORRECTION_NOTHING_CHANGED");
   const stale = await services.fulfillmentPrintCommandService.correctFulfillmentNote({ workspace: await prepare(), fulfillmentId: "F001", operatorId: "U-OFFICE-A",
@@ -129,9 +141,11 @@ try {
 
   await printAndConfirm("F-FIX-1", "fix-f1");
   assert.equal(await stock(), 700, "打单扣 300");
-  assert.equal((await correct("F-FIX-1", { correctedQty: 280, reason: "还没拉走", idempotencyKey: "fix-unbilled" })).code, "NOTE_CORRECTION_NOT_BILLED_YET", "还没入账的改数量去订单里改");
+  assert.equal((await correct("F-FIX-1", { correctedQty: 280, reason: "还没拉走", idempotencyKey: "fix-unbilled" })).code,
+    "NOTE_CORRECTION_VARIANCE_APPROVAL_REQUIRED", "还没交货的预扣单要先登记并批准实数");
   // 模拟拉走入账：对账单一行 300 个 129 元
-  await pool.query(`INSERT INTO statements (id, biz_no, customer_id, period_start, period_end, status, receivable_amount, received_amount, variance_amount, created_by)
+  await pool.query(`UPDATE fulfillment_records SET physical_outbound_at = now(), final_delivery_at = now(), status = '已交付' WHERE id = 'F-FIX-1';
+    INSERT INTO statements (id, biz_no, customer_id, period_start, period_end, status, receivable_amount, received_amount, variance_amount, created_by)
       VALUES ('ST-FIX', 'ST-FIX', 'C001', '2026-11-01', '2026-11-30', '待生成', 129, 0, 129, 'U-OFFICE-A');
     INSERT INTO statement_lines (id, statement_id, order_line_id, fulfillment_id, delivered_qty, chargeable_qty, free_qty, amount, adjustment_amount, final_amount)
       VALUES ('ST-FIX-1', 'ST-FIX', 'ORD-FIX-01', 'F-FIX-1', 300, 300, 0, 129, 0, 129);`);
@@ -213,3 +227,5 @@ try {
   if (pool) await pool.end();
   spawnSync("docker", ["rm", "-f", name], { encoding: "utf8" });
 }
+
+await import("./check-stock-paper-workflow-postgres.mjs");

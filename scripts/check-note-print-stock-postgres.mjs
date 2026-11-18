@@ -57,6 +57,14 @@ try {
   const print = async (id, key, extra = {}) => services.fulfillmentPrintCommandService.printFulfillment({ workspace: await prepare(), fulfillmentId: id, operatorId: "U-OFFICE-A",
     body: { documentType: "pickup_note", pickerName: "提货人甲", idempotencyKey: key, ...extra } });
   const confirm = async (jobId, key) => services.printJobLifecycleService.confirmBrowserPrint({ workspace: await prepare(), printJobId: jobId, operatorId: "U-OFFICE-A", body: { confirmed: true, idempotencyKey: key } });
+  const prepareStock = async (id, key, preparedQty, note = "") => {
+    const workspace = await prepare();
+    const row = workspace.fulfillments.find(fulfillment => fulfillment.id === id);
+    const body = { expectedRevision: row.revision, employeeId: "EMP-LIVE-MANAGER-001", preparedQty: preparedQty ?? row.expectedQty, location: "测试备货区", note, idempotencyKey: key };
+    const result = await services.fulfillmentActionCommandService.recordStockPreparation({ workspace, fulfillmentId: id, operatorId: "U-OFFICE-A", body });
+    assert.ok(result.response?.operationLogId, JSON.stringify(result));
+    return { body, result };
+  };
 
   // 0) 开关默认关：打印、确认都不扣库存
   assert.equal((await readCompanyPrintProfile({ printDeviceRepository: createPostgresPrintDeviceRepository({ postgresClient: client }) })).deductStockAtNotePrint, false);
@@ -64,8 +72,22 @@ try {
   await pool.query("UPDATE order_lines SET line_status='缺货待处理' WHERE id='ORD-NP-02'");
   assert.equal((await print("F-NP-2", "np-short-route")).code, "FULFILLMENT_NOTE_NOT_READY", "缺货记录即使库存有历史占用也不能伪装有货");
   await pool.query("UPDATE order_lines SET line_status='待出库' WHERE id='ORD-NP-02'");
+  const unprepared = await print("F-NP-2", "np-before-prep");
+  assert.equal(unprepared.code, "FULFILLMENT_NOTE_NOT_READY");
+  assert.match(unprepared.message, /备货/u);
+  await prepareStock("F-NP-2", "np-prep-2-partial", 190, "还差十个");
+  assert.equal((await print("F-NP-2", "np-partial-prep")).code, "FULFILLMENT_NOTE_NOT_READY");
+  const completePrep = await prepareStock("F-NP-2", "np-prep-2");
+  const preparationReplay = await services.fulfillmentActionCommandService.recordStockPreparation({
+    workspace: await prepare(), fulfillmentId: "F-NP-2", operatorId: "U-OFFICE-A", body: completePrep.body,
+  });
+  assert.deepEqual(preparationReplay.response, { ...completePrep.result.response, replayed: true });
+  assert.deepEqual(await stock(), { on_hand_qty: 1000, reserved_qty: 500 }, "确认备货不扣库、不释放占用");
   const off = await print("F-NP-2", "np-off-print");
   assert.ok(off.printJob, JSON.stringify(off));
+  await prepareStock("F-NP-2", "np-prep-2-recheck", 190, "交纸单前重新清点后发现差十个");
+  assert.equal((await confirm(off.printJob.printJobId, "np-stale-confirm")).code, "FULFILLMENT_NOTE_NOT_READY");
+  await prepareStock("F-NP-2", "np-prep-2-verified");
   assert.ok((await confirm(off.printJob.printJobId, "np-off-confirm")).printJob);
   assert.deepEqual(await stock(), { on_hand_qty: 1000, reserved_qty: 500 }, "开关关着不扣");
   assert.equal((await fulfillment("F-NP-2")).stock_deducted_at, null);
@@ -77,6 +99,7 @@ try {
   assert.equal(turnedOn.companyPrintProfile.deductStockAtNotePrint, true);
 
   // 1) 有占用：确认打出来按占用扣 300，重复确认不再扣
+  await prepareStock("F-NP-1", "np-prep-1");
   const first = await print("F-NP-1", "np-print-1");
   assert.ok(first.printJob, JSON.stringify(first));
   assert.deepEqual(await stock(), { on_hand_qty: 1000, reserved_qty: 500 }, "只是排队打印还不扣");
@@ -140,6 +163,8 @@ try {
   `);
   const deliveryStock = async () => (await pool.query("SELECT on_hand_qty,reserved_qty FROM inventory_items WHERE id='INV-NP-DISPATCH'")).rows[0];
   const warehouse = services.fulfillmentActionCommandService;
+  await prepareStock("F-NP-D1", "np-prep-delivery-1");
+  await prepareStock("F-NP-D2", "np-prep-delivery-2");
   const deliveryPaper = await print("F-NP-D1", "np-delivery-no-pack", { documentType: "delivery_note" });
   assert.ok(deliveryPaper.printJob, JSON.stringify(deliveryPaper));
   assert.equal((await confirm(deliveryPaper.printJob.printJobId, "np-delivery-no-pack-print")).printJob.jobStatus, "printed");
@@ -190,6 +215,7 @@ try {
   assert.deepEqual(await deliveryStock(), { on_hand_qty: 0, reserved_qty: 0 });
 
   // 3) 线上库存对不上（F001 同款有两处库存）：不确认不让打；出库工确认后能打，打出来不扣、留提醒
+  await prepareStock("F001", "np-prep-f001");
   const short = await print("F001", "np-short-1");
   assert.equal(short.code, "FULFILLMENT_NOTE_STOCK_SHORT");
   assert.match(short.message, /出库工/u);

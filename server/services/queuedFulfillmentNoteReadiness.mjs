@@ -1,4 +1,6 @@
 import { fulfillmentNoteReadiness, noteDocumentTypes } from "../../shared/fulfillmentNoteReadiness.js";
+import { operationalPaperNetDeduction } from "../fulfillmentNoteCorrectionTransaction.mjs";
+import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
 
 export function hasVoidedNoteSource(workspace, record, job) {
   if (record.printAction !== "reprint") return false;
@@ -20,7 +22,7 @@ export function hasVoidedNoteSource(workspace, record, job) {
 
 // Jobs created before the readiness check still exist in the print queue.
 // Recheck their frozen quantity before returning a printable PDF or sending it to a device.
-export function queuedNoteError(workspace, job) {
+export function queuedNoteError(workspace, job, { stockPreparation } = {}) {
   const template = (job.payload ?? job.payloadSnapshot)?.printTemplate;
   const docType = template?.documentType ?? job.documentType;
   if (!noteDocumentTypes.includes(docType)) return null;
@@ -32,10 +34,15 @@ export function queuedNoteError(workspace, job) {
   if (!fulfillment || !record || record.targetType !== "fulfillment" || record.targetId !== targetId || record.status === "voided") {
     return { error: true, statusCode: 409, code: "FULFILLMENT_NOTE_NOT_CURRENT", message: "这张纸单缺少有效打印记录，请回发货安排核对。" };
   }
+  const payload = job.payload ?? job.payloadSnapshot;
   const result = fulfillmentNoteReadiness(workspace, fulfillment, line, {
     historicalReprint: (job.jobStatus === "printed" && ["printed", "reprinted"].includes(record.status))
       || hasVoidedNoteSource(workspace, record, job),
     printedQty: template?.fields?.totalQuantity ?? null,
+    requiredStockQty: captureWarehouseInstruction(workspace, fulfillment).instructionQty,
+    operationalNetDeduction: operationalPaperNetDeduction(workspace, fulfillment),
+    stockPreparation,
+    onSitePickup: docType === "pickup_note" && record.printAction === "first_print" && !!payload?.request?.onSitePickup?.employeeId,
   });
   return result.ready ? null : { error: true, statusCode: 409, code: "FULFILLMENT_NOTE_NOT_READY", message: result.reason };
 }

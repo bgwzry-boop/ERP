@@ -3796,8 +3796,11 @@ paths:
       tags: [Fulfillment]
       summary: 打印 / 预览出库交付单据或标签
       description: >
-        出库页的场景快捷接口。底层仍应创建打印记录；快递 / 快运标签打印后
-        可进入待确认拉走状态，价格字段按模板规则隐藏；自提 / 送货针式单据显示价格快照。
+        正式单据创建打印记录和作业，作业创建、打印确认和实物出库分开。
+        常规现货须先匹配本批已确认的备货数量。客户已在现场的现货自提，
+        可用有库房回录权限的现场确认入口指定实际经手人；
+        后续仍须核对出纸与实际拿走。需要生产的货按本批完工、实包和实数校验。
+        快递 / 快运标签独立办理，价格字段按模板规则隐藏；自提 / 送货针式单据显示价格快照。
       operationId: printFulfillmentDocument
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -3816,6 +3819,41 @@ paths:
                 $ref: "#/components/schemas/PrintFulfillmentResponse"
         "400":
           $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /fulfillments/{fulfillmentId}/note-correction:
+    post:
+      tags: [Fulfillment]
+      summary: 更正并作废当前纸单
+      description: >
+        需要 fulfillment.print。已扣库存且尚未出库、装车或交付的单批任务，
+        先登记并处理数量差异，再按服务端认可的数量更正。库存按本批实际净扣流水退补，
+        并与作废旧纸单一起提交。更正不产生应收、交付结果或新打印作业。
+        调用方核对新的备货或实包后，使用返回的原打印记录标识发起重打。
+        同一提交标识和原请求可重试。
+      operationId: correctFulfillmentNote
+      parameters:
+        - $ref: "#/components/parameters/FulfillmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FulfillmentNoteCorrectionRequest"
+      responses:
+        "200":
+          description: 旧单已作废及更正回执
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FulfillmentNoteCorrectionResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/ConflictError"
         "422":
@@ -3946,12 +3984,48 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /fulfillments/{fulfillmentId}/stock-preparation:
+    post:
+      tags: [Fulfillment]
+      summary: 按库房清点结果登记现货备货
+      description: >
+        需要 fulfillment.warehouse.execute。无有效纸单、未出库且状态允许的现货发货批次，
+        回录实际备货人和实点数量。回录数量与本批应出数量一致时才确认备货；
+        有差异可留实数和原因，正式单仍需等差异处理、重新核对。
+        本动作保存备货记录，沿用已有库存占用，不扣库存，也不形成交付或应收。
+      operationId: recordStockPreparation
+      parameters:
+        - $ref: "#/components/parameters/FulfillmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StockPreparationRequest"
+      responses:
+        "200":
+          description: 实点结果已保存；以任务详情的备货确认状态为准
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockPreparationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /fulfillments/{fulfillmentId}/prepared:
     post:
       tags: [Fulfillment]
       deprecated: true
       summary: 已停用的直接标记备货兼容接口
-      description: 服务端统一返回 FULFILLMENT_WAREHOUSE_EXECUTION_REQUIRED；请通过库房纸单执行结果登记已备货。
+      description: >
+        服务端统一返回 FULFILLMENT_WAREHOUSE_EXECUTION_REQUIRED。
+        常规现货打单前用 stock-preparation 登记备货；有正式纸单后的库房回录用 warehouse-execution。
       operationId: markFulfillmentPrepared
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -3975,12 +4049,6 @@ paths:
                 remark:
                   type: string
       responses:
-        "200":
-          description: 已记录备货状态
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FulfillmentActionResponse"
         "403":
           $ref: "#/components/responses/PermissionDenied"
         "409":
@@ -20066,13 +20134,23 @@ components:
             - type: "null"
         noteReadiness:
           type: object
-          description: 本批货按当前生产、打包和实数证据能否进入销售纸单打印。执行打印时由服务端再次核验。
+          description: 本批货在普通入口能否打正式纸单。服务端按当前备货或生产打包证据再次核验。
           required: [ready, reason]
           properties:
             ready: { type: boolean }
             reason:
               type: string
               description: 可以打单时为空，暂不能打单时说明原因。
+        stockPreparationRequired:
+          type: boolean
+          description: 当前是否属于需先登记备货的现货批次。
+        stockPreparationQty:
+          type: [integer, "null"]
+          description: 常规现货本批现行应出数量。
+        stockPreparation:
+          oneOf:
+            - $ref: "#/components/schemas/StockPreparation"
+            - type: "null"
         packageCount:
           type: integer
         package:
@@ -20180,6 +20258,106 @@ components:
         dispatchRemark:
           type: string
 
+    StockPreparationRequest:
+      type: object
+      required: [employeeId, preparedQty, expectedRevision, idempotencyKey]
+      properties:
+        employeeId:
+          type: string
+          minLength: 1
+          description: 员工档案中实际备货人的编号。
+        preparedQty:
+          type: integer
+          minimum: 0
+          maximum: 10000000
+        location:
+          type: string
+          maxLength: 80
+        note:
+          type: string
+          maxLength: 200
+          description: 实点数量与应出数量不一致时必填。
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        idempotencyKey:
+          type: string
+          minLength: 1
+
+    StockPreparationResponse:
+      type: object
+      required: [fulfillmentId, status, operationLogId]
+      properties:
+        fulfillmentId: { type: string }
+        status: { type: string }
+        operationLogId: { type: string }
+        replayed: { type: boolean, description: 同一请求已处理时返回 true。 }
+
+    StockPreparation:
+      type: object
+      required: [quantity, requiredQty, employeeId, employeeName, recordedBy, recordedAt, confirmed, operationLogId]
+      properties:
+        quantity: { type: integer, minimum: 0 }
+        requiredQty: { type: integer, minimum: 1 }
+        employeeId: { type: string }
+        employeeName: { type: string }
+        recordedBy: { type: string }
+        recordedAt: { type: string, format: date-time }
+        location: { type: string }
+        note: { type: string }
+        confirmed:
+          type: boolean
+          description: 这次实点记录与当前发货批次的要求相符。
+        operationLogId: { type: string }
+
+    FulfillmentNoteCorrectionRequest:
+      type: object
+      required: [reason, idempotencyKey]
+      properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+          description: 已扣库存但尚未实物出库的数量更正必填。
+        correctedQty:
+          type: integer
+          minimum: 1
+          maximum: 10000000
+          description: 本批更正后数量。未出库的更正应与已处理差异认可的实数一致。
+        correctedUnitPrice:
+          oneOf:
+            - type: number
+              exclusiveMinimum: 0
+              maximum: 1000
+              multipleOf: 0.0001
+            - type: string
+              pattern: '^\d+(\.\d{1,4})?$'
+          description: 已进入可更正对账单的改单价流程使用。单价须大于 0 且不超过 1000 元。
+        address: { type: string, maxLength: 120 }
+        pickerName: { type: string }
+        voidWhole: { type: boolean, default: false }
+        reason: { type: string, minLength: 1, maxLength: 200 }
+        idempotencyKey: { type: string, minLength: 8 }
+
+    FulfillmentNoteCorrectionResponse:
+      type: object
+      required: [fulfillmentId, operationLogId, changes, voidWhole, reprint, previousPrintRecordId, documentType, statementNeedsResend]
+      properties:
+        fulfillmentId: { type: string }
+        operationLogId: { type: string }
+        changes:
+          type: array
+          items: { type: string }
+        voidWhole: { type: boolean }
+        reprint:
+          type: boolean
+          description: true 表示需另发起重打。
+        previousPrintRecordId: { type: string }
+        documentType:
+          type: string
+          enum: [outbound_note, pickup_note, delivery_note]
+        statementNeedsResend: { type: boolean }
+        preDepartureQuantityCorrection:
+          type: boolean
+          description: true 表示未实物出库的改量及退补库存已保存。重打前须重新核对备货和相关包裹。
+
     PrintFulfillmentRequest:
       type: object
       required:
@@ -20195,6 +20373,11 @@ components:
         printAction:
           type: string
           enum: [preview, first_print, reprint]
+        onSitePickupEmployeeId:
+          type: string
+          description: >
+            客户已在场且库房已核对实物时选用。仅适用于现货自提首次打印，
+            另须 fulfillment.warehouse.execute，使用实际经手人的在职员工编号。
         packageIds:
           type: array
           deprecated: true
@@ -20272,6 +20455,9 @@ components:
         documentVersion:
           type: integer
           minimum: 1
+        instructionQty:
+          type: [integer, "null"]
+          description: 当前纸单锁定的出库数量。历史纸单未记录时为 null，继续以该交付任务的计划数量为准。
         status:
           type: string
           enum: [待打印确认, 已打印待交库房, 已交库房, 已作废, 已作废待重打]

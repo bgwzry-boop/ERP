@@ -133,6 +133,7 @@ export async function printOfficeFulfillment(input, options = {}) {
         printAction: resolvedPrintAction,
         ...(resolvedPrintAction === "reprint" ? { previousPrintRecordId, reprintReason } : {}),
         ...(cleanText(input.pickerName) ? { pickerName: cleanText(input.pickerName) } : {}),
+        ...(cleanText(input.onSitePickupEmployeeId) ? { onSitePickupEmployeeId: cleanText(input.onSitePickupEmployeeId) } : {}),
         // 负责人 2026-11-08：线上库存不够时，出库工看过实物确认有货才能打。
         ...(cleanText(input.warehouseStockConfirmation?.confirmedBy) ? { warehouseStockConfirmation: { confirmedBy: cleanText(input.warehouseStockConfirmation.confirmedBy) } } : {}),
         operatorId,
@@ -255,6 +256,21 @@ export async function handoffOfficePaperOutbound(input, options = {}) {
     return isOfficeApiServerRequired(options)
       ? buildServerRequiredWriteError("PAPER_OUTBOUND_HANDOFF_API_UNAVAILABLE", error)
       : { source: "local_fallback", error: { code: "PAPER_OUTBOUND_HANDOFF_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+export async function recordOfficeStockPreparation(input, options = {}) {
+  const { authState, operatorId, fulfillment, employeeId, preparedQty, location, note, idempotencyKey } = input;
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillment.id)}/stock-preparation`, {
+      ...options, authState, operatorId, idempotencyKey, method: "POST",
+      body: { expectedRevision: Number(fulfillment.revision), employeeId, preparedQty, location, note, idempotencyKey },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "备货登记没有保存。") };
+    return { source: "api", fulfillmentId: json.fulfillmentId, status: json.status, operationLogId: json.operationLogId };
+  } catch (error) {
+    return buildServerRequiredWriteError("STOCK_PREPARATION_API_UNAVAILABLE", error);
   }
 }
 

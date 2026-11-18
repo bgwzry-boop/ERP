@@ -6,6 +6,11 @@ function isActiveEmployee(employee) {
   return employee.id && employee.name && !employee.departedAt && !["departed", "left", "retired", "inactive_employee", "merged_duplicate"].includes(String(employee.profileStatus ?? "").toLowerCase());
 }
 
+export function findAvailableWarehouseExecutor(workspace, employeeId) {
+  const employee = (workspace.employees ?? []).find(row => row.id === employeeId);
+  return employee && isActiveEmployee(employee) ? employee : null;
+}
+
 export function findAvailableFulfillmentDriver(workspace = {}, driverId) {
   const users = (workspace.users ?? []).filter(user => (user.userId ?? user.id) === driverId);
   if (users.length !== 1) return null;

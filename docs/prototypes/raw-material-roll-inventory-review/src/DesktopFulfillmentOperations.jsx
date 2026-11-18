@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { MixedPackageWorkbench } from "../../../../src/features/packing/MixedPackageWorkbench.jsx";
 import { completeOfficePackingTask } from "../../../../src/services/officeProductionPackingApiClient.js";
-import { correctOfficeFulfillmentNote } from "../../../../src/services/officeFulfillmentApiClient.js";
-import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, getOfficeFulfillmentPickerSuggestions, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
+import { correctOfficeFulfillmentNote, resolveOfficeFulfillmentQuantityVariance } from "../../../../src/services/officeFulfillmentApiClient.js";
+import { confirmInApp } from "../../../../src/shared/ui/confirmDialog.js";
+import { DelegatedBusinessDecisionFields, isDelegatedBusinessDecisionComplete } from "../../../../src/components/DelegatedBusinessDecisionFields.jsx";
+import { completeOfficeFulfillment, confirmOfficeFulfillmentPickup, getOfficeFulfillmentOperatorCandidates, getOfficeFulfillmentPickerSuggestions, handoffOfficePaperOutbound, printOfficeFulfillment, recordOfficeStockPreparation, recordOfficeWarehouseOutboundExecution, updateOfficeFulfillmentDispatch } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { isStockOrderType } from "../../../../shared/orderRouting.js";
 import { normalizeInventoryHoldTimestamp } from "../../../../shared/inventoryHoldTime.js";
@@ -46,22 +48,50 @@ function NoteCorrectionPanel({ fulfillment, formal, pickupNote }) {
   const [form, setForm] = useState({ correctedQty: "", correctedUnitPrice: "", address: "", pickerName: "", voidWhole: false, reason: "" });
   const [state, setState] = useState({ busy: false, message: "", error: "" });
   const key = useRef("");
+  const submitting = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const set = (name) => (event) => { key.current = ""; const value = event.target.type === "checkbox" ? event.target.checked : event.target.value; setForm((current) => ({ ...current, [name]: value })); };
-  const currentQty = fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty;
+  const beforeOutbound = !fulfillment.physicalOutboundAt && !fulfillment.loadedAt && !fulfillment.finalDeliveryAt
+    && !["已交付", "已送达", "已完成", "已提货", "已拉走", "快递已揽收"].includes(fulfillment.status);
+  const currentQty = beforeOutbound
+    ? fulfillment.paperOutboundDocument?.instructionQty ?? fulfillment.expectedQty ?? fulfillment.qty
+    : fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty;
   async function submit() {
-    if (state.busy) return;
+    if (submitting.current) return;
     if (!form.reason.trim()) { setState({ busy: false, message: "", error: "请写一句为什么作废重打。" }); return; }
-    key.current ||= createOfficeIdempotencyKey();
-    setState({ busy: true, message: "", error: "" });
-    const result = await correctOfficeFulfillmentNote({ authState: formal?.authState, operatorId: formal?.operatorId, fulfillment, idempotencyKey: key.current, ...form }, { serverRequired: true });
+    const changingQuantity = !form.voidWhole && form.correctedQty.trim() !== "" && Number(form.correctedQty) !== Number(currentQty);
+    submitting.current = true;
+    let result;
+    try {
+      if (!key.current) {
+        const confirmed = await confirmInApp({
+          title: form.voidWhole ? "确认作废整张单据" : "核对单据更正",
+          message: changingQuantity
+            ? `原单 ${currentQty} 个，改为 ${form.correctedQty.trim()} 个。将按库存流水退补差额，旧单作废。`
+            : `旧单将作废${form.voidWhole ? "，本次交付取消" : "，按更正内容重打"}。\n原因：${form.reason.trim()}`,
+          confirmLabel: "确认更正",
+          cancelLabel: "返回核对",
+        });
+        if (!confirmed || !mounted.current) return;
+        key.current = createOfficeIdempotencyKey();
+      }
+      setState({ busy: true, message: "", error: "" });
+      result = await correctOfficeFulfillmentNote({ authState: formal?.authState, operatorId: formal?.operatorId, fulfillment, idempotencyKey: key.current, ...form }, { serverRequired: true });
+    } finally {
+      submitting.current = false;
+    }
     if (!mounted.current) return;
     if (result.blocked) { setState({ busy: false, message: "", error: result.error?.message || "作废重打没有保存。" }); return; }
     key.current = "";
     const changes = (result.changes ?? []).join("，");
     if (!result.reprint) {
       setState({ busy: false, error: "", message: `已作废：${changes}。${result.statementNeedsResend ? "对账单已经发给客户的，请重新发一次。" : ""}` });
+      await formal?.actions?.refreshAll?.();
+      return;
+    }
+    if (result.preDepartureQuantityCorrection) {
+      setState({ busy: false, error: "", message: `旧单已作废（${changes}）。按改后的数量重新核对备货和包裹，再点「重新打印纸单」。` });
       await formal?.actions?.refreshAll?.();
       return;
     }
@@ -80,20 +110,51 @@ function NoteCorrectionPanel({ fulfillment, formal, pickupNote }) {
   }
   return <fieldset className="note-correction" disabled={state.busy}>
     <legend>作废重打</legend>
-    {!open ? <><p>单子打错了（数量、单价、地址提货人，或整张不要了），已经拉走、已经对账也能改。</p><button type="button" onClick={() => setOpen(true)}>作废重打…</button></> : <>
+    {!open ? <button type="button" onClick={() => setOpen(true)}>作废重打…</button> : <>
       <label className="note-correction-check"><input type="checkbox" checked={form.voidWhole} onChange={set("voidWhole")} />整张不要了（作废不重打；扣过的库存退回，对账单删掉这一行）</label>
       {!form.voidWhole ? <div className="fulfillment-operation-grid">
         <label>实际数量<input inputMode="numeric" value={form.correctedQty} onChange={set("correctedQty")} placeholder={`现在 ${currentQty ?? "—"}，不改留空`} /></label>
-        <label>单价（元/个）<input inputMode="decimal" value={form.correctedUnitPrice} onChange={set("correctedUnitPrice")} placeholder="不改留空" /></label>
+        {!beforeOutbound ? <label>单价（元/个）<input inputMode="decimal" value={form.correctedUnitPrice} onChange={set("correctedUnitPrice")} placeholder="不改留空" /></label> : null}
         <label>送货地址<input maxLength={120} value={form.address} onChange={set("address")} placeholder="不改留空" /></label>
         {pickupNote ? <label>提货人<input maxLength={20} value={form.pickerName} onChange={set("pickerName")} placeholder="不改留空" /></label> : null}
       </div> : null}
       <label>为什么作废重打<input maxLength={200} value={form.reason} onChange={set("reason")} placeholder="比如：数量写错了，实际 4800 个" /></label>
-      <p className="note-correction-hint">改数量、单价：扣过的库存按差额退回或补扣，对账单这一行跟着改；对账单已经发给客户的，改完要重新发。收过款的对账单不能在这里改，请找财务。</p>
+      <p className="note-correction-hint">{beforeOutbound
+        ? "已扣库的单改数量前，先在数量差异里确认本次实发数。保存后旧单作废，按库存流水退补差额。"
+        : "改数量或单价会更新未收款的对账明细。已发给客户的对账单需要重发。已收款的差异交财务处理。"}</p>
       {state.error ? <p className="fulfillment-operation-notice" role="alert">{state.error}</p> : null}
-      <div><button type="button" onClick={() => { setOpen(false); setState({ busy: false, message: "", error: "" }); }}>先不改</button><button type="button" className="primary" onClick={() => void submit()}>{state.busy ? "正在处理…" : form.voidWhole ? "确认整张作废" : "作废并重打"}</button></div>
+      <div><button type="button" onClick={() => { setOpen(false); setState({ busy: false, message: "", error: "" }); }}>先不改</button><button type="button" className="primary" onClick={() => void submit()}>{state.busy ? "正在处理…" : form.voidWhole ? "确认整张作废" : beforeOutbound && form.correctedQty.trim() ? "保存数量更正" : "作废并重打"}</button></div>
     </>}
     {state.message ? <p className="fulfillment-operation-notice" role="status">{state.message}</p> : null}
+  </fieldset>;
+}
+
+function NoteQuantityVariance({ fulfillment, formal, direct, locked, ask }) {
+  const [reason, setReason] = useState("");
+  const [delegatedDecision, setDelegatedDecision] = useState({});
+  const actual = Number(fulfillment.actualQty);
+  const paperQty = Number(fulfillment.paperOutboundDocument?.instructionQty ?? fulfillment.expectedQty);
+  const extra = Math.max(0, actual - Number(fulfillment.expectedQty ?? fulfillment.qty));
+  const outcome = extra ? "赠送数量" : "按实际数量出库";
+  const [confirmGift, setConfirmGift] = useState(false);
+  return <fieldset disabled={locked}>
+    <legend>数量差异处理</legend>
+    <p>原纸单 {paperQty} 个，库房清点 {actual} 个。保存决定后，再用「作废重打」更正纸单和库存。</p>
+    {actual <= 0 ? <p>本批实数为 0 个，可按客户决定作废整张单。</p> : <>
+      <label>按实数出库的确认依据<input value={reason} maxLength={200} onChange={event => setReason(event.target.value)} placeholder="例如：客户同意本次只发 90 个" /></label>
+      {extra ? <label className="fulfillment-operation-check"><input type="checkbox" checked={confirmGift}
+        onChange={event => setConfirmGift(event.target.checked)} />同意超出原订单的 {extra} 个按赠送处理</label> : null}
+      {!direct ? <DelegatedBusinessDecisionFields scope="fulfillment_quantity_variance" businessType="fulfillment"
+        businessId={fulfillment.id} authState={formal.authState} operatorId={formal.operatorId} value={delegatedDecision}
+        onChange={setDelegatedDecision} disabled={locked} title="代录有权人的决定" /> : null}
+      <button type="button" disabled={!reason.trim() || (extra > 0 && !confirmGift) || (!direct && !isDelegatedBusinessDecisionComplete(delegatedDecision))}
+        onClick={() => ask("保存数量差异决定", resolveOfficeFulfillmentQuantityVariance, {
+          resolutionResult: outcome, reason: reason.trim(), expectedActualQty: actual,
+          ...(direct ? { directDecisionContent: reason.trim() } : { delegatedDecision }),
+        }, `原纸单 ${paperQty} 个，确认本次实发 ${actual} 个（${outcome}）。依据：${reason.trim()}。`)}>
+        核对并保存决定
+      </button>
+    </>}
   </fieldset>;
 }
 
@@ -122,6 +183,9 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const [checked, setChecked] = useState(false);
   const [employeeId, setEmployeeId] = useState("");
   const [actualQty, setActualQty] = useState("");
+  const [preparedQty, setPreparedQty] = useState("");
+  const [preparedLocation, setPreparedLocation] = useState("");
+  const [preparedNote, setPreparedNote] = useState("");
   const [execution, setExecution] = useState("已备货");
   const [channel, setChannel] = useState("当面");
   const [note, setNote] = useState("");
@@ -147,6 +211,12 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const voidedPaper = paperStatus === "已作废待重打" && fulfillment.printRecordStatus === "voided" && Boolean(paper?.printRecordId);
   const needsPrint = newPaper || pendingPaper || voidedPaper;
   const canPrintNote = fulfillment.noteReadiness?.ready === true;
+  const preparation = fulfillment.stockPreparation;
+  const prepQty = Number(preparedQty);
+  const prepExpected = Number(fulfillment.stockPreparationQty);
+  const prepMismatch = preparedQty !== "" && prepQty !== prepExpected;
+  const canRecordPrep = fulfillment.stockPreparationRequired && needsPrint && !fulfillment.legacyStateReviewRequired
+    && prepExpected > 0 && !fulfillment.physicalOutboundAt && !["待补货", "数量差异待处理", "无法出库", "送货异常"].includes(fulfillment.status);
   const employees = candidates.warehouseExecutors;
   const drivers = candidates.drivers;
   const canReadCandidates = can("fulfillment.warehouse.execute") || can("fulfillment.dispatch.update");
@@ -174,24 +244,15 @@ function FulfillmentOperations({ fulfillment, formal }) {
       .then(result => { if (active) setPickerSuggestions(result.items ?? []); });
     return () => { active = false; controller.abort(); };
   }, [pickupNote, fulfillment.customerId, formal?.authState, formal?.operatorId]);
-  const orderId = line?.orderId ?? line?.orderNo;
-  const pickingOrderLines = (formal?.data?.orderLines ?? []).filter(row => orderId
-    ? (row.orderId ?? row.orderNo) === orderId && row.customerId === line.customerId
-    : (row.id ?? row.orderLineId) === lineId);
-  const pickingFulfillments = [
-    ...(formal?.data?.fulfillments ?? []).filter(row => (row.id ?? row.fulfillmentId) !== (fulfillment.id ?? fulfillment.fulfillmentId)),
-    fulfillment,
-  ];
-  const pickingSlipInput = {
-    orderLines: pickingOrderLines,
-    fulfillments: pickingFulfillments,
-    customerName: fulfillment.customerSnapshot?.name ?? fulfillment.customerName ?? line?.customerName,
-    orderNo: orderId,
-    pickerName: pickupNote ? pickerName.trim() : "",
-  };
-  const pickingSlip = buildStockPickingSlip(pickingSlipInput);
+  // 订单录入可按整单打备货小票。发货安排按当前批次，含办公室已确认的改量。
   async function printSlip() {
-    const opened = await printStockPickingSlip(buildStockPickingSlipHtml(buildStockPickingSlip(pickingSlipInput)));
+    if (!line || !(prepExpected > 0)) { setNotice("本批订单或应备数量尚待核对，请刷新后再试。"); return; }
+    const orderId = line?.orderId ?? line?.orderNo ?? fulfillment.orderId;
+    const customerName = fulfillment.customerSnapshot?.name ?? fulfillment.customerName ?? line?.customerName;
+    const orderLines = [{ ...line, qty: prepExpected, zone: fulfillment.zone ?? line.zone }];
+    const html = buildStockPickingSlipHtml(buildStockPickingSlip({ orderLines, customerName, orderNo: orderId, pickerName: pickupNote ? pickerName.trim() : "" }));
+    if (!html) { setNotice("本批没有待出库的现货，不用打备货小票。"); return; }
+    const opened = await printStockPickingSlip(html);
     if (mounted.current && !opened) setNotice("打印窗口没有打开，请再点一次「打印备货小票」。");
   }
   const packages = parseActualPackageQuantities(packageText);
@@ -205,7 +266,13 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const showCustomCorrection = !terminal && !fulfillment.physicalOutboundAt && !stockOrder && !showCustomPackages
     && Number(fulfillment.actualPackageCount) > 0 && (can("packing.complete") || can("fulfillment.print"));
   const packingBlocker = fulfillment.outboundPackageReadiness?.ready === false ? fulfillment.outboundPackageReadiness.reason : "";
-  const warehouseResult = paper?.status === "已交库房" ? execution : "已备货";
+  const noteStillInWarehouse = !fulfillment.physicalOutboundAt && !fulfillment.loadedAt && !fulfillment.finalDeliveryAt;
+  const mayRecordPrintedDifference = Boolean(fulfillment.stockDeductedAt)
+    && paper?.status === "已打印待交库房" && noteStillInWarehouse;
+  const warehouseOptions = paper?.status === "已交库房"
+    ? ["已备货", "实物已出库", "数量不符", "无法出库"]
+    : mayRecordPrintedDifference ? ["已备货", "数量不符"] : ["已备货"];
+  const warehouseResult = warehouseOptions.includes(execution) ? execution : "已备货";
   const locked = busy || uncertain || Boolean(confirmation);
 
   function prepare(label, execute, payload, summary) {
@@ -308,8 +375,11 @@ function FulfillmentOperations({ fulfillment, formal }) {
       {customMixedOpen ? <MixedPackageWorkbench collapseIntro singleLineCorrection authState={formal?.authState} fulfillmentId={fulfillment.id ?? fulfillment.fulfillmentId}
         orderLineId={lineId} onSaved={() => formal?.actions?.refreshAll?.()} onBusyChange={setBusy} /> : null}
     </div> : null}
+    {fulfillment.status === "数量差异待处理" && fulfillment.stockDeductedAt && noteStillInWarehouse && can("fulfillment.quantity_variance.resolve")
+      ? <NoteQuantityVariance key={`quantity-variance:${fulfillment.id}:${fulfillment.revision ?? 0}`} fulfillment={fulfillment} formal={formal}
+        direct={can("fulfillment.quantity_variance.direct")} locked={locked} ask={ask} /> : null}
     {can("fulfillment.print") && (fulfillment.printed === true || fulfillment.activePrintRecordId) && !["已取消", "已作废"].includes(fulfillment.status)
-      ? <NoteCorrectionPanel key={`${fulfillment.id}:${fulfillment.revision ?? 0}`} fulfillment={fulfillment} formal={formal} pickupNote={pickupNote} /> : null}
+      ? <NoteCorrectionPanel key={`note-correction:${fulfillment.id}:${fulfillment.revision ?? 0}`} fulfillment={fulfillment} formal={formal} pickupNote={pickupNote} /> : null}
     <h3>出库办理</h3>
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
@@ -320,8 +390,27 @@ function FulfillmentOperations({ fulfillment, formal }) {
             打印本批独立包裹挂牌
           </button>
         ) : null}
-      {can("fulfillment.print") && pickingSlip?.items.some(item => item.orderLineId === lineId) && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>备货小票</legend><p>本订单待库房配货的现货，共 {pickingSlip.totalQty} 个。</p><button type="button" onClick={() => void printSlip()}>打印备货小票</button></fieldset>}
-      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paperStatus}。</p>{fulfillment.stockDeductionNote ? <p className={/没扣/u.test(fulfillment.stockDeductionNote) ? "fulfillment-stock-note warn" : "fulfillment-stock-note"}>库存：{fulfillment.stockDeductionNote}</p> : null}
+      {fulfillment.stockPreparationRequired && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
+        <legend>库房备货</legend>
+        {preparation ? <p>{preparation.confirmed ? "已确认备货" : "上次登记"} · {preparation.quantity} 个 · {preparation.employeeName}{preparation.location ? ` · ${preparation.location}` : ""}</p> : null}
+        {!preparation?.confirmed && <p>{prepExpected > 0 ? `本批应备 ${prepExpected} 个。` : "本批应备数量待核对。"}</p>}
+        {can("fulfillment.print") && needsPrint ? <button type="button" disabled={!(prepExpected > 0)} onClick={() => void printSlip()}>打印备货小票</button> : null}
+        {canRecordPrep && can("fulfillment.warehouse.execute") ? <details open={!preparation?.confirmed}>
+          <summary>{preparation?.confirmed ? "重新核对备货" : "登记实点数量"}</summary>
+          <div className="fulfillment-operation-grid">
+            <label>实际备货人<select value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">请选择</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}</select></label>
+            <label>实点数量（个）<input type="number" min="0" max="10000000" step="1" value={preparedQty} onChange={event => setPreparedQty(event.target.value)} /></label>
+          </div>
+          {!employees.length ? <p>{candidates.loading ? "正在读取在岗员工…" : "暂无在岗人员可选，请核对员工档案。"}</p> : null}
+          <label>备货位置（选填）<input maxLength={80} value={preparedLocation} onChange={event => setPreparedLocation(event.target.value)} /></label>
+          <label>{prepMismatch ? "数量差异原因" : "备货备注（选填）"}<input maxLength={200} value={preparedNote} onChange={event => setPreparedNote(event.target.value)} /></label>
+          <button type="button" disabled={!employeeId || preparedQty === "" || !Number.isSafeInteger(prepQty) || prepQty < 0 || prepQty > 10_000_000 || (prepMismatch && !preparedNote.trim())}
+            onClick={() => ask(prepMismatch ? "登记备货差异" : "确认备货", recordOfficeStockPreparation,
+              { employeeId, preparedQty: prepQty, location: preparedLocation.trim(), note: preparedNote.trim() },
+              `${employees.find(row => row.employeeId === employeeId)?.name ?? ""}实点 ${prepQty} 个，应备 ${prepExpected} 个。${prepMismatch ? "正式单继续等待数量核对。" : "核对后可打印正式单。"}`)}>核对备货数量</button>
+        </details> : null}
+      </fieldset>}
+      {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paperStatus}。</p>{fulfillment.stockDeductionNote ? <p className={/没扣/u.test(fulfillment.stockDeductionNote) ? "fulfillment-stock-note warn" : "fulfillment-stock-note"}>首次打印记录：{fulfillment.stockDeductionNote}</p> : null}
         {canPrintNote && needsPrint ? <>
           {pickupNote && newPaper ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}
           {pendingPaper ? <button type="button" className="primary" onClick={() => void printPendingNote()}>打印纸单并确认</button> : null}
@@ -335,7 +424,7 @@ function FulfillmentOperations({ fulfillment, formal }) {
         {packingBlocker ? <p role="status">{packingBlocker}</p> : null}
         <label>执行人<select value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">选择实际执行人</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}</select></label>
         {!employees.length && <p>{candidates.loading ? "正在读取在岗员工…" : "暂无可选在岗员工，请先核对员工档案。"}</p>}
-        <div className="fulfillment-operation-grid"><label>执行结果<select value={paper?.status === "已交库房" ? warehouseResult : "已备货"} onChange={event => setExecution(event.target.value)}>{(paper?.status === "已交库房" ? ["已备货", "实物已出库", "数量不符", "无法出库"] : ["已备货"]).map(value => <option key={value}>{value}</option>)}</select></label><label>反馈方式<select value={channel} onChange={event => setChannel(event.target.value)}>{["当面", "电话", "微信", "纸面", "其他"].map(value => <option key={value}>{value}</option>)}</select></label></div>
+        <div className="fulfillment-operation-grid"><label>执行结果<select value={warehouseResult} onChange={event => setExecution(event.target.value)}>{warehouseOptions.map(value => <option key={value}>{value}</option>)}</select></label><label>反馈方式<select value={channel} onChange={event => setChannel(event.target.value)}>{["当面", "电话", "微信", "纸面", "其他"].map(value => <option key={value}>{value}</option>)}</select></label></div>
         {warehouseResult !== "已备货" && <label>实际数量<input type="number" min="0" step="1" value={actualQty} onChange={event => setActualQty(event.target.value)} /></label>}
         <label>说明<textarea rows="2" value={note} onChange={event => setNote(event.target.value)} placeholder="差异、无法出库或需要交接的事项" /></label>
         <button type="button" className="primary" disabled={!employeeId || (warehouseResult === "实物已出库" && Boolean(packingBlocker)) || (warehouseResult !== "已备货" && (actualQty === "" || !Number.isSafeInteger(Number(actualQty)) || Number(actualQty) < 0)) || (["数量不符", "无法出库"].includes(warehouseResult) && !note.trim())} onClick={() => ask("登记库房执行", recordOfficeWarehouseOutboundExecution, { paperOutboundDocument: paper, result: warehouseResult, actualQty: warehouseResult === "已备货" ? undefined : Number(actualQty), physicalExecutorEmployeeId: employeeId, feedbackChannel: channel, executedAt: new Date().toISOString(), note }, `${employees.find(row => row.employeeId === employeeId)?.name}：${warehouseResult}${warehouseResult === "已备货" ? "" : ` ${actualQty} 个`}。实物出库将由系统按记录更新库存。`)}>核对执行结果</button>
@@ -374,6 +463,12 @@ export function hasCompleteFulfillmentReceipt(attempt, result) {
   if (!result?.operationLogId) return false;
   const input = attempt.payload;
   if (attempt.execute === completeOfficePackingTask) return result.packingTaskId === input.packingTaskId && result.fulfillmentId === input.fulfillmentId && result.orderLineId === input.orderLineId && Array.isArray(result.packageIds) && result.packageIds.length === input.packageCount && result.packageIds.every(id => typeof id === "string" && id.length > 0) && new Set(result.packageIds).size === result.packageIds.length;
+  if (attempt.execute === resolveOfficeFulfillmentQuantityVariance) {
+    return result.quantityVarianceResolution?.fulfillmentId === input.fulfillment?.id
+      && result.quantityVarianceResolution?.resolutionResult === input.resolutionResult
+      && Number(result.quantityVarianceResolution?.actualQty) === input.expectedActualQty
+      && Boolean(result.quantityVarianceResolution?.businessDecisionId);
+  }
   if (result.fulfillmentId !== input.fulfillment?.id) return false;
   if (attempt.execute === printOfficeFulfillment) return Boolean((result.printJobId ?? result.printJob?.printJobId) && (result.printRecord?.printRecordId ?? result.printRecord?.id));
   if (attempt.execute === handoffOfficePaperOutbound) return (result.paperOutboundDocument?.paperOutboundDocumentId ?? result.paperOutboundDocument?.id) === (input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id);

@@ -33,3 +33,11 @@ function autoAccepted(workspace,fulfillment,expectedQty,actualQty){
  const orderLine=(workspace.orderLines??[]).find(row=>String(row.id??row.orderLineId)===lineId);
  return Boolean(autoQuantityDifference({orderLine,expectedQty,actualQty}));
 }
+
+export function mayReportDeductedPaperMismatchBeforeHandoff(workspace, fulfillment, result) {
+  return result === "数量不符" && Boolean(fulfillment.stockDeductedAt)
+    && !fulfillment.physicalOutboundAt && !fulfillment.loadedAt && !fulfillment.finalDeliveryAt && !fulfillment.deliveredAt
+    && !["已取消", "已作废", "已送达", "已交付", "已提货", "已拉走", "已完成"].includes(fulfillment.status)
+    && (workspace.inventoryLedgers ?? []).some((row) =>
+      row.sourceId === id(fulfillment) && row.sourceType === "fulfillment_note_print" && Number(row.qtyChange) < 0);
+}

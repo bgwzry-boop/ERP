@@ -75,6 +75,7 @@ try {
   const query = async (sql, values = []) => (await pool.query(sql, values)).rows;
   await query("INSERT INTO customers(id,biz_no,name,short_name,settlement_cycle,created_by) VALUES('C-UI-EXACT','C-UI-EXACT','黄松','黄松','现结','U-OFFICE-A')");
   await query("INSERT INTO employees(id,biz_no,user_id,name,role_name,profile_status,remark) VALUES('E2E-MANAGER-001','UI-0001','U-MANAGER-A','隔离测试主管','管理','active','仅本机隔离合成验收，不代表正式员工身份')");
+  await query("INSERT INTO employees(id,biz_no,name,role_name,profile_status) VALUES('E2E-UI-WAREHOUSE','UI-WH','隔离测试库房员','库房','active')");
   await query("UPDATE users SET employee_id='E2E-MANAGER-001' WHERE id='U-MANAGER-A'");
   await query("INSERT INTO business_decision_authorizations(id,employee_id,decision_scope,active_from,status,authorization_note) VALUES('AUTH-UI-SCHEDULE','E2E-MANAGER-001','production_schedule','2020-01-01','active','仅本机隔离排产验收')");
   // The broad legacy seed duplicates the migrated red color; keep one authority.
@@ -181,6 +182,15 @@ try {
     await page.getByRole("row").filter({ hasText: lineId }).click();
     const operations = page.getByRole("region", { name: "出库办理", exact: true });
     await expect(operations).toBeVisible();
+    if (scenario === "stock") {
+      await expect(operations.getByRole("button", { name: "创建打印任务", exact: true })).toHaveCount(0);
+      await operations.getByLabel("实际备货人", { exact: true }).selectOption("E2E-UI-WAREHOUSE");
+      await operations.getByLabel("实点数量（个）", { exact: true }).fill("500");
+      await operations.getByRole("button", { name: "核对备货数量", exact: true }).click();
+      await page.getByRole("group", { name: "提交前核对", exact: true }).getByRole("button", { name: "确认提交", exact: true }).click();
+      await expect(operations.getByText(/已确认备货.*500 个/u)).toBeVisible();
+      await page.screenshot({ path: `${output}/03-stock-prepared.png`, fullPage: true });
+    }
     await operations.getByRole("button", { name: "创建打印任务", exact: true }).click();
     await page.getByRole("group", { name: "提交前核对", exact: true }).getByRole("button", { name: "确认提交", exact: true }).click();
     await expect.poll(() => events.some(event => event.path === "/api/print-jobs/note.pdf" && event.status === 200), { timeout: 20000 }).toBe(true);

@@ -835,14 +835,15 @@ async function routeGet(context) {
 }
 
 async function routeWrite(context) {
-  const { method, request, url, response, workspace, body, permissionContext, authContext } = context;
-  if (!await authorizeProductionWriteScope({ url, response, workspace, permissionContext, sendJson })) return;
+  const { method, request, url, response, workspace: sharedWorkspace, body, permissionContext, authContext } = context;
+  if (!await authorizeProductionWriteScope({ url, response, workspace: sharedWorkspace, permissionContext, sendJson })) return;
   normalizeExpectedRevisionAtApiBoundary(body);
   const idempotencyKey =
-    workspace.runtimeConfig?.production && isProductionBusinessWritePath(url.pathname)
+    sharedWorkspace.runtimeConfig?.production && isProductionBusinessWritePath(url.pathname)
       ? requireHttpIdempotencyKey(request, body)
       : readHttpIdempotencyKey(request, body);
   if (idempotencyKey) body.idempotencyKey = idempotencyKey;
+  const workspace = await operationalReadWorkspace(sharedWorkspace, url.pathname, method);
 
   if (
     await handleAuthWriteRoutes({

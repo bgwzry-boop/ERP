@@ -1,6 +1,8 @@
 import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
 import { outboundPackageEvidence } from "./outboundPackageEvidence.mjs";
-import { fulfillmentNoteReadiness } from "../../shared/fulfillmentNoteReadiness.js";
+import { fulfillmentNoteReadiness, indexStockPreparationLogs, isDirectStockShipment, latestStockPreparation } from "../../shared/fulfillmentNoteReadiness.js";
+import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
+import { operationalPaperNetDeduction } from "../fulfillmentNoteCorrectionTransaction.mjs";
 import { queuedNoteError } from "./queuedFulfillmentNoteReadiness.mjs";
 import { hasTrustedCurrentFulfillmentLabel } from "./printJobBusinessProjectionService.mjs";
 import { buildFulfillmentShipmentProgress } from "./fulfillmentShipmentProgressService.mjs";
@@ -22,8 +24,9 @@ export function createFulfillmentReadProjectionService() {
   return {
     listFulfillments({ workspace = {}, searchParams } = {}) {
       const filters = readFilters(searchParams);
+      const preparationLogs = indexStockPreparationLogs(workspace.operationLogs);
       const projected = list(workspace.fulfillments).map((item, index) => ({
-        item: projectFulfillment(workspace, item),
+        item: projectFulfillment(workspace, item, preparationLogs),
         index,
       }));
       const metrics = buildMetrics(projected.map(({ item }) => item));
@@ -59,7 +62,7 @@ export function getFulfillmentMethodLabel(value) {
   return methodLabelByValue.get(normalized) ?? "待确认";
 }
 
-function projectFulfillment(workspace, value) {
+function projectFulfillment(workspace, value, preparationLogs) {
   const item = record(value);
   const fulfillmentId = cleanText(item.id ?? item.fulfillmentId ?? item.fulfillment_id);
   const orderLineId = cleanText(item.lineId ?? item.orderLineId ?? item.order_line_id);
@@ -101,12 +104,19 @@ function projectFulfillment(workspace, value) {
       .every((record) => cleanText(record.labelPrintRecordId ?? record.label_print_record_id) === cleanText(latestLabelPrintRecord.printRecordId ?? latestLabelPrintRecord.id)),
   );
   const paperOutboundStatus = resolvePaperOutboundStatus(workspace, item, paperOutboundDocument);
-  let noteReadiness = fulfillmentNoteReadiness(workspace, item, orderLine);
-  if (noteReadiness.ready && paperOutboundStatus === "待打印确认" && currentPrintRecord) {
+  const stockPreparationRequired = isDirectStockShipment(workspace, item, orderLine);
+  const stockPreparationQty = stockPreparationRequired ? captureWarehouseInstruction(workspace, item).instructionQty : null;
+  const stockPreparation = stockPreparationRequired ? latestStockPreparation(workspace, item, stockPreparationQty, preparationLogs) : null;
+  let noteReadiness = fulfillmentNoteReadiness(workspace, item, orderLine, {
+    requiredStockQty: stockPreparationQty, stockPreparation, operationalNetDeduction: operationalPaperNetDeduction(workspace, item),
+  });
+  if (paperOutboundStatus === "待打印确认" && currentPrintRecord) {
     const job = list(workspace.printJobs).find(row => row.printRecordId === (currentPrintRecord.printRecordId ?? currentPrintRecord.id)
       && row.jobStatus === "queued");
-    const error = job && queuedNoteError(workspace, job);
-    if (error) noteReadiness = { ready: false, reason: error.message };
+    if (job) {
+      const error = queuedNoteError(workspace, job, { stockPreparation });
+      noteReadiness = error ? { ready: false, reason: error.message } : { ready: true, reason: "" };
+    }
   }
   const goodsSpec = buildDriverGoodsSummary({ fulfillment: item, orderLine, qty: expectedQty });
   const status = cleanText(item.status) || "待处理";
@@ -117,6 +127,9 @@ function projectFulfillment(workspace, value) {
     shipmentProgress: buildFulfillmentShipmentProgress(workspace, item, orderLine),
     noteReadiness,
     outboundPackageReadiness: outboundPackageEvidence(workspace, { ...item, method }, paperOutboundDocument?.instructionQty ?? actualQty ?? expectedQty),
+    stockPreparationRequired,
+    stockPreparationQty,
+    stockPreparation,
     customerId,
     orderLineId,
     orderType: cleanText(orderLine.orderType ?? orderLine.order_type),
@@ -287,6 +300,7 @@ function projectPaperOutboundDocument(workspace, document) {
     printRecordId: cleanText(document.printRecordId ?? document.print_record_id),
     documentType: cleanText(document.documentType ?? document.document_type),
     documentVersion: nonNegativeInteger(document.documentVersion ?? document.document_version, 1) || 1,
+    instructionQty: document.instructionQty ?? document.instruction_qty ?? null,
     status: resolvePaperOutboundStatus(workspace, {}, document),
     storedStatus: cleanText(document.status),
     revision: nonNegativeInteger(document.revision, 1) || 1,

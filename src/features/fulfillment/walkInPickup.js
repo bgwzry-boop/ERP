@@ -29,7 +29,7 @@ function failed(result, fallback) {
 }
 
 /** Creates (or finds) the pickup-note print jobs of every item and prints them as one sheet. */
-export async function printWalkInPickupNote({ fulfillmentIds, pickerName = "", authState, operatorId }) {
+export async function printWalkInPickupNote({ fulfillmentIds, pickerName = "", executorEmployeeId, authState, operatorId }) {
   const auth = { authState, operatorId };
   const jobIds = [];
   try {
@@ -48,6 +48,7 @@ export async function printWalkInPickupNote({ fulfillmentIds, pickerName = "", a
         fulfillment,
         action: "打印出库单",
         printAction: "first_print",
+        onSitePickupEmployeeId: executorEmployeeId,
         ...(text(pickerName) ? { pickerName: text(pickerName) } : {}),
         idempotencyKey: createOfficeIdempotencyKey(),
       }, { serverRequired: true });

@@ -45,11 +45,14 @@ try {
   let target; let before; let printed;
   for (const candidate of pickups) {
     before = (await getOfficeFulfillment({ fulfillmentId: candidate.fulfillmentId, ...auth }, { serverRequired: true })).fulfillment;
-    printed = await printOfficeFulfillment({ ...auth, fulfillment: before, action: "打印出库单", printAction: "first_print", pickerName: "现场提货人", idempotencyKey: `walk-in-print-${candidate.fulfillmentId}` }, { serverRequired: true });
+    const regular = await printOfficeFulfillment({ ...auth, fulfillment: before, action: "打印出库单", printAction: "first_print", idempotencyKey: `regular-pickup-print-${candidate.fulfillmentId}` }, { serverRequired: true });
+    assert.equal(regular.error?.code, "FULFILLMENT_NOTE_NOT_READY", "ordinary future pickup needs actual preparation");
+    printed = await printOfficeFulfillment({ ...auth, fulfillment: before, action: "打印出库单", printAction: "first_print", pickerName: "现场提货人", onSitePickupEmployeeId: executors[0].employeeId, idempotencyKey: `walk-in-print-${candidate.fulfillmentId}` }, { serverRequired: true });
     if (printed.source === "api") { target = candidate; break; }
   }
   assert.ok(target, JSON.stringify(printed?.error));
   assert.deepEqual([printed.printJob.driverMode, printed.printJob.jobStatus], ["browser_download", "queued"]);
+  assert.equal(printed.printJob.payload.request.onSitePickup.employeeId, executors[0].employeeId);
   const pdf = await fetchOfficeNotePdf({ printJobIds: [printed.printJobId], ...auth }, { serverRequired: true });
   assert.equal(pdf.source, "api", JSON.stringify(pdf.error));
   assert.equal(new TextDecoder().decode(new Uint8Array(await pdf.blob.arrayBuffer()).slice(0, 5)), "%PDF-");

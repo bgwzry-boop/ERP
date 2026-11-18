@@ -8,20 +8,23 @@
 // 改数量 / 单价只支持这个订单只发了这一批的情况（分批发货的订单金额是按批分摊的，改一批会打乱后面几批）。
 import { randomUUID } from "node:crypto";
 import { closedStatementPaymentStatuses } from "../../shared/statementPaymentPolicy.js";
+import { packageAnchorId } from "../../shared/packageContents.js";
+import { captureWarehouseInstruction } from "./warehouseInstructionQuantityService.mjs";
+import { netDeductedStockByItem, noteCorrectionAvailableStock } from "../fulfillmentNoteCorrectionTransaction.mjs";
 
 const clean = (value) => String(value ?? "").trim();
 const money = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const price4 = (value) => Math.round((Number(value) + Number.EPSILON) * 10_000) / 10_000;
 const businessError = (statusCode, code, message) => ({ error: true, statusCode, code, message });
 const NOTE_TYPES = new Set(["delivery_note", "pickup_note", "outbound_note"]);
-// 这些来源的库存流水是「这次交付出库扣掉的」。
-const DEDUCTION_SOURCES = new Set(["fulfillment_note_print", "warehouse_physical_outbound", "warehouse_physical_outbound_legacy", "fulfillment_complete",
-  "fulfillment_complete_legacy", "fulfillment_pickup", "fulfillment_pickup_legacy", "fulfillment_note_correction"]);
 const CLOSED_FULFILLMENT = new Set(["已取消", "已作废"]);
+const DEPARTED_FULFILLMENT = new Set(["已交付", "已提货", "已拉走", "已完成", "在途", "配送中", "已装车"]);
 
 const idOf = (row) => clean(row?.fulfillmentId ?? row?.id);
 const printRecordIdOf = (row) => clean(row?.printRecordId ?? row?.id);
 const documentTypeOf = (row) => clean(row?.documentType ?? row?.document_type);
+const paperIdOf = (row) => clean(row?.paperOutboundDocumentId ?? row?.id);
+const departed = (row) => row.physicalOutboundAt || row.loadedAt || row.finalDeliveryAt || row.deliveredAt || DEPARTED_FULFILLMENT.has(clean(row.status));
 
 export function createFulfillmentNoteCorrectionService({ findInventoryItem, now = () => new Date() } = {}) {
   if (typeof findInventoryItem !== "function") throw new TypeError("findInventoryItem must be a function");
@@ -38,14 +41,25 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
     const reason = clean(body.reason);
     if (!reason) return businessError(422, "NOTE_CORRECTION_REASON_REQUIRED", "请写一句为什么作废重打，比如「数量写错了，实际 4800 个」。");
     if (reason.length > 200) return businessError(422, "NOTE_CORRECTION_REASON_INVALID", "作废原因最多 200 个字。");
-    const printRecord = [...(workspace.printRecords ?? [])]
+    const currentPaper = (workspace.paperOutboundDocuments ?? [])
+      .filter((row) => clean(row.fulfillmentId ?? row.fulfillment_id) === idOf(fulfillment))
+      .sort((a, b) => Number(b.documentVersion ?? b.document_version) - Number(a.documentVersion ?? a.document_version))[0];
+    const deductedByItem = netDeductedStockByItem(workspace, idOf(fulfillment));
+    const deductedItems = [...deductedByItem].filter(([, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
+    const netDeducted = deductedItems.reduce((sum, [, qty]) => sum + qty, 0);
+    const beforeDeparture = Boolean(fulfillment.stockDeductedAt) && netDeducted > 0 && !departed(fulfillment);
+    const printedRecords = (workspace.printRecords ?? [])
       .filter((row) => clean(row.targetType) === "fulfillment" && clean(row.targetId) === idOf(fulfillment)
-        && NOTE_TYPES.has(documentTypeOf(row)) && ["printed", "reprinted"].includes(clean(row.status)))
-      .sort((a, b) => clean(b.printedAt ?? b.createdAt).localeCompare(clean(a.printedAt ?? a.createdAt)))[0];
+        && NOTE_TYPES.has(documentTypeOf(row)) && ["printed", "reprinted"].includes(clean(row.status)));
+    const printRecord = beforeDeparture ? printedRecords.find((row) =>
+      printRecordIdOf(row) === clean(currentPaper?.printRecordId ?? currentPaper?.print_record_id))
+      : printedRecords.sort((a, b) => clean(b.printedAt ?? b.createdAt).localeCompare(clean(a.printedAt ?? a.createdAt)))[0];
     if (!printRecord) return businessError(409, "NOTE_CORRECTION_NO_PRINTED_NOTE", "这次交付还没有打出来的送货单 / 自提单，不用作废，直接改了再打。");
 
     const voidWhole = body.voidWhole === true;
-    const oldQty = Number(fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty ?? 0);
+    const expectedQty = Number(fulfillment.expectedQty ?? fulfillment.qty ?? 0);
+    const oldQty = Number(beforeDeparture ? currentPaper.instructionQty ?? currentPaper.instruction_qty ?? expectedQty
+      : fulfillment.actualQty ?? expectedQty);
     const correctedQty = body.correctedQty == null || clean(body.correctedQty) === "" ? null : Number(body.correctedQty);
     if (correctedQty !== null && (!Number.isSafeInteger(correctedQty) || correctedQty < 1 || correctedQty > 10_000_000)) {
       return businessError(422, "NOTE_CORRECTION_QTY_INVALID", "改后的数量要填正整数。");
@@ -57,7 +71,7 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
     const address = body.address == null ? null : clean(body.address);
     if (address !== null && address.length > 120) return businessError(422, "NOTE_CORRECTION_ADDRESS_INVALID", "地址最多 120 个字。");
     const newQty = voidWhole ? 0 : correctedQty ?? oldQty;
-    const qtyChanged = !voidWhole && newQty !== oldQty;
+    const qtyChanged = !voidWhole && (newQty !== oldQty || (beforeDeparture && correctedQty !== null && newQty !== netDeducted));
 
     // 对账单
     const statementLines = (workspace.statementLines ?? []).filter((row) => clean(row.fulfillmentId ?? row.fulfillment_id) === idOf(fulfillment));
@@ -70,8 +84,48 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
     }
     const oldUnit = statementLine && Number(statementLine.chargeableQty) > 0 ? Number(statementLine.amount) / Number(statementLine.chargeableQty) : null;
     const priceChanged = correctedUnitPrice !== null && (oldUnit === null || price4(oldUnit) !== price4(correctedUnitPrice));
-    if (!voidWhole && (qtyChanged || priceChanged) && !statementLine) {
+    if (beforeDeparture && statementLine && (qtyChanged || priceChanged)) {
+      return businessError(409, "NOTE_CORRECTION_DELIVERY_RECORD_CONFLICT", "这批货已有对账记录，缺少实物出库记录。请先核对交付和对账凭据。");
+    }
+    const preDepartureAdjustment = beforeDeparture && !statementLine && qtyChanged;
+    if (!voidWhole && !statementLine && (priceChanged || (qtyChanged && !preDepartureAdjustment))) {
       return businessError(409, "NOTE_CORRECTION_NOT_BILLED_YET", "这次交付还没送到 / 拉走、没入对账单：改数量请在订单里改量，改单价请在订单里改价，然后作废重打。");
+    }
+    let approvedAdjustment = null;
+    if (preDepartureAdjustment) {
+      if (body.expectedRevision == null) return businessError(422, "EXPECTED_REVISION_REQUIRED", "请重新读取这张纸单后再改数量。");
+      if (clean(currentPaper.status) === "已作废"
+        || (fulfillment.paperOutboundDocumentId && fulfillment.paperOutboundDocumentId !== paperIdOf(currentPaper))) {
+        return businessError(409, "NOTE_CORRECTION_CHANGED", "请重新读取当前有效纸单后再改数量。");
+      }
+      if ([...deductedByItem.values()].some((quantity) => quantity < 0)) {
+        return businessError(409, "NOTE_CORRECTION_STOCK_LEDGER_CONFLICT", "这批货的库存流水已出现超退，请核对库存后再改数量。");
+      }
+      const packingGroupAnchorId = packageAnchorId(fulfillment);
+      if (packingGroupAnchorId && (workspace.fulfillments ?? []).some((row) => packageAnchorId(row) === packingGroupAnchorId && departed(row))) {
+        return businessError(409, "NOTE_CORRECTION_PACKING_ALREADY_OUTBOUND", "混装包组已有货物出库或装车，请按交付异常处理。");
+      }
+      const approved = captureWarehouseInstruction(workspace, fulfillment);
+      const hasOpenVariance = (workspace.fulfillmentExceptions ?? []).some((entry) => clean(entry.fulfillmentId) === idOf(fulfillment)
+        && entry.exceptionType === "quantity_mismatch" && !["已解决", "已作废"].includes(entry.status));
+      if (hasOpenVariance || ["待补货", "数量差异待处理", "无法出库", "送货异常"].includes(fulfillment.status)
+        || approved.instructionQty !== newQty || Number(fulfillment.actualQty ?? expectedQty) !== newQty
+        || (newQty !== expectedQty && !approved.instructionDecisionId)) {
+        return businessError(409, "NOTE_CORRECTION_VARIANCE_APPROVAL_REQUIRED", "请先登记实物数量并完成数量差异审批，再按批准的数量作废重打。");
+      }
+      if (newQty > expectedQty) {
+        const resolution = (workspace.fulfillmentQuantityVarianceResolutions ?? []).find((row) =>
+          clean(row.id ?? row.quantityVarianceResolutionId) === approved.instructionResolutionId);
+        if (resolution?.resolutionResult !== "赠送数量") {
+          return businessError(409, "NOTE_CORRECTION_EXCESS_NOT_APPROVED", "超出订单的数量需先批准为赠送。需要加价的数量请另走订单改量。");
+        }
+      }
+      approvedAdjustment = { expectedQty, newQty, expectedNetDeducted: netDeducted,
+        resolutionId: approved.instructionResolutionId, decisionId: approved.instructionDecisionId,
+        orderLineId: clean(fulfillment.orderLineId ?? fulfillment.lineId), packingGroupAnchorId };
+    } else if (beforeDeparture && !statementLine && !voidWhole
+      && [Number(fulfillment.actualQty ?? oldQty), oldQty].some((quantity) => quantity !== netDeducted)) {
+      return businessError(409, "NOTE_CORRECTION_VARIANCE_APPROVAL_REQUIRED", "纸单数量与实际扣库不一致，请先核对数量，再作废重打。");
     }
     const orderLineId = clean(fulfillment.orderLineId ?? fulfillment.lineId);
     if ((qtyChanged || priceChanged) && !voidWhole) {
@@ -89,15 +143,6 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
     // 库存：按库存流水算这次交付「实际净扣了多少」（按库存项汇总），改数量后让净扣数等于新数量：
     // 多扣的退回、少扣的补扣（库存不够只扣到有的）；整张作废把净扣的全部退回。
     // 不按「旧数量 - 新数量」退：之前补扣时库存不够少扣过，再改小就会多退（#109 复查发现，负责人 2026-11-13）。
-    const deductedByItem = new Map();
-    for (const entry of workspace.inventoryLedgers ?? []) {
-      if (clean(entry.sourceId) !== idOf(fulfillment)) continue;
-      const counts = DEDUCTION_SOURCES.has(clean(entry.sourceType)) || clean(entry.sourceType) === "fulfillment_note_correction_return";
-      if (!counts) continue;
-      deductedByItem.set(entry.inventoryItemId, (deductedByItem.get(entry.inventoryItemId) ?? 0) - Number(entry.qtyChange));
-    }
-    const deductedItems = [...deductedByItem].filter(([, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
-    const netDeducted = deductedItems.reduce((sum, [, qty]) => sum + qty, 0);
     const inventoryAdjustments = [];
     const inventoryLedgerEntries = [];
     const stockNotes = [];
@@ -107,7 +152,8 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
       const existing = inventoryAdjustments.find((row) => row.inventoryItemId === itemId);
       const projected = existing ? existing.expectedOnHand + existing.onHandQtyChange : before;
       if (existing) existing.onHandQtyChange += change;
-      else inventoryAdjustments.push({ inventoryItemId: itemId, onHandQtyChange: change, expectedOnHand: before, expectedNetDeducted: Math.max(0, deductedByItem.get(itemId) ?? 0), fulfillmentId: idOf(fulfillment) });
+      else inventoryAdjustments.push({ inventoryItemId: itemId, onHandQtyChange: change, expectedOnHand: before,
+        expectedNetDeducted: Math.max(0, deductedByItem.get(itemId) ?? 0), fulfillmentId: idOf(fulfillment) });
       inventoryLedgerEntries.push({
         ledgerId: `LEDGER-${idOf(fulfillment)}-FIX-${randomUUID().slice(0, 8)}`, inventoryItemId: itemId,
         changeType: change > 0 ? "改单退回库存" : "改单补扣库存", qtyBefore: projected, qtyChange: change, qtyAfter: projected + change,
@@ -128,6 +174,15 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
           pushLedger(itemId, back, `数量 ${oldQty} 改成 ${newQty}，实际净扣 ${netDeducted}，退回 ${back}`);
           left -= back;
         }
+      } else if (gap < 0 && approvedAdjustment) {
+        let left = -gap;
+        for (const [itemId] of deductedItems) {
+          const take = Math.min(noteCorrectionAvailableStock(findInventoryItem(workspace, itemId)), left);
+          if (take > 0) pushLedger(itemId, -take, `改为 ${newQty} 个，按批准实数补扣 ${take} 个`);
+          left -= take;
+          if (left === 0) break;
+        }
+        if (left > 0) return businessError(409, "NOTE_CORRECTION_AVAILABLE_STOCK_SHORT", `可用库存少 ${left} 个，核对库存后再改数量。旧纸单和库存没有变化。`);
       } else if (gap < 0) {
         const itemId = deductedItems[0]?.[0] ?? [...deductedByItem.keys()][0];
         const item = findInventoryItem(workspace, itemId);
@@ -136,6 +191,10 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
         if (take > 0) pushLedger(itemId, -take, `数量 ${oldQty} 改成 ${newQty}，实际净扣 ${netDeducted}，补扣 ${take}`);
         if (take < -gap) stockNotes.push(`线上库存不够，少扣了 ${-gap - take} 个，请盘点修正`);
       }
+    }
+    if (approvedAdjustment) {
+      const netChange = inventoryAdjustments.reduce((sum, row) => sum - row.onHandQtyChange, 0);
+      if (netChange) stockNotes.push(netChange > 0 ? `补扣库存 ${netChange} 个` : `退回库存 ${-netChange} 个`);
     }
 
     // 对账单这一行和合计
@@ -190,37 +249,44 @@ export function createFulfillmentNoteCorrectionService({ findInventoryItem, now 
       ...stockNotes,
     ].filter(Boolean);
     const paper = (workspace.paperOutboundDocuments ?? []).find((row) => clean(row.printRecordId ?? row.print_record_id) === printRecordIdOf(printRecord) && clean(row.status) !== "已作废");
+    const summary = { changes, voidWhole, reprint: !voidWhole, previousPrintRecordId: printRecordIdOf(printRecord), documentType: documentTypeOf(printRecord),
+      statementNeedsResend: Boolean(statementPlan?.correctedAfterSend), ...(approvedAdjustment ? { preDepartureQuantityCorrection: true } : {}) };
     return {
       plan: {
         now: occurredAt, operatorId,
-        fulfillment: { id: idOf(fulfillment), expectedRevision: Number(fulfillment.revision ?? 1), actualQty: newQty, status: voidWhole ? "已取消" : clean(fulfillment.status), customerSnapshot },
+        fulfillment: { id: idOf(fulfillment), expectedRevision: Number(fulfillment.revision ?? 1), actualQty: newQty,
+          status: voidWhole ? "已取消" : approvedAdjustment ? "待出库" : clean(fulfillment.status), customerSnapshot },
         printRecord: { id: printRecordIdOf(printRecord), documentType: documentTypeOf(printRecord), voidReason: `作废重打：${reason}` },
-        paper: paper ? { id: clean(paper.paperOutboundDocumentId ?? paper.id) } : null,
+        paper: paper ? { id: paperIdOf(paper), revision: Number(paper.revision ?? 1), version: Number(paper.documentVersion ?? paper.document_version ?? 1) } : null,
+        approvedAdjustment,
         inventoryAdjustments, inventoryLedgerEntries,
         statementLine: linePlan, statement: statementPlan, priceSnapshot,
+        summary,
         operationLog: { id: `LOG-NOTE-FIX-${randomUUID()}`, targetType: "fulfillment", targetId: idOf(fulfillment), action: "correct_fulfillment_note", operatorId,
           before: { actualQty: oldQty, status: clean(fulfillment.status), printRecordId: printRecordIdOf(printRecord), statementLineAmount: statementLine ? Number(statementLine.finalAmount ?? statementLine.amount) : null },
-          after: { actualQty: newQty, changes }, reason, occurredAt, createdAt: occurredAt, pageKey: "outbound-delivery" },
+          after: { actualQty: newQty, changes, ...(approvedAdjustment ? { preDepartureQuantityCorrection: true,
+            quantityDecisionId: approvedAdjustment.decisionId, previousPaperId: paperIdOf(paper) } : {}) },
+          reason, occurredAt, createdAt: occurredAt, pageKey: "outbound-delivery" },
       },
-      summary: { changes, voidWhole, reprint: !voidWhole, previousPrintRecordId: printRecordIdOf(printRecord), documentType: documentTypeOf(printRecord),
-        statementNeedsResend: Boolean(statementPlan?.correctedAfterSend) },
+      summary,
     };
   }
 
   async function correctFulfillmentNote({ workspace, fulfillmentId, body = {}, operatorId }) {
-    const planned = planFulfillmentNoteCorrection({ workspace, fulfillmentId, body, operatorId });
-    if (planned.error || planned.notFound) return planned;
     const idempotencyKey = clean(body.idempotencyKey);
     if (idempotencyKey.length < 8) return businessError(422, "IDEMPOTENCY_KEY_INVALID", "缺少本次提交标识，请重新提交。");
     const repository = workspace.fulfillmentActionTransactionRepository;
     if (typeof repository?.recordNoteCorrection !== "function") return businessError(503, "NOTE_CORRECTION_UNAVAILABLE", "暂时不能作废重打，请稍后再试。");
+    const idempotencyPayload = { fulfillmentId: clean(fulfillmentId), expectedRevision: body.expectedRevision ?? null, voidWhole: body.voidWhole === true,
+      correctedQty: body.correctedQty ?? null, correctedUnitPrice: body.correctedUnitPrice ?? null,
+      address: body.address ?? null, pickerName: body.pickerName ?? null, reason: clean(body.reason), operatorId };
     try {
-      const saved = await repository.recordNoteCorrection({
-        workspace, plan: planned.plan, idempotencyKey,
-        idempotencyPayload: { fulfillmentId: clean(fulfillmentId), voidWhole: body.voidWhole === true, correctedQty: body.correctedQty ?? null, correctedUnitPrice: body.correctedUnitPrice ?? null,
-          address: body.address ?? null, pickerName: body.pickerName ?? null, reason: clean(body.reason), operatorId },
-      });
-      return { statusCode: 200, response: { fulfillmentId: saved.fulfillmentId, operationLogId: saved.operationLogId, ...planned.summary } };
+      const replay = await repository.findNoteCorrectionReplay?.({ workspace, idempotencyKey, idempotencyPayload });
+      if (replay) return { statusCode: 200, response: replay };
+      const planned = planFulfillmentNoteCorrection({ workspace, fulfillmentId, body, operatorId });
+      if (planned.error || planned.notFound) return planned;
+      const saved = await repository.recordNoteCorrection({ workspace, plan: planned.plan, idempotencyKey, idempotencyPayload });
+      return { statusCode: 200, response: { fulfillmentId: saved.fulfillmentId, operationLogId: saved.operationLogId, ...saved.summary } };
     } catch (error) {
       if (error?.code === "NOTE_CORRECTION_CHANGED" || error?.statusCode === 409) return businessError(409, "NOTE_CORRECTION_CHANGED", error.message || "单子刚被别人改过，请刷新后再改。");
       throw error;

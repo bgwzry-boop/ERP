@@ -1,7 +1,8 @@
-import { resolveWarehouseInstructionQuantity } from "./warehouseInstructionQuantityService.mjs";
+import { captureWarehouseInstruction, mayReportDeductedPaperMismatchBeforeHandoff, resolveWarehouseInstructionQuantity } from "./warehouseInstructionQuantityService.mjs";
+import { netDeductedFulfillmentQuantity, netDeductedStockByItem } from "../fulfillmentNoteCorrectionTransaction.mjs";
+import { isDirectStockShipment, latestStockPreparation, stockPreparationAction, voidNoteStatuses } from "../../shared/fulfillmentNoteReadiness.js";
 import { packageAnchorId } from "../../shared/packageContents.js";
 import { outboundPackageEvidence } from "./outboundPackageEvidence.mjs";
-import { netDeductedFulfillmentQuantity } from "../fulfillmentNoteCorrectionTransaction.mjs";
 import { confirmPackageGroupLoaded } from "./packageGroupLoadService.mjs";
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
 import { isDirectProductionOrderType } from "../../shared/orderRouting.js";
@@ -13,7 +14,7 @@ import { matchesDeliveryEvidenceSnapshot } from "../../shared/deliveryEvidenceSn
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
 import { captureFulfillmentBillingSnapshot, selectFulfillmentPriceSnapshot } from "./fulfillmentBillingSnapshotService.mjs";
 import { resolveFulfillmentBillingQuantity } from "./fulfillmentBillingQuantityService.mjs";
-import { findAvailableFulfillmentDriver } from "./fulfillmentOperatorCandidatesService.mjs";
+import { findAvailableFulfillmentDriver, findAvailableWarehouseExecutor } from "./fulfillmentOperatorCandidatesService.mjs";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createDeliveryEvidencePolicyService } from "./deliveryEvidencePolicyService.mjs";
 import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
@@ -112,6 +113,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     resolveFulfillmentQuantityVariance,
     handoffPaperOutboundDocument,
     recordWarehouseOutboundExecution,
+    recordStockPreparation,
     updateFulfillmentStatus,
     cancelFulfillment,
     reviewDeliveryEvidence,
@@ -199,7 +201,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     if (!fulfillmentException) {
       return businessError(409, "FULFILLMENT_QUANTITY_VARIANCE_NOT_OPEN", "当前出库任务没有待处理的数量差异。");
     }
-    const expectedQty = Math.max(0, Math.trunc(Number(fulfillmentException.expectedQty ?? before.expectedQty ?? before.qty ?? 0)));
+    // Replacing a corrected paper may report a difference against that paper's count.
+    // The approval still uses the original order quantity for the next paper and billing.
+    const expectedQty = Math.max(0, Math.trunc(Number(before.expectedQty ?? before.qty ?? fulfillmentException.expectedQty ?? 0)));
     const actualQty = Math.max(0, Math.trunc(Number(fulfillmentException.actualQty ?? before.actualQty ?? 0)));
     const resolvedAt = nowIso(now);
     const after = {
@@ -310,6 +314,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
   async function handoffPaperOutboundDocument({ workspace, fulfillmentId, body = {}, operatorId }) {
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound("FULFILLMENT_NOT_FOUND");
+    if (["已取消", "已作废"].includes(cleanText(before.status))) {
+      return businessError(409, "FULFILLMENT_CLOSED", "这次交付已取消，纸单不能再交给库房。");
+    }
     const revisionError = validateFulfillmentRevision(before, body);
     if (revisionError) return revisionError;
     if (before.legacyStateReviewRequired === true) {
@@ -343,7 +350,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     };
     const after = {
       ...before,
-      status: "待库房备货",
+      status: before.status === "已备货" ? "已备货" : "待库房备货",
       paperOutboundStatus: "已交库房",
       paperOutboundDocumentId: nextPaperDocument.paperOutboundDocumentId ?? nextPaperDocument.id,
       legacyStateReviewRequired: false,
@@ -376,6 +383,61 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     });
   }
 
+  async function recordStockPreparation({ workspace, fulfillmentId, body = {}, operatorId }) {
+    const before = findFulfillment(workspace, fulfillmentId);
+    if (!before) return notFound("FULFILLMENT_NOT_FOUND");
+    const idempotencyPayload = { ...body, fulfillmentId, operatorId };
+    const replay = await workspace.fulfillmentActionTransactionRepository?.findStockPreparationReplay?.({ workspace, payload: idempotencyPayload });
+    if (replay) return success({ fulfillmentId, status: replay.fulfillment.status, operationLogId: replay.operationLogId, replayed: true });
+    const revisionError = validateFulfillmentRevision(before, body);
+    if (revisionError) return revisionError;
+    const orderLineId = before.orderLineId ?? before.lineId;
+    const orderLine = findOrderLine(workspace, orderLineId);
+    if (!isDirectStockShipment(workspace, before, orderLine) || voidNoteStatuses.includes(orderLine.lineStatus ?? orderLine.status)
+      || before.legacyStateReviewRequired || before.physicalOutboundAt
+      || before.loadedAt || before.finalDeliveryAt || before.deliveredAt
+      || ["已取消", "已作废", "已完成", "已交付", "已拉走", "待补货", "数量差异待处理", "无法出库"].includes(before.status)) {
+      return businessError(409, "STOCK_PREPARATION_UNAVAILABLE", "本批货当前不能登记备货，请核对订单和出库状态。");
+    }
+    const document = findPaperOutboundDocument(workspace, fulfillmentId);
+    if (hasTrustedWarehousePaper(document, findFulfillmentPrintRecord(workspace, document?.printRecordId), fulfillmentId)) {
+      return businessError(409, "STOCK_PREPARATION_PAPER_ACTIVE", "这批货已有有效纸单，请在库房实际执行里办理。");
+    }
+    const employee = findAvailableWarehouseExecutor(workspace, cleanText(body.employeeId));
+    const qty = body.preparedQty;
+    const requiredQty = captureWarehouseInstruction(workspace, before).instructionQty;
+    const location = cleanText(body.location);
+    const note = cleanText(body.note);
+    if (!employee || !Number.isSafeInteger(qty) || qty < 0 || qty > 10_000_000) {
+      return businessError(422, "STOCK_PREPARATION_INPUT_REQUIRED", "请选实际备货人并填写实点数量。");
+    }
+    if (!requiredQty || location.length > 80 || note.length > 200 || (qty !== requiredQty && !note)) {
+      return businessError(422, "STOCK_PREPARATION_INPUT_INVALID", "请核对本批应出数量。实际数量有差异时请写明原因。");
+    }
+    if (!cleanText(body.idempotencyKey)) {
+      return businessError(422, "IDEMPOTENCY_KEY_INVALID", "缺少本次提交标识，请重新提交。");
+    }
+    const stockPreparation = {
+      orderLineId, method: before.method, quantity: qty, requiredQty,
+      employeeId: employee.id, employeeName: employee.name, recordedBy: operatorId, recordedAt: nowIso(now),
+      location, note, fulfillmentRevision: normalizeRevision(before.revision) + 1,
+    };
+    const after = { ...before, status: qty === requiredQty ? "已备货" : before.status === "已备货" ? "待出库" : before.status };
+    const transaction = await recordFulfillmentAction(workspace, {
+      workspace,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload,
+      fulfillment: buildFulfillmentActionRecord(workspace, after, {
+        actualQty: before.actualQty ?? null, confirmedBy: before.confirmedBy ?? "", createdBy: before.createdBy ?? "",
+      }),
+      operationLog: buildOperationLog(workspace, {
+        targetType: "fulfillment", targetId: fulfillmentId, action: stockPreparationAction, operatorId,
+        before: latestStockPreparation(workspace, before, requiredQty), after: { stockPreparation, status: after.status }, reason: note,
+      }),
+    });
+    return success({ fulfillmentId, status: transaction.fulfillment?.status ?? after.status, operationLogId: transaction.operationLogId });
+  }
+
   async function recordWarehouseOutboundExecution({ workspace, fulfillmentId, body = {}, operatorId }) {
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound("FULFILLMENT_NOT_FOUND");
@@ -384,6 +446,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       statementCandidate: false, operationLogId: replay.operationLogId, replayed: true });
     const revisionError = validateFulfillmentRevision(before, body);
     if (revisionError) return revisionError;
+    if (["已取消", "已作废"].includes(before.status)) {
+      return businessError(409, "WAREHOUSE_EXECUTION_FULFILLMENT_CLOSED", "已取消或作废的出库任务不能登记库房结果。");
+    }
     if (before.legacyStateReviewRequired === true) {
       return businessError(409, "FULFILLMENT_LEGACY_REVIEW_REQUIRED", "Historical fulfillment state must be reviewed before warehouse execution is recorded.");
     }
@@ -399,7 +464,8 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       || !hasTrustedWarehousePaper(paperDocument, findFulfillmentPrintRecord(workspace, paperDocument.printRecordId), fulfillmentId)) {
       return businessError(409, "WAREHOUSE_CURRENT_PRINT_REQUIRED", "请等待当前出库单真实打印成功；作废、旧版或未打印纸单不能登记库房结果。");
     }
-    if (executionResult !== "已备货" && paperDocument.status !== "已交库房") {
+    if (executionResult !== "已备货" && paperDocument.status !== "已交库房"
+      && !mayReportDeductedPaperMismatchBeforeHandoff(workspace, before, executionResult)) {
       return businessError(409, "WAREHOUSE_EXECUTION_PAPER_HANDOFF_REQUIRED", "Warehouse execution requires the current paper outbound document to be handed to the warehouse first.");
     }
     const physicalExecutorEmployeeId = cleanText(body.physicalExecutorEmployeeId);
@@ -1833,18 +1899,16 @@ function cleanText(value) {
 
     // 负责人 2026-11-08：打单时已经扣了库存的，取消时把扣掉的数量退回库存。
     if (cleanText(fulfillment.stockDeductedAt)) {
-      const deducted = (workspace.inventoryLedgers ?? []).filter((entry) => entry.sourceType === "fulfillment_note_print"
-        && entry.sourceId === fulfillmentId && Number(entry.qtyChange) < 0);
-      const onHandByItem = new Map();
-      for (const entry of deducted) {
-        const qty = Math.abs(Number(entry.qtyChange));
-        const inventoryItem = findInventoryItem(workspace, entry.inventoryItemId);
-        const before = onHandByItem.has(entry.inventoryItemId) ? onHandByItem.get(entry.inventoryItemId) : Number(inventoryItem?.inStock ?? inventoryItem?.onHand ?? 0);
-        onHandByItem.set(entry.inventoryItemId, before + qty);
-        inventoryAdjustments.push({ inventoryItemId: entry.inventoryItemId, onHandQtyChange: qty, reservedQtyChange: 0 });
+      const deducted = netDeductedStockByItem(workspace, fulfillmentId, ["fulfillment_note_print", "fulfillment_note_correction",
+        "fulfillment_note_correction_return", "fulfillment_cancel_note_print_return"]);
+      for (const [inventoryItemId, qty] of deducted) {
+        if (qty <= 0) continue;
+        const inventoryItem = findInventoryItem(workspace, inventoryItemId);
+        const before = Number(inventoryItem?.inStock ?? inventoryItem?.onHand ?? 0);
+        inventoryAdjustments.push({ inventoryItemId, onHandQtyChange: qty, reservedQtyChange: 0 });
         inventoryLedgerEntries.push({
-          ledgerId: nextPlainId("LEDGER", `${fulfillmentId}-${entry.ledgerId ?? entry.id}-RETURN`),
-          inventoryItemId: entry.inventoryItemId,
+          ledgerId: nextPlainId("LEDGER", `${fulfillmentId}-${inventoryItemId}-CANCEL-PAPER-RETURN`),
+          inventoryItemId,
           changeType: "取消出库退回库存",
           qtyBefore: before,
           qtyChange: qty,
@@ -1854,7 +1918,7 @@ function cleanText(value) {
           operatorId: input.operatorId ?? "U-OFFICE-A",
           confirmedBy: input.operatorId ?? "U-OFFICE-A",
           reason: input.reason ?? "取消出库任务",
-          remark: `打单时扣了 ${qty}，取消后退回库存`,
+          remark: `纸单累计净扣 ${qty}，取消后退回库存`,
         });
       }
     }
