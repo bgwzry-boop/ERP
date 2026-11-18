@@ -20150,6 +20150,9 @@ components:
         documentVersion:
           type: integer
           minimum: 1
+        instructionQty:
+          type: [integer, "null"]
+          description: 当前纸单锁定的出库数量。历史纸单未记录时为 null，继续以该交付任务的计划数量为准。
         status:
           type: string
           enum: [待打印确认, 已打印待交库房, 已交库房, 已作废, 已作废待重打]

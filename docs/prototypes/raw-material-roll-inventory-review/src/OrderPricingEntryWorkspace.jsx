@@ -9,7 +9,7 @@ import { OrderEntrySplitDialog } from "./OrderEntrySplitDialog.jsx";
 import { buildStockPickingSlipHtml, buildStockPickingSlips, selectConfirmedStockLines } from "../../../../src/domain/stockPickingSlip.js";
 import { printStockPickingSlip } from "../../../../src/features/fulfillment/printStockPickingSlip.js";
 import { ReviewDialog } from "./ReviewDialog.jsx";
-import { completeWalkInPickup, printWalkInPickupNote } from "../../../../src/features/fulfillment/walkInPickup.js";
+import { completeWalkInPickup, printWalkInPickupNote, readWalkInPickupConfirmation } from "../../../../src/features/fulfillment/walkInPickup.js";
 import { getOfficeFulfillmentOperatorCandidates } from "../../../../src/services/officeFulfillmentApiClient.js";
 import { useFabricStock } from "./useFabricStock.js";
 import { buildOrderFabricHints, needsFabricHint } from "./orderFabricHint.js";
@@ -1261,7 +1261,7 @@ function OrderPricingEditor({
           </fieldset>
         ) : null}
         {complete && walkIn ? (
-          <WalkInPickupPanel key={walkIn.fulfillmentIds.join(",")} walkIn={walkIn} formal={formal} />
+          <WalkInPickupPanel key={`${formal.operatorId}:${walkIn.fulfillmentIds.join(",")}`} walkIn={walkIn} formal={formal} />
         ) : null}
         <footer className="pricing-actions">
           <p role="status" aria-live="polite">
@@ -1522,9 +1522,12 @@ function WalkInPickupPanel({ walkIn, formal }) {
   const [pickerName, setPickerName] = useState("");
   const [executors, setExecutors] = useState([]);
   const [executorId, setExecutorId] = useState(() => { try { return window.localStorage.getItem(WALK_IN_EXECUTOR_KEY) ?? ""; } catch { return ""; } });
-  const [state, setState] = useState({ busy: "", printed: false, done: false, message: "" });
+  const [state, setState] = useState({ busy: "", confirmation: [], attempt: null, done: false, message: "" });
   const live = useRef(true);
-  useEffect(() => () => { live.current = false; }, []);
+  useEffect(() => {
+    live.current = true;
+    return () => { live.current = false; };
+  }, []);
   useEffect(() => {
     let active = true;
     void getOfficeFulfillmentOperatorCandidates({ authState: formal.authState, operatorId: formal.operatorId }, { serverRequired: true }).then((result) => {
@@ -1540,34 +1543,60 @@ function WalkInPickupPanel({ walkIn, formal }) {
     setState((current) => ({ ...current, busy: "print", message: "正在打开打印窗口，请选针式打印机…" }));
     const result = await printWalkInPickupNote({ fulfillmentIds: walkIn.fulfillmentIds, pickerName, ...auth });
     if (!live.current) return;
-    setState((current) => ({ ...current, busy: "", printed: result.printed, message: result.message }));
+    if (result.printed) {
+      await readPaper();
+      return;
+    }
+    setState((current) => ({ ...current, busy: "", message: result.message }));
+  }
+  async function readPaper() {
+    setState((current) => ({ ...current, busy: "read", message: "正在读取自提单…" }));
+    const result = await readWalkInPickupConfirmation({ fulfillmentIds: walkIn.fulfillmentIds, ...auth });
+    if (!live.current) return;
+    const done = result.rows.length > 0 && result.rows.every((row) => row.done);
+    setState({ busy: "", confirmation: result.rows, attempt: null, done, message: result.message ?? "" });
   }
   async function finish() {
     setState((current) => ({ ...current, busy: "finish", message: "正在出库…" }));
-    const result = await completeWalkInPickup({ fulfillmentIds: walkIn.fulfillmentIds, executorEmployeeId: executorId, ...auth });
+    const result = await completeWalkInPickup({
+      fulfillmentIds: walkIn.fulfillmentIds, confirmation: state.confirmation, attempt: state.attempt, executorEmployeeId: executorId, ...auth,
+    });
     if (!live.current) return;
-    setState((current) => ({ ...current, busy: "", done: result.done, message: result.message }));
+    setState((current) => ({
+      ...current, busy: "", done: result.done, message: result.message, attempt: result.attempt ?? null,
+      confirmation: result.refreshRequired ? [] : current.confirmation, readAgain: result.refreshRequired === true,
+    }));
     if (result.done) void Promise.resolve(formal.actions.refreshAll()).catch(() => {});
   }
+  const paperReady = state.confirmation.length > 0;
   return (
     <section className="pricing-walk-in" aria-label="客户现场拿货">
       <h3>客户现场拿货 <small>{walkIn.fulfillmentIds.length} 样货合在一张自提单上</small></h3>
       <div className="pricing-walk-in-fields">
-        <label>提货人（实际来拿货的人，可不填）<input value={pickerName} maxLength={20} disabled={state.printed || !!state.busy} onChange={(event) => setPickerName(event.target.value)} /></label>
+        <label>提货人（实际来拿货的人，可不填）<input value={pickerName} maxLength={20} disabled={paperReady || !!state.busy || state.done} onChange={(event) => setPickerName(event.target.value)} /></label>
         <label>经手人（库房谁拿的货）
-          <select value={executorId} disabled={state.done || !!state.busy} onChange={(event) => chooseExecutor(event.target.value)}>
+          <select value={executorId} disabled={state.done || !!state.busy || !!state.attempt} onChange={(event) => chooseExecutor(event.target.value)}>
             <option value="">请选择</option>
             {executors.map((row) => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}
           </select>
         </label>
       </div>
+      {paperReady && !state.done ? (
+        <div aria-label="自提单出库数量">
+          <p>请按自提单顺序核对实际拿走的数量。</p>
+          <ul>{state.confirmation.map(({ fulfillment, quantity, done }, index) => (
+            <li key={fulfillment.id}>第 {index + 1} 项 · {done ? "已提货" : `${quantity} 个`}</li>
+          ))}</ul>
+        </div>
+      ) : null}
       {state.message ? <p role="status">{state.message}</p> : null}
       <div className="pricing-walk-in-actions">
-        <button type="button" className={state.printed ? "secondary-button" : "primary-button"} disabled={state.printed || state.done || !!state.busy} onClick={() => void print()}>
-          {state.busy === "print" ? "正在打印…" : state.printed ? "自提单已打印" : "打印自提单"}
+        <button type="button" className={paperReady ? "secondary-button" : "primary-button"} disabled={paperReady || state.done || !!state.busy} onClick={() => void print()}>
+          {state.busy === "print" ? "正在打印…" : paperReady ? "自提单已打印" : "打印自提单"}
         </button>
-        <button type="button" className={state.printed ? "primary-button" : "secondary-button"} disabled={!state.printed || !executorId || state.done || !!state.busy}
-          title={!state.printed ? "先打印自提单并确认打出来" : !executorId ? "先选经手人" : undefined} onClick={() => void finish()}>
+        {state.readAgain ? <button type="button" className="secondary-button" disabled={!!state.busy} onClick={() => void readPaper()}>重新读取自提单</button> : null}
+        <button type="button" className={paperReady ? "primary-button" : "secondary-button"} disabled={!paperReady || !executorId || state.done || !!state.busy}
+          title={!paperReady ? "先打印自提单并确认打出来" : !executorId ? "先选经手人" : undefined} onClick={() => void finish()}>
           {state.busy === "finish" ? "正在出库…" : state.done ? "已出库，客户已拿走" : "客户已拿走"}
         </button>
       </div>
