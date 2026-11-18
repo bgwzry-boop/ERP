@@ -56,7 +56,7 @@ export async function listOfficeRawMaterialSupplierStatementReviews(input = {}, 
 }
 
 export async function createOfficeRawMaterialSupplierStatementReviewDraft(input = {}, options = {}) {
-  const { authState, operatorId, statementResult, supplierName, fileName, note } = input;
+  const { authState, operatorId, statementResult, supplierName, fileName, sourceFileDigest, periodStart, periodEnd, note } = input;
   if (!statementResult || typeof statementResult !== "object") {
     return {
       source: "api_error",
@@ -74,10 +74,14 @@ export async function createOfficeRawMaterialSupplierStatementReviewDraft(input 
       authState,
       operatorId,
       method: "POST",
+      idempotencyKey: input.idempotencyKey,
       body: {
         operatorId,
         supplierName,
         fileName,
+        sourceFileDigest,
+        periodStart,
+        periodEnd,
         note,
         statementResult,
       },
@@ -128,6 +132,7 @@ export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}
         authState,
         operatorId,
         method: "POST",
+        idempotencyKey: input.idempotencyKey,
         body: {
           operatorId,
           decision,
@@ -161,6 +166,20 @@ export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}
   }
 }
 
+export async function setOfficeRawMaterialSupplierStatementPeriod(input = {}, options = {}) {
+  const { authState, operatorId, reviewId, periodStart, periodEnd, expectedRevision, idempotencyKey } = input;
+  try {
+    const response = await requestRawMaterialApi(`/raw-material-supplier-statement-reviews/${encodeURIComponent(reviewId)}/set-period`, {
+      ...options, authState, operatorId, idempotencyKey, method: "POST", body: { periodStart, periodEnd, expectedRevision },
+    });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toRawMaterialApiError(json, response.status, "保存供应商月结账期失败。") };
+    return { source: "api", review: normalizeSupplierStatementReview(json?.review), operationLogId: cleanText(json?.operationLogId) };
+  } catch {
+    return { source: "api_error", blocked: true, error: { code: "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_UNAVAILABLE", message: "账期保存结果未确认。" } };
+  }
+}
+
 export async function confirmOfficeRawMaterialSupplierStatement(input = {}, options = {}) {
   const { authState, operatorId, reviewId, note } = input;
   const safeReviewId = cleanText(reviewId);
@@ -182,6 +201,7 @@ export async function confirmOfficeRawMaterialSupplierStatement(input = {}, opti
         authState,
         operatorId,
         method: "POST",
+        idempotencyKey: input.idempotencyKey,
         body: {
           operatorId,
           note,
@@ -234,6 +254,7 @@ export async function generateOfficeRawMaterialSupplierPayableDraft(input = {}, 
         authState,
         operatorId,
         method: "POST",
+        idempotencyKey: input.idempotencyKey,
         body: {
           operatorId,
           note,
@@ -287,6 +308,7 @@ export async function confirmOfficeRawMaterialSupplierPayment(input = {}, option
         authState,
         operatorId,
         method: "POST",
+        idempotencyKey: input.idempotencyKey,
         body: {
           operatorId,
           paidAmount,

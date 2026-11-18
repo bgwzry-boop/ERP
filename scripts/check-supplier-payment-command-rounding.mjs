@@ -54,24 +54,26 @@ const refreshed = setup(paid.review);
 await rejected(refreshed, { paidAmount: 10800, roundingAmount: 50 }, /already confirmed/);
 
 const withoutRounding = setup();
-const partial = await withoutRounding.pay({ paidAmount: 10800 });
+const partial = await withoutRounding.pay({ paidAmount: 10800, paymentReferenceNo: "BANK-PARTIAL" });
 assert.equal(partial.review.paymentStatus, "部分付款");
 assert.equal(partial.review.supplierRoundingTotal, 0);
 assert.equal(partial.review.supplierPayableRemaining, 50);
 
 const installment = setup();
-const first = await installment.pay({ paidAmount: 6000 });
+const first = await installment.pay({ paidAmount: 6000, paymentReferenceNo: "BANK-INSTALLMENT" });
 assert.equal(first.review.supplierPayableRemaining, 4850);
-const final = await installment.pay({ paidAmount: 4800, roundingAmount: 50 });
+const final = await installment.pay({ paidAmount: 4800, roundingAmount: 50, paymentMethod: "现金", paymentVoucherNo: "CASH-RECEIPT-1" });
 assert.equal(final.review.paymentStatus, "已确认付款");
 assert.equal(final.review.supplierRoundingTotal, 50);
 assert.equal(final.review.supplierPaidTotal, 10800);
 assert.equal(final.review.supplierPaymentRecords.length, 2);
+assert.equal(final.paymentRecord.paymentVoucherNo, "CASH-RECEIPT-1");
 
 const invalid = setup();
 await rejected(invalid, { paidAmount: 10850, roundingAmount: 50 }, /exceeds the remaining payable/);
-await rejected(invalid, { paidAmount: -1 }, /must be greater than zero/);
-await rejected(invalid, { paidAmount: 10800, roundingAmount: -1 }, /must be greater than zero/);
+await rejected(invalid, { paidAmount: -1 }, { code: "RAW_MATERIAL_SUPPLIER_PAYMENT_AMOUNT_INVALID" });
+await rejected(invalid, { paidAmount: 10800, roundingAmount: -1 }, { code: "RAW_MATERIAL_SUPPLIER_PAYMENT_AMOUNT_INVALID" });
 await rejected(invalid, { paidAmount: 6000, roundingAmount: 50 }, /only allowed on the payment that clears/);
+await rejected(invalid, { paidAmount: 6000, paymentReferenceNo: "   ", paymentVoucherNo: "\u200b" }, { code: "RAW_MATERIAL_SUPPLIER_PAYMENT_REFERENCE_REQUIRED" });
 
 console.log("PASS supplier payment command rounding: full and final installment forward rounding, missing rounding stays partial, invalid/overpaid requests do not write, and completed retries after refresh cannot duplicate payment.");

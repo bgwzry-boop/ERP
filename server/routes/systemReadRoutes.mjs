@@ -45,7 +45,15 @@ export async function handleSystemReadRoutes({
     items = filterByValue(items, url.searchParams.get("targetType"), "targetType");
     items = filterByValue(items, url.searchParams.get("targetId"), "targetId");
     const limit = Number(url.searchParams.get("limit") ?? 50);
-    sendJson(response, 200, { items: items.slice(0, limit), total: items.length });
+    const canSeePayroll = permissionContext?.actionPermissions?.includes("payroll.preview") === true;
+    const visibleItems = items.slice(0, limit).map(row => {
+      if (canSeePayroll || row.targetType !== "master_data_employee_profile") return row;
+      // Profile change snapshots include historical pay and the attendance
+      // provider identity. Keep the audit event visible without those facts.
+      const { before: _before, after: _after, reason: _reason, ...event } = row;
+      return { ...event, reason: "员工档案已更新，详细信息需工资查看权限。" };
+    });
+    sendJson(response, 200, { items: visibleItems, total: items.length });
     return true;
   }
 

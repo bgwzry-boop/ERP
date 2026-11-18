@@ -107,6 +107,34 @@ export async function getOfficeStatementDetail(input = {}, options = {}) {
   }
 }
 
+export async function getVerifiedOfficeStatementImage({ authState, statementId, expectedRevision }, options = {}) {
+  try {
+    const revision = Number(expectedRevision);
+    const query = new URLSearchParams({ purpose: "customer_image", expectedRevision: String(revision) });
+    const response = await requestStatementApi(`/statements/${encodeURIComponent(statementId)}?${query}`, {
+      ...options,
+      authState,
+      method: "GET",
+      serverRequired: true,
+    });
+    const image = await readJson(response);
+    if (!response.ok) return {
+      source: "api_error", blocked: true,
+      error: toApiError(image, response.status, "未能核对这张对账图，请重新读取账单。"),
+    };
+    if (image?.statementId !== statementId || image.revision !== revision
+      || !Array.isArray(image.statementLines) || !image.statementLines.length) {
+      return {
+        source: "api_error", blocked: true,
+        error: { code: "STATEMENT_IMAGE_NOT_VERIFIED", message: "没有收到当前账单的正式对账图明细，请刷新账单后重试。" },
+      };
+    }
+    return { source: "api", image };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "STATEMENT_IMAGE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
 export async function markOfficeStatementSentViaApi(input, options = {}) {
   const { authState, statement, operatorId, channel = "wechat", sentTo = "", remark = "" } = input;
 

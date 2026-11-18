@@ -29,11 +29,12 @@ assert.match(postgresLiveBusinessSeedSql, /INSERT INTO original_orders/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO order_lines/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO fulfillment_records/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO driver_delivery_dispatches/);
+assert.match(postgresLiveBusinessSeedSql, /'PR-LIVE-F008-LABEL'.*'F008'.*'printed', 'package_label'/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO packages/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO statements/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO statement_lines/);
 const insertedTableCount = (postgresLiveBusinessSeedSql.match(/^INSERT INTO /gm) ?? []).length;
-assert.equal(insertedTableCount, 19);
+assert.equal(insertedTableCount, 20);
 assert.equal(
   (postgresLiveBusinessSeedSql.match(/^ON CONFLICT\s*\(id\) DO UPDATE SET/gm) ?? []).length,
   insertedTableCount,

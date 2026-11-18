@@ -78,6 +78,8 @@ async function checkRepository() {
         orderLineId: "OL-RMI-001",
         taskType: "制袋",
         machineId: "BAG-01",
+        taskStatus: "制袋中",
+        publishedScheduleId: "SCH-RMI-001",
         plannedQty: 1000,
       },
     ],
@@ -805,6 +807,7 @@ async function checkApi() {
     qty: 1000,
     status: "制袋中",
     lineStatus: "制袋中",
+    publishedScheduleId: "SCH-RAW-API",
   };
   initialOrderLines.push(testOrderLine);
   const server = createApiServer({ allowLocalFixture: true,

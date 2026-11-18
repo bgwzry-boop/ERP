@@ -9,7 +9,8 @@ const COLS = [
   { label: "金额（元）", x: WIDTH - PAD, w: 104, align: "right" },
 ];
 const text = (value) => String(value ?? "").trim();
-const money = (value) => (Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "—");
+const money = (value) => (typeof value === "number" || (typeof value === "string" && value.trim()))
+  && Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "—";
 
 function fit(ctx, value, width) {
   let out = text(value);
@@ -99,8 +100,9 @@ export function renderStatementImage(detail, { documentRef = document, now } = {
 }
 
 /** Copies the image so it can be pasted into WeChat; falls back to a download. Returns a message. */
-export async function shareStatementImage(detail, { documentRef = document, navigatorRef = navigator } = {}) {
+export async function shareStatementImage(detail, { documentRef = document, navigatorRef = navigator, shouldShare = () => true } = {}) {
   const blob = await renderStatementImage(detail, { documentRef });
+  if (!shouldShare()) return null;
   const name = `${buildStatementImageModel(detail).title}.png`.replace(/[\\/:*?"<>|]/gu, "_");
   try {
     if (navigatorRef?.clipboard?.write && typeof ClipboardItem !== "undefined") {
@@ -110,6 +112,7 @@ export async function shareStatementImage(detail, { documentRef = document, navi
   } catch {
     // 浏览器不让复制时改成下载。
   }
+  if (!shouldShare()) return null;
   const url = URL.createObjectURL(blob);
   const anchor = documentRef.createElement("a");
   anchor.href = url;

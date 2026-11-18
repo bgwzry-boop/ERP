@@ -4,7 +4,8 @@ import { packageGroupLoadSnapshot } from "./services/packageGroupLoadService.mjs
 import { createPostgresCoreWorkspaceReadRepository } from "./coreWorkspaceReadRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { buildPostgresIdempotencyRequest, buildIdempotencyRequestHash, buildIdempotencyConflictError, normalizeIdempotencyKey } from "./idempotency.mjs";
-import { packageGroupSnapshot, hasPackageDownstream } from "./services/packageGroupService.mjs";
+import { NET_DEDUCTION_SOURCE_TYPES } from "./fulfillmentNoteCorrectionTransaction.mjs";
+import { assertPackageGroupStockQuantity, packageGroupSnapshot, hasPackageDownstream } from "./services/packageGroupService.mjs";
 import { fulfillmentIdOf, packageIdOf, packageContents, isActivePackage } from "../shared/packageContents.js";
 
 const clone = value => structuredClone(value);
@@ -43,7 +44,7 @@ export function createPackageGroupRepository({ queryJson, idempotentTransactionJ
   async function refresh({workspace}) {
     if (!postgres) return workspace;
     const current=await createPostgresCoreWorkspaceReadRepository({queryJson}).loadState();
-    for(const key of ["customers","fulfillments","packages","orderLines","packingTasks","printRecords","paperOutboundDocuments","todos","operationLogs","fulfillmentExceptions","fulfillmentQuantityVarianceResolutions"]) workspace[key]=current[key];
+    for(const key of ["customers","fulfillments","packages","orderLines","packingTasks","printRecords","paperOutboundDocuments","todos","operationLogs","fulfillmentExceptions","fulfillmentQuantityVarianceResolutions","inventoryLedgers"]) workspace[key]=current[key];
     const rows=await queryJson("SELECT COALESCE(json_agg(to_jsonb(d)), '[]'::json) AS result FROM driver_delivery_dispatches d");
     workspace.driverDeliveryDispatches=(rows??[]).map(d=>({id:d.id,dispatchId:d.id,fulfillmentId:d.fulfillment_id,driverId:d.driver_id,routeDate:String(d.route_date??'').slice(0,10),routeNo:d.route_batch_no,dispatchStatus:d.dispatch_status,revision:d.revision,assignedAt:d.assigned_at,stopSequence:d.stop_sequence}));
     return workspace;
@@ -83,6 +84,7 @@ export function createPackageGroupRepository({ queryJson, idempotentTransactionJ
       const current = input.workspace.fulfillments.filter(row=>ids.has(fulfillmentIdOf(row)));
       const packages = input.workspace.packages.filter(row=>isActivePackage(row)&&packageContents(row).some(item=>ids.has(item.fulfillmentId)));
       if (current.some(hasPackageDownstream) || JSON.stringify(packageGroupSnapshot(input.workspace,current,packages))!==JSON.stringify(input.snapshot)) conflict();
+      assertPackageGroupStockQuantity(input.workspace, current, input.totals);
       const workspace=input.workspace, batch=`${input.anchorId}-R${input.packingRevision}`;
       workspace.packages=workspace.packages.map(row=>packages.some(p=>packageIdOf(p)===packageIdOf(row))?{...row,status:"已失效",supersededByBatchId:batch,revision:Number(row.revision??1)+1}:row).concat(clone(input.packages));
       workspace.fulfillments=workspace.fulfillments.map(row=>ids.has(fulfillmentIdOf(row))?{...row,actualQty:input.totals[fulfillmentIdOf(row)],status:result.quantityDifferences.some(diff=>diff.fulfillmentId===fulfillmentIdOf(row))?"数量差异待处理":"待打印标签",
@@ -128,6 +130,11 @@ guard AS MATERIALIZED (SELECT erp_require(
     'physicalOutbound',physical_outbound_at IS NOT NULL,'loaded',loaded_at IS NOT NULL,'delivered',delivered_at IS NOT NULL,'finalDelivered',final_delivery_at IS NOT NULL,
     'packingGroupAnchorId',packing_group_anchor_id,'packingGroupRevision',packing_group_revision) ORDER BY id COLLATE "C"),'[]'::jsonb) FROM locked_f)=${p.json(snapshot.fulfillments)}
   AND NOT EXISTS(SELECT 1 FROM locked_f WHERE physical_outbound_at IS NOT NULL OR loaded_at IS NOT NULL OR final_delivery_at IS NOT NULL OR delivered_at IS NOT NULL OR status IN('已交付','已完成','已出库','已拉走','已取消','已作废','配送中'))
+  AND NOT EXISTS (
+    SELECT 1 FROM locked_f f WHERE (${totals}->>f.id)::int IS DISTINCT FROM COALESCE(f.actual_qty, f.expected_qty)
+      AND (SELECT COALESCE(-SUM(ledger.qty_change),0) FROM inventory_ledger_entries ledger
+        WHERE ledger.source_id=f.id AND ledger.source_type=ANY(${p.textArray(NET_DEDUCTION_SOURCE_TYPES)})) > 0
+  )
   AND (SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id,'revision',revision,'orderId',order_id,'status',line_status,'qty',original_qty) ORDER BY id COLLATE "C"),'[]'::jsonb) FROM locked_l)=${p.json(snapshot.lines)}
   AND NOT EXISTS(SELECT 1 FROM locked_l WHERE line_status IN ('已作废','已取消','已交付','已完成','closed','voided','canceled'))
   AND NOT EXISTS(SELECT 1 FROM locked_t WHERE status IN ('已作废','已取消','closed','voided','canceled'))

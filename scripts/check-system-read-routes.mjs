@@ -63,6 +63,21 @@ assert.deepEqual(calls, [
     body: { items: [dependencies.workspace.operationLogs[0]], total: 1 },
   },
 ]);
+const employeeAudit = {
+  logId: "LOG-EMPLOYEE", targetType: "master_data_employee_profile", targetId: "EMP-FIXTURE",
+  action: "master_data_employee_profile_updated", reason: "合成调整说明",
+  before: { baseHourlyWage: 10, attendanceExternalId: "SYNTHETIC-ID" },
+  after: { baseHourlyWage: 12, positionAllowanceHourly: 3 },
+};
+dependencies.workspace.operationLogs.push(employeeAudit);
+const employeeAuditUrl = new URL("http://erp.test/api/operation-logs?targetType=master_data_employee_profile");
+await handleSystemReadRoutes({ ...dependencies, url: employeeAuditUrl });
+assert.deepEqual(calls.at(-1).body, { items: [{
+  logId: employeeAudit.logId, targetType: employeeAudit.targetType, targetId: employeeAudit.targetId,
+  action: employeeAudit.action, reason: "员工档案已更新，详细信息需工资查看权限。",
+}], total: 1 });
+await handleSystemReadRoutes({ ...dependencies, url: employeeAuditUrl, permissionContext: { actionPermissions: ["audit.read", "payroll.preview"] } });
+assert.deepEqual(calls.at(-1).body, { items: [employeeAudit], total: 1 }, "finance still sees the original audit");
 assert.equal(await handleSystemReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/system/unknown") }), false);
 
 console.log("system read routes checks passed: V1 status builders, permission identity, logs, OpenAPI, and direct ownership are covered");

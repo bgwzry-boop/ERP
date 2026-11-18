@@ -34,7 +34,8 @@ assert.ok(
 assert.match(pageSource, /if \(!precheck\.data\?\.ready\)/);
 assert.match(pageSource, /未写入任何打卡/);
 assert.match(pageSource, /syncResult\.data\?\.batch\?\.importedCount/);
-assert.match(pageSource, /实际新增 \$\{importedCount\} 条/);
+assert.match(pageSource, /新增 \$\{importedCount\} 条打卡/);
+assert.match(pageSource, /importedCount === 0 \? "考勤覆盖时段已核对，没有新增打卡。"/u);
 assert.doesNotMatch(pageSource, /新增 \$\{Number\(precheck\.data\?\.summary\?\.newRecordCount/);
 assert.match(pageSource, /workbench\?\.summary\?\.draftReady !== true/);
 assert.match(pageSource, /次月核对上月完整考勤后生成工资草稿/);

@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { handleStatementReadRoutes } from "../server/routes/statementReadRoutes.mjs";
 
 // Isolated component harness only: synthetic HTTP responses, never a deployed
 // business API. The integrated complete-review shell is verified separately.
@@ -45,9 +46,54 @@ try {
   let jobStatus = "queued";
   let dispatchAttempts = [];
   const communication = [];
+  let imageState = "linked-order";
+  const imageRequests = [];
+  await page.addInitScript(() => {
+    window.statementImagePaints = [];
+    window.statementClipboardWrites = [];
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (string, ...args) {
+      window.statementImagePaints.push(string);
+      return fillText.call(this, string, ...args);
+    };
+    Object.defineProperty(navigator, "clipboard", { value: { async write(items) {
+      for (const item of items) {
+        const blob = await item.getType("image/png");
+        window.statementClipboardWrites.push({ type: blob.type, size: blob.size });
+      }
+    } } });
+  });
   await page.route("**/api/**", async route => {
     const request = route.request(); const url = new URL(request.url());
     const json = body => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
+    if (url.pathname === "/api/statements/ST-UI" && url.searchParams.get("purpose") === "customer_image") {
+      assert.equal(request.method(), "GET");
+      assert.equal(request.headers().authorization, "Bearer synthetic-ui-token");
+      const headers = {};
+      let responseResult;
+      await handleStatementReadRoutes({
+        url,
+        response: { setHeader(name, value) { headers[name] = value; } },
+        workspace: {
+          statements: [{ id: "ST-UI", customerName: "已复核的客户", customerId: "C-UI", period: "2026-09", revision, receivable: imageState === "mismatch" ? 101 : 100, received: null }],
+          orderLines: [{ id: "OL-UI", orderNo: "已核对订单", productName: "正式装袋规格", qty: 1000, amount: 1000 }],
+          statementLines: imageState === "linked-order" ? [] : [{
+            statementId: "ST-UI", statementLineId: "SL-VERIFIED", orderLineId: "OL-UI", deliveredQty: 205,
+            chargeableQty: 200, freeQty: 5, amount: 100, adjustmentAmount: 0, finalAmount: 100,
+          }],
+        },
+        writeActionPermissions: { previewStatement: "statement.preview" },
+        requireActionPermission(_response, _context, permission) {
+          assert.equal(permission, "statement.preview");
+          return true;
+        },
+        sendCommandResponse(_response, result) { responseResult = result; },
+      });
+      imageRequests.push({ revision: url.searchParams.get("expectedRevision"), state: imageState, headers });
+      return responseResult.error
+        ? route.fulfill({ status: responseResult.statusCode, headers, contentType: "application/json", body: JSON.stringify({ error: responseResult }) })
+        : route.fulfill({ status: 200, headers, contentType: "application/json", body: JSON.stringify(responseResult.response) });
+    }
     if (url.pathname === "/api/statements/ST-UI" && request.method() === "GET") return json({ id: "ST-UI", customerName: "组件验收客户", customerId: "C-UI", period: "2026-09", receivable: missingFinancialAmounts ? undefined : 1000, received: missingFinancialAmounts ? undefined : received, currentUnpaid: missingFinancialAmounts ? undefined : 1000 - received, historicalDebt: 0, revision, status: "差额待确认", payments,
       sendRecordId: "SEND-UI", sendRecords: [{ sendRecordId: "SEND-UI", statementId: "ST-UI", sentTo: "实际客户", channel: "wechat", sentAt: "2026-10-01T00:00:00Z" }],
       attachments: [{ attachmentId: "ATT-UI", ownerType: "statement", ownerId: "ST-UI", purpose: "payment_screenshot", hasContent: true, status: "uploaded", fileName: "合成到账凭证.png" }],
@@ -79,6 +125,37 @@ try {
   } catch (cause) {
     throw new Error(`Statement dialog did not load: ${JSON.stringify({ errors, failedRequests, body: await page.locator("body").innerText() })}`, { cause });
   }
+  const copyStatement = page.getByRole("button", { name: "复制对账图（发群）", exact: true });
+  await copyStatement.click();
+  await page.getByText("账单缺少持久明细，请先完成账单生成与复核。", { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.statementClipboardWrites), []);
+  assert.deepEqual(await page.evaluate(() => window.statementImagePaints), []);
+  imageState = "mismatch";
+  await copyStatement.click();
+  await page.getByText("账单明细合计与应收金额不一致，请先复核。", { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.statementClipboardWrites), []);
+  assert.deepEqual(await page.evaluate(() => window.statementImagePaints), []);
+  imageState = "verified";
+  revision = 4;
+  await copyStatement.click();
+  await page.getByText("账单已更新，请刷新明细并核对后再复制对账图。", { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.statementClipboardWrites), []);
+  await page.getByRole("button", { name: "刷新明细", exact: true }).click();
+  await page.getByText("组件验收客户 · 2026-09").waitFor();
+  await copyStatement.click();
+  await page.getByText("对账图已复制，到微信群里直接粘贴（Ctrl+V）就能发。", { exact: true }).waitFor();
+  assert.deepEqual(imageRequests.map(request => request.revision), ["3", "3", "3", "4"]);
+  assert.ok(imageRequests.every(request => request.headers["Cache-Control"] === "no-store"));
+  const { paints, writes } = await page.evaluate(() => ({ paints: window.statementImagePaints, writes: window.statementClipboardWrites }));
+  assert.ok(paints.includes("已复核的客户 · 2026-09 对账单"));
+  assert.ok(paints.includes("已核对订单"));
+  assert.ok(paints.includes("205 / 200"));
+  assert.ok(paints.includes("100.00"));
+  assert.ok(paints.includes("—"));
+  assert.ok(!paints.includes("1000.00"));
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].type, "image/png");
+  assert.ok(writes[0].size > 100);
   await page.getByLabel("本期累计实收（元）").fill("500.25");
   await page.getByLabel("到账及调整依据").fill("核对两次到账合计，测试记录");
   // Owner 2026-10-29: a shortfall settles as 抹零 directly, but only with a chosen reason.
@@ -166,7 +243,7 @@ try {
   assert.equal(await page.locator(".finance-confirm").count(), 0);
   assert.equal(paymentAttempts.length, previousAttempts, "missing source money must block before a payment POST or confirmation snapshot");
   assert.deepEqual(errors, []);
-  console.log("Finance dialog browser interactions passed: cumulative save, same-request network retry, post-save refresh/close, permission denial, real dispatch and no fake completion.");
+  console.log("Finance dialog browser interactions passed: cumulative save, same-request network retry, formal statement image gate and PNG, post-save refresh/close, permission denial, real dispatch and no fake completion.");
 } finally {
   await browser?.close();
   if (server) await new Promise(resolve => server.close(resolve));

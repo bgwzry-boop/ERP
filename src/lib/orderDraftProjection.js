@@ -1,6 +1,8 @@
 import { calculateLinePricing, p0BagPriceRows } from "../domain/priceTable.js";
 import { isStockOrderType, normalizeOrderType, inferOrderType, isReplenishmentRow, REPLENISHMENT_INVENTORY_TEXT } from "../../shared/orderRouting.js";
 
+import { availableFinishedGoodsQty, hasUnverifiedFinishedGoods, isEligibleFinishedGoods, matchesFinishedGoods } from "../../shared/finishedGoodsAvailability.js";
+
 export function enrichDraftRow(row, inventories = []) {
   const sizeParts = String(row.size ?? "").split(/[*×x]/).map(Number);
   const standardSize = p0BagPriceRows.some(item => {
@@ -26,20 +28,12 @@ function estimateInventory(row, inventories) {
   const orderType = normalizeOrderType(row?.orderType);
   if (orderType && !isStockOrderType(orderType)) return orderType === "external_print" ? "外加工，不走通货库存" : "订单生产，不走通货库存";
 
-  const stock = inventories.find(
-    (item) =>
-      item.size === row.size &&
-      item.color === row.color &&
-      item.handle === row.handle &&
-      item.style === row.style &&
-      !String(item.state ?? "").includes("待处理"),
-  );
-
-  if (!stock) return "缺货";
-  const available = stock.inStock - stock.reserved - stock.locked - stock.pending;
-  if (available >= row.qty && !stock.estimated) return "可用";
-  if (available >= row.qty && stock.estimated) return "需复核";
-  return `缺货 ${row.qty - Math.max(0, available)}`;
+  const stock = inventories.filter(item => matchesFinishedGoods(item, row));
+  const available = stock.filter(isEligibleFinishedGoods).reduce((qty, item) => qty + availableFinishedGoodsQty(item), 0);
+  if (available >= row.qty) return "可用";
+  if (!available && stock.some(hasUnverifiedFinishedGoods)) return "需复核";
+  if (!stock.length) return "缺货";
+  return `缺货 ${row.qty - available}`;
 }
 
 function getConfidence(row, inventory) {

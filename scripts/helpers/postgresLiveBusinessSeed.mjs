@@ -313,6 +313,11 @@ ON CONFLICT (id) DO UPDATE SET
   remark = EXCLUDED.remark,
   updated_at = now();
 
+-- F008 starts after physical packages and their labels have been recorded.
+INSERT INTO print_records (id, biz_no, target_type, target_id, print_action, status, document_type)
+VALUES ('PR-LIVE-F008-LABEL', 'PR-LIVE-F008-LABEL', 'fulfillment', 'F008', 'first_print', 'printed', 'package_label')
+ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, document_type = EXCLUDED.document_type;
+
 INSERT INTO packages (
   id,
   biz_no,
@@ -330,12 +335,12 @@ INSERT INTO packages (
   ('PKG-LIVE-F002-3', 'PKG-LIVE-F002-3', 'ORD-0629-002-01', 'F002', 3, 3, 400, NULL, '已打印', 'U-OFFICE-A'),
   ('PKG-LIVE-F006-1', 'PKG-LIVE-F006-1', 'ORD-0629-009-01', 'F006', 1, 2, 1000, NULL, '已打印', 'U-OFFICE-A'),
   ('PKG-LIVE-F006-2', 'PKG-LIVE-F006-2', 'ORD-0629-009-01', 'F006', 2, 2, 1000, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-1', 'PKG-LIVE-F008-1', 'ORD-0629-022-01', 'F008', 1, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-2', 'PKG-LIVE-F008-2', 'ORD-0629-022-01', 'F008', 2, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-3', 'PKG-LIVE-F008-3', 'ORD-0629-022-01', 'F008', 3, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-4', 'PKG-LIVE-F008-4', 'ORD-0629-022-01', 'F008', 4, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-5', 'PKG-LIVE-F008-5', 'ORD-0629-022-01', 'F008', 5, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-6', 'PKG-LIVE-F008-6', 'ORD-0629-022-01', 'F008', 6, 6, 500, NULL, '已打印', 'U-OFFICE-A')
+  ('PKG-LIVE-F008-1', 'PKG-LIVE-F008-1', 'ORD-0629-022-01', 'F008', 1, 6, 500, 'PR-LIVE-F008-LABEL', '已打印标签', 'U-OFFICE-A'),
+  ('PKG-LIVE-F008-2', 'PKG-LIVE-F008-2', 'ORD-0629-022-01', 'F008', 2, 6, 500, 'PR-LIVE-F008-LABEL', '已打印标签', 'U-OFFICE-A'),
+  ('PKG-LIVE-F008-3', 'PKG-LIVE-F008-3', 'ORD-0629-022-01', 'F008', 3, 6, 500, 'PR-LIVE-F008-LABEL', '已打印标签', 'U-OFFICE-A'),
+  ('PKG-LIVE-F008-4', 'PKG-LIVE-F008-4', 'ORD-0629-022-01', 'F008', 4, 6, 500, 'PR-LIVE-F008-LABEL', '已打印标签', 'U-OFFICE-A'),
+  ('PKG-LIVE-F008-5', 'PKG-LIVE-F008-5', 'ORD-0629-022-01', 'F008', 5, 6, 500, 'PR-LIVE-F008-LABEL', '已打印标签', 'U-OFFICE-A'),
+  ('PKG-LIVE-F008-6', 'PKG-LIVE-F008-6', 'ORD-0629-022-01', 'F008', 6, 6, 500, 'PR-LIVE-F008-LABEL', '已打印标签', 'U-OFFICE-A')
 ON CONFLICT (id) DO UPDATE SET
   fulfillment_id = EXCLUDED.fulfillment_id,
   package_seq = EXCLUDED.package_seq,

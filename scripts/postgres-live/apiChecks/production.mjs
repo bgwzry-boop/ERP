@@ -265,7 +265,6 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
     exceptionQty: 0,
     machineCount: 1888,
     machineId: "BAG-03",
-    inventoryItemId: "30*38*10-白色-普通提-空白袋-待快运区",
     operatorId: "U-SPOOFED",
     completedAt: "2026-07-02T13:00:00.000Z",
     remark: "postgres live production report route",
@@ -281,8 +280,8 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   const apiProductionInventoryAfterReport = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
   );
-  assert.equal(Number(apiProductionInventoryAfterReport.onHand), Number(apiProductionInventoryBefore.onHand) + 1000);
-  assert.equal(Number(apiProductionInventoryAfterReport.reserved), Number(apiProductionInventoryBefore.reserved) + 1000);
+  assert.deepEqual(apiProductionInventoryAfterReport, apiProductionInventoryBefore,
+    "customer-printed standard-size bags must not become the matching blank stock");
   const replayedApiProductionReport = await postJson(
     baseUrl,
     `/api/production-tasks/${productionTaskId}/report-complete`,
@@ -316,7 +315,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
         { capture: true },
       ).trim(),
     ),
-    2,
+    0,
   );
   assert.equal(
     queryJson(
@@ -332,7 +331,6 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
     packageCount: 3,
     packages: [{ packedQty: 334 }, { packedQty: 333 }, { packedQty: 333 }],
     labelsPrinted: false,
-    inventoryItemId: "30*38*10-白色-普通提-空白袋-待快运区",
     operatorId: "U-SPOOFED",
     completedAt: "2026-07-02T13:20:00.000Z",
     remark: "postgres live packing complete route",
@@ -385,7 +383,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
         { capture: true },
       ).trim(),
     ),
-    1,
+    0,
   );
   const apiProductionDetail = await getJson(baseUrl, `/api/production-tasks/${apiProductionReport.productionTaskId}`, {
     headers,

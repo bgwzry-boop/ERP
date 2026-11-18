@@ -19,14 +19,14 @@ try {
     INSERT INTO order_lines (id, biz_no, order_id, customer_id, product_name, order_type, size, bag_color, handle_type, style, original_qty, fulfillment_method, line_status, created_by)
     VALUES ('OL-RE-A', 'OL-RE-A', 'ORD-0629-001', 'C001', '空白袋', '现货通货', '30*37*10', '红色', '普通提', '空白袋', 1000, '自提', '制袋中', 'U-OFFICE-A'),
            ('OL-RE-B', 'OL-RE-B', 'ORD-0629-001', 'C001', '空白袋', '现货通货', '30*37*10', '红色', '普通提', '空白袋', 2000, '自提', '制袋中', 'U-OFFICE-A');
-    INSERT INTO production_tasks (id, biz_no, order_line_id, task_type, machine_id, planned_qty, task_status, created_by)
-    VALUES ('PT-RE-A', 'PT-RE-A', 'OL-RE-A', '制袋', 'BAG-01', 1000, '制袋中', 'U-OFFICE-A'),
-           ('PT-RE-B', 'PT-RE-B', 'OL-RE-B', '制袋', 'BAG-01', 2000, '制袋中', 'U-OFFICE-A');`);
+    INSERT INTO production_tasks (id, biz_no, order_line_id, task_type, machine_id, planned_qty, task_status, published_schedule_id, created_by)
+    VALUES ('PT-RE-A', 'PT-RE-A', 'OL-RE-A', '制袋', 'BAG-01', 1000, '制袋中', 'SCH-RE-A', 'U-OFFICE-A'),
+           ('PT-RE-B', 'PT-RE-B', 'OL-RE-B', '制袋', 'BAG-01', 2000, '制袋中', 'SCH-RE-B', 'U-OFFICE-A');`);
   const inbound = { id: "RMI-RE", revision: 1, supplierName: "测试无纺布", status: "已贴标/可用库存", materialType: "无纺布", productName: "红色无纺布", factoryColor: "红色", rollCount: 1, totalWeightKg: 100, unit: "kg",
     rolls: [{ id: "RMI-RE-01", weightKg: 100, inventoryStatus: "可用", labelStatus: "已贴标/可用库存" }] };
   await pool.query("INSERT INTO raw_material_inbounds(id,delivery_note_no,supplier_name,status,payload_json,revision) VALUES ($1,$1,$2,$3,$4::jsonb,1)", [inbound.id, inbound.supplierName, inbound.status, JSON.stringify(inbound)]);
   const line = (id, status = "制袋中") => ({ id, orderLineId: id, size: "30*37*10", bagColor: "红色", qty: 1000, lineStatus: status, status, revision: 1 });
-  const task = (id, lineId) => ({ productionTaskId: id, id, orderLineId: lineId, machineId: "BAG-01", taskType: "制袋", taskStatus: "制袋中", status: "制袋中", plannedQty: 1000, revision: 1 });
+  const task = (id, lineId) => ({ productionTaskId: id, id, orderLineId: lineId, machineId: "BAG-01", publishedScheduleId: id === "PT-RE-A" ? "SCH-RE-A" : "SCH-RE-B", taskType: "制袋", taskStatus: "制袋中", status: "制袋中", plannedQty: 1000, revision: 1 });
   const workspace = { rawMaterialInbounds: [structuredClone(inbound)], operationLogs: [], orderLines: [line("OL-RE-A"), line("OL-RE-B")], productionTasks: [task("PT-RE-A", "OL-RE-A"), task("PT-RE-B", "OL-RE-B")] };
   const repo = createPostgresRawMaterialInboundRepository({ postgresClient: client });
   const run = (action, body, key) => createRawMaterialInboundOrchestrator(repo, { now: () => new Date(now) })

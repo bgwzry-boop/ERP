@@ -16,7 +16,7 @@ const service = createOrderDraftCommandService({
   buildTodo(_workspace, input) {
     return { handled: false, ...input };
   },
-  confirmDraftOrder({ draftRows, orderLines = [], fulfillments = [], resolveAmount }) {
+  confirmDraftOrder({ draftRows, orderLines = [], fulfillments = [], resolveAmount, inventoryChecks }) {
     if (confirmationMode === "blocked") {
       return {
         blocked: true,
@@ -32,7 +32,7 @@ const service = createOrderDraftCommandService({
       orderNo,
       checkedRows: draftRows.map((row) => ({
         ...row,
-        inventory: shortageLineIds.has(row.id) ? "缺货：同规格合计 10 个，可用 0 个，转生产排产" : "可用",
+        inventory: inventoryChecks.get(row.id)?.inventory ?? "待确认",
         amount: resolveAmount(row),
       })),
       newLines: draftRows.map((row, index) => ({
@@ -901,9 +901,15 @@ function buildWorkspace() {
         size: "30*38*10",
         color: "红色",
         handle: "普通提",
+        style: "空白袋",
+        inStock: 120,
         reserved: 20,
-        available: 100,
+        locked: 0,
+        pending: 0,
       },
+      ...(!shortageLineIds.has("DRAFT-SERVICE-001-02") ? [{
+        id: "INV-WHITE", size: "30*38*10", color: "白色", handle: "普通提", style: "空白袋", inStock: 100,
+      }] : []),
     ],
     orderDrafts: [draft],
     orderLines: [],

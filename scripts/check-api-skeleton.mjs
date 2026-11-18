@@ -1853,7 +1853,6 @@ try {
     exceptionQty: 0,
     machineCount: 1888,
     machineId: dailyProgressMachineId,
-    inventoryItemId: productionInventoryItemId,
     operatorId: "U-SPOOFED",
     completedAt: new Date().toISOString(),
     remark: "API skeleton production report check",
@@ -1864,6 +1863,12 @@ try {
   }, { expectedStatus: 409 });
   if (invalidCompletionBinding.code !== "PRODUCTION_TASK_BINDING_MISMATCH") {
     throw new Error("Completion must reject a changed machine binding before producing inventory");
+  }
+  const invalidStockBinding = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/report-complete", {
+    ...productionReportBody, inventoryItemId: productionInventoryItemId,
+  }, { expectedStatus: 409 });
+  if (invalidStockBinding.code !== "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY") {
+    throw new Error("A customer-printed order must reject a common-goods inventory binding");
   }
   const productionReport = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/report-complete", productionReportBody);
   if (
@@ -1876,10 +1881,10 @@ try {
     productionReport.capacityCalibration?.sourceKind !== "production_report" ||
     productionReport.capacityCalibration?.confidence !== "medium" ||
     productionReport.capacityCalibration?.dailyCapacityQty !== 1000 ||
-    productionReport.inventoryItemId !== productionInventoryItemId ||
-    !productionReport.reservationId ||
+    productionReport.inventoryItemId ||
+    productionReport.reservationId ||
     !productionReport.packingTaskId ||
-    productionReport.inventoryLedgerIds?.length !== 2 ||
+    productionReport.inventoryLedgerIds?.length !== 0 ||
     !productionReport.operationLogId
   ) {
     throw new Error("/api/production-tasks/{id}/report-complete returned an unexpected payload");
@@ -1889,10 +1894,10 @@ try {
     `/api/inventory/items?keyword=${encodeURIComponent(productionInventoryItemId)}&pageSize=1`,
   );
   if (
-    productionInventoryAfterReport.items?.[0]?.inStock !== productionInventoryBeforeItem.inStock + 1000 ||
-    productionInventoryAfterReport.items?.[0]?.reserved !== productionInventoryBeforeItem.reserved + 1000
+    productionInventoryAfterReport.items?.[0]?.inStock !== productionInventoryBeforeItem.inStock ||
+    productionInventoryAfterReport.items?.[0]?.reserved !== productionInventoryBeforeItem.reserved
   ) {
-    throw new Error("/api/production-tasks/{id}/report-complete did not add finished goods and reserve them for the order line");
+    throw new Error("Customer-specific production modified blank finished stock");
   }
   const productionTaskDetail = await getJson(baseUrl, `/api/production-tasks/${productionReport.productionTaskId}`);
   if (
@@ -1906,7 +1911,7 @@ try {
     productionTaskDetail.finishedGoodsPhoto?.status !== "已接受" ||
     productionTaskDetail.finishedGoodsPhoto?.attachmentId !== finishedGoodsPhotoAttachment.attachmentId ||
     productionTaskDetail.packingTask?.packingTaskId !== productionReport.packingTaskId ||
-    productionTaskDetail.inventoryLedgerEntries?.length !== 2 ||
+    productionTaskDetail.inventoryLedgerEntries?.length !== 0 ||
     !productionTaskDetail.operationLogs?.some((log) => log.action === "upload_finished_goods_photo") ||
     !productionTaskDetail.operationLogs?.some((log) => log.action === "accept_finished_goods_photo") ||
     !productionTaskDetail.operationLogs?.some(
@@ -1966,7 +1971,6 @@ try {
         { packedQty: 333, createdBy: "U-SPOOFED" },
       ],
       labelsPrinted: false,
-      inventoryItemId: productionInventoryItemId,
       operatorId: "U-SPOOFED",
       completedAt: new Date().toISOString(),
       remark: "API skeleton packing complete check",
@@ -1981,7 +1985,7 @@ try {
     packingComplete.packageIds?.length !== 3 ||
     packingComplete.orderLineStatus !== "待打印标签" ||
     packingComplete.inventoryDeducted !== false ||
-    packingComplete.inventoryLedgerIds?.length !== 1 ||
+    packingComplete.inventoryLedgerIds?.length !== 0 ||
     !packingComplete.todoId ||
     !packingComplete.operationLogId
   ) {
@@ -1992,8 +1996,8 @@ try {
     `/api/inventory/items?keyword=${encodeURIComponent(productionInventoryItemId)}&pageSize=1`,
   );
   if (
-    productionInventoryAfterPacking.items?.[0]?.inStock !== productionInventoryBeforeItem.inStock + 1000 ||
-    productionInventoryAfterPacking.items?.[0]?.reserved !== productionInventoryBeforeItem.reserved + 1000
+    productionInventoryAfterPacking.items?.[0]?.inStock !== productionInventoryBeforeItem.inStock ||
+    productionInventoryAfterPacking.items?.[0]?.reserved !== productionInventoryBeforeItem.reserved
   ) {
     throw new Error("/api/packing-tasks/{id}/complete changed inventory even though packing completion must not deduct stock");
   }
@@ -2083,7 +2087,7 @@ try {
     !packingTaskDetail.packages.every((item) => item.fulfillmentId === fulfillmentRepair.fulfillment.fulfillmentId) ||
     !packingTaskDetail.packages.every((item) => item.createdBy === "U-WAREHOUSE-A") ||
     packingTaskDetail.inventoryDeducted !== false ||
-    packingTaskDetail.inventoryLedgerEntries?.length !== 1 ||
+    packingTaskDetail.inventoryLedgerEntries?.length !== 0 ||
     !packingTaskDetail.operationLogs?.some(
       (log) => log.action === "complete_packing_task" && log.operatorId === "U-WAREHOUSE-A",
     )
@@ -2971,6 +2975,24 @@ try {
     !officeDispatch.operationLogId
   ) {
     throw new Error("/api/fulfillments/{fulfillmentId}/dispatch returned an unexpected payload");
+  }
+
+  const driverPackagePrint = await postJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}/print`, {
+    documentType: "package_label",
+    printDeviceId: "PRN-API-MODE-CHECK",
+    printAction: "first_print",
+  }, { headers: { "x-erp-user-id": "U-OFFICE-A" } });
+  const driverPackageDispatch = await dispatchSyntheticPrintJob(baseUrl, driverPackagePrint.printJob.printJobId);
+  const driverPackageReceipt = await postJson(baseUrl, `/api/print-jobs/${driverPackagePrint.printJob.printJobId}/driver-status`, {
+    status: "printed",
+    externalJobId: driverPackageDispatch.dispatchResult.externalJobId,
+    adapterName: "api-check-package-label",
+    eventSource: "driver_callback",
+    driverStatus: "completed",
+    eventAt: "2026-07-02T08:35:00.000Z",
+  }, { headers: { "x-erp-user-id": "U-PRINT-DRIVER-A" } });
+  if (driverPackageReceipt.physicalPrintConfirmed !== true) {
+    throw new Error("The isolated package-label receipt must be accepted before warehouse outbound");
   }
 
   const driverOutboundPrint = await postJson(

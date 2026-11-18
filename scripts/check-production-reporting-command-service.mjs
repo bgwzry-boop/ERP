@@ -296,6 +296,8 @@ const completedExceptionBlocked = await service.recordProductionException({
 assert.equal(completedExceptionBlocked.code, "PRODUCTION_TASK_ALREADY_COMPLETED");
 workspace.productionTasks[0].taskStatus = "制袋中";
 
+// Stock production is the case that should create finished-goods inventory.
+workspace.orderLines[0].orderType = "现货缺货";
 const completedBody = {
   productionTaskId: "PT-1",
   inventoryItemId: "INV-1",

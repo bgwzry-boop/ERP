@@ -22,6 +22,7 @@ export function createOrderWorkflowProjectionService(dependencies = {}) {
       id: line.id,
       lineStatus: line.status,
       exceptionTags: line.flags ?? [],
+      ...(line.splitFromOrderLineId ? { splitFromOrderLineId: line.splitFromOrderLineId } : {}),
     };
   }
 
@@ -42,6 +43,16 @@ export function createOrderWorkflowProjectionService(dependencies = {}) {
   }
 
   function toInventoryCheckResult(workspace, draftLine, orderLine) {
+    if (draftLine.stockQty !== undefined) {
+      const availableQty = draftLine.recognizedAvailableQty ?? draftLine.stockQty;
+      return {
+        orderLineId: orderLine?.id ?? draftLine.id,
+        inventoryItemId: draftLine.stockAllocations?.length === 1 ? draftLine.stockAllocations[0].inventoryItemId : "",
+        status: mapInventoryCheckStatus(draftLine.inventory),
+        requestedQty: Number(draftLine.qty), recognizedAvailableQty: availableQty, currentAvailableQty: availableQty,
+        shortageQty: draftLine.shortageQty, stockQty: draftLine.stockQty,
+      };
+    }
     const inventoryItem = findMatchingInventory(workspace, draftLine);
     const currentAvailableQty = Number(inventoryItem?.available ?? 0);
     return {
@@ -97,7 +108,7 @@ export function createOrderWorkflowProjectionService(dependencies = {}) {
 
   function mapInventoryCheckStatus(value) {
     if (value === "可用" || value === "有货") return "available";
-    if (value === "缺货") return "insufficient";
+    if (String(value).startsWith("缺货")) return "insufficient";
     if (value === "需复核") return "pending_review";
     return "changed_since_recognition";
   }

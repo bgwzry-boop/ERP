@@ -1,3 +1,5 @@
+import { isVoidedStatement } from "../../shared/statementPaymentPolicy.js";
+import { verifyStatementOutput } from "./statementOutputAccountingService.mjs";
 import { createStatementPreviewProjectionService } from './statementPreviewProjectionService.mjs';
 import { getStatementFinancialSummary, presentedStatementVariance } from '../../src/domain/officeRules.js';
 import { chinaCalendarYear, ROUNDING_HANDLING_RESULT, summarizeAnnualReceiptAndRounding } from '../../shared/statementUnderpaymentNotice.js';
@@ -66,11 +68,9 @@ export function buildStatementDetail(workspace, item, { includeAttachments = fal
   const paymentAttachmentIds = safeIds(payments.flatMap(row => row.attachmentIds), 'payment_screenshot');
   const customerConfirmationAttachmentIds = safeIds(confirmationRecords.flatMap(row => row.attachmentIds), 'statement_customer_confirmation');
   const receiptLabels = { pending: '待回执', delivered: '已送达', read: '客户已读', confirmed: '客户已确认', no_response: '未回复' };
-  const roundingCents = varianceRecords
-    .filter((row) => row.handlingResult === ROUNDING_HANDLING_RESULT)
-    .reduce((sum, row) => sum + Math.round(Number(row.amount || 0) * 100), 0);
-  const roundingAmount = roundingCents / 100;
-  const anchor = payments.map((row) => row.paidAt).find(Boolean) || item.periodEnd || item.period || item.periodStart;
+  const roundingAmount = statementRoundingAmount(varianceRecords);
+  const latestPayments = byNewest(payments, "paidAt");
+  const anchor = latestPayments.find((row) => row.paidAt)?.paidAt || item.periodEnd || item.period || item.periodStart;
   const annualYear = chinaCalendarYear(anchor);
   const annualReceiptSummary = annualYear ? summarizeAnnualReceiptAndRounding({
     payments: rows(workspace.paymentRecords),
@@ -80,7 +80,7 @@ export function buildStatementDetail(workspace, item, { includeAttachments = fal
   const statement = {
     ...item, roundingAmount, annualReceiptSummary, ...getStatementFinancialSummary({ ...item, roundingAmount }, workspace.customers), statementId,
     ...(presentedVariance !== null ? { variance: presentedVariance, varianceAmount: presentedVariance } : {}),
-    customerName: text(item.customerName || rows(workspace.customers).find(row => text(row.id ?? row.customerId) === customerId)?.name),
+    customerName: text(item.customerName || findCustomer(workspace, customerId)?.name),
     sent: Boolean(latestSend), sendRecordId: latestSend?.sendRecordId || '',
     // 负责人 2026-11-12：发给客户以后又作废重打改过的，要重新发一次。
     needsResendAfterCorrection: Boolean(item.correctedAfterSendAt) && !(latestSend?.sentAt && Date.parse(latestSend.sentAt) >= Date.parse(item.correctedAfterSendAt)),
@@ -94,17 +94,59 @@ export function buildStatementDetail(workspace, item, { includeAttachments = fal
     paymentAttachmentIds, paymentAttachmentFiles: paymentAttachmentIds.map(id => attachmentById.get(id)),
     customerConfirmationAttachmentIds, customerConfirmationAttachmentFiles: customerConfirmationAttachmentIds.map(id => attachmentById.get(id)),
   };
-  const customer = rows(workspace.customers).find(row => text(row.id ?? row.customerId) === customerId);
+  const customer = findCustomer(workspace, customerId);
   return {
     ...statement, // Keep existing flat clients compatible while supplying the documented detail envelope.
     statement,
     customer: customer ? { customerId, customerName: text(customer.name ?? customer.customerName), settlementCycle: text(customer.settlementCycle ?? customer.cycle), statementId } : null,
     lines: preview.buildPreviewLines(workspace, item),
     lineSource: rows(workspace.statementLines).some(row => text(row.statementId ?? row.statement_id) === statementId) ? 'persisted_statement' : 'linked_order',
-    payments: byNewest(payments, 'paidAt'), varianceRecords, writeOffRecords, sendRecords, confirmationRecords, attachments, operationLogs,
+    payments: latestPayments, varianceRecords, writeOffRecords, sendRecords, confirmationRecords, attachments, operationLogs,
     evidenceWarnings: {
       mismatchedCustomerPaymentCount: sourcePayments.length - payments.length,
       unlinkedConfirmationCount: sourceConfirmations.length - confirmationRecords.length,
     },
   };
+}
+
+export function buildVerifiedStatementImage(workspace, statement, expectedRevision) {
+  if (isVoidedStatement(statement)) return {
+    error: true, statusCode: 422, code: "STATEMENT_VOIDED", message: "已作废账单不能复制对账图。",
+  };
+  const verified = verifyStatementOutput(workspace, statement);
+  if (verified.error) return verified;
+  const { header } = verified.snapshot;
+  if (String(header.revision) !== expectedRevision) return {
+    error: true, statusCode: 409, code: "STATEMENT_IMAGE_REVISION_CONFLICT",
+    message: "账单已更新，请刷新明细并核对后再复制对账图。",
+  };
+  const customerId = text(statement.customerId);
+  const { currentReceivable, currentReceived, currentUnpaid, historicalDebt } =
+    getStatementFinancialSummary(statement, workspace.customers);
+  const variances = rows(workspace.varianceRecords).filter(row => text(row.statementId) === header.id);
+  return { response: {
+    statementId: header.id,
+    revision: header.revision,
+    customerId,
+    customerName: text(statement.customerName || findCustomer(workspace, customerId)?.name),
+    period: statement.period,
+    receivable: currentReceivable,
+    received: currentReceived,
+    currentUnpaid,
+    historicalDebt,
+    roundingAmount: statementRoundingAmount(variances),
+    statementLines: verified.lines.map(line => pick(line, [
+      'orderNo', 'productName', 'goodsSpec', 'deliveredQty', 'chargeableQty', 'finalAmount',
+    ])),
+  } };
+}
+
+function statementRoundingAmount(varianceRecords) {
+  return varianceRecords
+    .filter(row => row.handlingResult === ROUNDING_HANDLING_RESULT)
+    .reduce((cents, row) => cents + Math.round(Number((row.amount ?? row.varianceAmount) || 0) * 100), 0) / 100;
+}
+
+function findCustomer(workspace, customerId) {
+  return rows(workspace.customers).find(row => text(row.id ?? row.customerId) === customerId);
 }

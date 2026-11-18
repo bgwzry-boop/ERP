@@ -4,7 +4,7 @@ import {
 } from "../services/officeAttachmentInputs.js";
 import { createOfficeAttachment } from "../services/officeAttachmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
-import { normalizeOrderType } from "../../shared/orderRouting.js";
+import { isDirectProductionOrderType } from "../../shared/orderRouting.js";
 import {
   completeOfficePackingTask,
   moveOfficeProductionMachineQueueItem,
@@ -794,7 +794,7 @@ export function createOfficeProductionWriteActions({
     if (!line) return withFeedback({ source: "ui_error", blocked: true }, "未找到对应订单明细，无法提交生产报工。");
     const inventoryItem = findProductionInventoryItem(line, inventoryRecordsRef.current);
     const task = payload.productionTask ?? line.productionTask;
-    const noStock = task?.taskType === "丝印" || normalizeOrderType(line.orderType) === "custom_special";
+    const noStock = task?.taskType === "丝印" || isDirectProductionOrderType(line.orderType);
     const signedServerRequired = () => Boolean(authState?.session?.accessToken) || serverRequired();
     if (!inventoryItem && !noStock && !signedServerRequired()) {
       return withFeedback(

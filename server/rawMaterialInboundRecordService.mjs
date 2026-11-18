@@ -17,6 +17,7 @@ import {
 } from "./rawMaterialTraceabilityRecordNormalizer.mjs";
 import { normalizeRawMaterialOcrMetadata } from "./rawMaterialInboundOcrSupport.mjs";
 import { calculateRawMaterialOrderRequirement } from "../shared/rawMaterialInventorySupport.js";
+import { isPublishedRawMaterialIssueTask } from "../shared/rawMaterialProductionTask.js";
 import { resolveRawMaterialUsage } from "../shared/rawMaterialSpec.js";
 
 export function resolveRawMaterialProductionTaskMatch(input = {}) {
@@ -60,6 +61,13 @@ export function resolveRawMaterialProductionTaskMatch(input = {}) {
     throw Object.assign(new Error(`Raw-material issue production task has no order line: ${productionTaskId}`), {
       statusCode: 422,
       code: "RAW_MATERIAL_PRODUCTION_TASK_ORDER_LINE_NOT_FOUND",
+    });
+  }
+
+  if (input.requirePublishedTask && (!isPublishedRawMaterialIssueTask(productionTask, orderLine)
+    || (!taskMachineId && (!/丝印|印刷/u.test(cleanText(productionTask.taskType ?? productionTask.task_type)) || issueMachineId !== "丝印车间")))) {
+    throw Object.assign(new Error("该生产任务未发布、已结束或领料位置发生变化，请刷新后重选。原料未出库。"), {
+      statusCode: 409, code: "ERP_RAW_MATERIAL_PRODUCTION_CONFLICT",
     });
   }
 

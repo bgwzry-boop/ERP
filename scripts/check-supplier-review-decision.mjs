@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { applyReviewConfirmation, applyStatementConfirmation } from '../server/rawMaterialSupplierStatementReviewRepository.mjs';
-const draft = { reviewId: 'AUDIT', reviewStatus: 'draft', status: '可确认', rows: [], adjustments: [], revision: 1 };
+const draft = {
+  reviewId: 'AUDIT', reviewStatus: 'draft', status: '可确认', revision: 1,
+  periodStart: '2026-09-01', periodEnd: '2026-09-30',
+  summary: { totalAmount: 100 }, adjustments: [],
+  rows: [{ id: 'DELIVERY-LINE-1', documentDate: '2026-09-12', amount: 100, matchingStatus: 'matched' }],
+};
 for (const decision of [undefined, null, '', '不一致', '基本一致', '一致但有差异', true, {}]) {
   const workspace = { rawMaterialSupplierStatementReviews: [structuredClone(draft)] };
   const before = structuredClone(workspace);

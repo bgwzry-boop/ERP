@@ -2860,6 +2860,7 @@ paths:
       summary: 保存供应商月结预检结果为复核草稿
       description: >
         办公室把 Excel 预检结果保存为人工复核草稿，便于后续查差异和留痕。
+        准确的起止日期用于判断本期退货，文件名和上传时间不能代替账期。
         该动作不写原材料库存、不生成应付、不确认付款。
       operationId: createRawMaterialSupplierStatementReviewDraft
       requestBody:
@@ -2877,6 +2878,52 @@ paths:
                 $ref: "#/components/schemas/RawMaterialSupplierStatementReviewResponse"
         "403":
           $ref: "#/components/responses/PermissionDenied"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /raw-material-supplier-statement-reviews/{reviewId}/set-period:
+    post:
+      tags: [RawMaterials]
+      summary: 补填或修订未正式确认的供应商账期
+      description: 按月结单实际起止日（含首尾）重新关联退货，并返回待人工复核。已正式确认的历史记录不能修改。
+      operationId: setRawMaterialSupplierStatementPeriod
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedRevision, periodStart, periodEnd]
+              properties:
+                expectedRevision:
+                  type: integer
+                  minimum: 1
+                periodStart:
+                  type: string
+                  format: date
+                periodEnd:
+                  type: string
+                  format: date
+      responses:
+        "200":
+          description: 保存账期并返回待复核草稿
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawMaterialSupplierStatementReviewResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
         "422":
           $ref: "#/components/responses/ValidationError"
 
@@ -4267,21 +4314,34 @@ paths:
       summary: 查询对账单详情
       description: >
         返回对账 / 收款页右侧详情，包括客户摘要、本期明细、合计、调整、
-        实收、差额处理、附件和操作日志。
+        实收、差额处理、附件和操作日志。选择 customer_image 时只返回经过正式导出校验的
+        当前版本对账图数据，要求传入当前核对的 expectedRevision。
       operationId: getStatementDetail
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - name: purpose
+          in: query
+          schema: { type: string, enum: [customer_image] }
+        - name: expectedRevision
+          in: query
+          schema: { type: integer, minimum: 1 }
       responses:
         "200":
           description: 对账单详情
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/StatementDetailResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/StatementDetailResponse"
+                  - $ref: "#/components/schemas/StatementCustomerImageResponse"
         "400":
           $ref: "#/components/responses/BusinessError"
         "404":
           $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /statements/{statementId}/preview:
     post:
@@ -6732,13 +6792,20 @@ paths:
     post:
       tags: [AttendancePayroll]
       summary: 只读预检真实考勤来源和员工身份映射
-      description: 调用已配置网关并仅返回数量、覆盖率和阻塞原因；不写导入批次或打卡记录，不返回员工、外部人员、打卡编号、原始载荷或令牌。
+      description: 调用已配置网关并仅返回数量、覆盖率和阻塞原因。可传工资月份由服务器确定已发生的时段；已有打卡无新增但时段待补齐时，建议按返回的时段同步。不写导入批次或打卡记录，不返回员工、外部人员、打卡编号、原始载荷或令牌。
       operationId: precheckAttendanceSync
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AttendanceSyncRequest" }
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/AttendanceSyncRequest"
+                - type: object
+                  required: [month]
+                  additionalProperties: false
+                  properties:
+                    month: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
       responses:
         "200": { description: 去身份化只读预检结果, content: { application/json: { schema: { $ref: "#/components/schemas/AttendanceSyncPrecheckResponse" } } } }
         "400": { $ref: "#/components/responses/ValidationError" }
@@ -7108,7 +7175,7 @@ components:
     AttendanceSyncPrecheckResponse:
       type: object
       additionalProperties: false
-      required: [status, ready, provider, rangeStart, rangeEnd, summary, employeeMappingCoverage, blockingReasons, importRecommended, safeguards, checkedAt]
+      required: [status, ready, provider, rangeStart, rangeEnd, summary, employeeMappingCoverage, blockingReasons, importRecommended, coverageConfirmationNeeded, safeguards, checkedAt]
       properties:
         status: { type: string, enum: [passed, blocked] }
         ready: { type: boolean }
@@ -7149,6 +7216,7 @@ components:
               message: { type: string }
               count: { type: integer, minimum: 0 }
         importRecommended: { type: boolean }
+        coverageConfirmationNeeded: { type: boolean }
         safeguards:
           type: object
           additionalProperties: { type: boolean }
@@ -17702,6 +17770,15 @@ components:
           type: string
         fileName:
           type: string
+        sourceFileDigest:
+          type: string
+          description: 导入文件原始字节的 SHA-256，用于识别重复上传。
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
         note:
           type: string
         statementResult:
@@ -17739,12 +17816,16 @@ components:
 
     RawMaterialSupplierPaymentConfirmRequest:
       type: object
+      description: 本次实付大于零时，至少填写一个付款流水号或财务凭证号。仅抹零时可留空。
       properties:
         operatorId:
           type: string
         paidAmount:
           type: number
-          description: V1 第一版必须等于应付草稿金额。
+          description: 本次实付金额，精确到分，不得超过应付余额。
+        roundingAmount:
+          type: number
+          description: 尾款支付时经确认的抹零金额，精确到分，实付加抹零必须结清余额。
         paymentMethod:
           type: string
           example: 银行转账
@@ -17755,7 +17836,7 @@ components:
           description: 银行流水号或转账参考号。
         paymentVoucherNo:
           type: string
-          description: 财务凭证号。
+          description: 财务凭证号，现金付款可使用内部财务凭证号。
         paidAt:
           type: string
           format: date-time
@@ -17806,6 +17887,15 @@ components:
           type: string
         fileName:
           type: string
+        periodStart:
+          type: string
+          description: 账期开始日，未填写的历史草稿为留空。
+        periodEnd:
+          type: string
+          description: 账期结束日，未填写的历史草稿为留空。
+        supplierReturnPeriodRequired:
+          type: boolean
+          description: 存在待按账期归属的退货，需先补填账期。
         status:
           type: string
           enum: [可确认, 待人工复核, 阻断-待重传, 已人工复核/一致, 已人工复核/有差异, 已确认对账/待付款, 已生成应付/待付款确认, 已确认付款/已完成]
@@ -23317,6 +23407,34 @@ components:
           enum: [current_period, debt_or_variance, payment_pending, settled, voided]
         statementId:
           type: string
+
+    StatementCustomerImageResponse:
+      type: object
+      required: [statementId, revision, customerId, customerName, receivable, received, currentUnpaid, historicalDebt, roundingAmount, statementLines]
+      properties:
+        statementId: { type: string }
+        revision: { type: integer, minimum: 1 }
+        customerId: { type: string }
+        customerName: { type: string }
+        period: { type: string }
+        receivable: { type: number }
+        received: { type: [number, "null"] }
+        currentUnpaid: { type: [number, "null"] }
+        historicalDebt: { type: [number, "null"] }
+        roundingAmount: { type: number }
+        statementLines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [orderNo, productName, goodsSpec, deliveredQty, chargeableQty, finalAmount]
+            properties:
+              orderNo: { type: string }
+              productName: { type: string }
+              goodsSpec: { type: string }
+              deliveredQty: { type: integer, minimum: 0 }
+              chargeableQty: { type: integer, minimum: 0 }
+              finalAmount: { type: number, minimum: 0 }
 
     StatementDetailResponse:
       type: object

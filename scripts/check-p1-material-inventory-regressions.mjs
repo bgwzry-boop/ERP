@@ -49,7 +49,7 @@ for (const record of [issued.rawMaterialIssueRecords[0], consumed.rawMaterialCon
 }
 assert.equal(consumed.rolls[0].weightKg, 80);
 assert.equal(consumed.rolls[0].inventoryStatus, "机边领用");
-const taskWorkspace = { productionTasks: [{ id: "PT", productionTaskId: "PT", orderLineId: "OL", machineId: "1号机", plannedQty: 1000 }], orderLines: [{ id: "OL", productName: "无纺布袋", bagColor: "宝蓝", size: "30*38*8", qty: 1000 }] };
+const taskWorkspace = { productionTasks: [{ id: "PT", productionTaskId: "PT", orderLineId: "OL", machineId: "1号机", taskType: "制袋", taskStatus: "制袋已排产", publishedScheduleId: "SCH-P1-MATERIAL", plannedQty: 1000 }], orderLines: [{ id: "OL", productName: "无纺布袋", bagColor: "宝蓝", size: "30*38*8", qty: 1000 }] };
 const taskIssued = act(inbound, "issue_to_machine", { rollId: roll.id, machineId: "1号机", productionTaskId: "PT" }, taskWorkspace);
 assert.equal(taskIssued.rawMaterialIssueRecords[0].productionTaskMatchStatus, "已匹配");
 assert.throws(() => act(inbound, "issue_to_machine", { rollId: roll.id, machineId: "1号机", productionTaskId: "PT" }, { ...taskWorkspace, orderLines: [{ ...taskWorkspace.orderLines[0], bagColor: "白色" }] }), (error) => error.code === "RAW_MATERIAL_PRODUCTION_TASK_COLOR_MISMATCH");

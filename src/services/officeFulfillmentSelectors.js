@@ -77,6 +77,7 @@ export function mapApiFulfillmentToLocal(value = {}) {
     packageLabelRows: Array.isArray(value.packageLabelRows) ? value.packageLabelRows : [],
     shipmentProgress: value.shipmentProgress ?? null,
     noteReadiness: value.noteReadiness ?? null,
+    outboundPackageReadiness: value.outboundPackageReadiness ?? null,
     packingTask: value.packingTask ?? null,
     method: getFulfillmentMethodLabel(value.method),
     goods: cleanText(value.goodsSpec ?? value.goods),

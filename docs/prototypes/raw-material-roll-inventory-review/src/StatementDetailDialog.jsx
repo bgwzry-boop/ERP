@@ -1,7 +1,7 @@
 import { isVoidedStatement } from "../../../../shared/statementPaymentPolicy.js";
 import { shareStatementImage } from "./statementImage.js";
 import { useEffect, useRef, useState } from "react";
-import { getOfficeStatementDetail, previewOfficeStatement, downloadOfficeStatementExport } from "../../../../src/services/officeStatementApiClient.js";
+import { getOfficeStatementDetail, getVerifiedOfficeStatementImage, previewOfficeStatement, downloadOfficeStatementExport } from "../../../../src/services/officeStatementApiClient.js";
 import { downloadOfficeAttachmentContent } from "../../../../src/services/officeAttachmentApiClient.js";
 import { createOfficeIdempotencyKey } from "../../../../src/services/officeApiClientCore.js";
 import { ReviewDialog } from "./ReviewDialog.jsx";
@@ -68,8 +68,13 @@ function StatementDetailSession({ statementId, authState, onClose, onUpdated }) 
   function shareImage() {
     if (!detail) return;
     action.run(async (signal, live) => {
-      const result = await shareStatementImage(detail);
-      if (live()) setNotice(result.message);
+      setNotice("");
+      const verified = requireApiResult(await getVerifiedOfficeStatementImage({
+        authState, statementId: detail.id, expectedRevision: detail.revision,
+      }, { signal }), value => Boolean(value.image));
+      if (!live()) return;
+      const result = await shareStatementImage(verified.image, { shouldShare: live });
+      if (live() && result) setNotice(result.message);
     });
   }
   function downloadEvidence(row) {
@@ -85,7 +90,7 @@ function StatementDetailSession({ statementId, authState, onClose, onUpdated }) 
       {detail?.needsResendAfterCorrection ? <p className="finance-notice" role="status">这张对账单发给客户以后，有送货单作废重打改过数量或金额，请重新复制对账图发给客户。</p> : null}
       {loading ? <p role="status">正在读取账单明细…</p> : loadError ? <div role="alert"><p>{loadError}</p><button type="button" onClick={refresh}>重新读取</button></div> : detail ? <>
         <dl className="finance-summary"><div><dt>本期应收</dt><dd>{money(detail.receivable)}</dd></div><div><dt>本期累计实收</dt><dd>{money(detail.received)}</dd></div>{Number(detail.roundingAmount) > 0 ? <div><dt>抹零</dt><dd>{money(detail.roundingAmount)}</dd></div> : null}<div><dt>本期未收</dt><dd>{money(detail.currentUnpaid)}</dd></div><div><dt>历史欠款</dt><dd>{money(detail.historicalDebt)}</dd></div></dl>
-        {detail.annualReceiptSummary ? <p className="finance-muted">{detail.annualReceiptSummary.year} 年账本合计：实收 {money(detail.annualReceiptSummary.receivedTotal)}，抹零 {money(detail.annualReceiptSummary.roundingTotal)}。抹零不改写应收。</p> : null}
+        {detail.annualReceiptSummary ? <p className="finance-muted">{detail.annualReceiptSummary.year} 年账本合计：实收 {money(detail.annualReceiptSummary.receivedTotal)}，抹零 {money(detail.annualReceiptSummary.roundingTotal)}。实收按每次累计登记的变化汇总，包含调整；抹零不改写应收。</p> : null}
         <section><h3>本期订单明细</h3>{detail.lineSource === "linked_order" ? <p className="finance-muted">以下为账单关联的订单参考明细，尚未形成留存的对账明细版本；金额以本期账单为准。</p> : null}
           {detail.statementLines.length ? <div className="finance-table-scroll"><table><thead><tr><th>订单 / 产品</th><th>规格</th><th>送货 / 计费数量</th><th>金额</th></tr></thead><tbody>{detail.statementLines.map(row => <tr key={row.statementLineId}><td>{row.orderNo}<br />{row.productName}</td><td>{row.goodsSpec || "未提供"}</td><td>{row.deliveredQty} / {row.chargeableQty}</td><td>{money(row.finalAmount)}</td></tr>)}</tbody></table></div> : <p className="finance-muted">这张账单没有可读取的关联明细。</p>}
         </section>

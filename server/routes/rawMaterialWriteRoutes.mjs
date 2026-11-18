@@ -92,13 +92,18 @@ export async function handleRawMaterialWriteRoutes({
   }
 
   const supplierActionMatch = url.pathname.match(
-    /^\/api\/raw-material-supplier-statement-reviews\/([^/]+)\/(confirm-review|confirm-statement|generate-payable|confirm-payment)$/,
+    /^\/api\/raw-material-supplier-statement-reviews\/([^/]+)\/(set-period|confirm-review|confirm-statement|generate-payable|confirm-payment)$/,
   );
   if (!supplierActionMatch) return false;
 
   const reviewId = decodeURIComponent(supplierActionMatch[1]);
   const action = supplierActionMatch[2];
   const routes = {
+    "set-period": {
+      permission: writeActionPermissions.confirmRawMaterialSupplierStatementReview,
+      fallbackOperatorId: "U-OFFICE-A",
+      run: rawMaterialCommandService.setSupplierStatementPeriod,
+    },
     "confirm-review": {
       permission: writeActionPermissions.confirmRawMaterialSupplierStatementReview,
       fallbackOperatorId: "U-OFFICE-A",

@@ -389,9 +389,9 @@ try {
   assert.deepEqual(confirmAttempts[0].body, confirmAttempts[1].body);
   assert.equal(confirmAttempts[0].body.sourceText, selected.sourceText);
   assert.deepEqual(confirmAttempts[0].body.shortageDecision, {
-    choice: "split_produce",
-    note: "客户同意先发有的",
-  });
+    choice: "",
+    note: "",
+  }, "改成特殊尺寸并重报价后，通货的缺货选择不能带入确认");
   assert.equal(
     await page
       .getByRole("button", { name: "确认下单", exact: true })
@@ -776,6 +776,9 @@ try {
           excludedDraftLineIds: [],
           groups: [],
           affectedOrders: [],
+          stockChecks: input.rows.map(row => ({
+            draftLineId: row.id, inventory: "缺货 5000", stockQty: 0, shortageQty: row.qty,
+          })),
           lines: input.rows.map((row) => ({
             draftLineId: row.id,
             bagPrice: 0.9,

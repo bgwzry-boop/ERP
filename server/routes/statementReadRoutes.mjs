@@ -1,4 +1,4 @@
-import { buildStatementDetail } from "../services/statementDetailProjectionService.mjs";
+import { buildStatementDetail, buildVerifiedStatementImage } from "../services/statementDetailProjectionService.mjs";
 
 export async function handleStatementReadRoutes({
   url,
@@ -81,9 +81,17 @@ export async function handleStatementReadRoutes({
   if (!requirePreviewPermission()) return true;
 
   const item = workspace.statements.find((row) => row.id === decodeURIComponent(statementMatch[1]));
+  if (url.searchParams.get("purpose") === "customer_image" && item) {
+    response.setHeader("Cache-Control", "no-store");
+    sendCommandResponse(response, buildVerifiedStatementImage(workspace, item, url.searchParams.get("expectedRevision")));
+    return true;
+  }
   if (item) {
     const writeOffRecords = await workspace.statementSettlementTransactionRepository?.listStatementWriteOffs?.({ workspace, statementId: item.id }) ?? workspace.statementWriteOffRecords ?? [];
-    sendJson(response, 200, buildStatementDetail({ ...workspace, statementWriteOffRecords: writeOffRecords }, item, {
+    const paymentRecords = workspace.paymentRecordRepository?.kind === "postgres"
+      ? await workspace.paymentRecordRepository.listPaymentRecords({})
+      : workspace.paymentRecords;
+    sendJson(response, 200, buildStatementDetail({ ...workspace, paymentRecords, statementWriteOffRecords: writeOffRecords }, item, {
       includeAttachments: permissionContext?.actionPermissions?.includes("attachment.view") === true,
     }));
   }

@@ -8,9 +8,15 @@ const pool=new pg.Pool({connectionString:runtime.resolveLiveDatabaseUrl(),max:8}
 const repo=createPostgresFulfillmentActionTransactionRepository({postgresClient:createPostgresPoolClient({pool})});
 const lineId='ORD-0629-002-01',now='2026-10-23T04:00:00Z';
 let sequence=0;
-async function fixture({type='stock',actual=10,reserved=10,deduct=actual,reservation=true}={}){
+async function fixture({type='stock',actual=10,reserved=10,deduct=actual,reservation=true,physicalPackages=true}={}){
  const key='CONSERVATION-'+(++sequence),itemId='INV-'+key,reservationId='RSV-'+key;
+ await pool.query("UPDATE inventory_reservations SET status='已释放' WHERE id LIKE 'RSV-CONSERVATION-%' AND status='生效'");
  await pool.query("UPDATE fulfillment_records SET revision=1,status='配送中',expected_qty=10,actual_qty=$1,physical_outbound_at=NULL,loaded_at=NULL,final_delivery_at=NULL,delivered_at=NULL WHERE id='F002'",[actual]);
+ await pool.query("UPDATE packages SET status='已失效' WHERE fulfillment_id='F002' AND status<>'已失效'");
+ if(physicalPackages){
+  await pool.query("INSERT INTO print_records(id,biz_no,target_type,target_id,print_action,status,document_type) VALUES($1,$1,'fulfillment','F002','first_print','printed','package_label')",['PRINT-'+key]);
+  await pool.query("INSERT INTO packages(id,biz_no,order_line_id,fulfillment_id,packed_qty,status,label_print_record_id) VALUES($1,$1,$2,'F002',$3,'已打印标签',$4)",['PKG-'+key,lineId,actual,'PRINT-'+key]);
+ }
  await pool.query('UPDATE order_lines SET order_type=$1 WHERE id=$2',[type,lineId]);
  await pool.query("INSERT INTO inventory_items(id,inventory_key,size,standard_color_id,handle_type,style,zone,inventory_state,on_hand_qty,reserved_qty) VALUES($1,$1,'30*38*10','SC-WHITE','普通提','空白袋',$1,'仓库已清点',100,$2)",[itemId,reservation?reserved:0]);
  if(reservation)await pool.query("INSERT INTO inventory_reservations(id,order_line_id,inventory_item_id,reserved_qty,reservation_type,status,created_by) VALUES($1,$2,$3,$4,'订单占用','生效','U-OFFICE-A')",[reservationId,lineId,itemId,reserved]);
@@ -33,9 +39,21 @@ try{
  await assert.rejects(repo.recordFulfillmentAction(partial.input),error=>error.statusCode===409,'actual10 but only6 deducted must fail in the repository');await assertNoWrite(partial);
  const underReserved=await fixture({reserved:6,deduct:10});await assert.rejects(repo.recordFulfillmentAction(underReserved.input),error=>error.statusCode===409,'a 6-item hold cannot authorize a 10-item reserved outbound even if on-hand stock exists');await assertNoWrite(underReserved);
  const empty=await fixture({reservation:false,deduct:0});await assert.rejects(repo.recordFulfillmentAction(empty.input),error=>error.statusCode===409,'stock delivery cannot bypass inventory by submitting no movements');await assertNoWrite(empty);
- for(const type of ['custom_special','特殊尺寸空白袋','external_print','外加工印刷']){
+ const noPackage=await fixture({physicalPackages:false});await assert.rejects(repo.recordFulfillmentAction(noPackage.input),error=>error.statusCode===409,'historical driver completion must not deduct stock without current physical packages');await assertNoWrite(noPackage);
+ const wrongContents=await fixture();
+ // Legacy packages without the mixed-contents JSON can persist a mismatched line.
+ await pool.query("UPDATE packages SET order_line_id='ORD-0629-001-01' WHERE id=$1", ['PKG-'+wrongContents.key]);
+ await assert.rejects(repo.recordFulfillmentAction(wrongContents.input),error=>error.statusCode===409,
+  'a matching package quantity for the wrong order line must not authorize stock deduction');
+ await assertNoWrite(wrongContents);
+ for(const type of ['custom_print','定制印刷','custom_special','特殊尺寸空白袋','external_print','外加工印刷']){
   const direct=await fixture({type,reservation:false,deduct:0});const receipt=await repo.recordFulfillmentAction(direct.input);assert.equal(receipt.fulfillment.status,'已交付');assert.equal(receipt.inventoryItems.length,0);assert.equal((await pool.query('SELECT on_hand_qty FROM inventory_items WHERE id=$1',[direct.itemId])).rows[0].on_hand_qty,100);
  }
+ const historicalPrint=await fixture({type:'定制印刷',deduct:0});
+ const skippedHistoricalHold={...historicalPrint.input,inventoryReservations:[]};
+ await assert.rejects(repo.recordFulfillmentAction(skippedHistoricalHold),error=>error.statusCode===409,
+  'an existing inventory-backed customer print order cannot skip its historical hold');
+ await assertNoWrite(historicalPrint);
  for(const config of [{},{actual:6,reserved:10,deduct:6},{reservation:false,deduct:10}]){
   const valid=await fixture(config);await repo.recordFulfillmentAction(valid.input);const item=(await pool.query('SELECT on_hand_qty,reserved_qty FROM inventory_items WHERE id=$1',[valid.itemId])).rows[0];assert.deepEqual(item,{on_hand_qty:100-(config.deduct??10),reserved_qty:0});
  }

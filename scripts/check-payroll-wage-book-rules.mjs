@@ -103,18 +103,20 @@ assert.equal(resolveNewHireWithholding({ employee: { hireDate: "2026-11-16" }, m
     employees: [{ id: "E9", name: "新员工", roleName: "制袋机-理袋女工", hireDate: "2026-10-16" }],
     payrollRuns: [
       { id: "R10", payrollMonth: "2026-10", revision: 1, status: "paid", paidAt: "2026-11-05T02:00:00Z" },
+      { id: "R10L", payrollMonth: "2026-10", revision: 2, status: "locked" },
       { id: "R11", payrollMonth: "2026-11", revision: 1, status: "reviewed" },
       { id: "R11D", payrollMonth: "2026-11", revision: 2, status: "draft" },
     ],
     payrollLines: [
       line("L10", "R10", "2026-10", 2300, resolveNewHireWithholding({ employee: { hireDate: "2026-10-16" }, month: "2026-10", netWage: 2300, policy })),
+      line("L10L", "R10L", "2026-10", 9999, null),
       line("L11", "R11", "2026-11", 5000, resolveNewHireWithholding({ employee: { hireDate: "2026-10-16" }, month: "2026-11", netWage: 5000, policy })),
       line("L11D", "R11D", "2026-11", 9999, null),
     ],
   };
   const auth = { user: { employeeId: "E9" } };
   const october = service.buildOwnPayslip({ workspace, authContext: auth, month: "2026-10" });
-  assert.equal(october.payslip.statusLabel, "已发放");
+  assert.equal(october.payslip.statusLabel, "已发放", "a newer unpaid historical revision cannot replace the paid payslip");
   assert.equal(october.payslip.insuranceDepositWithheld, 952);
   assert.equal(october.payslip.payableNow, 1348);
   const november = service.buildOwnPayslip({ workspace, authContext: auth, month: "2026-11" });

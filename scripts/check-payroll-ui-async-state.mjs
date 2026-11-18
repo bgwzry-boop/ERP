@@ -102,8 +102,10 @@ try {
   await settle(take("getOfficePayrollWorkbench"), wb("2026-07"));
   await act(async () => { void host(node => node.type === "button" && node.props.title === "先只读预检，再同步真实打卡机数据")[0].props.onClick(); });
   const precheck = take("precheckOfficeAttendanceSync");
+  assert.equal(precheck.input.month, "2026-07");
   await act(async () => byLabel("工资月份").props.onChange({ target: { value: "2026-06" } }));
-  await settle(precheck, { ready: true, importRecommended: true });
+  await settle(precheck, { ready: true, importRecommended: true,
+    rangeStart: "2026-06-30T16:00:00.000Z", rangeEnd: "2026-07-31T16:00:00.000Z" });
   assert.equal(queue.filter(item => item.name === "syncOfficeAttendance").length, 0, "leaving the month cancels continuation from precheck to write");
   await act(async () => tree.unmount());
   tree = null;

@@ -1,4 +1,4 @@
-import { captureStatementExportSnapshot } from "./statementExportSnapshotService.mjs";
+import { verifyStatementOutput } from "./statementOutputAccountingService.mjs";
 import { closedStatementPaymentStatuses } from "../../shared/statementPaymentPolicy.js";
 import { createHash, randomUUID } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
@@ -40,8 +40,8 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     const idempotencyPayload = { statementId, previewType, templateId, operatorId };
     const replay = await workspace.statementExportRepository.findExportReplay?.({ workspace, idempotencyKey: body.idempotencyKey, idempotencyPayload });
     if (replay) return previewResponse(replay.exportFile, replay.operationLogId);
-    const expectedStatementSnapshot = captureStatementExportSnapshot(workspace, statementId);
     const initialLines = buildStatementPreviewLines(workspace, statement, { persistedOnly: true });
+    const output = verifyStatementOutput(workspace, statement, initialLines);
     const downloadToken = buildStableCommandId({
       prefix: "DL",
       scope: `statement-preview:${statementId}:${previewType}:${operatorId}`,
@@ -72,9 +72,8 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
       downloadToken,
     });
     if (existingExport) return previewResponse(existingExport, existingExport.operationLogId);
-    if (!expectedStatementSnapshot) return conflict("STATEMENT_EXPORT_SNAPSHOT_CONFLICT", "账单版本缺失，请刷新账单后重新生成。");
-    const invalid = validateExportLines(statement, initialLines);
-    if (invalid) return invalid;
+    if (output.error) return output;
+    const expectedStatementSnapshot = output.snapshot;
     const summary = buildStatementSummary(statement, initialLines.length);
     const exportFile = await storeStatementExportFile(
         workspace,
@@ -403,44 +402,6 @@ function requireExpectedRevision(value) {
     return { error: businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision 必须是当前记录的正整数版本号。") };
   }
   return { value: revision };
-}
-
-// New files must use finalized accounting facts. Replays retain their saved snapshot.
-function validateExportLines(statement, lines) {
-  const reject = (message) => businessError(422, "STATEMENT_EXPORT_ACCOUNTING_INCOMPLETE", message);
-  if (!Array.isArray(lines) || !lines.length) return reject("账单缺少持久明细，请先完成账单生成与复核。");
-  const receivable = moneyCents(statement.receivable);
-  if (receivable === null || receivable < 0) return reject("账单应收金额未确认，请先复核。");
-  let total = 0;
-  const identities = new Set();
-  for (const line of lines) {
-    if (!line.statementLineId || identities.has(line.statementLineId) || line.statementId !== statement.id) {
-      return reject("账单明细归属或编号异常，请先复核。");
-    }
-    identities.add(line.statementLineId);
-    const quantities = [line.deliveredQty, line.chargeableQty, line.freeQty];
-    if (quantities.some(value => !Number.isSafeInteger(value) || value < 0)
-      || line.deliveredQty !== line.chargeableQty + line.freeQty) {
-      return reject("账单实交、计费与赠送数量未确认或不一致，请先复核。");
-    }
-    const amount = moneyCents(line.amount);
-    const adjustment = moneyCents(line.adjustmentAmount);
-    const final = moneyCents(line.finalAmount);
-    if (amount === null || adjustment === null || final === null || amount < 0 || final < 0
-      || amount + adjustment !== final) return reject("账单明细金额或调整金额未确认，请先复核。");
-    total += final;
-    if (!Number.isSafeInteger(total)) return reject("账单金额超出可核算范围。");
-  }
-  if (total !== receivable) return reject("账单明细合计与应收金额不一致，请先复核。");
-  return null;
-}
-
-function moneyCents(value) {
-  if (typeof value !== "number" && typeof value !== "string") return null;
-  if (typeof value === "string" && !value.trim()) return null;
-  const scaled = Number(value) * 100;
-  const cents = Math.round(scaled);
-  return Number.isSafeInteger(cents) && Math.abs(scaled - cents) < 0.000001 ? cents : null;
 }
 
 function buildStatementSummary(statement, lineCount) {

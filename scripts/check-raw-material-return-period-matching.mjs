@@ -6,7 +6,7 @@ function returned(id, receivedAt, fields = {}) {
   return { id, supplierName, receivedAt, documentDirection: "supplier_return", status: "退货单已复核", totalWeightKg: -10, amount: -100, ...fields };
 }
 function statement(fields = {}) {
-  return { supplierName, fileName: "supplier-2026-11.xlsx", rows: [{ id: "NOV-ROW", lineType: "return", supplierName, documentDate: "2026-11-02", totalWeightKg: -10, amount: -100 }], adjustments: [], summary: {}, ...fields };
+  return { supplierName, fileName: "supplier-2026-11.xlsx", periodStart: "2026-11-01", periodEnd: "2026-11-30", rows: [{ id: "NOV-ROW", lineType: "return", supplierName, documentDate: "2026-11-02", totalWeightKg: -10, amount: -100 }], adjustments: [], summary: {}, ...fields };
 }
 const older = returned("OCT-RETURN", "2026-10-02");
 const current = returned("NOV-RETURN", "2026-11-02");
@@ -57,5 +57,15 @@ const explicitSource = merge(statement({ rows: [{ ...original.rows[0], sourceRet
 assert.equal(explicitSource.adjustments.length, 0, "an explicit return source retains precedence over other matching metadata");
 const explicitNumber = merge(statement({ rows: [{ ...original.rows[0], documentNo: "TH-NOV", documentDate: "2026-11-03" }] }), [returned("RET-NOV-ID", "2026-11-02", { deliveryNoteNo: "TH-NOV" })]);
 assert.equal(explicitNumber.adjustments.length, 0, "an exact document number retains the prior explicit-identity matching policy");
+
+const late = returned("NOV-LATE", "2026-11-23");
+const firstHalf = merge(statement({ periodEnd: "2026-11-15" }), [current, late]);
+assert.deepEqual(firstHalf.addedSupplierReturnIds, [], "retains exact Excel return and excludes second-half credit");
+const secondHalf = merge(statement({ periodStart: "2026-11-16", rows: [] }), [current, late]);
+assert.deepEqual(secondHalf.addedSupplierReturnIds, [late.id], "only the confirmed second half gets the Nov 23 credit");
+const missingPeriod = merge(statement({ periodStart: "", periodEnd: "" }), [current, late]);
+assert.equal(missingPeriod.rows[0].sourceReturnInboundId, current.id);
+assert.equal(missingPeriod.supplierReturnPeriodRequired, true);
+assert.deepEqual(missingPeriod.addedSupplierReturnIds, [], "month alone may not authorize importing additional credits");
 
 console.log("PASS supplier return period matching: cross-month and contradictory-day fuzzy matches rejected; exact source/document ownership retained; same Excel return never adds a duplicate ERP adjustment.");

@@ -126,8 +126,10 @@ export async function printOfficeFulfillment(input, options = {}) {
       idempotencyKey: input.idempotencyKey,
       body: {
         idempotencyKey: input.idempotencyKey,
-        templateId: getFulfillmentTemplateId(fulfillment, action),
-        documentType: getFulfillmentDocumentType(fulfillment, action),
+        ...(input.documentType === "package_label" ? { documentType: "package_label" } : {
+          templateId: getFulfillmentTemplateId(fulfillment, action),
+          documentType: getFulfillmentDocumentType(fulfillment, action),
+        }),
         printAction: resolvedPrintAction,
         ...(resolvedPrintAction === "reprint" ? { previousPrintRecordId, reprintReason } : {}),
         ...(cleanText(input.pickerName) ? { pickerName: cleanText(input.pickerName) } : {}),

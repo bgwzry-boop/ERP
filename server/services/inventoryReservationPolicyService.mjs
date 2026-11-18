@@ -1,10 +1,11 @@
-const releasableStatuses = new Set([
+export const releasableInventoryReservationStatuses = Object.freeze([
   "生效",
   "active",
   "reserved",
   "部分释放",
   "partially_released",
 ]);
+const releasableStatuses = new Set(releasableInventoryReservationStatuses);
 
 export function createInventoryReservationPolicyService() {
   return Object.freeze({
@@ -12,6 +13,6 @@ export function createInventoryReservationPolicyService() {
   });
 }
 
-function isReleasableInventoryReservation(reservation) {
+export function isReleasableInventoryReservation(reservation) {
   return releasableStatuses.has(String(reservation?.status ?? "").trim());
 }

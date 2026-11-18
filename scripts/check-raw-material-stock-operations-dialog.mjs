@@ -11,6 +11,16 @@ const require = createRequire(import.meta.url);
 const directory = await mkdtemp(join(tmpdir(), "erp-stock-operations-"));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 globalThis.document = { activeElement: null };
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async input => {
+  const path = String(input);
+  if (path.includes("/production-schedules/machine-queue")) return Response.json({ items: [{
+    productionTaskId: "PT-PICK", orderLineId: "OL-PICK", publishedScheduleId: "SCH-PICK",
+    machineId: "PRINT-02", assignedMachineId: "PRINT-02", taskType: "丝印", status: "丝印已排产", bagColor: "红色",
+  }], total: 1 });
+  if (path.endsWith("/health")) return Response.json({ rawMaterialUntaskedIssue: { allowed: false } });
+  throw new Error(`Unexpected test fetch: ${path}`);
+};
 let tree;
 try {
   const bundle = await build({
@@ -70,12 +80,14 @@ try {
   assert.equal(button("机边领料").props.disabled, false);
   assert.equal(button("确认消耗").props.disabled, true);
   await act(async () => button("机边领料").props.onClick());
-  await act(async () => issueForm().findByType("select").props.onChange({ target: { value: "1号机" } }));
+  await act(async () => issueForm().findByType("select").props.onChange({ target: { value: "PT-PICK" } }));
   await act(async () => { void submit(issueForm()); void submit(issueForm()); });
   assert.equal(calls.length, 1, "double-click issue must send one command");
   assert.equal(calls[0][0], "扫码出库");
   assert.equal(calls[0][2].rollId, "ROLL-SELECTED");
   assert.equal(calls[0][2].expectedRevision, 7);
+  assert.equal(calls[0][2].productionTaskId, "PT-PICK");
+  assert.equal(calls[0][2].machineId, "2号丝印机");
   assert.match(calls[0][2].idempotencyKey, /^erp-stock-issue-/u);
   assert.equal(tree.root.findByProps({ "aria-label": "关闭卷料操作" }).props.disabled, true);
   let prevented = false;
@@ -202,6 +214,7 @@ try {
   await unmount();
   console.log("PASS selected real-roll isolation, permission/state gates, single-flight issue, exact CAS, measured whole/partial consumption, retained retry key/input, protected close and no cost actions; anonymous in-memory commands only.");
 } finally {
+  globalThis.fetch = originalFetch;
   if (tree) tree.unmount();
   await rm(directory, { recursive: true, force: true });
 }

@@ -1,4 +1,5 @@
 import { normalizeRawMaterialSourceRowIndex } from "../../shared/rawMaterialOcrSourcePosition.js";
+import { supplierDayInPeriod, supplierStatementDay, supplierStatementPeriod } from "../../shared/supplierStatementPeriod.js";
 
 const supplierAliasGroups = [
   ["人意无纺布", "人意无纺布销售单", "振恒"],
@@ -14,10 +15,12 @@ export function mergeReviewedSupplierReturnsIntoStatement(statementResult = {}, 
   const issues = (Array.isArray(statementResult.issues) ? statementResult.issues : []).map((item) => ({ ...item }));
   const supplierName = cleanText(options.supplierName || statementResult.supplierName);
   const statementMonths = inferStatementMonths(statementResult, options.fileName);
+  const period = supplierStatementPeriod(options.periodStart ?? statementResult.periodStart, options.periodEnd ?? statementResult.periodEnd);
   const usedRowIds = new Set();
   const usedAdjustmentIds = new Set();
   const linkedSupplierReturnIds = [];
   const addedSupplierReturnIds = [];
+  let supplierReturnPeriodRequired = false;
 
   const reviewedReturns = (Array.isArray(rawMaterialInbounds) ? rawMaterialInbounds : [])
     .filter(isReviewedSupplierReturn)
@@ -27,7 +30,8 @@ export function mergeReviewedSupplierReturnsIntoStatement(statementResult = {}, 
   for (const supplierReturn of reviewedReturns) {
     // A same-weight/same-price return from another month cannot consume this
     // period's Excel row before the actual current-period return is matched.
-    if (statementMonths.size && !returnBelongsToStatementPeriod(supplierReturn, statementMonths)) continue;
+    if (period ? !supplierDayInPeriod(returnDate(supplierReturn), period)
+      : statementMonths.size && !returnBelongsToStatementMonth(supplierReturn, statementMonths)) continue;
     const evidence = buildSupplierReturnEvidence(supplierReturn);
     const matchingRow = findMatchingReturnRow(rows, supplierReturn, usedRowIds);
     if (matchingRow) {
@@ -46,7 +50,10 @@ export function mergeReviewedSupplierReturnsIntoStatement(statementResult = {}, 
       continue;
     }
 
-    if (!returnBelongsToStatementPeriod(supplierReturn, statementMonths)) continue;
+    if (!period) {
+      supplierReturnPeriodRequired = true;
+      continue;
+    }
     adjustments.push(buildErpReturnAdjustment(supplierReturn, evidence));
     addedSupplierReturnIds.push(cleanText(supplierReturn.id));
     if (!hasReturnAmount(supplierReturn)) {
@@ -73,6 +80,7 @@ export function mergeReviewedSupplierReturnsIntoStatement(statementResult = {}, 
     summary,
     linkedSupplierReturnIds: Array.from(new Set(linkedSupplierReturnIds)),
     addedSupplierReturnIds: Array.from(new Set(addedSupplierReturnIds)),
+    supplierReturnPeriodRequired,
   };
 }
 
@@ -130,8 +138,8 @@ function scoreReturnMatch(candidate = {}, supplierReturn = {}) {
   if (candidateSupplier && !suppliersAreEquivalent(candidateSupplier, supplierReturn.supplierName)) return -Infinity;
   const exactSource = Boolean(inboundId && [cleanText(candidate.matchedInboundId), existingSourceId].includes(inboundId));
   const exactDocument = documentNo && cleanText(candidate.documentNo || candidate.sourceDocumentNo) === documentNo;
-  const candidateDate = documentDay(candidate.documentDate || candidate.sourceDocumentDate);
-  const supplierReturnDate = documentDay(returnDate(supplierReturn));
+  const candidateDate = supplierStatementDay(candidate.documentDate || candidate.sourceDocumentDate);
+  const supplierReturnDate = supplierStatementDay(returnDate(supplierReturn));
   // Explicit identity remains authoritative. Fuzzy amounts/weights cannot
   // override two known, contradictory document dates.
   if (!exactSource && !exactDocument && candidateDate && supplierReturnDate && candidateDate !== supplierReturnDate) return -Infinity;
@@ -154,15 +162,6 @@ function scoreReturnMatch(candidate = {}, supplierReturn = {}) {
   if (textIntersects(candidate.spec || candidate.productName, [supplierReturn.spec, supplierReturn.productName, supplierReturn.materialType])) score += 10;
   if (textIntersects(candidate.color, [supplierReturn.supplierColor, supplierReturn.factoryColor])) score += 10;
   return score;
-}
-
-function documentDay(value) {
-  const match = cleanText(value).match(/^(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?=$|日|T|\s)/u);
-  if (!match) return "";
-  const [, year, month, day] = match;
-  const canonical = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  const date = new Date(`${canonical}T00:00:00Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === canonical ? canonical : "";
 }
 
 function buildErpReturnAdjustment(supplierReturn, evidence) {
@@ -267,7 +266,7 @@ function inferStatementMonths(statementResult = {}, fileName = "") {
   return months;
 }
 
-function returnBelongsToStatementPeriod(supplierReturn, statementMonths) {
+function returnBelongsToStatementMonth(supplierReturn, statementMonths) {
   if (!statementMonths.size) return false;
   const month = extractMonth(returnDate(supplierReturn));
   return Boolean(month && statementMonths.has(month));
@@ -291,6 +290,13 @@ export function suppliersAreEquivalent(left, right) {
     const aliases = group.map(normalizeSupplierName);
     return aliases.includes(leftKey) && aliases.includes(rightKey);
   });
+}
+
+export function normalizedSupplierAliases(value) {
+  const key = normalizeSupplierName(value);
+  if (!key) return [];
+  const group = supplierAliasGroups.find((names) => names.map(normalizeSupplierName).includes(key));
+  return group ? [...new Set(group.map(normalizeSupplierName))] : [key];
 }
 
 function normalizeSupplierName(value) {

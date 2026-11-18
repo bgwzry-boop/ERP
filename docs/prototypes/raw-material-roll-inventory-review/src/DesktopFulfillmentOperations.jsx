@@ -174,17 +174,24 @@ function FulfillmentOperations({ fulfillment, formal }) {
       .then(result => { if (active) setPickerSuggestions(result.items ?? []); });
     return () => { active = false; controller.abort(); };
   }, [pickupNote, fulfillment.customerId, formal?.authState, formal?.operatorId]);
-  // 备货小票（负责人 2026-11-05）：本订单所有还没出库的现货，交库房配货。
+  const orderId = line?.orderId ?? line?.orderNo;
+  const pickingOrderLines = (formal?.data?.orderLines ?? []).filter(row => orderId
+    ? (row.orderId ?? row.orderNo) === orderId && row.customerId === line.customerId
+    : (row.id ?? row.orderLineId) === lineId);
+  const pickingFulfillments = [
+    ...(formal?.data?.fulfillments ?? []).filter(row => (row.id ?? row.fulfillmentId) !== (fulfillment.id ?? fulfillment.fulfillmentId)),
+    fulfillment,
+  ];
+  const pickingSlipInput = {
+    orderLines: pickingOrderLines,
+    fulfillments: pickingFulfillments,
+    customerName: fulfillment.customerSnapshot?.name ?? fulfillment.customerName ?? line?.customerName,
+    orderNo: orderId,
+    pickerName: pickupNote ? pickerName.trim() : "",
+  };
+  const pickingSlip = buildStockPickingSlip(pickingSlipInput);
   async function printSlip() {
-    const orderId = line?.orderId ?? line?.orderNo ?? fulfillment.orderId;
-    const fulfillmentsByLine = new Map((formal?.data?.fulfillments ?? []).map(row => [row.orderLineId ?? row.lineId, row]));
-    const siblings = (formal?.data?.orderLines ?? []).filter(row => orderId ? (row.orderId ?? row.orderNo) === orderId && (row.customerId ?? "") === (line?.customerId ?? row.customerId ?? "") : (row.id ?? row.orderLineId) === lineId)
-      .filter(row => !fulfillmentsByLine.get(row.id ?? row.orderLineId)?.physicalOutboundAt)
-      .map(row => ({ ...row, zone: fulfillmentsByLine.get(row.id ?? row.orderLineId)?.zone ?? row.zone }));
-    const customerName = fulfillment.customerSnapshot?.name ?? fulfillment.customerName ?? line?.customerName;
-    const html = buildStockPickingSlipHtml(buildStockPickingSlip({ orderLines: siblings.length ? siblings : [{ ...line, zone: fulfillment.zone }], customerName, orderNo: orderId, pickerName: pickupNote ? pickerName.trim() : "" }));
-    if (!html) { setNotice("本订单没有待出库的现货，不用打备货小票。"); return; }
-    const opened = await printStockPickingSlip(html);
+    const opened = await printStockPickingSlip(buildStockPickingSlipHtml(buildStockPickingSlip(pickingSlipInput)));
     if (mounted.current && !opened) setNotice("打印窗口没有打开，请再点一次「打印备货小票」。");
   }
   const packages = parseActualPackageQuantities(packageText);
@@ -195,6 +202,9 @@ function FulfillmentOperations({ fulfillment, formal }) {
   const canPack = !terminal && !fulfillment.physicalOutboundAt && (task?.status === "待打包" || stockPacking);
   const showStockPackages = operationsOwnStockPackingEntry(fulfillment, formal);
   const showCustomPackages = canPack && can("packing.complete") && !stockOrder;
+  const showCustomCorrection = !terminal && !fulfillment.physicalOutboundAt && !stockOrder && !showCustomPackages
+    && Number(fulfillment.actualPackageCount) > 0 && (can("packing.complete") || can("fulfillment.print"));
+  const packingBlocker = fulfillment.outboundPackageReadiness?.ready === false ? fulfillment.outboundPackageReadiness.reason : "";
   const warehouseResult = paper?.status === "已交库房" ? execution : "已备货";
   const locked = busy || uncertain || Boolean(confirmation);
 
@@ -293,12 +303,24 @@ function FulfillmentOperations({ fulfillment, formal }) {
       {customMixedOpen ? <MixedPackageWorkbench collapseIntro authState={formal?.authState} fulfillmentId={fulfillment.id ?? fulfillment.fulfillmentId} orderLineId={lineId} onSaved={() => formal?.actions?.refreshAll?.()} onBusyChange={setBusy} /> : null}
       </div>
     </div> : null}
+    {showCustomCorrection ? <div className="fulfillment-package-entry">
+      <button type="button" aria-expanded={customMixedOpen} onClick={() => setCustomMixedOpen(value => !value)}>{customMixedOpen ? "收起包裹更正" : "更正本批实物包裹"}</button>
+      {customMixedOpen ? <MixedPackageWorkbench collapseIntro singleLineCorrection authState={formal?.authState} fulfillmentId={fulfillment.id ?? fulfillment.fulfillmentId}
+        orderLineId={lineId} onSaved={() => formal?.actions?.refreshAll?.()} onBusyChange={setBusy} /> : null}
+    </div> : null}
     {can("fulfillment.print") && (fulfillment.printed === true || fulfillment.activePrintRecordId) && !["已取消", "已作废"].includes(fulfillment.status)
       ? <NoteCorrectionPanel key={`${fulfillment.id}:${fulfillment.revision ?? 0}`} fulfillment={fulfillment} formal={formal} pickupNote={pickupNote} /> : null}
     <h3>出库办理</h3>
     {terminal ? <p>本次交付已结束，保留现有出库与签收记录供核对。</p> : <>
       {task?.status === "已完成" && <p>实包已登记：{fulfillment.actualPackageCount ?? task.packageCount ?? "请在打包明细核对"}。如需改变数量或重打挂牌，请先处理包裹更正，不能重复完成打包。</p>}
-      {can("fulfillment.print") && stockOrder && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>备货小票</legend><p>现货先打小票给库房配货，备好后再打正式出库单。小票不带价钱，列出本订单所有现货。</p><button type="button" onClick={() => void printSlip()}>打印备货小票</button></fieldset>}
+      {can("fulfillment.print") && method === "送货" && !fulfillment.physicalOutboundAt && !fulfillment.packingGroupAnchorId
+        && fulfillment.actualPackageCount > 0 && !fulfillment.labelPrintRecordId && !customMixedOpen ? (
+          <button type="button" disabled={locked} onClick={() => ask("打印本批独立包裹挂牌", printOfficeFulfillment,
+            { documentType: "package_label", printAction: "first_print" }, `按本批 ${fulfillment.actualPackageCount} 个有效包码打印挂牌。`)}>
+            打印本批独立包裹挂牌
+          </button>
+        ) : null}
+      {can("fulfillment.print") && pickingSlip?.items.some(item => item.orderLineId === lineId) && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>备货小票</legend><p>本订单待库房配货的现货，共 {pickingSlip.totalQty} 个。</p><button type="button" onClick={() => void printSlip()}>打印备货小票</button></fieldset>}
       {can("fulfillment.print") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}><legend>纸质出库单</legend><p>当前：{paperStatus}。</p>{fulfillment.stockDeductionNote ? <p className={/没扣/u.test(fulfillment.stockDeductionNote) ? "fulfillment-stock-note warn" : "fulfillment-stock-note"}>库存：{fulfillment.stockDeductionNote}</p> : null}
         {canPrintNote && needsPrint ? <>
           {pickupNote && newPaper ? <div className="fulfillment-picker"><label>提货人（实际来拿货的人，可不填）<input list={`picker-${fulfillment.id}`} value={pickerName} maxLength={20} placeholder="选择或输入名字" onChange={event => setPickerName(event.target.value)} /></label><datalist id={`picker-${fulfillment.id}`}>{pickerSuggestions.map(name => <option key={name} value={name} />)}</datalist>{pickerSuggestions.length ? <div className="fulfillment-picker-quick" aria-label="常用拿货人">{pickerSuggestions.slice(0, 6).map(name => <button key={name} type="button" className={name === pickerName ? "is-active" : ""} onClick={() => setPickerName(name)}>{name}</button>)}</div> : null}</div> : null}
@@ -310,12 +332,13 @@ function FulfillmentOperations({ fulfillment, formal }) {
       {can("fulfillment.paper.handoff") && !fulfillment.legacyStateReviewRequired && paper?.status === "已打印待交库房" && <fieldset disabled={locked}><legend>交库房</legend><button type="button" onClick={() => ask("纸单交库房", handoffOfficePaperOutbound, { paperOutboundDocument: paper, note }, `确认第 ${paper.documentVersion} 版出库纸单已交到库房。`)}>确认纸单已交库房</button></fieldset>}
       {can("fulfillment.warehouse.execute") && (fulfillment.warehouseTaskVisible || paper?.status === "已交库房") && !fulfillment.physicalOutboundAt && <fieldset disabled={locked}>
         <legend>库房实际执行</legend>
+        {packingBlocker ? <p role="status">{packingBlocker}</p> : null}
         <label>执行人<select value={employeeId} onChange={event => setEmployeeId(event.target.value)}><option value="">选择实际执行人</option>{employees.map(row => <option key={row.employeeId} value={row.employeeId}>{row.name}</option>)}</select></label>
         {!employees.length && <p>{candidates.loading ? "正在读取在岗员工…" : "暂无可选在岗员工，请先核对员工档案。"}</p>}
         <div className="fulfillment-operation-grid"><label>执行结果<select value={paper?.status === "已交库房" ? warehouseResult : "已备货"} onChange={event => setExecution(event.target.value)}>{(paper?.status === "已交库房" ? ["已备货", "实物已出库", "数量不符", "无法出库"] : ["已备货"]).map(value => <option key={value}>{value}</option>)}</select></label><label>反馈方式<select value={channel} onChange={event => setChannel(event.target.value)}>{["当面", "电话", "微信", "纸面", "其他"].map(value => <option key={value}>{value}</option>)}</select></label></div>
         {warehouseResult !== "已备货" && <label>实际数量<input type="number" min="0" step="1" value={actualQty} onChange={event => setActualQty(event.target.value)} /></label>}
         <label>说明<textarea rows="2" value={note} onChange={event => setNote(event.target.value)} placeholder="差异、无法出库或需要交接的事项" /></label>
-        <button type="button" className="primary" disabled={!employeeId || (warehouseResult !== "已备货" && (actualQty === "" || !Number.isSafeInteger(Number(actualQty)) || Number(actualQty) < 0)) || (["数量不符", "无法出库"].includes(warehouseResult) && !note.trim())} onClick={() => ask("登记库房执行", recordOfficeWarehouseOutboundExecution, { paperOutboundDocument: paper, result: warehouseResult, actualQty: warehouseResult === "已备货" ? undefined : Number(actualQty), physicalExecutorEmployeeId: employeeId, feedbackChannel: channel, executedAt: new Date().toISOString(), note }, `${employees.find(row => row.employeeId === employeeId)?.name}：${warehouseResult}${warehouseResult === "已备货" ? "" : ` ${actualQty} 个`}。实物出库将由系统按记录更新库存。`)}>核对执行结果</button>
+        <button type="button" className="primary" disabled={!employeeId || (warehouseResult === "实物已出库" && Boolean(packingBlocker)) || (warehouseResult !== "已备货" && (actualQty === "" || !Number.isSafeInteger(Number(actualQty)) || Number(actualQty) < 0)) || (["数量不符", "无法出库"].includes(warehouseResult) && !note.trim())} onClick={() => ask("登记库房执行", recordOfficeWarehouseOutboundExecution, { paperOutboundDocument: paper, result: warehouseResult, actualQty: warehouseResult === "已备货" ? undefined : Number(actualQty), physicalExecutorEmployeeId: employeeId, feedbackChannel: channel, executedAt: new Date().toISOString(), note }, `${employees.find(row => row.employeeId === employeeId)?.name}：${warehouseResult}${warehouseResult === "已备货" ? "" : ` ${actualQty} 个`}。实物出库将由系统按记录更新库存。`)}>核对执行结果</button>
       </fieldset>}
       {method === "送货" && can("fulfillment.dispatch.update") && <fieldset disabled={locked}>
         <legend>安排送货</legend><details className="fulfillment-note"><summary>送货说明</summary><p>司机在手机逐包扫码装车，并上传送货照片、签字照片或未签原因。</p></details>

@@ -28,9 +28,10 @@ export function getDraftSaveTodoInput(draftRows) {
   };
 }
 
-export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, fulfillments, customers = [], resolveAmount }) {
+export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, fulfillments, customers = [], resolveAmount, inventoryChecks }) {
   const checkedRows = draftRows.map((row) => {
     const checked = enrichDraftRow(row, inventoryRecords);
+    if (inventoryChecks?.has(row.id)) Object.assign(checked, inventoryChecks.get(row.id));
     if (resolveAmount) {
       const amount = resolveAmount(row);
       if (!Number.isFinite(amount) || amount < 0) throw new TypeError("Confirmed amount is invalid");
@@ -38,16 +39,18 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
     }
     return checked;
   });
-  const demandByStock = new Map();
-  for (const row of checkedRows.filter(item => isStockOrderType(item.orderType) && item.inventory === "可用")) {
-    const stock = findStockForDraft(row, inventoryRecords);
-    if (!stock) continue;
-    const group = demandByStock.get(stock) ?? { rows: [], qty: 0 };
-    group.rows.push(row); group.qty += Number(row.qty); demandByStock.set(stock, group);
-  }
-  for (const [stock, { rows, qty }] of demandByStock) {
-    const available = stock.inStock - stock.reserved - stock.locked - stock.pending;
-    if (!Number.isSafeInteger(qty) || qty > available) for (const row of rows) row.inventory = `缺货：同规格合计 ${qty} 个，可用 ${Math.max(0, available)} 个，转生产排产`;
+  if (!inventoryChecks) {
+    const demandByStock = new Map();
+    for (const row of checkedRows.filter(item => isStockOrderType(item.orderType) && item.inventory === "可用")) {
+      const stock = findStockForDraft(row, inventoryRecords);
+      if (!stock) continue;
+      const group = demandByStock.get(stock) ?? { rows: [], qty: 0 };
+      group.rows.push(row); group.qty += Number(row.qty); demandByStock.set(stock, group);
+    }
+    for (const [stock, { rows, qty }] of demandByStock) {
+      const available = stock.inStock - stock.reserved - stock.locked - stock.pending;
+      if (!Number.isSafeInteger(qty) || qty > available) for (const row of rows) row.inventory = `缺货：同规格合计 ${qty} 个，可用 ${Math.max(0, available)} 个，转生产排产`;
+    }
   }
   const blockingRows = getDraftBlockingRows(checkedRows);
   if (blockingRows.length) {

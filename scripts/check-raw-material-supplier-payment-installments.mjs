@@ -32,7 +32,7 @@ const pay = (review, body, now) =>
   }).review;
 
 // 1. Two installments, the second rounds off 50: 10850 = 6000 + 4800 + 抹零 50.
-const first = pay(baseReview, { paidAmount: 6000, paymentMethod: "银行转账" }, "2026-10-29T08:00:00.000Z");
+const first = pay(baseReview, { paidAmount: 6000, paymentMethod: "银行转账", paymentReferenceNo: "BANK-1" }, "2026-10-29T08:00:00.000Z");
 assert.equal(first.paymentStatus, "部分付款");
 assert.equal(first.status, "部分付款/待付清");
 assert.equal(first.payableStatus, "部分付款");
@@ -49,8 +49,8 @@ assert.equal(supplierSettlementState(first).completedCount, 3, "a partial paymen
 assert.throws(() => pay(first, { paidAmount: 4000, roundingAmount: 50 }, "2026-10-29T09:00:00.000Z"), /only allowed on the payment that clears/);
 assert.throws(() => pay(first, { paidAmount: 4900 }, "2026-10-29T09:00:00.000Z"), /exceeds the remaining payable/);
 assert.throws(() => pay(first, { paidAmount: 4800, roundingAmount: 60 }, "2026-10-29T09:00:00.000Z"), /exceeds the remaining payable/);
-assert.throws(() => pay(first, { paidAmount: 0 }, "2026-10-29T09:00:00.000Z"), /greater than zero/);
-assert.throws(() => pay(first, { paidAmount: -1 }, "2026-10-29T09:00:00.000Z"), /greater than zero/);
+assert.throws(() => pay(first, { paidAmount: 0 }, "2026-10-29T09:00:00.000Z"), (error) => error.code === "RAW_MATERIAL_SUPPLIER_PAYMENT_AMOUNT_INVALID");
+assert.throws(() => pay(first, { paidAmount: -1 }, "2026-10-29T09:00:00.000Z"), (error) => error.code === "RAW_MATERIAL_SUPPLIER_PAYMENT_AMOUNT_INVALID");
 
 const second = pay(first, { paidAmount: 4800, roundingAmount: 50, paymentReferenceNo: "BANK-2" }, "2026-10-29T10:00:00.000Z");
 assert.equal(second.paymentStatus, "已确认付款");
@@ -67,19 +67,19 @@ assert.equal(supplierSettlementState(second).completedCount, 4);
 assert.throws(() => pay(second, { paidAmount: 1 }, "2026-10-29T11:00:00.000Z"), /already confirmed/);
 
 // 2. One payment that rounds off: 10850 paid as 10800 + 抹零 50.
-const single = pay(baseReview, { paidAmount: 10800, roundingAmount: 50 }, "2026-10-29T08:00:00.000Z");
+const single = pay(baseReview, { paidAmount: 10800, roundingAmount: 50, paymentReferenceNo: "BANK-SINGLE" }, "2026-10-29T08:00:00.000Z");
 assert.equal(single.paymentStatus, "已确认付款");
 assert.equal(single.supplierRoundingTotal, 50);
 
 // 3. Pure 抹零 to close a small tail left by an installment.
-const tail = pay(baseReview, { paidAmount: 10849.5 }, "2026-10-29T08:00:00.000Z");
+const tail = pay(baseReview, { paidAmount: 10849.5, paymentReferenceNo: "BANK-TAIL" }, "2026-10-29T08:00:00.000Z");
 assert.equal(tail.paymentStatus, "部分付款");
 const closed = pay(tail, { paidAmount: 0, roundingAmount: 0.5 }, "2026-10-29T08:30:00.000Z");
 assert.equal(closed.paymentStatus, "已确认付款");
 assert.equal(closed.supplierPaidTotal, 10849.5);
 
-// 4. No amount given still means "pay the full remaining balance".
-const defaulted = pay(first, {}, "2026-10-29T12:00:00.000Z");
+// 4. The legacy omitted amount defaults to the remaining balance, with evidence.
+const defaulted = pay(first, { paymentReferenceNo: "BANK-DEFAULT" }, "2026-10-29T12:00:00.000Z");
 assert.equal(defaulted.supplierPaidTotal, 10850);
 assert.equal(defaulted.paymentStatus, "已确认付款");
 
@@ -94,6 +94,13 @@ const legacy = {
 assert.throws(() => pay(legacy, { paidAmount: 1 }, "2026-10-29T12:00:00.000Z"), /already confirmed/);
 assert.equal(supplierSettlementState(legacy).completedCount, 4);
 assert.equal(supplierSettlementState({ supplierPaymentConfirmationId: "RMSPAY-OLD" }).completedCount, 4, "legacy rows without paymentStatus stay settled");
+
+const tenYuan = { ...baseReview, supplierPayableDraft: { ...baseReview.supplierPayableDraft, payableAmount: 10 } };
+const oneCentLeft = pay(tenYuan, { paidAmount: 9.99, paymentReferenceNo: "BANK-NEAR-EXACT" }, "2026-10-29T08:00:00.000Z");
+assert.equal(oneCentLeft.paymentStatus, "部分付款");
+assert.equal(oneCentLeft.supplierPayableRemaining, 0.01);
+assert.throws(() => pay(tenYuan, { paidAmount: 10.01 }, "2026-10-29T08:00:00.000Z"), /exceeds the remaining payable/);
+assert.equal(pay(oneCentLeft, { paidAmount: 0, roundingAmount: 0.01 }, "2026-10-29T09:00:00.000Z").paymentStatus, "已确认付款");
 
 console.log("raw-material supplier payment installment check passed: installments add up, 抹零 only clears the balance, overpayment blocked, legacy single payments preserved.");
 

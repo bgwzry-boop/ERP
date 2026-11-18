@@ -1,6 +1,7 @@
 import { isNotePrintStockDeductionEnabled } from "./companyPrintProfileService.mjs";
 import { isActivePackage, packageAnchorId } from "../../shared/packageContents.js";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
+import { outboundPackageEvidence } from "./outboundPackageEvidence.mjs";
 
 export function createPrintJobBusinessProjectionService({
   buildFulfillmentActionRecord,
@@ -167,6 +168,10 @@ function planNoteStockDeduction({ workspace, fulfillment, printJob, beforePrintR
   if (normalizeText(fulfillment.stockDeductedAt)) return null;
   const movements = buildNotePrintStockDeduction(workspace, fulfillment, { operatorId });
   if (["fulfillment_closed", "already_left"].includes(movements.inventoryDeductionMode)) return null;
+  const packing = outboundPackageEvidence(workspace, fulfillment, fulfillment.actualQty ?? fulfillment.expectedQty ?? fulfillment.qty);
+  if (!packing.ready) {
+    return { deferred: true, movements: {}, note: `打单没扣库存。${packing.reason}` };
+  }
   const confirmation = printJob?.metadata?.warehouseStockConfirmation ?? beforePrintRecord?.warehouseStockConfirmation ?? null;
   const confirmedBy = normalizeText(confirmation?.confirmedBy);
   if (movements.error) {
@@ -232,7 +237,8 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
   const nextFulfillment = physicalPrintConfirmed && fulfillment
     ? {
         ...fulfillment,
-        ...(stockPlan ? { stockDeductedAt: now, stockDeductionNote: stockPlan.note } : {}),
+        ...(stockPlan ? { stockDeductionNote: stockPlan.note } : {}),
+        ...(stockPlan && !stockPlan.deferred ? { stockDeductedAt: now } : {}),
         ...(isPackageLabel ? { labelsPrinted: true } : { printed: true }),
         status:
           isPackageLabel && normalizeFulfillmentMethod(fulfillment.method) === "express_ltl" && fulfillment.status !== "已交付"

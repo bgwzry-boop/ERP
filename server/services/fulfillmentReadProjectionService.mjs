@@ -1,4 +1,5 @@
 import { isActivePackage, packageAnchorId, packageLabelRows } from "../../shared/packageContents.js";
+import { outboundPackageEvidence } from "./outboundPackageEvidence.mjs";
 import { fulfillmentNoteReadiness } from "../../shared/fulfillmentNoteReadiness.js";
 import { queuedNoteError } from "./queuedFulfillmentNoteReadiness.mjs";
 import { hasTrustedCurrentFulfillmentLabel } from "./printJobBusinessProjectionService.mjs";
@@ -115,6 +116,7 @@ function projectFulfillment(workspace, value) {
     deliveryExceptions:list(workspace.fulfillmentExceptions).filter(exception=>cleanText(exception.fulfillmentId)===fulfillmentId && exception.exceptionType === "delivery_exception").map(exception=>({exceptionId:cleanText(exception.exceptionId ?? exception.id),status:cleanText(exception.status),reasonCode:cleanText(exception.reasonCode),reason:cleanText(exception.reason),expectedQty:exception.expectedQty ?? null,actualQty:exception.actualQty ?? null,occurredAt:cleanText(exception.occurredAt),reportedBy:cleanText(exception.reportedBy)})),
     shipmentProgress: buildFulfillmentShipmentProgress(workspace, item, orderLine),
     noteReadiness,
+    outboundPackageReadiness: outboundPackageEvidence(workspace, { ...item, method }, paperOutboundDocument?.instructionQty ?? actualQty ?? expectedQty),
     customerId,
     orderLineId,
     orderType: cleanText(orderLine.orderType ?? orderLine.order_type),

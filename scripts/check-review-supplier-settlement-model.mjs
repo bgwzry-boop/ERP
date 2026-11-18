@@ -25,8 +25,9 @@ assert.equal(supplierPaymentTotals(settled).remaining, 0);
 assert.equal(nextSupplierSettlementAction({ ...payable, supplierPaymentConfirmationId: "OLD", supplierPaymentRecord: { paidAmount: 10850 } }), null);
 
 // Form validation mirrors the server rules.
-assert.equal(validateSupplierPaymentForm(partial, { paidAmount: "4800", roundingAmount: "50" }).clears, true);
-assert.equal(validateSupplierPaymentForm(partial, { paidAmount: "3000" }).remainingAfter, 1850);
+assert.equal(validateSupplierPaymentForm(partial, { paidAmount: "4800", roundingAmount: "50", paymentVoucherNo: "CASH-1" }).clears, true);
+assert.equal(validateSupplierPaymentForm(partial, { paidAmount: "3000", paymentReferenceNo: "BANK-1" }).remainingAfter, 1850);
+assert.match(validateSupplierPaymentForm(partial, { paidAmount: "3000" }).message, /请填写付款流水号或财务凭证号/);
 assert.match(validateSupplierPaymentForm(partial, { paidAmount: "3000", roundingAmount: "50" }).message, /只能在付清/);
 assert.match(validateSupplierPaymentForm(partial, { paidAmount: "5000" }).message, /超过了剩余未付/);
 assert.equal(validateSupplierPaymentForm(partial, { paidAmount: "" }).ok, false);

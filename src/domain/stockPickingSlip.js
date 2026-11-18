@@ -2,14 +2,57 @@
 // 打一张 80mm 小票交库房。小票不带价钱，写客户、交付方式、每样货的规格/颜色/提手/款式/数量。
 // 库房照小票取货备货，备好后当面告诉办公室；少货也由库房当面说，办公室跟客户确认后改数量，再打正式三联单。
 // 定制印刷的单子不出小票。等以后库存完全数据化就不用打小票了。
-import { isStockOrderType } from "../../shared/orderRouting.js";
+import { isReplenishmentRow, isStockOrderType, stockSupplyRoute } from "../../shared/orderRouting.js";
+import { isShippedFulfillment } from "../../shared/deliveryBatches.js";
+import { productionLineStages } from "../../shared/fulfillmentNoteReadiness.js";
 
 export const PICKING_SLIP_PAGE = Object.freeze({ widthMm: 80, heightMm: 100, itemsPerPage: 6 });
 
 const clean = value => String(value ?? "").trim();
 const isPlaceholder = value => !value || ["待确认", "非印刷", "-"].includes(value);
-const TERMINAL_STATUSES = new Set(["已作废", "已取消", "已交付", "已完成", "closed", "voided", "canceled", "cancelled"]);
+const NON_PICKING_STATUSES = new Set([
+  ...productionLineStages, "已作废", "作废", "已取消", "已关闭", "已完成", "已送达", "已提货", "快递已揽收",
+  "待补货", "无法出库", "数量差异待处理", "送货异常", "closed", "voided", "canceled", "cancelled",
+]);
+const NON_PICKING_RESERVATIONS = new Set(["已出库", "已释放", "部分释放", "released", "partially_released", "converted_to_outbound"]);
 const isCancelledLine = line => Boolean(line?.excludedFromConfirmation || clean(line?.cancellationStatus) || clean(line?.cancelledAt));
+
+function canPickStatus(row, status = row.status) {
+  return !NON_PICKING_STATUSES.has(clean(status)) && !isShippedFulfillment({ ...row, status });
+}
+
+function isPendingStockPickingLine(line) {
+  const orderType = clean(line?.orderType ?? line?.order_type);
+  if (!isStockOrderType(orderType) || orderType === "replenishment" || isReplenishmentRow(line) || isCancelledLine(line)) return false;
+  const status = line.lineStatus ?? line.status;
+  const qty = Number(line.qty ?? line.originalQty);
+  return Number.isSafeInteger(qty) && qty > 0 && canPickStatus(line, status)
+    && !NON_PICKING_RESERVATIONS.has(clean(line.reservationStatus ?? line.inventory))
+    && stockSupplyRoute({ ...line, orderType }) === "inventory";
+}
+
+function selectStockPickingQuantities(orderLines, fulfillments) {
+  const batchesByLine = new Map();
+  for (const batch of fulfillments) {
+    const lineId = clean(batch.orderLineId ?? batch.lineId ?? batch.order_line_id);
+    const batches = batchesByLine.get(lineId) ?? [];
+    batches.push(batch);
+    batchesByLine.set(lineId, batches);
+  }
+  return orderLines.filter(isPendingStockPickingLine).flatMap(line => {
+    const batches = batchesByLine.get(clean(line.id ?? line.orderLineId));
+    const orderedQty = Number(line.qty ?? line.originalQty);
+    if (!batches?.length) {
+      return canPickStatus({}, line.fulfillmentStatus) ? [{ ...line, qty: orderedQty }] : [];
+    }
+    const openBatches = batches.filter(batch => canPickStatus(batch));
+    const quantities = openBatches.map(batch => Number(batch.qty ?? batch.expectedQty));
+    const zones = [...new Set(openBatches.map(batch => clean(batch.zone)).filter(Boolean))];
+    if (!quantities.length || quantities.some(qty => !Number.isSafeInteger(qty) || qty <= 0)) return [];
+    const qty = Math.min(orderedQty, quantities.reduce((sum, count) => sum + count, 0));
+    return [{ ...line, qty, zone: zones.join(" / ") || line.zone }];
+  });
+}
 
 function methodLabel(value) {
   const text = clean(value);
@@ -21,13 +64,10 @@ function methodLabel(value) {
 
 /**
  * The slip for one customer's stock lines. `orderLines` are order-pool / workspace lines;
- * only stock lines (空白袋、印花袋) that are not closed are listed. Returns null when nothing
- * is left to pick.
+ * stock order type alone does not establish that goods are available to pick.
  */
-export function buildStockPickingSlip({ orderLines = [], customerName = "", orderNo = "", pickerName = "", printedAt = new Date() } = {}) {
-  const items = orderLines
-    .filter(line => line && isStockOrderType(line.orderType ?? line.order_type))
-    .filter(line => !TERMINAL_STATUSES.has(clean(line.lineStatus ?? line.status)) && !isCancelledLine(line))
+export function buildStockPickingSlip({ orderLines = [], fulfillments = [], customerName = "", orderNo = "", pickerName = "", printedAt = new Date() } = {}) {
+  const items = selectStockPickingQuantities(orderLines, fulfillments)
     .map(line => {
       const handle = clean(line.handle ?? line.handleType);
       const handleColor = clean(line.handleColor);
@@ -38,13 +78,12 @@ export function buildStockPickingSlip({ orderLines = [], customerName = "", orde
         color: isPlaceholder(clean(line.color ?? line.bagColor)) ? "" : clean(line.color ?? line.bagColor),
         handle: [isPlaceholder(handle) ? "" : handle, handleColor ? `${handleColor}提` : ""].filter(Boolean).join(" "),
         style: isPlaceholder(clean(line.style)) ? "" : clean(line.style),
-        qty: Number(line.qty ?? line.originalQty ?? 0) || 0,
+        qty: line.qty,
         zone: clean(line.zone ?? line.inventoryZone),
         method: methodLabel(line.fulfillment ?? line.fulfillmentMethod ?? line.method),
         note: clean(line.remark ?? line.note),
       };
-    })
-    .filter(item => item.qty > 0);
+    });
   if (!items.length) return null;
   const methods = [...new Set(items.map(item => item.method))];
   const orderNos = [...new Set(orderLines.map(line => clean(line.orderNo ?? line.orderId)).filter(Boolean))];
@@ -74,8 +113,7 @@ export function selectConfirmedStockLines({ poolLines = [], confirmedLineIds = [
   const byId = new Map(poolLines.map(line => [clean(line?.id ?? line?.orderLineId), line]));
   if (ids.some(id => !byId.has(id))) return { pending: true, lines: [] };
   const lines = ids.map(id => byId.get(id))
-    .filter(line => isStockOrderType(line.orderType ?? line.order_type))
-    .filter(line => !TERMINAL_STATUSES.has(clean(line.lineStatus ?? line.status)) && !isCancelledLine(line));
+    .filter(line => isPendingStockPickingLine(line) && canPickStatus({}, line.fulfillmentStatus));
   return { pending: false, lines };
 }
 

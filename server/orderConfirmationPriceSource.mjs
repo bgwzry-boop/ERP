@@ -2,13 +2,44 @@ import { isDeepStrictEqual } from "node:util";
 import { assertPublishedOrderPriceSnapshots } from "./orderDraftPublishedPricing.mjs";
 import { normalizeOrderType, isReplenishmentRow, isStockOrderType } from "../shared/orderRouting.js";
 import { isValidIncomingRollsLine } from "../shared/externalPrintQuantity.js";
+import { allocatedPriceSnapshot } from "./orderStockAllocation.mjs";
 
 const clean = value => String(value ?? "").trim();
 const finite = value => typeof value === "number" && Number.isFinite(value);
 
 // These snapshots are made by a server command, never accepted from a request
 // body. An unknown bag price is not a free order or a print-only quotation.
-export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnapshots = [], miniappPriceSource, publishedPriceSource, officePriceQuote } = {}) {
+export function assertOrderConfirmationPriceSources({ orderLines = [], priceSnapshots = [], miniappPriceSource, publishedPriceSource, officePriceQuote, priceAllocations = [] } = {}) {
+  const allocatedIds = new Set();
+  for (const { line, snapshot, allocations } of priceAllocations) {
+    assertOrderConfirmationPriceSources({ orderLines: [line], priceSnapshots: [snapshot], miniappPriceSource, publishedPriceSource, officePriceQuote });
+    const sourceId = line.orderLineId ?? line.id;
+    const requested = Number(line.qty ?? line.originalQty);
+    const first = allocations[0];
+    if (!first || !isStockOrderType(line.orderType) || first.orderLineId !== sourceId || first.offset !== 0
+      || first.qty !== first.stockQty || first.qty <= 0 || first.qty >= requested
+      || ![1, 2].includes(allocations.length)) throw missingPrice(sourceId);
+    for (const [index, allocation] of allocations.entries()) {
+      const { orderLineId, qty, offset, requestedQty, stockQty, cancelledQty, sourceOrderLineId } = allocation;
+      const actual = orderLines.find(row => (row.orderLineId ?? row.id) === orderLineId);
+      const rows = priceSnapshots.filter(row => row.orderLineId === orderLineId);
+      const expected = allocatedPriceSnapshot(snapshot, allocation);
+      if (allocatedIds.has(orderLineId) || !actual || rows.length !== 1 || sourceOrderLineId !== sourceId
+        || requestedQty !== requested || stockQty !== first.qty || allocation.sourceDraftLineId !== first.sourceDraftLineId
+        || (actual.orderId ?? actual.orderNo) !== (line.orderId ?? line.orderNo) || actual.customerId !== line.customerId
+        || Number(actual.qty ?? actual.originalQty) !== qty || !Number.isSafeInteger(qty)
+        || normalizeOrderType(actual.orderType) !== normalizeOrderType(line.orderType)
+        || (index === 1 && (offset !== first.qty || qty + offset !== requested || actual.splitFromOrderLineId !== sourceId))
+        || (allocations.length === 2 ? cancelledQty !== 0 : cancelledQty !== requested - qty)
+        || (miniappPriceSource && cancelledQty !== 0)
+        || !["bagPrice", "printPrice", "chargeableQty", "otherFee", "adjustmentAmount", "finalAmount", "overrideReason", "sourceEvidence"]
+          .every(key => isDeepStrictEqual(rows[0][key] ?? (key === "adjustmentAmount" ? 0 : ""), expected[key] ?? ""))) throw missingPrice(orderLineId);
+      allocatedIds.add(orderLineId);
+    }
+  }
+  if (priceSnapshots.some(row => row.sourceEvidence?.stockShortageAllocation && !allocatedIds.has(row.orderLineId))) throw missingPrice("");
+  orderLines = orderLines.filter(line => !allocatedIds.has(line.orderLineId ?? line.id));
+  priceSnapshots = priceSnapshots.filter(row => !allocatedIds.has(row.orderLineId));
   assertPublishedOrderPriceSnapshots(publishedPriceSource, orderLines, priceSnapshots);
   for (const line of orderLines) {
     const lineId = clean(line.orderLineId ?? line.id);

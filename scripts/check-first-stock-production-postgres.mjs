@@ -113,6 +113,17 @@ try {
   assert.deepEqual(replay, firstReceipt, "same command returns its original receipt");
   assert.deepEqual(await stocks(), replayBefore);
   assert.deepEqual(await effects(first), { reports: 1, reservations: 1, packing: 1, logs: 1 });
+
+  const tailored = await addTask("TAILORED", { orderType: "custom_print" });
+  await rejectWithoutEffects(tailored, () => complete(tailored, "custom-wrong-stock", { inventoryItemId: firstStock.id }),
+    "customer artwork cannot be reported into the generic blank SKU", "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY");
+  for (const task of [tailored, await addTask("TAILORED-NO-STOCK", { orderType: "定制印刷", size: "42*35*10" })]) {
+    const before = await stocks();
+    const receipt = success(await complete(task, `direct-production-${task.taskId}`), "customer-printed order enters packing");
+    assert.equal(receipt.orderLineStatus, "待打包");
+    assert.deepEqual(await effects(task), { reports: 1, reservations: 0, packing: 1, logs: 1 });
+    assert.deepEqual(await stocks(), before, "customer-printed bags never change common-goods inventory");
+  }
   let changedPayload;
   try { changedPayload = await complete(first, "first-stock-customer-1", { qualifiedQty: 501 }); }
   catch (error) { changedPayload = { code: error.code || error.message }; }

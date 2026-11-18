@@ -567,7 +567,9 @@ assertIncludes(officePageSource, "buildRawMaterialPartialConsumptionOptions", "p
 assertIncludes(officePageSource, "canIssueRawMaterialRoll", "page should guard single-roll issue action by available inventory");
 assertIncludes(officePageSource, "确认消耗", "page should expose machine-side consumption confirmation");
 assertIncludes(officePageSource, "DEFAULT_RAW_MATERIAL_ROLL_INVENTORY_STATUS", "roll inventory should default to available stock");
-assertIncludes(officePageSource, "请选择 1号机 到 9号机", "outbound machine choices are limited to machines 1 through 9");
+assertIncludes(officePageSource, "请选择已发布的生产任务", "desktop stock issue should select a published production task");
+assertIncludes(officePageSource, 'productionTaskId: task?.productionTaskId || ""', "desktop stock issue should send the selected task");
+assertIncludes(officePageSource, 'RAW_MATERIAL_WHOLE_ROLL_PRINT_MACHINE_LABELS, PRINT_WORKSHOP].map', "untasked trial equipment should include screen printing machines and the common workshop");
 assertIncludes(officePageSource, "canConfirmRawMaterialConsumptionRoll", "page should guard consumption confirmation by machine-side state");
 assertIncludes(officePageSource, "formatRawMaterialLeftoverReturnRecord", "page should format leftover return records");
 assertIncludes(officePageSource, "formatRawMaterialSplitRecord", "page should format split records");

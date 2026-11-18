@@ -6,7 +6,7 @@ import { assertOrderDraftSplitPlan, buildOrderDraftSplitPlan } from "../orderDra
 import { buildOrderDraftQueuePlan } from "../orderDraftQueueDomain.mjs";
 import { buildIdempotencyRequestHash } from "../idempotency.mjs";
 import { getPendingDraftFieldReviews, mergePersistedDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
-import { isStockOrderType, normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
+import { normalizeOrderType, requiresProductionOrderType } from "../../shared/orderRouting.js";
 import { INCOMING_ROLLS_QTY_BASIS, incomingRollCountOf, isValidIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 import { customerWithAddresses, resolveDeliveryAddress } from "../../shared/deliveryAddress.js";
 import { detectMessageCustomer } from "../../shared/orderMessageCustomer.js";
@@ -14,6 +14,7 @@ import { assertOrderConfirmationPriceSources } from "../orderConfirmationPriceSo
 import { loadOrderDraftPublishedPricing, applyOrderDraftPublishedPricing } from "../orderDraftPublishedPricing.mjs";
 import { buildOrderPrintingPriceGroups, refreshPrintingConsumptionFacts, assertUnstartedPrintingSupplement } from "../orderPrintingPriceGroups.mjs";
 import { buildOfficeDraftPricingQuote, officeQuoteProjection, assertOfficeQuoteMatches } from "../orderDraftPricingQuote.mjs";
+import { planDraftStockAllocations, stockAllocationCheck, materializeStockAllocation } from "../orderStockAllocation.mjs";
 
 async function readRecognitionCustomerWorkspace(workspace) {
   if (!workspace.coreWorkspaceReadRepository?.loadState) return workspace;
@@ -29,7 +30,6 @@ export function createOrderDraftCommandService(dependencies = {}) {
     confirmDraftOrder,
     findCustomerName,
     findInventoryItem,
-    findMatchingInventory,
     mapFulfillmentMethod,
     mapPrintSide,
     nextId,
@@ -51,7 +51,6 @@ export function createOrderDraftCommandService(dependencies = {}) {
     confirmDraftOrder,
     findCustomerName,
     findInventoryItem,
-    findMatchingInventory,
     mapFulfillmentMethod,
     mapPrintSide,
     nextId,
@@ -448,6 +447,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
     try {
       const quote = await buildOfficeDraftPricingQuote({ workspace, draft: previous, rows: cancellation.activeLines, body, operatorId, actionPermissions, now: nowIso(now) });
       quote.excludedDraftLineIds = cancellation.cancelledDraftLineIds;
+      const holds = resolveTemporaryHoldConversions(workspace, cancellation.activeLines);
+      if (holds.error) return holds.error;
+      const stockPlans = planDraftStockAllocations(cancellation.activeLines, workspace.inventories, holds.byHoldId);
+      quote.stockChecks = [...stockPlans].map(([draftLineId, { inventory, stockQty, shortageQty }]) =>
+        ({ draftLineId, inventory, stockQty, shortageQty }));
+
       const draft = buildDraftProjection(previous, { id: draftId, draftId, lines: cancellation.lines,
         sourceText: body.sourceText ?? previous.sourceText, recognitionContext: { ...previous.recognitionContext, officePriceQuote: quote },
         revision: expectedRevision, clientRevision: expectedRevision });
@@ -713,7 +718,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const resolvedCancellations = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (resolvedCancellations.error) return resolvedCancellations.error;
     // Owner decision 2026-10-29: on a stock shortage the office records the customer's choice.
-    const shortage = applyCustomerShortageDecision(workspace, resolvedCancellations, body.shortageDecision);
+    const shortage = applyCustomerShortageDecision(workspace, resolvedCancellations, body.shortageDecision, miniappPricing);
     if (shortage.error) return shortage.error;
     const cancellationResolution = shortage.resolution;
     if (!cancellationResolution.activeLines.length) {
@@ -767,7 +772,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const confirmation = confirmDraftOrder({
       draftRows: cancellationResolution.activeLines,
       resolveAmount: row => officePriceQuote ? officePriceQuote.linePrices.find(price => price.draftLineId === row.id)?.finalAmount : (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
-      inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
+      inventoryRecords: workspace.inventories,
+      inventoryChecks: inventoryChecks(shortage.plans),
       orderLines: workspace.orderLines,
       fulfillments: workspace.fulfillments,
       customers: workspace.customers,
@@ -843,41 +849,25 @@ export function createOrderDraftCommandService(dependencies = {}) {
       },
       ...(shortage.decision ? { reason: shortageDecisionReason(shortage.decision) } : {}),
     });
-    const priceSnapshots = confirmation.newLines.map((line) => ({
-      ...toPriceSnapshot(line),
-      ...line.confirmedMiniappPrice,
-      ...line.confirmedPublishedPrice,
-      ...line.confirmedOfficePrice,
-      priceSnapshotId: `PS-${line.id}`,
-      snapshotType: "order_confirm",
-      versionNo: 1,
-      chargeableQty: line.confirmedOfficePrice?.chargeableQty ?? Number(line.qty ?? 0),
-      finalAmount: Number(line.amount ?? 0),
-      createdBy: operatorId,
-    }));
+    const fulfillmentPlan = materializeStockAllocation(confirmation, shortage.plans, shortage.decision?.choice, confirmedPriceSnapshots(confirmation.newLines, operatorId));
+    const { orderLines: newLines, priceSnapshots, fulfillmentRecords, priceAllocations } = fulfillmentPlan;
     try {
-      assertOrderConfirmationPriceSources({ orderLines: confirmation.newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source, officePriceQuote });
+      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, priceAllocations, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source, officePriceQuote });
     } catch (error) {
       return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
     }
-    const productionTasks = buildProductionTasks(confirmation.newLines, operatorId);
-    const inventoryReservations = buildInventoryReservations(
-      workspace,
-      confirmation.checkedRows,
-      confirmation.newLines,
-      operatorId,
-      holdResolution.byHoldId,
-    );
+    const productionTasks = buildProductionTasks(newLines, operatorId);
+    const inventoryReservations = buildInventoryReservations(workspace, cancellationResolution.activeLines, [fulfillmentPlan], operatorId, holdResolution.byHoldId);
     const inventoryLedgerEntries = buildInventoryLedgerEntries(
       workspace,
       inventoryReservations,
       operatorId,
     );
-    const todos = buildConfirmationTodos(workspace, pricingReviewTodos(confirmation.shortageTodoInputs, officePriceQuote), operatorId, confirmation.newLines);
+    const todos = buildConfirmationTodos(workspace, pricingReviewTodos(confirmation.shortageTodoInputs, officePriceQuote), operatorId, newLines);
     const commandResponse = {
       orderId: confirmation.orderNo,
       orderSummaryStatus: "处理中",
-      orderLines: confirmation.newLines.map(toOrderLineSummary),
+      orderLines: newLines.map(toOrderLineSummary),
       productionTasks: productionTasks,
       priceSnapshots: priceSnapshots.map(snapshot => ({ ...snapshot, amount: snapshot.finalAmount })),
       inventoryChecks: confirmation.checkedRows.map((line, index) =>
@@ -890,7 +880,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       cancelledDraftLineIds: cancellationResolution.cancelledDraftLineIds,
       appliedShortageCancellationIntentIds: cancellationResolution.appliedIntents.map((intent) => intent.id),
       closedWithoutOrder: false,
-      fulfillmentTasks: confirmation.newFulfillments.map(toFulfillmentTaskSummary),
+      fulfillmentTasks: fulfillmentRecords.map(toFulfillmentTaskSummary),
       todos: todos.map(toTodoSummary),
       operationLogIds: [operationLog.id],
     };
@@ -905,14 +895,15 @@ export function createOrderDraftCommandService(dependencies = {}) {
       officePriceQuote,
       expectedDraftRevision: expectedRevision,
       order: buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId),
-      orderLines: confirmation.newLines.map((line) => ({ ...line, createdBy: operatorId })),
+      orderLines: newLines.map((line) => ({ ...line, createdBy: operatorId })),
       productionTasks,
       priceSnapshots,
-      fulfillmentRecords: confirmation.newFulfillments.map((fulfillment) => ({
+      priceAllocations,
+      fulfillmentRecords: fulfillmentRecords.map((fulfillment) => ({
         ...fulfillment,
         expectedQty: fulfillment.qty,
         createdBy: operatorId,
-        customerSnapshot: buildFulfillmentCustomerSnapshot(workspace, fulfillment, confirmation.newLines),
+        customerSnapshot: buildFulfillmentCustomerSnapshot(workspace, fulfillment, newLines),
       })),
       inventoryReservations,
       inventoryLedgerEntries,
@@ -950,10 +941,12 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const holdResolution = resolveTemporaryHoldConversions(workspace, lines);
     if (holdResolution.error) return holdResolution.error;
     const result = confirmDraftOrder({ draftRows: lines,
-      inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
+      inventoryRecords: workspace.inventories,
+      inventoryChecks: inventoryChecks(planDraftStockAllocations(lines, workspace.inventories, holdResolution.byHoldId)),
       orderLines: workspace.orderLines, fulfillments: workspace.fulfillments, customers: workspace.customers });
     return success({ draftId, revision: expectedRevision, checkedAt: nowIso(now),
-      checks: result.checkedRows.map(line => ({ draftLineId: line.id, inventory: line.inventory })) });
+      checks: result.checkedRows.map(line => ({ draftLineId: line.id, inventory: line.inventory,
+        ...(line.stockQty !== undefined ? { stockQty: line.stockQty, shortageQty: line.shortageQty } : {}) })) });
   }
 
   async function previewOrderDraftSplit({ workspace, draftId, body = {} }) {
@@ -1028,7 +1021,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     const resolvedCancellations = resolveShortageCancellationApplications(workspace, draftId, lines);
     if (resolvedCancellations.error) return resolvedCancellations.error;
     // Owner decision 2026-10-29: the customer's shortage choice applies to split confirmation too.
-    const shortage = applyCustomerShortageDecision(workspace, resolvedCancellations, body.shortageDecision);
+    const shortage = applyCustomerShortageDecision(workspace, resolvedCancellations, body.shortageDecision, miniappPricing);
     if (shortage.error) return shortage.error;
     const cancellationResolution = shortage.resolution;
     if (!cancellationResolution.activeLines.length) {
@@ -1101,7 +1094,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
       const confirmation = confirmDraftOrder({
         draftRows: groupLines,
         resolveAmount: row => officePriceQuote ? officePriceQuote.linePrices.find(price => price.draftLineId === row.id)?.finalAmount : (miniappPricing ?? publishedPricing).prices.get(row.id)?.amount,
-        inventoryRecords: buildHoldAwareInventory(workspace.inventories, holdResolution.byHoldId),
+        inventoryRecords: workspace.inventories,
+        inventoryChecks: inventoryChecks(shortage.plans),
         orderLines: rollingOrderNumberRows,
         fulfillments: rollingFulfillments,
         customers: workspace.customers,
@@ -1112,14 +1106,15 @@ export function createOrderDraftCommandService(dependencies = {}) {
       if (confirmation.blocked) {
         return businessError(409, "ORDER_DRAFT_SPLIT_GROUP_BLOCKED", `${group.groupId}: ${confirmation.toast}`);
       }
-      confirmations.push({ group, confirmation });
+      const fulfillmentPlan = materializeStockAllocation(confirmation, shortage.plans, shortage.decision?.choice, confirmedPriceSnapshots(confirmation.newLines, operatorId));
+      confirmations.push({ group, confirmation, fulfillmentPlan });
       rollingOrderNumberRows.push({ id: confirmation.orderNo, orderNo: confirmation.orderNo });
       rollingFulfillments.push(...confirmation.newFulfillments);
     }
 
     const checkedRows = confirmations.flatMap((item) => item.confirmation.checkedRows);
-    const newLines = confirmations.flatMap((item) => item.confirmation.newLines);
-    const newFulfillments = confirmations.flatMap((item) => item.confirmation.newFulfillments);
+    const newLines = confirmations.flatMap((item) => item.fulfillmentPlan.orderLines);
+    const newFulfillments = confirmations.flatMap((item) => item.fulfillmentPlan.fulfillmentRecords);
     const orderNos = confirmations.map((item) => item.confirmation.orderNo);
     const confirmedDraft = buildDraftProjection(previous, {
       id: draftId,
@@ -1155,30 +1150,16 @@ export function createOrderDraftCommandService(dependencies = {}) {
     });
     const orders = confirmations.map(({ confirmation }) =>
       buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId));
-    const priceSnapshots = newLines.map((line) => ({
-      ...toPriceSnapshot(line),
-      ...line.confirmedMiniappPrice,
-      ...line.confirmedPublishedPrice,
-      ...line.confirmedOfficePrice,
-      priceSnapshotId: `PS-${line.id}`,
-      snapshotType: "order_confirm",
-      versionNo: 1,
-      chargeableQty: line.confirmedOfficePrice?.chargeableQty ?? Number(line.qty ?? 0),
-      finalAmount: Number(line.amount ?? 0),
-      createdBy: operatorId,
-    }));
+    const priceSnapshots = confirmations.flatMap(item => item.fulfillmentPlan.priceSnapshots);
+    const priceAllocations = confirmations.flatMap(item => item.fulfillmentPlan.priceAllocations);
     try {
-      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source, officePriceQuote });
+      assertOrderConfirmationPriceSources({ orderLines: newLines, priceSnapshots, priceAllocations, miniappPriceSource: miniappPricing?.source, publishedPriceSource: publishedPricing?.source, officePriceQuote });
     } catch (error) {
       return { ...businessError(error.statusCode, error.code, error.message), details: { ...error.details, draftId } };
     }
     const productionTasks = buildProductionTasks(newLines, operatorId);
     const inventoryReservations = buildInventoryReservations(
-      workspace,
-      checkedRows,
-      newLines,
-      operatorId,
-      holdResolution.byHoldId,
+      workspace, cancellationResolution.activeLines, confirmations.map(item => item.fulfillmentPlan), operatorId, holdResolution.byHoldId,
     );
     const todos = buildConfirmationTodos(
       workspace,
@@ -1195,7 +1176,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       orderLines: newLines.map(toOrderLineSummary),
       productionTasks,
       priceSnapshots: priceSnapshots.map(snapshot => ({ ...snapshot, amount: snapshot.finalAmount })),
-      inventoryChecks: checkedRows.map((line, index) => toInventoryCheckResult(workspace, line, newLines[index])),
+      inventoryChecks: confirmations.flatMap(({ confirmation }) => confirmation.checkedRows.map((line, index) => toInventoryCheckResult(workspace, line, confirmation.newLines[index]))),
       reservations: inventoryReservations.map(toInventoryReservationTransactionSummary),
       convertedTemporaryHoldIds: inventoryReservations
         .filter((reservation) => reservation.convertFromTemporaryHold)
@@ -1221,6 +1202,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       orderLines: newLines.map((line) => ({ ...line, createdBy: operatorId })),
       productionTasks,
       priceSnapshots,
+      priceAllocations,
       fulfillmentRecords: newFulfillments.map((fulfillment) => ({
         ...fulfillment,
         expectedQty: fulfillment.qty,
@@ -1526,18 +1508,17 @@ export function createOrderDraftCommandService(dependencies = {}) {
     });
   }
 
-  function buildInventoryReservations(workspace, checkedRows, orderLines, operatorId, holdsById = new Map()) {
-    return checkedRows
-      .map((row, index) => {
-        if (!isStockOrderType(row.orderType) || row.inventory !== "可用") return null;
-        const orderLine = orderLines[index];
-        const temporaryHold = holdsById.get(row.sourceHoldId);
-        const inventoryItem = temporaryHold
-          ? findInventoryItem(workspace, temporaryHold.inventoryItemId)
-          : findMatchingInventory(workspace, row);
-        if (!inventoryItem || !orderLine) return null;
+  function buildInventoryReservations(workspace, draftLines, fulfillmentPlans, operatorId, holdsById = new Map()) {
+    // The stock part keeps the identity of its original confirmed line. The
+    // production remainder has no stock allocation until its own report.
+    return fulfillmentPlans.flatMap(({ orderLines, allocationsByOrderLine, sourceDraftLineIds }) => orderLines.flatMap(orderLine => {
+        const allocations = allocationsByOrderLine.get(orderLine.id) ?? [];
+        if (!allocations.length) return [];
+        const row = draftLines.find(item => item.id === sourceDraftLineIds.get(orderLine.id));
+        const temporaryHold = holdsById.get(row?.sourceHoldId);
+        const reservationType = mapFulfillmentMethod(orderLine.fulfillment) === "pickup" ? "待提货锁定" : "出库占用";
         if (temporaryHold) {
-          return {
+          return [{
             reservationId: temporaryHold.reservationId ?? temporaryHold.id,
             orderLineId: orderLine.id,
             sourceIntentId: temporaryHold.sourceIntentId,
@@ -1546,8 +1527,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
             inventoryItemId: temporaryHold.inventoryItemId,
             reservedQty: Number(row.qty ?? 0),
             inventoryDeltaQty: 0,
-            reservationType:
-              mapFulfillmentMethod(row.fulfillment) === "pickup" ? "待提货锁定" : "出库占用",
+            reservationType,
             status: "生效",
             expiresAt: "",
             metadata: {
@@ -1556,21 +1536,30 @@ export function createOrderDraftCommandService(dependencies = {}) {
             },
             convertFromTemporaryHold: true,
             createdBy: temporaryHold.createdBy || operatorId,
-          };
+          }];
         }
-        return {
-          reservationId: nextPlainId("RSV", orderLine.id),
-          orderLineId: orderLine.id,
-          inventoryItemId: inventoryItem.id,
-          reservedQty: Number(row.qty ?? 0),
-          inventoryDeltaQty: Number(row.qty ?? 0),
-          reservationType:
-            mapFulfillmentMethod(row.fulfillment) === "pickup" ? "待提货锁定" : "出库占用",
-          status: "生效",
-          createdBy: operatorId,
-        };
-      })
-      .filter(Boolean);
+        return allocations.map(({ inventoryItemId, qty }, index) => {
+          const item = findInventoryItem(workspace, inventoryItemId);
+          const expectedInventoryRevision = Number(item?.revision);
+          return {
+            reservationId: nextPlainId("RSV", index === 0 ? orderLine.id : `${orderLine.id}-ZONE-${index + 1}`),
+            orderLineId: orderLine.id, inventoryItemId, reservedQty: qty, inventoryDeltaQty: qty,
+            reservationType, status: "生效", createdBy: operatorId,
+            ...(Number.isSafeInteger(expectedInventoryRevision) && expectedInventoryRevision > 0 ? { expectedInventoryRevision } : {}),
+          };
+        });
+      }));
+  }
+
+  function confirmedPriceSnapshots(lines, operatorId) {
+    return lines.map(line => ({ ...toPriceSnapshot(line), ...line.confirmedMiniappPrice, ...line.confirmedPublishedPrice,
+      ...line.confirmedOfficePrice, priceSnapshotId: `PS-${line.id}`, snapshotType: "order_confirm", versionNo: 1,
+      chargeableQty: line.confirmedOfficePrice?.chargeableQty ?? Number(line.qty ?? 0),
+      finalAmount: Number(line.amount ?? 0), createdBy: operatorId }));
+  }
+
+  function inventoryChecks(plans) {
+    return new Map([...plans].map(([id, plan]) => [id, stockAllocationCheck(plan)]));
   }
 
   function buildProductionTasks(orderLines, operatorId) {
@@ -1667,22 +1656,6 @@ export function createOrderDraftCommandService(dependencies = {}) {
       && normalize(inventoryItem.color) === normalize(line.color)
       && (!normalize(line.handle) || normalize(inventoryItem.handle ?? inventoryItem.handleType) === normalize(line.handle))
       && (!normalize(line.style) || normalize(inventoryItem.style) === normalize(line.style));
-  }
-
-  function buildHoldAwareInventory(inventories, holdsById) {
-    const heldQtyByInventory = new Map();
-    for (const hold of holdsById.values()) {
-      heldQtyByInventory.set(
-        hold.inventoryItemId,
-        Number(heldQtyByInventory.get(hold.inventoryItemId) ?? 0) + Number(hold.reservedQty ?? hold.qty ?? 0),
-      );
-    }
-    return (inventories ?? []).map((inventory) => {
-      const heldQty = heldQtyByInventory.get(inventory.id) ?? 0;
-      if (!heldQty) return inventory;
-      const reserved = Math.max(0, Number(inventory.reserved ?? inventory.reservedQty ?? 0) - heldQty);
-      return { ...inventory, reserved, reservedQty: reserved };
-    });
   }
 
   function pricingReviewTodos(inputs, quote) {
@@ -1795,25 +1768,15 @@ export function createOrderDraftCommandService(dependencies = {}) {
   //   ship_available   有什么发什么，缺的取消
   //   split_produce    同意分批，缺的安排生产（the previous default）
   // An older client that sends no decision keeps the previous default, recorded as such.
-  function applyCustomerShortageDecision(workspace, resolution, rawDecision) {
+  function applyCustomerShortageDecision(workspace, resolution, rawDecision, miniappPricing) {
     const activeLines = resolution.activeLines;
-    if (!activeLines.length) return { resolution, decision: null };
+    if (!activeLines.length) return { resolution, decision: null, plans: new Map() };
+    const choice = cleanCommandText(rawDecision?.choice);
     const holds = resolveTemporaryHoldConversions(workspace, activeLines);
     // A hold problem is reported by the confirmation itself; a whole-order cancel does not need stock.
-    if (holds.error && cleanCommandText(rawDecision?.choice) !== "cancel_whole") return { resolution, decision: null };
-    const preview = holds.error ? { checkedRows: [] } : confirmDraftOrder({
-      draftRows: activeLines,
-      // Only the inventory verdict is used here; prices are resolved later for the kept lines.
-      resolveAmount: () => 0,
-      inventoryRecords: buildHoldAwareInventory(workspace.inventories, holds.byHoldId),
-      orderLines: workspace.orderLines,
-      fulfillments: workspace.fulfillments,
-      customers: workspace.customers,
-    });
-    const shortageLineIds = preview.checkedRows
-      .filter((row) => isStockOrderType(row.orderType) && String(row.inventory ?? "").startsWith("缺货"))
-      .map((row) => row.id);
-    const choice = cleanCommandText(rawDecision?.choice);
+    if (holds.error && choice !== "cancel_whole") return { error: holds.error };
+    const plans = holds.error ? new Map() : planDraftStockAllocations(activeLines, workspace.inventories ?? [], holds.byHoldId, { allowPartial: Boolean(rawDecision) });
+    const shortageLineIds = [...plans].filter(([, plan]) => plan.inventory.startsWith("缺货")).map(([id]) => id);
     const note = cleanCommandText(rawDecision?.note).slice(0, 500);
     if (choice && !Object.hasOwn(SHORTAGE_DECISION_LABELS, choice)) {
       return { error: businessError(422, "ORDER_SHORTAGE_DECISION_INVALID", "缺货处理只能选：整单取消 / 有什么发什么、缺的取消 / 同意分批、缺的安排生产。") };
@@ -1821,7 +1784,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!shortageLineIds.length) {
       // A customer who said "cancel the whole order" has cancelled it, even if stock arrived
       // before the office pressed confirm. The other two answers only concern short lines.
-      if (choice !== "cancel_whole") return { resolution, decision: null };
+      if (choice !== "cancel_whole") return { resolution, decision: null, plans };
     }
     // The desktop entry page always sends an object, so it must record the customer's answer;
     // only an older client that sends nothing falls back to the previous default.
@@ -1832,21 +1795,26 @@ export function createOrderDraftCommandService(dependencies = {}) {
         .join("；");
       return { error: businessError(409, "ORDER_SHORTAGE_DECISION_REQUIRED", `库存不够：${described || "部分明细"}。请先问客户：整单取消、有什么发什么（缺的取消），还是同意分批（缺的安排生产），选好再确认下单。`) };
     }
+    if (choice === "ship_available" && miniappPricing && shortageLineIds.length) {
+      return { error: businessError(409, "MINIAPP_SHORTAGE_CANCELLATION_REVIEW_REQUIRED", "该单金额已由小程序锁定。少发并取消余量前，请先在原下单渠道确认改单及差额；ERP 不直接改动客户锁价。") };
+    }
     const decision = {
       choice: choice || "split_produce",
       label: SHORTAGE_DECISION_LABELS[choice || "split_produce"],
       note,
       shortageDraftLineIds: shortageLineIds,
+      shortageAllocation: shortageLineIds.map(id => ({ draftLineId: id, ...stockAllocationCheck(plans.get(id)) })),
       source: choice ? "office_customer_choice" : "legacy_default_production",
       ...(shortageLineIds.length ? {} : { stockCoveredAtConfirm: true }),
     };
-    if (decision.choice === "split_produce") return { resolution, decision };
-    const cancelled = new Set(decision.choice === "cancel_whole" ? activeLines.map((line) => line.id) : shortageLineIds);
+    if (decision.choice === "split_produce") return { resolution, decision, plans };
+    const cancelled = new Set(decision.choice === "cancel_whole" ? activeLines.map((line) => line.id) : shortageLineIds.filter(id => !plans.get(id)?.stockQty));
     const lines = resolution.lines.map((line) => cancelled.has(line.id)
       ? { ...line, cancellationStatus: `客户选择：${decision.label}`, excludedFromConfirmation: true }
       : line);
     return {
       decision,
+      plans,
       resolution: {
         ...resolution,
         lines,

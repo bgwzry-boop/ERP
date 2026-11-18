@@ -77,7 +77,8 @@ const browser = await chromium.launch();
 
 async function openPage(width) {
   const mobile = width === 390;
-  const page = await browser.newPage({ viewport: { width, height: mobile ? 844 : 1000 }, ...(mobile ? { isMobile: true, hasTouch: true, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1" } : {}) });
+  const height = mobile ? 844 : width === 1024 ? 768 : 1000;
+  const page = await browser.newPage({ viewport: { width, height }, ...(mobile ? { isMobile: true, hasTouch: true, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1" } : {}) });
   page.setDefaultTimeout(15000);
   page.on("pageerror", error => report.pageErrors.push({ width, message: error.message }));
   await page.route("**/api/**", async route => {
@@ -131,6 +132,10 @@ async function checkDesktop(width) {
   try {
     const pane = page.locator(".raw-material-detail-pane");
     await pane.locator(".office-roll-row").first().waitFor();
+    if (width === 1024) {
+      const reviewHeight = await pane.locator(".raw-material-detail-scroll").evaluate(element => element.clientHeight);
+      assert.ok(reviewHeight >= 180, `1024×768 receipt review area shrank to ${reviewHeight}px`);
+    }
     const initialLayout = await pane.evaluate(element => {
       const box = element.getBoundingClientRect();
       return { viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, paneLeft: Math.round(box.left), paneRight: Math.round(box.right), entirePaneInViewport: box.left >= 0 && box.right <= innerWidth };
@@ -332,13 +337,13 @@ async function checkPhone() {
 }
 
 try {
-  for (const width of [1440, 800]) await checkDesktop(width);
+  for (const width of [1440, 1024, 800]) await checkDesktop(width);
   await checkPhone();
   assert.deepEqual(report.blockedWrites, [], "no business command may be attempted during this read-only review");
   assert.deepEqual(report.pageErrors, [], "no browser runtime error");
   assert.equal(JSON.stringify(records), original, "anonymous OCR, original attachment IDs and colour/mapping facts must remain unchanged");
   report.passed = true;
-  console.log("PASS receiving cleanup at 1440/800: one capture entry, source/OCR facts, exact two-page original photos, Escape focus, collapsed per-receipt history, signed returns and OCR direction guard; existing 390px review retained. Anonymous mock reads; no cloud OCR or business writes.");
+  console.log("PASS receiving cleanup at 1440/1024/800: readable 1024×768 review area, one capture entry, source/OCR facts, exact two-page original photos, Escape focus, collapsed history and OCR direction guard; 390px review retained. Anonymous mock reads; no cloud OCR or business writes.");
 } catch (error) {
   report.failure = error?.message || String(error);
   throw error;

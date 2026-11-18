@@ -174,7 +174,7 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
   const purpose = selectedTask
     ? (selectedTask.workshop === PRINT_WORKSHOP ? "印刷（先印后制袋）" : "制袋")
     : buildRawMaterialIssuePurpose(purposeKey, "");
-  const canConfirm = Boolean(match && !blocker && taskCheck.ok && target && purpose && !submitting && !issueState.disabled);
+  const canConfirm = Boolean((selectedTask || freeMode && untaskedIssueAllowed && !selectedTaskId) && match && !blocker && taskCheck.ok && target && purpose && !submitting && !issueState.disabled);
 
   async function handleConfirmOutbound() {
     if (!canConfirm) return;
@@ -207,6 +207,7 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
   }
 
   function openRoll(code) {
+    setSelectedTaskId("");
     setFreeMode(true);
     setMatchedCode(code);
     setFeedback(null);
@@ -240,14 +241,14 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
           {queue.loading ? <p role="status">正在读取生产任务…</p> : null}
           {queue.error ? <p className="raw-material-scan-feedback danger">{queue.error}</p> : null}
           {workshop && !queue.loading ? (pickList.length ? pickList.map((task) => (
-            <button className="raw-material-pick-task" key={task.productionTaskId} onClick={() => { setSelectedTaskId(task.productionTaskId); resetScan(); }} type="button">
+            <button className="raw-material-pick-task" key={task.productionTaskId} onClick={() => { setFreeMode(false); setSelectedTaskId(task.productionTaskId); resetScan(); }} type="button">
               <span>{task.target} · {task.taskType}</span>
               <strong>需要：{task.requiredWidthCm ? `${task.requiredWidthCm}cm 宽` : "宽幅待确认"} · {task.requiredColor || "颜色待确认"}{task.requiredWeightKg ? ` · 约 ${task.requiredWeightKg}kg` : ""}</strong>
               <small>{task.pickedRollCount ? `已领 ${task.pickedRollCount} 卷${task.remainingWeightKg ? `，还差约 ${task.remainingWeightKg}kg` : ""} · ` : ""}{task.customerName || "客户待确认"} · {task.size || "尺寸待确认"} · {task.plannedQty ? `${task.plannedQty} 个` : "数量待确认"} · {task.productionTaskId}</small>
             </button>
           )) : <p className="raw-material-scan-feedback">{workshop} 暂时没有要领料的任务。</p>) : null}
           {untaskedIssueAllowed ? <>
-            <button className="raw-material-free-mode" onClick={() => { setFreeMode(true); resetScan(); }} type="button">试用期：没有任务，直接出库</button>
+            <button className="raw-material-free-mode" onClick={() => { setSelectedTaskId(""); setFreeMode(true); resetScan(); }} type="button">试用期：没有任务，直接出库</button>
             <small className="raw-material-free-mode-note">第一批只上原材料，暂时还没有生产任务时用这个入口；暂不关联订单。正式上线后关闭。</small>
           </> : null}
         </section>

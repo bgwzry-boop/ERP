@@ -12,6 +12,8 @@ import {buildFulfillmentPrintTemplate,getDocumentType,getTemplateId} from '../sr
 import { createPostgresStatementPaymentTransactionRepository } from '../server/statementPaymentTransactionRepository.mjs';
 import { createPostgresPaymentRecordRepository } from '../server/paymentRecordRepository.mjs';
 import { createPostgresStatementSendTransactionRepository } from '../server/statementSendTransactionRepository.mjs';
+import { buildStatementDetail } from '../server/services/statementDetailProjectionService.mjs';
+import { summarizeAnnualReceiptAndRounding } from '../shared/statementUnderpaymentNotice.js';
 
 const name=`erp-finance-closeout-${process.pid}-${Date.now()}`;
 const docker=args=>{const r=spawnSync('docker',args,{encoding:'utf8'});if(r.status!==0)throw Error(r.stderr||r.stdout);return r.stdout.trim();};
@@ -22,6 +24,7 @@ try {
   pool=new pg.Pool({host:'127.0.0.1',port:Number(docker(['port',name,'5432/tcp']).split(':').at(-1)),database:'erp',user:'erp',password:'erp',statement_timeout:15000});
   const migrations=loadMigrationFiles();validateMigrationSet(migrations);for(const m of migrations)await pool.query(m.sql);await pool.query(postgresLiveBusinessSeedSql);
   await checkPaymentPersistence(pool);
+  await checkCumulativeReceiptTotals(pool);
   const lineId='ORD-0629-002-01';
   await pool.query("UPDATE fulfillment_records SET expected_qty=400,actual_qty=400,status='待出库' WHERE id='F002'");
   const addPrice=(version,amount)=>pool.query("INSERT INTO price_snapshots(id,order_line_id,version_no,snapshot_type,chargeable_qty,final_amount,created_by,created_at) VALUES($1,$2,$3,'quantity_adjustment',1200,$4,'U-OFFICE-A',$5)",[`PS-PRINT-${version}`,lineId,version,amount,`2026-09-0${version}T00:00:00Z`]);
@@ -93,4 +96,52 @@ async function checkPaymentPersistence(pool) {
   await assert.rejects(sendRepo.markStatementSent({ ...send, idempotencyKey: 'closed-send-reopen', idempotencyPayload: { key: 'closed-send-reopen' }, statement: { ...statement, status: '已发送待回款', revision: 3 } }), { code: 'BUSINESS_WRITE_CONFLICT' });
   assert.equal((await pool.query('SELECT status FROM statements WHERE id=$1', [statement.id])).rows[0].status, '已核销');
   console.log('PASS finance PostgreSQL: two evidence attachments retained after cold read; immutable payment identity; replay after save; closed receipt and communication cannot reopen accounting.');
+}
+
+async function checkCumulativeReceiptTotals(pool) {
+  const client = createPostgresPoolClient({ pool });
+  const repo = createPostgresStatementPaymentTransactionRepository({ postgresClient: client });
+  const payments = createPostgresPaymentRecordRepository({ postgresClient: client });
+  const statement = { id: "ST-CUMULATIVE-TEST", customerId: "C-LIVE-REPO", status: "收款待确认",
+    receivable: 100, received: 80, variance: 20, revision: 1, period: "2025-12" };
+  await pool.query(`INSERT INTO statements(id,biz_no,customer_id,period_start,period_end,status,receivable_amount,received_amount,variance_amount)
+    VALUES($1,$1,$2,'2025-12-01','2025-12-31','收款待确认',100,80,20)`, [statement.id, statement.customerId]);
+  await pool.query(`INSERT INTO payment_records(id,biz_no,statement_id,customer_id,amount,payment_at,status,created_at)
+    VALUES('PAY-CUMULATIVE-OLD-1','PAY-CUMULATIVE-OLD-1',$1,$2,50,'2025-12-31T15:59:00Z','recorded','2025-12-31T15:59:01Z'),
+    ('PAY-CUMULATIVE-OLD-2','PAY-CUMULATIVE-OLD-2',$1,$2,80,'2025-12-31T16:01:00Z','recorded','2025-12-31T16:01:01Z')`,
+  [statement.id, statement.customerId]);
+  const beforeRows = await payments.listPaymentRecords({ filters: { statementId: statement.id } });
+  const input = (key, expectedRevision, paidAt, amount = 100) => ({
+    workspace: { statements: [{ ...statement }], paymentRecords: [], operationLogs: [], todos: [] },
+    idempotencyKey: `cumulative-${key}`, idempotencyPayload: { statementId: statement.id, amount, expectedRevision, paidAt },
+    statement: { ...statement, received: amount, variance: 0, revision: expectedRevision },
+    paymentRecord: { paymentRecordId: `PAY-CUMULATIVE-${key}`, statementId: statement.id, customerId: statement.customerId,
+      amount, paidAt, operatorId: "U-FINANCE-A" },
+    operationLog: { id: `LOG-CUMULATIVE-${key}`, targetType: "statement", targetId: statement.id,
+      action: "record_statement_payment", operatorId: "U-FINANCE-A" },
+  });
+  const first = () => repo.recordStatementPayment(input("first", 1, "2026-01-02T00:00:00Z"));
+  const [firstReceipt, replay] = await Promise.all([first(), first()]);
+  assert.deepEqual(replay, firstReceipt);
+  assert.equal(firstReceipt.payment.statementReceivedBefore, 80);
+  const [second, stale] = await Promise.allSettled([
+    repo.recordStatementPayment(input("repeat", 2, "2026-01-03T00:00:00Z")),
+    repo.recordStatementPayment(input("stale", 2, "2026-01-03T00:00:00Z")),
+  ]);
+  assert.equal([second, stale].filter((outcome) => outcome.status === "fulfilled").length, 1);
+  assert.equal([second, stale].find((outcome) => outcome.status === "rejected").reason.code, "BUSINESS_WRITE_CONFLICT");
+  assert.equal([second, stale].find((outcome) => outcome.status === "fulfilled").value.payment.statementReceivedBefore, 100);
+  await repo.recordStatementPayment(input("above", 3, "2026-01-04T00:00:00Z", 110));
+  const corrected = await repo.recordStatementPayment(input("corrected", 4, "2026-01-05T00:00:00Z"));
+  assert.equal(corrected.payment.statementReceivedBefore, 110, "a downward correction has the original higher balance as its basis");
+
+  const cold = await payments.listPaymentRecords({ filters: { statementId: statement.id } });
+  assert.equal(cold.length, 6);
+  assert.deepEqual(cold.filter((row) => row.paymentRecordId.startsWith("PAY-CUMULATIVE-OLD")), beforeRows);
+  assert.deepEqual(summarizeAnnualReceiptAndRounding({ payments: cold }, 2025),
+    { year: 2025, receivedTotal: 50, roundingTotal: 0 });
+  assert.deepEqual(summarizeAnnualReceiptAndRounding({ payments: cold }, 2026),
+    { year: 2026, receivedTotal: 50, roundingTotal: 0 });
+  assert.equal(buildStatementDetail({ paymentRecords: cold }, { ...statement, received: 100, variance: 0 }).annualReceiptSummary.receivedTotal, 50);
+  console.log("PASS cumulative receipt PostgreSQL: legacy rows preserved, Shanghai year boundary, locked previous balance, same request replay, stale update rejected, repeated cumulative entry adds zero.");
 }

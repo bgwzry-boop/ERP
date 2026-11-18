@@ -525,6 +525,7 @@ function OrderPricingEditor({
         )
           throw new Error("没有取得完整报价回执。");
         setQuote(result.quote);
+        if (Array.isArray(result.quote.stockChecks)) setShortageAsked(false);
         setRevision(result.quote.clientRevision);
         setSavedSource(draftSource);
         setSavedRows(rows);
@@ -564,14 +565,16 @@ function OrderPricingEditor({
         setConfirmedLineIds(result.confirmation.orderLines.map((line) => line.id).filter(Boolean));
         // 负责人 2026-11-08：开单即出库——全是现货、客户自提的，下面直接打自提单、点「客户已拿走」。
         const pickupTasks = (result.confirmation.fulfillmentTasks ?? [])
-          .filter((task) => ["自提", "pickup"].includes(String(task.method ?? "").trim()) && task.fulfillmentId);
+          .filter(task => ["自提", "pickup"].includes(String(task.method ?? "").trim()) && task.status === "待出库" && task.fulfillmentId);
         const walkInOrder = pickupTasks.length > 0 && rows.every((line) => isStockOrderType(line.orderType));
         setWalkIn(walkInOrder ? { fulfillmentIds: pickupTasks.map((task) => task.fulfillmentId), customerId: rows[0]?.customerId ?? "" } : null);
-        setNotice(walkInOrder
-          ? "正式订单已生成。客户在现场就点下面「打印自提单」，打出来后点「客户已拿走」。"
+        const partial = (result.confirmation.inventoryChecks ?? []).filter(check => check.stockQty > 0 && check.shortageQty > 0);
+        const partialSummary = partial.length ? `部分缺货明细：现货 ${partial.reduce((sum, check) => sum + check.stockQty, 0)} 个，缺 ${partial.reduce((sum, check) => sum + check.shortageQty, 0)} 个已${shortageChoice === "ship_available" ? "取消" : "转待排产"}。` : "";
+        setNotice(`正式订单已生成。${partialSummary}${walkInOrder
+          ? "先办这批现货自提。打印自提单，客户实际取货后再点「客户已拿走」。"
           : shortageChoice === "ship_available" && shortageVisible
-          ? "正式订单已生成：有货的照常下单，缺货的明细已按客户意见取消。"
-          : "正式订单已生成，办公室仍需安排出库或生产排单。");
+          ? "能发的数量已开单，缺的按客户意见取消。"
+          : "办公室仍需安排出库或生产排单。"}`);
         void Promise.resolve(formal.actions.refreshAll()).catch(() =>
           setNotice("正式订单已生成，请刷新订单池核对。"),
         );
@@ -665,7 +668,8 @@ function OrderPricingEditor({
   const missing = rows.some((line) => missingQuoteFields(line).length > 0);
   // Lines converted from a hold use the held stock; only the server can judge them, and it
   // answers ORDER_SHORTAGE_DECISION_REQUIRED if the hold no longer covers them.
-  const shortageVisible = shortageAsked || rows.some(isLocalShortage);
+  const quotedStockChecks = new Map((quote?.stockChecks ?? []).map(check => [check.draftLineId, check]));
+  const shortageVisible = shortageAsked || [...quotedStockChecks.values()].some(check => check.inventory.startsWith("缺货"));
   const shortageMissing = shortageVisible && !shortageChoice;
   // A choice left over from an earlier shortage must not travel once the block is hidden.
   const currentShortageDecision = () => shortageVisible
@@ -691,7 +695,7 @@ function OrderPricingEditor({
       setNotice(`价格已算好。有 ${quote.affectedOrders.length} 张原单受影响，请在右边逐条核对勾选后，再点「${rows.every((line) => isStockOrderType(line.orderType)) ? "开单" : "确认下单"}」。`);
       return;
     }
-    if ((shortageAsked || rows.some(isLocalShortage)) && !shortageChoice) {
+    if (shortageVisible && !shortageChoice) {
       setNotice("价格已算好。库存不够，请先按客户说的选缺货怎么办，再点「开单」或「确认下单」。");
       return;
     }
@@ -834,7 +838,7 @@ function OrderPricingEditor({
               </div>
             {rows.map((line, index) => {
               const open = expandedRows.includes(line.id);
-              const tags = lineStatusTags(line, rows, overrides[line.id]);
+              const tags = lineStatusTags(line, rows, overrides[line.id], quotedStockChecks.get(line.id));
               return (
               <fieldset key={line.id} disabled={editingLocked || locked} className={open ? "pricing-line-row open" : "pricing-line-row"}>
                 <legend className="pricing-sr">第 {index + 1} 行</legend>
@@ -1464,13 +1468,9 @@ function splitLineBlockedReason(line) {
   return "";
 }
 
-function isLocalShortage(line) {
-  return !line?.sourceHoldId && String(line?.inventory ?? "").startsWith("缺货");
-}
-
 const SHORTAGE_CHOICES = [
   ["cancel_whole", "整单取消", "这单不做了，不生成正式订单。"],
-  ["ship_available", "有什么发什么，缺的取消", "有货的照常下单，缺货的明细取消。"],
+  ["ship_available", "有什么发什么，缺的取消", "能发的数量照常下单，只取消缺少的数量。"],
   ["split_produce", "同意分批，缺的安排生产", "有货的先发，缺的转生产，做好再发。"],
 ];
 
@@ -1485,12 +1485,12 @@ function commonValue(rows, key, fallback) {
 }
 
 // 明细行右边的状态：缺什么、库存、印刷信息、改价、跟整单不同的交付。客户在表头，不在这里提示。
-function lineStatusTags(line, rows, lineOverride) {
+function lineStatusTags(line, rows, lineOverride, stockCheck) {
   const tags = [];
   const lacks = missingQuoteFields(line).filter((item) => item !== "客户");
   if (lacks.length) tags.push({ tone: "warn", text: `${lacks.join("、")}待填` });
-  if (isLocalShortage(line)) tags.push({ tone: "warn", text: "库存不够" });
-  else if (isStockOrderType(line.orderType) && !["", "待确认"].includes(String(line.inventory ?? "").trim()) && !lacks.length) tags.push({ tone: "ok", text: String(line.inventory).trim() });
+  if (stockCheck?.inventory.startsWith("缺货")) tags.push({ tone: "warn", text: `现货 ${stockCheck.stockQty} 个 · 缺 ${stockCheck.shortageQty} 个` });
+  else if (stockCheck && !lacks.length) tags.push({ tone: stockCheck.inventory === "可用" ? "ok" : "warn", text: stockCheck.inventory });
   if (privatePrint(line) && ["", "待确认"].includes(String(line.printColor ?? "").trim())) tags.push({ tone: "info", text: "印刷颜色待填" });
   if (printSideMissing(line)) tags.push({ tone: "warn", text: "印刷面待选" });
   if (lineOverride?.enabled) tags.push({ tone: "info", text: "本单改价" });

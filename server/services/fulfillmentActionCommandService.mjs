@@ -1,8 +1,9 @@
 import { resolveWarehouseInstructionQuantity } from "./warehouseInstructionQuantityService.mjs";
-import { packageAnchorId, packageContents, isActivePackage } from "../../shared/packageContents.js";
+import { packageAnchorId } from "../../shared/packageContents.js";
+import { outboundPackageEvidence } from "./outboundPackageEvidence.mjs";
 import { confirmPackageGroupLoaded } from "./packageGroupLoadService.mjs";
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
-import { normalizeOrderType } from "../../shared/orderRouting.js";
+import { isDirectProductionOrderType } from "../../shared/orderRouting.js";
 import { hasTrustedWarehousePaper } from "../../shared/warehousePaperTrust.js";
 import { normalizeCarrierHandoffTimestamp, carrierFinalDeliveryPayload } from "../../shared/fulfillmentHandoffTime.js";
 import { prepareDriverDeliveryExceptionResolution } from "./driverDeliveryExceptionResolutionPolicy.mjs";
@@ -430,10 +431,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       return businessError(422, "WAREHOUSE_QUANTITY_MISMATCH_REQUIRED", "数量不符 requires an actual quantity different from the paper instruction.");
     }
 
-    if (executionResult === "实物已出库" && packageAnchorId(before)) {
-      const packages=(workspace.packages??[]).filter(p=>isActivePackage(p)&&p.fulfillmentId===packageAnchorId(before));
-      const packed=packages.flatMap(packageContents).filter(i=>i.fulfillmentId===fulfillmentId).reduce((sum,i)=>sum+Number(i.packedQty),0);
-      if(packed!==actualQty||!packages.length||packages.some(p=>p.status!=="已打印标签"||!(workspace.printRecords??[]).some(r=>(r.id??r.printRecordId)===p.labelPrintRecordId&&["printed","reprinted"].includes(r.status))))return businessError(409,"PACKING_GROUP_WAREHOUSE_LABEL_REQUIRED","包内实物数量须与本次纸单一致，且本组全部挂牌已可信打印成功，才能登记实物出库。");
+    if (executionResult === "实物已出库") {
+      const packing = outboundPackageEvidence(workspace, before, actualQty);
+      if (!packing.ready) return businessError(409, packing.code, packing.reason);
     }
     const method = mapFulfillmentMethod(before.method);
     const nextStatus = resolveWarehouseExecutionFulfillmentStatus(executionResult, method);
@@ -1213,6 +1213,10 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     if (inventoryMovements.error) {
       return businessError(409, inventoryMovements.error.code, inventoryMovements.error.message);
     }
+    if (inventoryMovements.inventoryAdjustments.some(row => row.onHandQtyChange < 0)) {
+      const packing = outboundPackageEvidence(workspace, before, actualQty);
+      if (!packing.ready) return businessError(409, packing.code, packing.reason);
+    }
     const statementCandidate = isDeliveryEvidenceRetake ? null : buildFulfillmentStatementCandidate({
       workspace,
       fulfillment: after,
@@ -1603,8 +1607,7 @@ function cleanText(value) {
       (reservation) => reservation.orderLineId === orderLineId && isReleasableInventoryReservation(reservation),
     );
     if (activeReservations.length === 0) {
-      const orderType = normalizeOrderType(findOrderLine(workspace, orderLineId)?.orderType);
-      if (["custom_special", "external_print"].includes(orderType)) return emptyInventoryMovements("production_direct");
+      if (isDirectProductionOrderType(findOrderLine(workspace, orderLineId)?.orderType)) return emptyInventoryMovements("production_direct");
       return input.allowUnreservedInventoryDeduction
         ? buildUnreservedLegacyInventoryMovements(workspace, fulfillment, input)
         : inventoryMovementError("ERP_FULFILLMENT_INVENTORY_CONSERVATION_CONFLICT", "本次出库缺少有效成品库存占用，请先核对订单与库存后再出库。");

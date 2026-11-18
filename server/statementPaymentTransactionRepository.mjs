@@ -49,10 +49,15 @@ export function createLocalStatementPaymentTransactionRepository() {
         || (varianceId && (input.workspace.varianceRecords ?? []).some(row => (row.varianceRecordId ?? row.id) === varianceId))) throw paymentIdentityConflict();
       const statement = buildLocalSavedStatement(input);
       const statements = replaceStatement(input.statements, statement);
-      applyStatementPaymentWorkspaceMutation({ ...input, statements, statement, readNotices: notices });
+      const previous = input.workspace.statements.find((row) => row.id === statement.id);
+      const paymentRecord = {
+        ...input.paymentRecord,
+        statementReceivedBefore: previous.received,
+      };
+      applyStatementPaymentWorkspaceMutation({ ...input, statements, statement, paymentRecord, readNotices: notices });
       const result = normalizeStatementPaymentTransactionResult({
         statement,
-        payment: input.paymentRecord,
+        payment: paymentRecord,
         todo: notices[0] ?? null,
         readNotices: notices,
         varianceRecord: input.varianceRecord ?? null,
@@ -186,7 +191,7 @@ WITH locked_payment_attachments AS MATERIALIZED (
     AND EXISTS (SELECT 1 FROM attachment_links link WHERE link.attachment_id = attachment.id AND link.owner_type = 'statement' AND link.owner_id = ${parameters.text(statement.id)} AND link.purpose = 'payment_screenshot')
   FOR SHARE OF attachment
 ), locked_statement AS MATERIALIZED (
-  SELECT id, revision
+  SELECT id, revision, received_amount
   FROM statements
   WHERE id = ${parameters.text(statement.id)}
     AND status NOT IN (${closedStatementPaymentStatuses.map(status => parameters.text(status)).join(", ")})
@@ -218,6 +223,7 @@ inserted_payment AS (
     statement_id,
     customer_id,
     amount,
+    statement_received_before,
     payment_method,
     payment_at,
     status,
@@ -227,12 +233,13 @@ inserted_payment AS (
     remark,
     created_at,
     updated_at
-  ) VALUES (
+  ) SELECT
     ${parameters.text(paymentRecord.paymentRecordId)},
     ${parameters.text(paymentRecord.bizNo ?? paymentRecord.paymentRecordId)},
     ${parameters.text(paymentRecord.statementId)},
     ${parameters.text(paymentRecord.customerId)},
     ${parameters.number(paymentRecord.amount)},
+    locked.received_amount,
     ${parameters.text(paymentRecord.method ?? "other")},
     ${parameters.timestamp(paymentRecord.paidAt)},
     ${parameters.text(paymentRecord.status ?? "recorded")},
@@ -240,9 +247,9 @@ inserted_payment AS (
     ${parameters.nullableText(paymentRecord.attachmentIds[0])},
     ${parameters.json(paymentRecord.attachmentIds)},
     ${parameters.text(paymentRecord.remark ?? "")},
-    now(),
-    now()
-  )
+    clock_timestamp(),
+    clock_timestamp()
+  FROM locked_statement AS locked CROSS JOIN statement_write_guard AS guard WHERE guard.ok
 ON CONFLICT (id) DO NOTHING
   RETURNING ${paymentRecordJsonExpression("payment_records")} AS result
 ),
@@ -457,6 +464,8 @@ function paymentRecordJsonExpression(alias) {
     'statementId', ${alias}.statement_id,
     'customerId', ${alias}.customer_id,
     'amount', ${alias}.amount,
+    'statementReceivedBefore', ${alias}.statement_received_before,
+    'createdAt', ${alias}.created_at,
     'paidAt', ${alias}.payment_at,
     'method', ${alias}.payment_method,
     'status', ${alias}.status,

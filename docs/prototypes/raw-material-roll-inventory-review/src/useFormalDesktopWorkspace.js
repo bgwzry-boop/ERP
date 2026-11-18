@@ -17,6 +17,7 @@ import {
   confirmOfficeRawMaterialSupplierPayment,
   confirmOfficeRawMaterialSupplierStatement,
   confirmOfficeRawMaterialSupplierStatementReview,
+  setOfficeRawMaterialSupplierStatementPeriod,
   createOfficeRawMaterialSupplierStatementReviewDraft,
   generateOfficeRawMaterialSupplierPayableDraft,
   listOfficeRawMaterialInbounds,
@@ -431,7 +432,9 @@ export function useFormalDesktopWorkspace() {
         supplierName,
         existingInbounds: inbounds.items,
       });
-      return { source: "local_precheck", result };
+      const digest = await globalThis.crypto?.subtle?.digest("SHA-256", bytes);
+      const sourceFileDigest = digest ? Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("") : "";
+      return { source: "local_precheck", result: { ...result, sourceFileDigest } };
     } catch (error) {
       return { source: "ui_error", blocked: true, error: { message: `Excel 无法读取，请确认是 .xlsx 文件：${error?.message || error}` } };
     }
@@ -447,34 +450,45 @@ export function useFormalDesktopWorkspace() {
     return result;
   }, [readCollection]);
 
-  const saveSupplierStatementReviewDraft = useCallback((statementResult) => runSupplierStatementWrite((base) =>
+  const saveSupplierStatementReviewDraft = useCallback((statementResult, idempotencyKey) => runSupplierStatementWrite((base) =>
     createOfficeRawMaterialSupplierStatementReviewDraft({
       ...base,
       statementResult,
+      idempotencyKey,
+      sourceFileDigest: statementResult?.sourceFileDigest || "",
+      periodStart: statementResult?.periodStart,
+      periodEnd: statementResult?.periodEnd,
       supplierName: statementResult?.supplierName || "",
       fileName: statementResult?.fileName || "",
       note: "办公室上传供应商月结 Excel 并保存预检结果，等待核对。",
     }, readOptions)), [runSupplierStatementWrite]);
 
-  const confirmSupplierStatementReview = useCallback((reviewId, decision) => runSupplierStatementWrite((base) =>
+  const confirmSupplierStatementReview = useCallback((reviewId, decision, { idempotencyKey, adjustments } = {}) => runSupplierStatementWrite((base) =>
     confirmOfficeRawMaterialSupplierStatementReview({
       ...base,
       reviewId,
       decision,
+      adjustments,
+      idempotencyKey,
       note: decision === "一致" ? "办公室核对：对账单与 ERP 入库一致。" : "办公室核对：对账单与 ERP 入库有差异，需与供应商核实。",
     }, readOptions)), [runSupplierStatementWrite]);
 
-  const confirmSupplierStatement = useCallback((reviewId) => runSupplierStatementWrite((base) =>
+  const setSupplierStatementPeriod = useCallback((reviewId, period) => runSupplierStatementWrite((base) =>
+    setOfficeRawMaterialSupplierStatementPeriod({ ...base, reviewId, ...period }, readOptions)), [runSupplierStatementWrite]);
+
+  const confirmSupplierStatement = useCallback((reviewId, idempotencyKey) => runSupplierStatementWrite((base) =>
     confirmOfficeRawMaterialSupplierStatement({
       ...base,
       reviewId,
+      idempotencyKey,
       note: "确认供应商月结对账一致；进入待付款，不直接付款。",
     }, readOptions)), [runSupplierStatementWrite]);
 
-  const generateSupplierPayable = useCallback((reviewId) => runSupplierStatementWrite((base) =>
+  const generateSupplierPayable = useCallback((reviewId, idempotencyKey) => runSupplierStatementWrite((base) =>
     generateOfficeRawMaterialSupplierPayableDraft({
       ...base,
       reviewId,
+      idempotencyKey,
       note: "基于已确认的供应商月结生成应付。",
     }, readOptions)), [runSupplierStatementWrite]);
 
@@ -483,6 +497,7 @@ export function useFormalDesktopWorkspace() {
       ...base,
       reviewId,
       paidAmount: payment.paidAmount,
+      idempotencyKey: payment.idempotencyKey,
       roundingAmount: payment.roundingAmount,
       paymentMethod: payment.paymentMethod || "银行转账",
       paymentReferenceNo: payment.paymentReferenceNo,
@@ -514,10 +529,11 @@ export function useFormalDesktopWorkspace() {
     precheckSupplierStatement,
     saveSupplierStatementReviewDraft,
     confirmSupplierStatementReview,
+    setSupplierStatementPeriod,
     confirmSupplierStatement,
     generateSupplierPayable,
     confirmSupplierPayment,
-  }), [receiptReader.actions, registerOrderEntryEditor, startNewOrderDraft, setActiveView, readCollection, ensureSearchData, precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
+  }), [receiptReader.actions, registerOrderEntryEditor, startNewOrderDraft, setActiveView, readCollection, ensureSearchData, precheckSupplierStatement, saveSupplierStatementReviewDraft, confirmSupplierStatementReview, setSupplierStatementPeriod, confirmSupplierStatement, generateSupplierPayable, confirmSupplierPayment, confirmEmployeeIdentity, confirmOrderDraft, previewOrderDraftSplit, confirmOrderDraftSplit, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
 
   const requiredStates = readsForView(activeView, authState?.permissions).map(key => [key, collections[key] || UNLOADED_READ]);
   if (activeView === "material-receiving") requiredStates.push(["receiving", receiptReader.receiving]);

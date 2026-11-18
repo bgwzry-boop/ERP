@@ -5,8 +5,8 @@ import { PICKING_SLIP_PAGE, buildStockPickingSlip, buildStockPickingSlipHtml, bu
 const base = { orderNo: "ORD-1105-008", customerId: "C1", customerName: "客户甲", fulfillment: "自提", handle: "普通提", style: "空白袋", product: "无纺布袋", amount: 120, bagPrice: 0.6 };
 const lines = [
   { ...base, id: "L1", orderType: "现货有货", size: "50*40*12-横", color: "玫红", qty: 200 },
-  { ...base, id: "L2", orderType: "stock", size: "45*37*10-横", color: "粉色", handle: "加长提", handleColor: "白", qty: 200, zone: "B区" },
-  { ...base, id: "L3", orderType: "stock_printed", size: "35*41*12", color: "红色", style: "福", product: "福字袋", qty: 250 },
+  { ...base, id: "L2", orderType: "stock", inventory: "已占用", size: "45*37*10-横", color: "粉色", handle: "加长提", handleColor: "白", qty: 200, zone: "B区" },
+  { ...base, id: "L3", orderType: "stock_printed", inventory: "已占用", size: "35*41*12", color: "红色", style: "福", product: "福字袋", qty: 250 },
   { ...base, id: "L4", orderType: "custom_print", size: "30*40*10", color: "白色", qty: 1000 },
   { ...base, id: "L5", orderType: "现货有货", size: "25*32*10", color: "待确认", qty: 100, lineStatus: "已作废" },
   { ...base, id: "L6", orderType: "现货有货", size: "25*32*10", color: "橘色", qty: 0 },
@@ -64,4 +64,36 @@ assert.deepEqual(selectConfirmedStockLines({ poolLines: [keptLine, cancelledShor
 assert.equal(buildStockPickingSlip({ orderLines: [cancelledShort] }), null, "a cancelled short line never reaches a slip");
 assert.deepEqual(selectConfirmedStockLines({ poolLines: [keptLine], confirmedLineIds: [] }), { pending: false, lines: [] });
 
-console.log("stock picking slip ok");
+// Actual order pool representation after splitting 1000 into 600 inventory and 400 production.
+const inventoryPart = { ...base, id: "OL-S600", orderType: "现货有货", orderId: "ORDER-SPLIT", qty: 600,
+  originalQty: 600, inventory: "已占用", reservationStatus: "生效", reservedQty: 300, status: "待出库", fulfillmentStatus: "待出库" };
+const productionPart = { ...inventoryPart, id: "OL-S600-R1", orderType: "现货缺货", splitFromOrderLineId: "OL-S600",
+  qty: 400, originalQty: 400, inventory: "缺货 400", reservationStatus: "", reservedQty: 0, lineStatus: "待排产",
+  fulfillmentStatus: "待生产", hasProductionTask: true, exceptions: ["库存不足"] };
+const completedPart = { ...inventoryPart, id: "OL-DONE", qty: 50, fulfillmentStatus: "已交付" };
+const replenishmentPart = { ...inventoryPart, id: "OL-REPL", qty: 70, orderType: "印刷通货", fulfillment: "补库入库" };
+const unclassifiedPart = { ...inventoryPart, id: "OL-UNVERIFIED", qty: 90, orderType: "stock", inventory: "", reservationStatus: "" };
+const poolLines = [inventoryPart, productionPart, completedPart, replenishmentPart, unclassifiedPart];
+const orderEntry = selectConfirmedStockLines({ poolLines, confirmedLineIds: poolLines.map(line => line.id) });
+assert.deepEqual(orderEntry.lines.map(line => line.id), [inventoryPart.id]);
+assert.equal(buildStockPickingSlips({ orderLines: orderEntry.lines })[0].totalQty, 600);
+assert.equal(buildStockPickingSlip({ orderLines: [productionPart] }), null);
+const fulfillments = [
+  { id: "F-STOCK", orderLineId: inventoryPart.id, qty: 600, status: "待出库", zone: "A区" },
+  { id: "F-PROD", orderLineId: productionPart.id, qty: 400, status: "待生产" },
+  { id: "F-DONE", orderLineId: completedPart.id, qty: 50, status: "待出库", physicalOutboundAt: "2026-11-05T06:00:00Z" },
+];
+const deliveryWorkspace = buildStockPickingSlip({ orderLines: poolLines, fulfillments });
+assert.deepEqual(deliveryWorkspace.items.map(item => [item.orderLineId, item.qty, item.zone]), [[inventoryPart.id, 600, "A区"]]);
+assert.equal(deliveryWorkspace.method, "自提", "ordinary warehouse pickup retains its slip");
+assert.match(buildStockPickingSlipHtml(deliveryWorkspace), /合计 <b>600<\/b> 个/u);
+const partialOpen = buildStockPickingSlip({
+  orderLines: [inventoryPart],
+  fulfillments: [{ ...fulfillments[0], qty: 450, physicalOutboundAt: "2026-11-05T06:00:00Z" },
+    { ...fulfillments[0], id: "F-STOCK-R1", qty: 150 }],
+});
+assert.equal(partialOpen.totalQty, 150, "a sibling still in the warehouse uses only its unshipped quantity");
+assert.equal(buildStockPickingSlip({ orderLines: [inventoryPart], fulfillments: [{ ...fulfillments[0], physicalOutboundAt: "2026-11-05T06:00:00Z" }] }), null);
+assert.equal(buildStockPickingSlip({ orderLines: [{ ...inventoryPart, reservationStatus: "已释放" }] }), null);
+
+console.log("stock picking slip ok: both paths preserve the 600 inventory pickup, exclude the 400 production, replenishment and shipped quantities");

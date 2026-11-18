@@ -44,6 +44,16 @@ export function isStockOrderType(value) {
   return type === "stock" || type === "stock_printed";
 }
 
+const DIRECT_PRODUCTION_ORDER_TYPES = ["custom_print", "custom_special", "external_print"];
+
+export function isDirectProductionOrderType(value) {
+  return DIRECT_PRODUCTION_ORDER_TYPES.includes(normalizeOrderType(value));
+}
+
+export function directProductionOrderTypeAliases() {
+  return DIRECT_PRODUCTION_ORDER_TYPES.flatMap(orderTypeAliasesFor);
+}
+
 /** Fulfillment evidence for displaying a common-goods line. Product type alone does not establish stock availability. */
 export function stockSupplyRoute(line = {}) {
   const inventory = String(line.inventory ?? "").trim();
@@ -67,7 +77,7 @@ export function requiresProductionOrderType(value, inventory = "") {
   const type = normalizeOrderType(value);
   if (String(inventory).startsWith("补库")) return isStockOrderType(type);
   // 外加工印刷 is printed in our own silk-screen workshop (owner 2026-11-03), so it is scheduled too.
-  if (type === "custom_print" || type === "custom_special" || type === "external_print") return true;
+  if (isDirectProductionOrderType(type)) return true;
   return isStockOrderType(type) && String(inventory).startsWith("缺货");
 }
 

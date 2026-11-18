@@ -772,11 +772,11 @@ function FulfillmentWorkspace({ formal, onNavigate, focus = null }) {
 const supplierSettlementSteps = ["对账确认", "生成应付", "付款登记", "付款确认"];
 
 function supplierSettlementPeriod(record = {}) {
+  if (record.periodStart && record.periodEnd) return `${record.periodStart} 至 ${record.periodEnd}`;
   const explicit = String(record.statementPeriod || record.period || record.settlementPeriod || "").trim();
   if (explicit) return explicit;
-  const source = `${record.fileName || ""} ${record.createdAt || ""}`;
-  const match = source.match(/(20\d{2})[年._/-]?(0?[1-9]|1[0-2])/);
-  return match ? `${match[1]}年${String(match[2]).padStart(2, "0")}月` : "账期待确认";
+  const match = String(record.fileName || "").match(/(20\d{2})[年._/-]?(1[0-2]|0?[1-9])(?!\d)/u);
+  return match ? `文件标记 ${match[1]}年${String(match[2]).padStart(2, "0")}月` : "账期待确认";
 }
 
 function supplierSettlementState(record = {}) {
@@ -844,7 +844,7 @@ function SupplierSettlementWorkspace({ formal }) {
         <section className="business-detail-section"><h3>结算进度</h3><SettlementFlow completedCount={selected.settlementState.completedCount} /></section>
         <section className="business-detail-section"><h3>对账事实</h3><dl className="business-facts"><div><dt>对账期间</dt><dd>{selected.period}</dd></div><div><dt>对账文件</dt><dd>{selected.fileName || "待确认"}</dd></div><div><dt>匹配结果</dt><dd>{selected.summaryText || `匹配 ${selected.summary?.matchedRowCount || 0}，差异 ${(selected.summary?.unmatchedRowCount || 0) + (selected.summary?.candidateRowCount || 0)}`}</dd></div><div><dt>当前状态</dt><dd>{selected.status || selected.reviewStatus || "待复核"}</dd></div></dl></section>
         <section className="business-detail-section"><h3>应付与付款</h3><dl className="business-facts"><div><dt>应付草稿</dt><dd>{selected.supplierPayableId || "尚未生成"}</dd></div><div><dt>应付金额</dt><dd>{moneyText(selected.payableAmount)}</dd></div><div><dt>已付合计</dt><dd>{moneyText(selected.paidAmount)}</dd></div><div><dt>付款凭证</dt><dd>{selected.supplierPaymentRecord?.paymentReferenceNo || selected.supplierPaymentRecord?.paymentVoucherNo || "尚未登记"}</dd></div></dl><div className="business-boundary"><InfoCircleOutlined /><div><strong>{selected.demoReadOnly ? "本地评审只读样例" : "一张月结单对应一个结算对象"}</strong><p>{selected.demoReadOnly ? "用于核对完整结算链路的显示效果；不会执行对账、应付或付款写入。" : "对账确认、生成应付、付款登记和付款确认是四个独立阶段；本页只展示服务器已有证据，不代替财务操作。"}</p></div></div></section>
-        {formal.actions.confirmSupplierPayment ? <SupplierSettlementActionPanel formal={formal} onNotice={setNotice} record={selected} /> : null}
+        {formal.actions.confirmSupplierPayment ? <SupplierSettlementActionPanel key={`${formal.operatorId}:${selected.id}`} formal={formal} onNotice={setNotice} record={selected} /> : null}
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </> : <div className="business-empty"><FileTextOutlined /><strong>暂无月结复核草稿</strong><small>点「上传月结 Excel」开始对账。</small></div>}</div>
       <footer><button className="primary" disabled={!selected} onClick={() => setNotice(selected.summaryText || "当前结算对象暂无额外差异摘要。") } type="button">查看差异摘要</button></footer>

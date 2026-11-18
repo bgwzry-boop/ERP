@@ -8,8 +8,8 @@ import { toRawMaterialInboundActionSlug } from "../shared/rawMaterialInboundActi
 
 const workspace = {
   productionTasks: [
-    { productionTaskId: "PT-A", id: "PT-A", orderLineId: "OL-A", machineId: "BAG-01", taskType: "制袋", taskStatus: "制袋中", plannedQty: 1000 },
-    { productionTaskId: "PT-B", id: "PT-B", orderLineId: "OL-B", machineId: "BAG-01", taskType: "制袋", taskStatus: "制袋中", plannedQty: 2000 },
+    { productionTaskId: "PT-A", id: "PT-A", orderLineId: "OL-A", machineId: "BAG-01", taskType: "制袋", taskStatus: "制袋中", publishedScheduleId: "SYNTHETIC-SCHEDULE", plannedQty: 1000 },
+    { productionTaskId: "PT-B", id: "PT-B", orderLineId: "OL-B", machineId: "BAG-01", taskType: "制袋", taskStatus: "制袋中", publishedScheduleId: "SYNTHETIC-SCHEDULE", plannedQty: 2000 },
     { productionTaskId: "PT-X", id: "PT-X", orderLineId: "OL-X", machineId: "BAG-01", taskType: "制袋", taskStatus: "已作废", plannedQty: 500 },
   ],
   orderLines: [

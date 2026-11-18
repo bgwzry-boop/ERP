@@ -407,7 +407,7 @@ export const postgresAssertions = Object.freeze({
     assert.equal(apiProductionReport.capacityCalibrationCreated, true);
     assert.equal(apiProductionReport.capacityCalibration.sourceKind, "production_report");
     assert.equal(apiProductionReport.capacityCalibration.dailyCapacityQty, 1000);
-    assert.equal(apiProductionReport.inventoryLedgerIds.length, 2);
+    assert.equal(apiProductionReport.inventoryLedgerIds.length, 0);
     assert.ok(apiProductionReport.packingTaskId);
   },
   assertApiPackingComplete({ apiPackingComplete }) {
@@ -416,19 +416,19 @@ export const postgresAssertions = Object.freeze({
     assert.equal(apiPackingComplete.packageIds.length, 3);
     assert.equal(apiPackingComplete.orderLineStatus, "待打印标签");
     assert.equal(apiPackingComplete.inventoryDeducted, false);
-    assert.equal(apiPackingComplete.inventoryLedgerIds.length, 1);
+    assert.equal(apiPackingComplete.inventoryLedgerIds.length, 0);
   },
   assertApiProduction2({ apiProductionDetail, apiProductionReport }) {
   assert.equal(apiProductionDetail.productionTaskId, apiProductionReport.productionTaskId);
     assert.equal(apiProductionDetail.latestReport.machineCount, 1888);
     assert.equal(apiProductionDetail.latestReport.machineCountAffectsInventory, false);
-    assert.equal(apiProductionDetail.inventoryLedgerEntries.length, 2);
+    assert.equal(apiProductionDetail.inventoryLedgerEntries.length, 0);
     assert.equal(apiProductionDetail.packingTask.packingTaskId, apiProductionReport.packingTaskId);
   },
   assertApiPackingDetail({ apiPackingDetail }) {
   assert.equal(apiPackingDetail.packingTask.status, "已完成");
     assert.equal(apiPackingDetail.packages.length, 3);
-    assert.equal(apiPackingDetail.inventoryLedgerEntries.length, 1);
+    assert.equal(apiPackingDetail.inventoryLedgerEntries.length, 0);
     assert.equal(apiPackingDetail.inventoryDeducted, false);
   },
   assertApiTrustedPrintInitial({ apiTrustedPrintRequest, apiTrustedPrintInitialStatus }) {

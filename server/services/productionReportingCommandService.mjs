@@ -1,4 +1,4 @@
-import { normalizeOrderType, isReplenishmentRow } from "../../shared/orderRouting.js";
+import { isDirectProductionOrderType, normalizeOrderType, isReplenishmentRow } from "../../shared/orderRouting.js";
 import { incomingRollCountOf, isIncomingRollsLine } from "../../shared/externalPrintQuantity.js";
 import { LARGE_MACHINE_PRINT_PRICE_VERSION, printUnitPriceFor, resolvePrintColorCount, resolvePrintMethod } from "../../shared/largeMachinePrintPricing.js";
 import { getBlockingProductionExceptions } from "../../shared/productionExceptionPolicy.js";
@@ -660,9 +660,9 @@ export function createProductionReportingCommandService({
           return businessError(422, "PRODUCTION_MACHINE_COUNT_INVALID", "丝印机器动作数必须为整数且不小于实际印好的数量。");
         }
       }
-      const customSpecial = normalizeOrderType(beforeOrderLine.orderType) === "custom_special" || externalPrint;
-      if (customSpecial && cleanText(body.inventoryItemId)) return businessError(409, "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY", "特殊尺寸按订单生产，不建立通货库存。");
-      const inventoryResolution = customSpecial ? {} : resolveProductionInventory(workspace, beforeOrderLine, body.inventoryItemId);
+      const directProduction = isDirectProductionOrderType(beforeOrderLine.orderType);
+      if (directProduction && cleanText(body.inventoryItemId)) return businessError(409, "PRODUCTION_CUSTOM_SIZE_MUST_NOT_USE_STOCK_INVENTORY", "这批货按客户订单生产，请直接报工并按订单打包。");
+      const inventoryResolution = directProduction ? {} : resolveProductionInventory(workspace, beforeOrderLine, body.inventoryItemId);
       if (inventoryResolution.code) return businessError(inventoryResolution.statusCode, inventoryResolution.code, inventoryResolution.message);
       const { inventoryItem = null, newInventoryItem = null } = inventoryResolution;
 

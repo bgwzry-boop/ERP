@@ -592,7 +592,11 @@ export function createRawMaterialCommandService(dependencies = {}) {
         workspace,
         statementResult,
         fileName: body.fileName,
+        sourceFileDigest: body.sourceFileDigest,
+        periodStart: body.periodStart,
+        periodEnd: body.periodEnd,
         supplierName: body.supplierName,
+        idempotencyKey: body.idempotencyKey,
         note: body.note,
         now: body.now,
         operatorId,
@@ -611,6 +615,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
         reviewId,
         decision: body.decision,
         adjustments: body.adjustments,
+        idempotencyKey: body.idempotencyKey,
         note: body.note,
         now: body.now,
         operatorId,
@@ -623,10 +628,22 @@ export function createRawMaterialCommandService(dependencies = {}) {
       };
     },
 
+    async setSupplierStatementPeriod({ workspace, reviewId, body = {}, operatorId }) {
+      const result = await workspace.rawMaterialSupplierStatementReviewRepository.setPeriod({
+        workspace, reviewId, operatorId,
+        operatorName: getOperatorName(workspace, operatorId),
+        periodStart: body.periodStart, periodEnd: body.periodEnd,
+        expectedRevision: body.expectedRevision, idempotencyKey: body.idempotencyKey,
+      });
+      appendOperationLog(workspace, result.operationLog);
+      return { review: result.review, operationLogId: getOperationLogId(result) };
+    },
+
     async confirmSupplierStatement({ workspace, reviewId, body = {}, operatorId }) {
       const result = await workspace.rawMaterialSupplierStatementReviewRepository.confirmStatement({
         workspace,
         reviewId,
+        idempotencyKey: body.idempotencyKey,
         note: body.note,
         now: body.now,
         operatorId,
@@ -643,6 +660,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
       const result = await workspace.rawMaterialSupplierStatementReviewRepository.generatePayableDraft({
         workspace,
         reviewId,
+        idempotencyKey: body.idempotencyKey,
         note: body.note,
         now: body.now,
         operatorId,
@@ -660,6 +678,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
       const result = await workspace.rawMaterialSupplierStatementReviewRepository.confirmPayment({
         workspace,
         reviewId,
+        idempotencyKey: body.idempotencyKey,
         paidAmount: body.paidAmount ?? body.amount,
         roundingAmount: body.roundingAmount,
         paymentMethod: body.paymentMethod,

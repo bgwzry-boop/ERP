@@ -1,4 +1,8 @@
-import { RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS, resolveRawMaterialWholeRollMachine } from "../../domain/rawMaterialWholeRollPolicy.js";
+import { useEffect, useState } from "react";
+import { buildRawMaterialPickList, checkRollAgainstPickTask, PRINT_WORKSHOP } from "../../domain/rawMaterialTaskPicking.js";
+import { getAuthApiBaseUrl } from "../../services/officeAuthService.js";
+import { listOfficeProductionMachineQueue } from "../../services/officeProductionPackingLazyApi.js";
+import { RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS, RAW_MATERIAL_WHOLE_ROLL_PRINT_MACHINE_LABELS, resolveRawMaterialWholeRollMachine } from "../../domain/rawMaterialWholeRollPolicy.js";
 import { InfoGrid, StatusPill } from "../../shared/ui/operational.jsx";
 import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
 import { RawMaterialSourceEvidence } from "./RawMaterialSourceEvidence.jsx";
@@ -43,6 +47,7 @@ function formatSupplierRollNo(value) {
 export function RawMaterialInboundReceivingSections({
   actionDock = null,
   authState,
+  allInbounds,
   operatorId,
   sourcePreviewDataUrls,
   rollId = "",
@@ -364,29 +369,80 @@ export function RawMaterialInboundReceivingSections({
   </form>
 ) : null}
 {issueSelection ? (
-  <form className="raw-material-label-verification raw-material-issue-selection" onSubmit={async (event) => {
-    event.preventDefault();
-    const machineId = resolveRawMaterialWholeRollMachine(issueSelection.machineId);
-    if (!machineId) return;
-    const result = await onAction?.("扫码出库", selected.id, { ...issueSelection, machineId, productionTaskId: "" });
-    if (result) setIssueSelection(null);
-  }}>
-    <strong>整卷出库：{issueSelection.rollId}</strong>
-    <span>出库后整卷转为机边，剩余重量仍在机边，不恢复可用库存。</span>
-    <label>请选择 1号机 到 9号机
-      <select required value={issueSelection.machineId || ""} onChange={(event) => setIssueSelection((current) => ({ ...current, machineId: event.target.value }))}>
-        <option value="">请选择机台</option>
-        {RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS.map((machine) => <option key={machine} value={machine}>{machine}</option>)}
-      </select>
-    </label>
-    <label>说明<textarea value={issueSelection.note || ""} onChange={(event) => setIssueSelection((current) => ({ ...current, note: event.target.value }))} /></label>
-    <div className="action-row">
-      <button className="primary-action" disabled={issueState.disabled || !resolveRawMaterialWholeRollMachine(issueSelection.machineId)} type="submit">确认整卷出库到机边</button>
-      <button onClick={() => setIssueSelection(null)} type="button">取消</button>
-    </div>
-  </form>
+  <DesktopRawMaterialIssueForm key={issueSelection.rollId} authState={authState} allInbounds={allInbounds}
+    inbound={selected} selection={issueSelection} setSelection={setIssueSelection}
+    disabled={issueState.disabled} onAction={onAction} />
 ) : null}
 </section>
     </>
   );
+}
+
+
+function DesktopRawMaterialIssueForm({ authState, allInbounds, inbound, selection, setSelection, onAction, disabled }) {
+  const [queue, setQueue] = useState({ loading: true, items: [], error: "" });
+  const [untaskedAllowed, setUntaskedAllowed] = useState(false);
+  const [taskId, setTaskId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    let active = true;
+    listOfficeProductionMachineQueue({ authState, query: { pageSize: 200 } }, { serverRequired: true })
+      .then(result => {
+        if (active) setQueue({ loading: false, items: result?.source === "api" ? result.items : [],
+          error: result?.source === "api" ? "" : result?.error?.message || "生产任务读取失败。" });
+      });
+    fetch(`${getAuthApiBaseUrl()}/health`)
+      .then(response => response.ok ? response.json() : null)
+      .then(health => { if (active) setUntaskedAllowed(health?.rawMaterialUntaskedIssue?.allowed === true); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [authState]);
+  const tasks = buildRawMaterialPickList({ queueItems: queue.items, inbounds: allInbounds ?? [inbound] });
+  const task = tasks.find(item => item.productionTaskId === taskId);
+  const roll = inbound.rolls?.find(item => item.id === selection.rollId);
+  const check = task && roll ? checkRollAgainstPickTask(task, roll, inbound) : null;
+  const manual = taskId === "trial" && untaskedAllowed;
+  const machineId = task?.target || (manual ? resolveRawMaterialWholeRollMachine(selection.machineId) : "");
+  const canIssue = !disabled && !submitting && roll && machineId && (manual || check?.ok);
+  const changeSelection = (key, value) => setSelection(current => ({ ...current, [key]: value }));
+  async function submit(event) {
+    event.preventDefault();
+    if (!canIssue) return;
+    setSubmitting(true);
+    try {
+      const result = await onAction?.("扫码出库", inbound.id, { ...selection, machineId, productionTaskId: task?.productionTaskId || "",
+        ...(task ? { issuePurpose: task.workshop === PRINT_WORKSHOP ? "印刷（先印后制袋）" : "制袋" } : {}) });
+      if (result) setSelection(null);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+  return <form className="raw-material-label-verification raw-material-issue-selection" onSubmit={submit}>
+    <strong>整卷出库：{selection.rollId}</strong>
+    <span>出库后整卷转为机边，剩余重量继续留在机边。</span>
+    <label>生产任务
+      <select required value={taskId} onChange={event => setTaskId(event.target.value)}>
+        <option value="">{queue.loading ? "正在读取生产任务…" : "请选择已发布的生产任务"}</option>
+        {tasks.map(item => <option key={item.productionTaskId} value={item.productionTaskId}>
+          {item.target} · {item.customerName || item.productionTaskId} · {item.size} · {item.requiredColor}
+        </option>)}
+        {untaskedAllowed ? <option value="trial">试用期无任务领料</option> : null}
+      </select>
+    </label>
+    {queue.error ? <p role="alert">{queue.error}</p> : null}
+    {check?.problems.length ? <p role="alert">{check.problems.join("；")}</p> : null}
+    {task ? <span>领到 {task.target}</span> : null}
+    {manual ? <label>机台
+      <select required value={selection.machineId || ""} onChange={event => changeSelection("machineId", event.target.value)}>
+        <option value="">请选择机台或丝印车间</option>
+        {[...RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS, ...RAW_MATERIAL_WHOLE_ROLL_PRINT_MACHINE_LABELS, PRINT_WORKSHOP].map(machine =>
+          <option key={machine} value={machine}>{machine}</option>)}
+      </select>
+    </label> : null}
+    <label>说明<textarea value={selection.note || ""} onChange={event => changeSelection("note", event.target.value)} /></label>
+    <div className="action-row">
+      <button className="primary-action" disabled={!canIssue} type="submit">确认整卷出库到机边</button>
+      <button disabled={submitting} onClick={() => setSelection(null)} type="button">取消</button>
+    </div>
+  </form>;
 }

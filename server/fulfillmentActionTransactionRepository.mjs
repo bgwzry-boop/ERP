@@ -1,14 +1,15 @@
 import { createLocalNoteCorrectionMethods, createPostgresNoteCorrectionMethods } from "./fulfillmentNoteCorrectionTransaction.mjs";
-import { orderTypeAliasesFor as productionOrderTypeAliasesFor } from "../shared/orderRouting.js";
+import { directProductionOrderTypeAliases, isDirectProductionOrderType } from "../shared/orderRouting.js";
 import { AUTO_QUANTITY_TOLERANCE_RATE } from "../shared/quantityTolerance.js";
 // P2-05: produced orders whose outbound may differ from the plan by up to 1% without an office decision.
-const PRODUCTION_MADE_ORDER_TYPE_ALIASES = ["custom_print", "custom_special", "external_print"].flatMap((type) => productionOrderTypeAliasesFor(type));
+const PRODUCTION_MADE_ORDER_TYPE_ALIASES = directProductionOrderTypeAliases();
 import { hasVoidedNoteSource } from "./services/queuedFulfillmentNoteReadiness.mjs";
 import { fulfillmentNoteReadinessSql } from "./fulfillmentNoteReadinessSql.mjs";
 import { fulfillmentNoteReadiness, noteDocumentTypes } from "../shared/fulfillmentNoteReadiness.js";
-import { packageAnchorId } from "../shared/packageContents.js";
+import { invalidPackageStatuses, packageAnchorId } from "../shared/packageContents.js";
+import { deliveryMethods, outboundPackageEvidence, outboundPackageLabels } from "./services/outboundPackageEvidence.mjs";
 import { resolveWarehouseInstructionQuantity } from "./services/warehouseInstructionQuantityService.mjs";
-import { orderTypeAliasesFor } from "../shared/orderRouting.js";
+import { isReleasableInventoryReservation, releasableInventoryReservationStatuses } from "./services/inventoryReservationPolicyService.mjs";
 import { acceptsWorkspaceRecordVersion } from "./workspaceRecordVersion.mjs";
 import { hasTrustedWarehousePaper } from "../shared/warehousePaperTrust.js";
 import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
@@ -532,11 +533,12 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
   if (!fulfillment || !operationLog) {
     throw new Error("Fulfillment and operation log are required for fulfillment action transaction");
   }
+  const packageEvidenceQty = outboundPackageEvidenceQuantity(input, fulfillment, warehouseOutboundExecution);
 
   return `
 BEGIN;
 WITH locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, packing_group_anchor_id, packing_group_revision, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id, stock_deducted_at
+  SELECT id, revision, order_line_id, method, status, actual_qty, expected_qty, packing_group_anchor_id, packing_group_revision, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id, stock_deducted_at
   FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
   FOR UPDATE
@@ -565,6 +567,7 @@ locked_print_job AS MATERIALIZED (
 locked_execution_paper_document AS MATERIALIZED (
   ${buildLockedWarehouseExecutionPaperDocumentSql(warehouseOutboundExecution, parameters)}
 ),
+${buildOutboundPackageEvidenceCtes(packageEvidenceQty, parameters)}
 locked_carrier_statements AS MATERIALIZED (
   ${buildLockedCarrierStatementsSql(input, parameters)}
 ),
@@ -617,6 +620,7 @@ fulfillment_write_guard AS MATERIALIZED (
       AND (${buildFulfillmentBillingSnapshotGuard(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot, parameters)}),
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
   ) AND erp_require(${buildCarrierHandoffTimeGuardSql(input, fulfillment, parameters)}, 'ERP_CARRIER_HANDOFF_TIME_CONFLICT')
+    ${packageEvidenceQty === null ? "" : `AND erp_require(${buildOutboundPackageEvidenceGuard(packageEvidenceQty, parameters)}, 'ERP_FULFILLMENT_CONCURRENCY_CONFLICT')`}
     ${operationLog.action === "driver_confirm_loaded" ? `AND erp_require_driver_packages(${parameters.text(fulfillment.fulfillmentId)}, ${parameters.text(fulfillment.orderLineId)}, ${parameters.textArray(operationLog.after?.checkedPackageIds ?? [])})` : ""} AS ok
 ),
 package_write_guard AS MATERIALIZED (
@@ -1971,9 +1975,6 @@ function buildWarehouseExecutionGuardSql(execution, parameters) {
     AND (SELECT status FROM locked_execution_paper_document) ${execution.result === "已备货" ? "NOT IN ('已作废', 'voided')" : "= '已交库房'"}
     AND (SELECT document_version FROM locked_execution_paper_document) = ${parameters.integer(execution.paperDocumentVersion)}
     ${execution.result === "实物已出库" ? `AND (SELECT COALESCE(p.instruction_qty,f.expected_qty) FROM locked_execution_paper_document p CROSS JOIN locked_fulfillment f)=${parameters.integer(execution.actualQty)}
-    AND (COALESCE((SELECT packing_group_anchor_id FROM locked_fulfillment),'')='' OR (
-     (SELECT sum((item->>'packedQty')::bigint) FROM packages p CROSS JOIN LATERAL jsonb_array_elements(p.contents_json) item WHERE p.fulfillment_id=(SELECT packing_group_anchor_id FROM locked_fulfillment) AND p.status NOT IN('已作废','已失效','voided','invalidated') AND item->>'fulfillmentId'=(SELECT id FROM locked_fulfillment))=${parameters.integer(execution.actualQty)}
-     AND NOT EXISTS(SELECT 1 FROM packages p LEFT JOIN print_records r ON r.id=p.label_print_record_id WHERE p.fulfillment_id=(SELECT packing_group_anchor_id FROM locked_fulfillment) AND p.status NOT IN('已作废','已失效','voided','invalidated') AND (p.status<>'已打印标签' OR r.status IS NULL OR r.status NOT IN('printed','reprinted')))))
     AND (NOT EXISTS(SELECT 1 FROM locked_execution_paper_document WHERE instruction_resolution_id IS NOT NULL OR instruction_decision_id IS NOT NULL)
       AND (SELECT expected_qty FROM locked_fulfillment)=${parameters.integer(execution.actualQty)}
       AND (SELECT COALESCE(actual_qty,expected_qty)=expected_qty AND status NOT IN ('数量差异待处理','待补货','无法出库','送货异常') FROM locked_fulfillment)
@@ -1991,6 +1992,52 @@ function buildWarehouseExecutionGuardSql(execution, parameters) {
            AND f.status NOT IN ('数量差异待处理','待补货','无法出库','送货异常')
            AND l.order_type=ANY(${parameters.textArray(PRODUCTION_MADE_ORDER_TYPE_ALIASES)}) AND COALESCE(l.qty_basis,'pieces')='pieces')
        AND NOT EXISTS(SELECT 1 FROM fulfillment_exceptions e WHERE e.fulfillment_id=(SELECT id FROM locked_fulfillment) AND e.exception_type='quantity_mismatch' AND e.status NOT IN('已解决','已作废'))))` : ""}`;
+}
+
+function outboundPackageEvidenceQuantity(input, fulfillment, execution) {
+  if (execution?.result === "实物已出库") return execution.actualQty;
+  if (["confirm_fulfillment_print_from_driver", "driver_complete_delivery"].includes(input.operationLog?.action)
+    && (input.inventoryAdjustments ?? []).some(row => row.onHandQtyChange < 0)) return fulfillment.actualQty ?? fulfillment.expectedQty;
+  return null;
+}
+
+function buildOutboundPackageEvidenceCtes(quantity, parameters) {
+  if (quantity === null) return "";
+  return `outbound_package_lookup AS MATERIALIZED (
+    SELECT id, order_line_id, COALESCE(NULLIF(packing_group_anchor_id,''),id) AS label_target,
+      (COALESCE(packing_group_anchor_id,'')<>'' OR method=ANY(${parameters.textArray(deliveryMethods)})) AS required
+    FROM locked_fulfillment
+  ),
+  locked_outbound_packages AS MATERIALIZED (
+    SELECT p.id, p.order_line_id, p.status, p.label_print_record_id, p.packed_qty, p.contents_json
+    FROM packages p JOIN outbound_package_lookup f ON p.fulfillment_id=f.label_target
+    WHERE f.required AND p.status <> ALL(${parameters.textArray(invalidPackageStatuses)})
+    ORDER BY p.id FOR SHARE OF p
+  ),
+  locked_outbound_labels AS MATERIALIZED (
+    SELECT r.id FROM print_records r JOIN outbound_package_lookup f ON r.target_id=f.label_target
+    WHERE r.id IN (SELECT label_print_record_id FROM locked_outbound_packages)
+      AND r.target_type='fulfillment' AND r.status IN ('printed','reprinted')
+      AND r.document_type=ANY(${parameters.textArray(outboundPackageLabels)})
+    ORDER BY r.id FOR SHARE OF r
+  ),`;
+}
+
+function buildOutboundPackageEvidenceGuard(quantity, parameters) {
+  return `(NOT COALESCE((SELECT required FROM outbound_package_lookup),false) OR (
+    EXISTS (SELECT 1 FROM locked_outbound_packages)
+    AND NOT EXISTS (
+      SELECT 1 FROM locked_outbound_packages p LEFT JOIN locked_outbound_labels r ON r.id=p.label_print_record_id
+      WHERE p.status<>'已打印标签' OR r.id IS NULL
+    )
+    AND ((SELECT CASE WHEN COUNT(*) FILTER (WHERE COALESCE(item->>'packedQty','') !~ '^[1-9][0-9]{0,9}$'
+      OR item->>'orderLineId' IS DISTINCT FROM f.order_line_id)=0
+      THEN SUM(CASE WHEN item->>'packedQty' ~ '^[1-9][0-9]{0,9}$' THEN (item->>'packedQty')::bigint END) END
+      FROM locked_outbound_packages p CROSS JOIN outbound_package_lookup f
+      CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_array_length(p.contents_json)>0 THEN p.contents_json
+        ELSE jsonb_build_array(jsonb_build_object('fulfillmentId',f.label_target,'orderLineId',p.order_line_id,'packedQty',p.packed_qty)) END) item
+      WHERE item->>'fulfillmentId'=f.id)=${parameters.integer(quantity)}) IS TRUE
+  ))`;
 }
 
 function buildWritePaperOutboundDocumentSql(document, parameters) {
@@ -2768,8 +2815,10 @@ function assertLocalFulfillmentOperationalBounds(input) {
     if (!paper || (paper.paperOutboundDocumentId ?? paper.id) !== execution.paperOutboundDocumentId || Number(paper.revision) !== Number(execution.paperDocumentRevision)
       || Number(paper.documentVersion) !== Number(execution.paperDocumentVersion) || !hasTrustedWarehousePaper(paper, print, id)
       || (execution.result !== "已备货" && paper.status !== "已交库房")) throw fulfillmentConflict(current.revision);
-    if(execution.result==="实物已出库"&&resolveWarehouseInstructionQuantity(input.workspace,current,paper)!==Number(execution.actualQty))throw fulfillmentConflict(current.revision);
+    if (execution.result === "实物已出库" && resolveWarehouseInstructionQuantity(input.workspace, current, paper) !== Number(execution.actualQty)) throw fulfillmentConflict(current.revision);
   }
+  const packageEvidenceQty = outboundPackageEvidenceQuantity(input, next, input.warehouseOutboundExecution);
+  if (packageEvidenceQty !== null && !outboundPackageEvidence(input.workspace, current, packageEvidenceQty).ready) throw fulfillmentConflict(current.revision);
   if (input.finalDeliveryTimeEvidence) {
     const evidence = input.finalDeliveryTimeEvidence;
     const actual = Date.parse(evidence.actualHandoffAt), recorded = Date.parse(evidence.confirmedAt), physical = Date.parse(current.physicalOutboundAt);
@@ -2858,7 +2907,8 @@ function assertLocalOutboundInventoryConservation(input) {
   if (actual <= 0) fail();
   if (noMovements) {
     const line = (workspace.orderLines ?? []).find(row => (row.orderLineId ?? row.id) === lineId);
-    if (![...orderTypeAliasesFor("custom_special"), ...orderTypeAliasesFor("external_print")].includes(line?.orderType)) fail();
+    if (!isDirectProductionOrderType(line?.orderType) || (workspace.inventoryReservations ?? []).some(row =>
+      (row.orderLineId ?? row.order_line_id) === lineId && isReleasableInventoryReservation(row))) fail();
     return;
   }
   const deltas = new Map();
@@ -2930,7 +2980,6 @@ function buildOutboundLedgerDeltasSql(records, fulfillmentId, parameters) {
 function buildOutboundInventoryConservationSql(input, fulfillment, parameters) {
   if (!checksOutboundInventory(input)) return "TRUE";
   const noMovements = "NOT EXISTS (SELECT 1 FROM inventory_deltas) AND NOT EXISTS (SELECT 1 FROM reservation_updates) AND NOT EXISTS (SELECT 1 FROM inventory_ledger_deltas)";
-  const noStockTypes = [...orderTypeAliasesFor("custom_special"), ...orderTypeAliasesFor("external_print")];
   const required = parameters.integer(fulfillment.actualQty);
   // 负责人 2026-11-08：打送货单 / 自提单时已经扣过库存的，出库、送达时不能再扣。
   return `CASE WHEN ${input.operationLog?.action === "driver_complete_delivery" ? "EXISTS (SELECT 1 FROM locked_fulfillment WHERE physical_outbound_at IS NOT NULL)" : "FALSE"}
@@ -2938,7 +2987,13 @@ function buildOutboundInventoryConservationSql(input, fulfillment, parameters) {
     THEN (${noMovements})
     ELSE EXISTS (SELECT 1 FROM locked_inventory_order_line)
       AND (${required} > 0)
-      AND (((${noMovements}) AND EXISTS (SELECT 1 FROM locked_inventory_order_line WHERE order_type = ANY(${parameters.textArray(noStockTypes)})))
+      AND (((${noMovements}) AND NOT EXISTS (
+        SELECT 1 FROM inventory_reservations AS reservation
+        WHERE reservation.order_line_id = (SELECT id FROM locked_inventory_order_line)
+          AND reservation.status = ANY(${parameters.textArray(releasableInventoryReservationStatuses)})
+        FOR UPDATE OF reservation
+      )
+        AND EXISTS (SELECT 1 FROM locked_inventory_order_line WHERE order_type = ANY(${parameters.textArray(PRODUCTION_MADE_ORDER_TYPE_ALIASES)})))
         OR ((SELECT COALESCE(-SUM(on_hand_qty_change),0) FROM inventory_deltas) = ${required}
           AND NOT EXISTS (SELECT 1 FROM inventory_deltas WHERE on_hand_qty_change > 0 OR reserved_qty_change > 0)
           AND NOT EXISTS (

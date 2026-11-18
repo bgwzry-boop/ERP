@@ -29,6 +29,11 @@ assert.match(customHtml,/<div hidden="">/,"custom per-package entry stays collap
 assert.match(customHtml, /<legend>登记实际包裹<\/legend>/, "forbidding custom mixing must not hide the independent packing form");
 assert.match(customHtml, /逐包数量（每行一包，可修改）/);
 assert.match(customHtml, /核对并登记包裹/);
+const packedCustom = { ...fulfillment, id: 'F-CUSTOM', lineId: 'OL-CUSTOM', orderType: '定制印刷', actualPackageCount: 2,
+  packingTask: { id: 'PKT-CUSTOM', orderLineId: 'OL-CUSTOM', status: '已完成' } };
+assert.match(render(packedCustom), /更正本批实物包裹/, "已打包的定制在实物出库前可更正");
+assert.doesNotMatch(render(packedCustom), /核对并登记包裹/, "已保存的包不再进入首次登记");
+assert.doesNotMatch(render({ ...packedCustom, physicalOutboundAt: '2026-11-18T00:00:00Z' }), /更正本批实物包裹/, "已出库的定制不再直接重包");
 assert.doesNotMatch(render({...fulfillment,finalDeliveryAt:'2026-10-23T00:00:00Z'}),/<button/);
 assert.doesNotMatch(render(fulfillment,{...formal,permissionContext:{actionPermissions:[]}}),/<button/);
 console.log('Desktop fulfillment checks passed: stock mixed-package entry, custom mixing refused but independent packing form retained, driver role projection, permission and terminal gates.');

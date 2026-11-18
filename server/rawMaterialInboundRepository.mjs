@@ -267,7 +267,7 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
       } : null;
       const consumptionConstraints = await readConsumptionProductionConstraints(queryJson, findRawMaterialInbound(input.workspace, input.inboundId), result.inbound);
       if (consumptionConstraints.length && !options.idempotentTransactionJson && !postgresClient?.idempotentTransactionJson) {
-        throw Object.assign(new Error("关联生产任务的原料消耗必须通过具有共享事务锁的数据库执行器。"), {statusCode:503,code:"RAW_MATERIAL_CONSUMPTION_ATOMIC_EXECUTOR_REQUIRED"});
+        throw Object.assign(new Error("关联生产任务的领料或消耗必须通过具有共享事务锁的数据库执行器。"), {statusCode:503,code:"RAW_MATERIAL_CONSUMPTION_ATOMIC_EXECUTOR_REQUIRED"});
       }
       const builtQuery = buildUpsertRawMaterialInboundPayloadTransactionQuery(
         { ...result.inbound, revision: result.expectedRevision },
@@ -283,7 +283,9 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
             operatorId: input.operatorId,
             targetType: "raw_material_inbound",
             targetId: input.inboundId,
-            resourceLocks: [...consumptionConstraints.map(link=>`order-line:${link.orderLineId}`), `raw-material:${input.inboundId}`, ...(sourceReturnInboundId ? [`raw-material:${sourceReturnInboundId}`] : [])],
+            resourceLocks: [...consumptionConstraints.flatMap(link => [
+              `order-line:${link.orderLineId}`, ...(link.taskId ? [`production-task:${link.taskId}`] : []),
+            ]), `raw-material:${input.inboundId}`, ...(sourceReturnInboundId ? [`raw-material:${sourceReturnInboundId}`] : [])],
             query: {...builtQuery, orderLineLockIds:consumptionConstraints.map(link=>link.orderLineId)},
           }),
         ),

@@ -115,14 +115,30 @@ export function createPostgresAttendancePayrollRepository(options = {}) {
     },
     async transitionPayrollRun(input = {}) {
       const query = buildTransitionPayrollRunQuery(input);
-      const result = normalizePayrollRunResult(await transactionJson(query.text, query.values));
+      let result;
+      try {
+        result = normalizePayrollRunResult(await transactionJson(query.text, query.values));
+      } catch (error) {
+        if (error?.code === "23505" && error.constraint === "payroll_paid_month_guards_pkey") {
+          throw payrollMonthAlreadyPaid();
+        }
+        throw error;
+      }
+      let replayed = false;
+      if (!result.payrollRun && input.payrollRun?.status === "paid") {
+        // A competing retry may have committed after this statement's snapshot.
+        // Read the original payment receipt using a fresh PostgreSQL snapshot.
+        const replay = buildReadPayrollPaymentReplayQuery(input.payrollRun);
+        result = normalizePayrollRunResult(await queryJson(replay.text, replay.values));
+        replayed = Boolean(result.payrollRun);
+      }
       if (!result.payrollRun) throw payrollRunConflict("工资批次状态已被其他操作更新，请刷新后重试。", "PAYROLL_RUN_TRANSITION_CONFLICT");
       applyPayrollRunToWorkspace({
         workspace: input.workspace,
         payrollRun: result.payrollRun,
         payrollLines: result.payrollLines,
       });
-      return result;
+      return replayed ? { ...result, replayed: true } : result;
     },
     async savePayrollLineAdjustment(input = {}) {
       const query = buildSavePayrollLineAdjustmentQuery(input);
@@ -520,6 +536,30 @@ WHERE id = ${parameters.text(payrollRun.id)}
   AND status = ${parameters.text(expectedStatus)}
 RETURNING *
 )
+${payrollRunResultSql("updated_run", payrollRun.id, parameters)}
+`,
+    values: parameters.values,
+  };
+}
+
+function buildReadPayrollPaymentReplayQuery(payrollRun) {
+  const parameters = createPostgresParameterBinder();
+  return {
+    text: `
+WITH recorded_payment AS (
+  SELECT * FROM payroll_runs
+  WHERE id = ${parameters.text(payrollRun.id)} AND status = 'paid'
+    AND payment_reference = ${parameters.text(payrollRun.paymentReference)}
+    AND paid_by = ${parameters.text(payrollRun.paidBy)}
+)
+${payrollRunResultSql("recorded_payment", payrollRun.id, parameters)}
+`,
+    values: parameters.values,
+  };
+}
+
+function payrollRunResultSql(source, payrollRunId, parameters) {
+  return `
 SELECT json_build_object(
   'payrollRun', (SELECT json_build_object(
     'id', id, 'payrollMonth', payroll_month, 'policyVersionId', COALESCE(policy_version_id, ''),
@@ -529,7 +569,7 @@ SELECT json_build_object(
     'lockedAt', COALESCE(locked_at::TEXT, ''), 'paidBy', COALESCE(paid_by, ''),
     'paidAt', COALESCE(paid_at::TEXT, ''), 'paymentReference', payment_reference,
     'createdAt', created_at::TEXT, 'updatedAt', updated_at::TEXT
-  ) FROM updated_run),
+  ) FROM ${source}),
   'payrollLines', COALESCE((SELECT json_agg(json_build_object(
     'id', id, 'payrollRunId', payroll_run_id, 'employeeId', employee_id,
     'attendanceWorkMinutes', attendance_work_minutes, 'baseWage', base_wage,
@@ -539,12 +579,9 @@ SELECT json_build_object(
     'grossWage', gross_wage, 'netWage', net_wage, 'calculation', calculation_json,
     'createdAt', created_at::TEXT, 'updatedAt', updated_at::TEXT
   ) ORDER BY employee_id) FROM payroll_lines
-    WHERE payroll_run_id = ${parameters.text(payrollRun.id)}
-      AND EXISTS (SELECT 1 FROM updated_run)), '[]'::json)
-) AS result;
-`,
-    values: parameters.values,
-  };
+    WHERE payroll_run_id = ${parameters.text(payrollRunId)}
+      AND EXISTS (SELECT 1 FROM ${source})), '[]'::json)
+) AS result;`;
 }
 
 export function buildSavePayrollLineAdjustmentQuery(input = {}) {
@@ -745,6 +782,14 @@ function transitionLocalPayrollRun(input = {}) {
   const safeRun = normalizePayrollRun(input.payrollRun);
   const expectedStatus = cleanText(input.expectedStatus);
   const current = (input.workspace?.payrollRuns ?? []).find((run) => cleanText(run.id) === safeRun?.id);
+  if (current?.status === "paid" && safeRun?.status === "paid" &&
+      current.paymentReference === safeRun.paymentReference && current.paidBy === safeRun.paidBy) {
+    return {
+      payrollRun: normalizePayrollRun(current),
+      payrollLines: normalizePayrollLines((input.workspace.payrollLines ?? []).filter((line) => line.payrollRunId === safeRun.id)),
+      replayed: true,
+    };
+  }
   if (
     !input.workspace ||
     !safeRun ||
@@ -753,6 +798,10 @@ function transitionLocalPayrollRun(input = {}) {
     !isAllowedPayrollTransition(expectedStatus, safeRun.status)
   ) {
     throw payrollRunConflict("工资批次状态已被其他操作更新，请刷新后重试。", "PAYROLL_RUN_TRANSITION_CONFLICT");
+  }
+  if ((input.workspace.payrollRuns ?? []).some((run) =>
+    run.id !== safeRun.id && run.payrollMonth === safeRun.payrollMonth && run.status === "paid")) {
+    throw payrollMonthAlreadyPaid();
   }
   return applyPayrollRunToWorkspace({
     workspace: input.workspace,
@@ -791,6 +840,10 @@ function payrollRunConflict(message, code) {
   error.statusCode = 409;
   error.code = code;
   return error;
+}
+
+function payrollMonthAlreadyPaid() {
+  return payrollRunConflict("该月已确认发薪，后续更正或补发须关联原批次另行办理。", "PAYROLL_MONTH_ALREADY_PAID");
 }
 
 function isPayrollRevisionUniqueConflict(error) {

@@ -78,7 +78,12 @@ export function createAttendancePayrollService(dependencies = {}) {
     const latestByMonth = new Map();
     for (const item of ownLines) {
       const current = latestByMonth.get(item.run.payrollMonth);
-      if (!current || Number(item.run.revision) > Number(current.run.revision)) latestByMonth.set(item.run.payrollMonth, item);
+      const confirmedPayout = item.run.status === "paid";
+      const currentPaid = current?.run.status === "paid";
+      if (!current || (confirmedPayout && !currentPaid)
+        || (confirmedPayout === currentPaid && Number(item.run.revision) > Number(current.run.revision))) {
+        latestByMonth.set(item.run.payrollMonth, item);
+      }
     }
     const selected = latestByMonth.get(safeMonth) ?? null;
     const year = String(settlementYearOfPayrollMonth(safeMonth));
@@ -478,8 +483,12 @@ export function createAttendancePayrollService(dependencies = {}) {
     const { providerKey, rangeStart, rangeEnd, fetched } = await fetchAttendanceSourceRecords({
       workspace,
       body,
+      month: body.month,
     });
     const assessment = assessAttendanceSource({ workspace, providerKey, rangeStart, rangeEnd, fetched });
+    const checkedAt = now();
+    const coverageConfirmationNeeded = assessment.ready && assessment.summary.newRecordCount === 0
+      && assessAttendanceImportCoverage(workspace, { rangeStart, rangeEnd, asOf: checkedAt }).gapCount > 0;
     return {
       status: assessment.ready ? "passed" : "blocked",
       ready: assessment.ready,
@@ -493,7 +502,8 @@ export function createAttendancePayrollService(dependencies = {}) {
         complete: assessment.employeeCount > 0 && assessment.uniquelyMappedEmployeeCount === assessment.employeeCount,
       },
       blockingReasons: assessment.blockingReasons,
-      importRecommended: assessment.ready && assessment.summary.newRecordCount > 0,
+      importRecommended: assessment.ready && (assessment.summary.newRecordCount > 0 || coverageConfirmationNeeded),
+      coverageConfirmationNeeded,
       safeguards: {
         readOnly: true,
         formalDataWritten: false,
@@ -503,7 +513,7 @@ export function createAttendancePayrollService(dependencies = {}) {
         sourcePayloadExposed: false,
         attendanceTokenExposed: false,
       },
-      checkedAt: now().toISOString(),
+      checkedAt: checkedAt.toISOString(),
     };
   }
 
@@ -564,7 +574,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     });
   }
 
-  async function fetchAttendanceSourceRecords({ workspace, body = {} } = {}) {
+  async function fetchAttendanceSourceRecords({ workspace, body = {}, month } = {}) {
     const provider = attendanceProvider ?? workspace?.attendanceProvider;
     if (typeof provider?.fetchPunches !== "function") {
       throw businessError(
@@ -573,12 +583,20 @@ export function createAttendancePayrollService(dependencies = {}) {
         "真实考勤来源尚未配置，系统不会使用示例打卡数据。",
       );
     }
-    const rangeStart = normalizeTimestamp(body.rangeStart, "rangeStart");
-    const rangeEnd = normalizeTimestamp(body.rangeEnd, "rangeEnd");
+    const currentTime = now();
+    const requestedMonth = cleanText(month);
+    const monthRange = requestedMonth && payrollMonthTimestampRange(normalizeMonth(requestedMonth, currentTime));
+    const rangeStart = monthRange ? monthRange.rangeStart : normalizeTimestamp(body.rangeStart, "rangeStart");
+    const rangeEnd = monthRange
+      ? new Date(Math.min(Date.parse(monthRange.rangeEnd), currentTime.getTime())).toISOString()
+      : normalizeTimestamp(body.rangeEnd, "rangeEnd");
+    if (monthRange && Date.parse(rangeStart) >= currentTime.getTime()) {
+      throw businessError(400, "ATTENDANCE_SYNC_FUTURE_RANGE", "所选工资月份还没有开始，不能同步未来考勤。");
+    }
     if (Date.parse(rangeEnd) <= Date.parse(rangeStart)) {
       throw businessError(400, "ATTENDANCE_SYNC_RANGE_INVALID", "考勤同步结束时间必须晚于开始时间。");
     }
-    if (Date.parse(rangeEnd) > now().getTime()) {
+    if (Date.parse(rangeEnd) > currentTime.getTime()) {
       throw businessError(400, "ATTENDANCE_SYNC_FUTURE_RANGE", "考勤同步不能包含尚未发生的时间；请同步截至当前的记录，月末再补齐整月。");
     }
     const providerKey = cleanText(provider.key ?? body.provider).toLowerCase();
@@ -940,11 +958,23 @@ export function createAttendancePayrollService(dependencies = {}) {
   async function transitionPayrollRun({ workspace, payrollRunId, action, body = {}, operatorId } = {}) {
     const current = (workspace.payrollRuns ?? []).find((run) => run.id === payrollRunId);
     if (!current) throw businessError(404, "PAYROLL_RUN_NOT_FOUND", "工资批次不存在。");
+    const paymentReference = cleanText(body.paymentReference);
+    if (action === "payment" && current.status === "paid" && paymentReference &&
+      cleanText(current.paymentReference) === paymentReference && cleanText(current.paidBy) === cleanText(operatorId)) {
+      return {
+        payrollRun: current,
+        payrollLines: (workspace.payrollLines ?? []).filter((line) => line.payrollRunId === current.id),
+        replayed: true,
+      };
+    }
+    if ((workspace.payrollRuns ?? []).some((run) => run.payrollMonth === current.payrollMonth && run.status === "paid")) {
+      throw businessError(409, "PAYROLL_MONTH_ALREADY_PAID", "该月已确认发薪，后续更正或补发须关联原批次另行办理。");
+    }
     const targetStatus = { review: "reviewed", lock: "locked", payment: "paid" }[action];
     if (!targetStatus || !payrollRunTransitions[current.status]?.has(targetStatus)) {
       throw businessError(409, "PAYROLL_RUN_TRANSITION_INVALID", "工资批次当前状态不允许执行该操作。");
     }
-    if (targetStatus === "paid" && !cleanText(body.paymentReference)) {
+    if (targetStatus === "paid" && !paymentReference) {
       throw businessError(400, "PAYROLL_PAYMENT_REFERENCE_REQUIRED", "确认发薪必须填写付款凭证编号。");
     }
     const changedAt = now().toISOString();
@@ -957,7 +987,7 @@ export function createAttendancePayrollService(dependencies = {}) {
       lockedAt: targetStatus === "locked" ? changedAt : current.lockedAt,
       paidBy: targetStatus === "paid" ? operatorId : current.paidBy,
       paidAt: targetStatus === "paid" ? changedAt : current.paidAt,
-      paymentReference: targetStatus === "paid" ? cleanText(body.paymentReference) : current.paymentReference,
+      paymentReference: targetStatus === "paid" ? paymentReference : current.paymentReference,
       updatedAt: changedAt,
     };
     return workspace.attendancePayrollRepository.transitionPayrollRun({
@@ -989,7 +1019,10 @@ export function createAttendancePayrollService(dependencies = {}) {
     const latestByMonth = new Map();
     for (const item of allItems) {
       if (!new Set(["reviewed", "locked", "paid"]).has(item.payrollRun.status)) continue;
-      if (!latestByMonth.has(item.payrollRun.payrollMonth)) latestByMonth.set(item.payrollRun.payrollMonth, item);
+      const current = latestByMonth.get(item.payrollRun.payrollMonth);
+      if (!current || (item.payrollRun.status === "paid" && current.payrollRun.status !== "paid")) {
+        latestByMonth.set(item.payrollRun.payrollMonth, item);
+      }
     }
     const yearEndSettlement = [...latestByMonth.values()].reduce((sum, item) => ({
       insuranceDeposit: round(sum.insuranceDeposit + nonNegativeNumber(item.payrollLine.calculation?.withholding?.insuranceDepositWithheld), 2),
@@ -1795,47 +1828,37 @@ function payrollCalculationAsOf(month, currentDate) {
   return currentDate.getTime() < monthEnd.getTime() ? new Date(currentDate) : monthEnd;
 }
 
-function findVerifiedAttendanceImports(workspace, month) {
-  const payrollMonthRange = payrollMonthTimestampRange(month);
-  return (workspace?.attendanceImportBatches ?? []).filter((batch) =>
+function buildVerifiedAttendanceImportCoverage(workspace, month, asOf) {
+  const { rangeStart, rangeEnd } = payrollMonthTimestampRange(month);
+  const coverage = assessAttendanceImportCoverage(workspace, { rangeStart, rangeEnd, asOf });
+  const periodClosed = asOf.getTime() >= Date.parse(rangeEnd);
+  return { ...coverage, periodClosed, complete: periodClosed && coverage.gapCount === 0 };
+}
+
+function assessAttendanceImportCoverage(workspace, { rangeStart, rangeEnd, asOf }) {
+  const verifiedImports = (workspace?.attendanceImportBatches ?? []).filter(batch =>
     cleanText(batch.status) === "completed" &&
     nonNegativeNumber(batch.fetchedCount) > 0 &&
     nonNegativeNumber(batch.unmatchedCount) === 0 &&
-    timestampRangesOverlap(
-      batch.rangeStart,
-      batch.rangeEnd,
-      payrollMonthRange.rangeStart,
-      payrollMonthRange.rangeEnd,
-    ),
+    timestampRangesOverlap(batch.rangeStart, batch.rangeEnd, rangeStart, rangeEnd),
   );
-}
-
-function buildVerifiedAttendanceImportCoverage(workspace, month, asOf) {
-  const monthRange = payrollMonthTimestampRange(month);
-  const verifiedImports = findVerifiedAttendanceImports(workspace, month);
-  const monthStart = Date.parse(monthRange.rangeStart);
-  const monthEnd = Date.parse(monthRange.rangeEnd);
-  const periodClosed = asOf.getTime() >= monthEnd;
+  const start = Date.parse(rangeStart);
+  const end = Date.parse(rangeEnd);
   const intervals = verifiedImports
-    .map((batch) => ({
-      start: Math.max(monthStart, Date.parse(batch.rangeStart)),
-      end: Math.min(monthEnd, Date.parse(batch.rangeEnd), Date.parse(batch.completedAt), asOf.getTime()),
+    .map(batch => ({
+      start: Math.max(start, Date.parse(batch.rangeStart)),
+      end: Math.min(end, Date.parse(batch.rangeEnd), Date.parse(batch.completedAt), asOf.getTime()),
     }))
-    .filter((interval) => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start)
+    .filter(interval => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start)
     .sort((left, right) => left.start - right.start || left.end - right.end);
-  let cursor = monthStart;
+  let cursor = start;
   let gapCount = 0;
   for (const interval of intervals) {
     if (interval.start > cursor) gapCount += 1;
     if (interval.end > cursor) cursor = interval.end;
   }
-  if (cursor < monthEnd) gapCount += 1;
-  return {
-    verifiedImports,
-    periodClosed,
-    complete: periodClosed && intervals.length > 0 && gapCount === 0 && cursor >= monthEnd,
-    gapCount,
-  };
+  if (cursor < end) gapCount += 1;
+  return { verifiedImports, gapCount };
 }
 
 function timestampRangesOverlap(leftStart, leftEnd, rightStart, rightEnd) {

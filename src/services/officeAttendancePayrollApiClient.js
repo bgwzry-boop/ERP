@@ -80,7 +80,7 @@ export function precheckOfficeAttendanceSync(input = {}, options = {}) {
     authState: input.authState,
     operatorId: input.operatorId,
     method: "POST",
-    body: { rangeStart: input.rangeStart, rangeEnd: input.rangeEnd },
+    body: input.month ? { month: input.month } : { rangeStart: input.rangeStart, rangeEnd: input.rangeEnd },
   }, "考勤来源预检失败。");
 }
 

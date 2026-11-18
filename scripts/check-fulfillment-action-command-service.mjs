@@ -293,12 +293,23 @@ async function checkPaperHandoffAndWarehouseQuantityMismatch() {
 async function checkWarehousePhysicalOutboundAndDriverFinalDelivery() {
   const workspace = buildPaperReadyWorkspace({ method: "送货", status: "待出库" });
   await handoffCurrentPaperDocument(workspace);
-  const physicalOutbound = await service.recordWarehouseOutboundExecution({
+  const recordOutbound = () => service.recordWarehouseOutboundExecution({
     workspace,
     fulfillmentId: "FUL-001",
     body: warehouseExecutionBody(workspace, { result: "实物已出库", actualQty: 100 }),
     operatorId: "U-OFFICE-A",
   });
+  const beforeFailedOutbound = calls.length;
+  assert.equal((await recordOutbound()).code, "WAREHOUSE_REAL_PACKAGES_REQUIRED");
+  assert.equal(calls.length, beforeFailedOutbound, "no execution or inventory changes without physical packages");
+  workspace.packages = [
+    { id: "PKG-001", fulfillmentId: "FUL-001", orderLineId: "OL-001", packedQty: 60, status: "待打印标签" },
+    { id: "PKG-002", fulfillmentId: "FUL-001", orderLineId: "OL-001", packedQty: 40, status: "待打印标签" },
+  ];
+  assert.equal((await recordOutbound()).code, "PACKING_GROUP_WAREHOUSE_LABEL_REQUIRED");
+  workspace.printRecords.push({ id: "PR-LABEL-001", targetType: "fulfillment", targetId: "FUL-001", status: "printed", documentType: "package_label" });
+  for (const row of workspace.packages) Object.assign(row, { status: "已打印标签", labelPrintRecordId: "PR-LABEL-001" });
+  const physicalOutbound = await recordOutbound();
   assert.equal(physicalOutbound.response.status, "待司机装车");
   assert.equal(physicalOutbound.response.statementCandidate, false);
   assert.equal(calls.at(-1).inventoryLedgerEntries.length, 1);
@@ -483,7 +494,15 @@ async function checkValidationAndLegacyGuard() {
     { ...legacyWorkspace.fulfillments[0], status: "已交付" },
     { actualQty: 100, allowUnreservedInventoryDeduction: true },
   );
-  assert.equal(movements.error.code, "LEGACY_FULFILLMENT_NOT_STOCK_LINE");
+  assert.equal(movements.inventoryDeductionMode, "production_direct");
+  assert.deepEqual(movements.inventoryAdjustments, []);
+  legacyWorkspace.orderLines[0].orderType = "未确认";
+  legacyWorkspace.orderLines[0].print = "是";
+  assert.equal(service.buildInventoryMovements(
+    legacyWorkspace,
+    { ...legacyWorkspace.fulfillments[0], status: "已交付" },
+    { actualQty: 100, allowUnreservedInventoryDeduction: true },
+  ).error.code, "LEGACY_FULFILLMENT_NOT_STOCK_LINE");
 }
 
 async function checkDispatchCommand() {

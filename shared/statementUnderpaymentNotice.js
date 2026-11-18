@@ -25,17 +25,40 @@ export function chinaCalendarYear(value) {
 }
 
 function moneyCents(value) {
+  if (!["number", "string"].includes(typeof value) || !String(value).trim()) return null;
   const amount = Number(value);
-  return Number.isFinite(amount) ? Math.round(amount * 100) : null;
+  const cents = Math.round(amount * 100);
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
+function receiptRegistrationTime(row) {
+  const timestamp = Date.parse(row?.createdAt || row?.paidAt);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 export function summarizeAnnualReceiptAndRounding(source = {}, year) {
   const target = Number(year);
   const payments = source.payments ?? source.paymentRecords ?? [];
   const varianceRecords = source.varianceRecords ?? [];
-  const receivedCents = (Array.isArray(payments) ? payments : [])
-    .filter((row) => chinaCalendarYear(row?.paidAt) === target)
-    .reduce((sum, row) => sum + (moneyCents(row?.amount) ?? 0), 0);
+  const runningByStatement = new Map();
+  let receivedCents = 0;
+  // Walk all years first: December's last cumulative balance is the baseline
+  // for a January registration. Three registrations are not three transfers.
+  const registrations = (Array.isArray(payments) ? [...payments] : []).sort((left, right) =>
+    receiptRegistrationTime(left) - receiptRegistrationTime(right) ||
+    String(left?.paymentRecordId ?? left?.id ?? "").localeCompare(String(right?.paymentRecordId ?? right?.id ?? "")),
+  );
+  for (const row of registrations) {
+    const statementId = String(row?.statementId ?? row?.statement_id ?? "").trim();
+    const amount = moneyCents(row?.amount);
+    if (!statementId || amount === null || amount < 0) continue;
+    const recordedBefore = moneyCents(row?.statementReceivedBefore);
+    const before = recordedBefore !== null && recordedBefore >= 0
+      ? recordedBefore
+      : runningByStatement.get(statementId) ?? 0;
+    if (chinaCalendarYear(row.paidAt) === target) receivedCents += amount - before;
+    runningByStatement.set(statementId, amount);
+  }
   const roundingCents = (Array.isArray(varianceRecords) ? varianceRecords : [])
     .filter((row) => row?.handlingResult === ROUNDING_HANDLING_RESULT && chinaCalendarYear(row?.createdAt || row?.paidAt) === target)
     .reduce((sum, row) => sum + (moneyCents(row?.amount) ?? 0), 0);

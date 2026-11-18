@@ -77,6 +77,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       },
       machineId,
       productionTaskId,
+      requirePublishedTask: true,
     });
     const issuePurpose = cleanText(input.body?.issuePurpose) || "生产领料";
     const requestedWeightKg = Number(input.body?.issuedWeightKg ?? input.body?.weightKg);

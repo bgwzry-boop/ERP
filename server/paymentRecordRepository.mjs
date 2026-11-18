@@ -168,6 +168,11 @@ export function normalizePaymentRecord(record) {
   const status = String(record.status ?? "recorded").trim() || "recorded";
   if (!paymentRecordId || !statementId || !Number.isFinite(amount)) return null;
   const evidenceAttachmentId = String(record.evidenceAttachmentId ?? record.evidence_attachment_id ?? "").trim();
+  const beforeValue = record.statementReceivedBefore ?? record.statement_received_before;
+  const before = typeof beforeValue === "number" || (typeof beforeValue === "string" && beforeValue.trim())
+    ? Number(beforeValue)
+    : null;
+  const createdAt = String(record.createdAt ?? record.created_at ?? "").trim();
   const attachmentIds = Array.isArray(record.attachmentIds)
     ? [...new Set(record.attachmentIds.map((item) => String(item ?? "").trim()).filter(Boolean))]
     : evidenceAttachmentId
@@ -179,6 +184,8 @@ export function normalizePaymentRecord(record) {
     statementId,
     customerId: String(record.customerId ?? record.customer_id ?? "").trim(),
     amount,
+    ...(Number.isFinite(before) ? { statementReceivedBefore: before } : {}),
+    ...(createdAt ? { createdAt } : {}),
     paidAt,
     method,
     status,
@@ -221,6 +228,8 @@ function paymentRecordJsonExpression(alias) {
     'statementId', ${alias}.statement_id,
     'customerId', ${alias}.customer_id,
     'amount', ${alias}.amount,
+    'statementReceivedBefore', ${alias}.statement_received_before,
+    'createdAt', ${alias}.created_at,
     'paidAt', ${alias}.payment_at,
     'method', ${alias}.payment_method,
     'status', ${alias}.status,

@@ -699,8 +699,12 @@ export function WorkshopMobilePage({ authState, signedPreviewMode = false, onPac
                     {availablePackingTasks.map(task => <option key={task.packingTaskId} value={task.packingTaskId}>{getOrderLineShortNo(task.orderLine)} · {task.orderLine.size} · {task.orderLine.color || task.orderLine.bagColor} · {task.status}</option>)}
                   </select>
                 </label>
-                {isStockOrderType(selectedPackingTask?.orderLine?.orderType)
-                  ? <Suspense fallback={<p role="status">正在读取实物分包…</p>}><MixedPackageWorkbench key={`${selectedPackingTask?.orderLineId || ""}:${authState.session.accessToken}`} authState={authState} orderLineId={selectedPackingTask?.orderLineId} onSaved={onPackagesSaved} onBusyChange={setPackageWritePending}/></Suspense>
+                {isStockOrderType(selectedPackingTask?.orderLine?.orderType) || selectedPackingTask?.status === "已完成"
+                  ? <Suspense fallback={<p role="status">正在读取实物分包…</p>}><MixedPackageWorkbench
+                    key={`${selectedPackingTask?.orderLineId || ""}:${authState.session.accessToken}`}
+                    singleLineCorrection={!isStockOrderType(selectedPackingTask?.orderLine?.orderType)}
+                    authState={authState} orderLineId={selectedPackingTask?.orderLineId}
+                    onSaved={onPackagesSaved} onBusyChange={setPackageWritePending}/></Suspense>
                   : <Suspense fallback={<p role="status">正在读取本明细打包任务…</p>}><SinglePackingWorkbench key={`${selectedPackingTask?.packingTaskId || ""}:${authState.session.accessToken}`} authState={authState} packingTaskId={selectedPackingTask?.packingTaskId} orderLineId={selectedPackingTask?.orderLineId} disabled={packingState.disabled} onSaved={onPackagesSaved} onBusyChange={setPackageWritePending} /></Suspense>}
               </> : <>
                 {!packingCompletionConfirmation ? (

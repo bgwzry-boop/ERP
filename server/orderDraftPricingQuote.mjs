@@ -532,6 +532,7 @@ export function officeQuoteProjection(quote) {
     clientRevision: quote.draftRevision,
     createdAt: quote.createdAt,
     excludedDraftLineIds: quote.excludedDraftLineIds ?? [],
+    ...(quote.stockChecks ? { stockChecks: quote.stockChecks } : {}),
     groups: quote.groups,
     lines: quote.linePrices.map((row) => ({
       draftLineId: row.draftLineId,

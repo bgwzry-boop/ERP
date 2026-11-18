@@ -1432,6 +1432,7 @@ function normalizeProductionMachineQueueItem(item) {
     revision: Math.max(1, Math.trunc(Number(item?.revision ?? 1))),
     queueSeq: Math.max(0, Math.trunc(Number(item?.queueSeq ?? 0))),
     machineId: cleanText(item?.machineId),
+    ...(item?.assignedMachineId !== undefined ? { assignedMachineId: cleanText(item.assignedMachineId) } : {}),
     machineLabel: cleanText(item?.machineLabel ?? item?.machineId),
     publishedScheduleId: cleanText(item?.publishedScheduleId),
     productionTaskId: cleanText(item?.productionTaskId),

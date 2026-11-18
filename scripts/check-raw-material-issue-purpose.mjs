@@ -5,7 +5,7 @@ import {
   buildRawMaterialIssuePurpose,
   listRawMaterialIssueTaskOptions,
 } from "../src/domain/rawMaterialScanOutbound.js";
-import { buildRawMaterialPickList, checkRollAgainstPickTask, resolvePickWorkshop } from "../src/domain/rawMaterialTaskPicking.js";
+import { buildRawMaterialPickList, checkRollAgainstPickTask, resolvePickTarget, resolvePickWorkshop } from "../src/domain/rawMaterialTaskPicking.js";
 
 assert.deepEqual(RAW_MATERIAL_ISSUE_PURPOSES.map((item) => item.key), ["bag_making", "printing"]);
 assert.equal(buildRawMaterialIssuePurpose("bag_making"), "制袋（空白通货）·暂不关联订单");
@@ -31,11 +31,14 @@ const queueItems = [
   { productionTaskId: "PT-P1", orderLineId: "OL-2", taskType: "丝印", size: "30*37*8", bagColor: "白", plannedQty: 500 },
   { productionTaskId: "PT-B5", orderLineId: "OL-2", machineId: "BAG-05", taskType: "制袋", size: "30*37*8", bagColor: "白" },
   { productionTaskId: "PT-B1", orderLineId: "OL-4", machineId: "BAG-01", taskType: "制袋", status: "已完成" },
-];
+].map(task => ({ status: "已排产", publishedScheduleId: "SYNTHETIC-SCHEDULE", ...task }));
+queueItems.push({ productionTaskId: "PT-DRAFT", machineId: "BAG-03", taskType: "制袋", status: "待排产" });
 const pickedPrint = [{ rawMaterialIssueRecords: [{ productionTaskId: "PT-P1", issuedWeightKg: 20 }] }];
 assert.equal(resolvePickWorkshop({ machineId: "BAG-02" }), "1号车间");
 assert.equal(resolvePickWorkshop({ machineId: "BAG-07" }), "3号车间");
 assert.equal(resolvePickWorkshop({ taskType: "丝印" }), "丝印车间");
+assert.equal(resolvePickTarget({ taskType: "丝印", machineId: "PRINT-01", assignedMachineId: "" }), "丝印车间");
+assert.equal(resolvePickTarget({ taskType: "丝印", machineId: "PRINT-02", assignedMachineId: "PRINT-02" }), "2号丝印机");
 assert.deepEqual(buildRawMaterialPickList({ queueItems, workshop: "1号车间" }).map((task) => task.productionTaskId), ["PT-B2"]);
 assert.deepEqual(buildRawMaterialPickList({ queueItems, workshop: "丝印车间" }).map((task) => task.productionTaskId), ["PT-P1"]);
 assert.deepEqual(buildRawMaterialPickList({ queueItems, workshop: "2号车间" }).map((task) => task.productionTaskId), ["PT-B5"]);

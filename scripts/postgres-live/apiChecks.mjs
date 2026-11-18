@@ -351,6 +351,11 @@ export async function checkApiWithPostgresRepositories(runtime) {
        'tpl-p0-fulfillment', 'first_print', 'printed', 'U-OFFICE-A', '2026-07-02T11:30:00.000Z'
      ) ON CONFLICT (id) DO NOTHING;
 
+     INSERT INTO print_records (id, biz_no, target_type, target_id, print_action, status, document_type)
+     VALUES ('PR-LIVE-LEGACY-LABEL', 'PR-LIVE-LEGACY-LABEL', 'fulfillment', 'F-LIVE-LEGACY-001', 'first_print', 'printed', 'package_label');
+     INSERT INTO packages (id, biz_no, order_line_id, fulfillment_id, packed_qty, status, label_print_record_id)
+     VALUES ('PKG-LIVE-LEGACY-001', 'PKG-LIVE-LEGACY-001', 'OL-LIVE-LEGACY-001', 'F-LIVE-LEGACY-001', 1200, '已打印标签', 'PR-LIVE-LEGACY-LABEL');
+
      INSERT INTO paper_outbound_documents (
        id, fulfillment_id, print_record_id, document_type, document_version,
        status, printed_by, printed_at, revision

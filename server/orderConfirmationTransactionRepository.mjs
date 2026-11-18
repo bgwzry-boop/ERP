@@ -67,6 +67,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
       const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations);
       const shortageCancellationIntents = normalizeInventoryIntents(input.shortageCancellationIntents);
       validateLocalTemporaryHoldConversions(input.workspace, inventoryReservations);
+      validateLocalInventoryAllocations(input.workspace, inventoryReservations);
       const orders = normalizeOriginalOrders(input.orders ?? [input.order]);
       const transaction = normalizeOrderConfirmationTransactionResult({
         orderDraft,
@@ -252,7 +253,7 @@ function buildConfirmOrderTransactionText(input, parameters) {
   if (orderLines.some((line) => !orderIds.has(line.orderId))) {
     throw new Error("Every formal order line must belong to an order in the same confirmation transaction");
   }
-  assertOrderConfirmationPriceSources({ orderLines, priceSnapshots, miniappPriceSource: input.miniappPriceSource, publishedPriceSource: input.publishedPriceSource, officePriceQuote: input.officePriceQuote });
+  assertOrderConfirmationPriceSources({ orderLines, priceSnapshots, priceAllocations: input.priceAllocations, miniappPriceSource: input.miniappPriceSource, publishedPriceSource: input.publishedPriceSource, officePriceQuote: input.officePriceQuote });
   return `
 BEGIN;
 WITH locked_order_draft AS MATERIALIZED (
@@ -310,7 +311,7 @@ updated_order_draft AS (
         customerName: orderDraft.customerName,
         generatedOrderNo: order.orderId,
         generatedOrderNos: orders.map((item) => item.orderId),
-      })},
+      })}${orderDraft.recognitionContext?.shortageDecision ? ` || jsonb_build_object('recognitionContext', COALESCE(draft.recognition_summary->'recognitionContext', '{}'::jsonb) || ${parameters.json({ shortageDecision: orderDraft.recognitionContext.shortageDecision })})` : ""},
       revision = draft.revision + 1,
       updated_at = now()
   FROM order_draft_write_guard AS guard
@@ -348,10 +349,10 @@ locked_temporary_holds AS MATERIALIZED (
   FOR UPDATE OF reservation
 ),
 locked_inventory_items AS MATERIALIZED (
-  SELECT item.id, item.on_hand_qty, item.reserved_qty,
+  SELECT item.id, item.on_hand_qty, item.reserved_qty, item.revision,
     COALESCE(item.waiting_pickup_locked_qty, 0) AS waiting_pickup_locked_qty,
     COALESCE(item.pending_handling_qty, 0) AS pending_handling_qty,
-    delta.reserved_qty AS requested_qty
+    delta.reserved_qty AS requested_qty, delta.expected_revision
   FROM inventory_items AS item
   JOIN inventory_deltas AS delta ON delta.inventory_item_id = item.id
   ORDER BY item.id
@@ -365,6 +366,7 @@ inventory_write_guard AS MATERIALIZED (
         FROM locked_inventory_items
         -- 与库存意向/页面可用量同一口径：待提货锁定和待处理量都不是可用库存。
         WHERE on_hand_qty - reserved_qty - waiting_pickup_locked_qty - pending_handling_qty < requested_qty
+          OR (expected_revision IS NOT NULL AND revision <> expected_revision)
       ),
     'ERP_INVENTORY_CONCURRENCY_CONFLICT'
   ) AS inventory_ok,
@@ -601,6 +603,7 @@ function normalizeOrderLine(line, fallbackOrderId = "") {
     createdBy: String(line.createdBy ?? line.created_by ?? "").trim(),
     createdAt: String(line.createdAt ?? line.created_at ?? new Date().toISOString()).trim(),
     amount: toFiniteNumber(line.amount ?? 0),
+    ...(line.splitFromOrderLineId || line.split_from_order_line_id ? { splitFromOrderLineId: String(line.splitFromOrderLineId ?? line.split_from_order_line_id).trim() } : {}),
     inventory: String(line.inventory ?? "").trim(),
     note: String(line.note ?? "").trim(),
   };
@@ -687,6 +690,7 @@ function normalizeInventoryReservation(record) {
     inventoryItemId,
     reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty ?? record.qty),
     inventoryDeltaQty: toFiniteInteger(record.inventoryDeltaQty ?? record.inventory_delta_qty ?? record.reservedQty ?? record.reserved_qty ?? record.qty),
+    ...(Number.isSafeInteger(record.expectedInventoryRevision) ? { expectedInventoryRevision: record.expectedInventoryRevision } : {}),
     reservationType: String(record.reservationType ?? record.reservation_type ?? "出库占用").trim() || "出库占用",
     status: String(record.status ?? "生效").trim() || "生效",
     expiresAt: String(record.expiresAt ?? record.expires_at ?? "").trim(),
@@ -861,6 +865,7 @@ function toWorkspaceOrderLine(line) {
     style: line.style,
     print: line.printFlag ? "是" : "否",
     qty: line.originalQty,
+    ...(line.splitFromOrderLineId ? { splitFromOrderLineId: line.splitFromOrderLineId } : {}),
     orderType: line.orderType,
     status: line.lineStatus,
     fulfillment: line.fulfillmentMethod,
@@ -940,8 +945,22 @@ function applyWorkspaceInventoryReservations(workspace, inventoryReservations) {
       .filter((reservation) => reservation.inventoryItemId === inventory.id)
       .reduce((sum, reservation) => sum + Number(reservation.inventoryDeltaQty ?? reservation.reservedQty ?? 0), 0);
     if (!reservedQty) return inventory;
-    return { ...inventory, reserved: Number(inventory.reserved ?? 0) + reservedQty };
+    return { ...inventory, reserved: Number(inventory.reserved ?? 0) + reservedQty, revision: Number(inventory.revision ?? 1) + 1 };
   });
+}
+
+function validateLocalInventoryAllocations(workspace, reservations) {
+  const itemIds = new Set(reservations.filter(row => row.expectedInventoryRevision !== undefined).map(row => row.inventoryItemId));
+  for (const id of itemIds) {
+    const item = (workspace.inventories ?? []).find(row => (row.id ?? row.inventoryItemId) === id);
+    const selected = reservations.filter(row => row.inventoryItemId === id);
+    const needed = selected.reduce((sum, row) => sum + row.inventoryDeltaQty, 0);
+    const available = Number(item?.inStock ?? item?.onHandQty ?? 0) - Number(item?.reserved ?? item?.reservedQty ?? 0)
+      - Number(item?.locked ?? item?.waitingPickupLockedQty ?? 0) - Number(item?.pending ?? item?.pendingHandlingQty ?? 0);
+    if (!item || needed > available || selected.some(row => row.expectedInventoryRevision !== undefined && row.expectedInventoryRevision !== item.revision)) {
+      throw Object.assign(new Error("库存已变化，请刷新库存后再确认。"), { statusCode: 409, code: "ERP_INVENTORY_CONCURRENCY_CONFLICT" });
+    }
+  }
 }
 
 function validateLocalTemporaryHoldConversions(workspace, reservations) {
@@ -1155,6 +1174,7 @@ function buildInsertOrderLinesSql(orderLines, parameters) {
     ${parameters.text(line.fulfillmentMethod)},
     ${parameters.text(line.lineStatus)},
     ${parameters.textArray(line.exceptionTags)},
+    ${parameters.nullableText(line.splitFromOrderLineId)},
     ${parameters.nullableText(line.createdBy)},
     ${parameters.timestamp(line.createdAt)},
     now()
@@ -1183,6 +1203,7 @@ function buildInsertOrderLinesSql(orderLines, parameters) {
   fulfillment_method,
   line_status,
   exception_tags,
+  split_from_order_line_id,
   created_by,
   created_at,
   updated_at
@@ -1517,15 +1538,15 @@ RETURNING json_build_object(
 
 function buildInventoryReservationDeltasSql(records, parameters) {
   if (records.length === 0) {
-    return "SELECT NULL::text AS inventory_item_id, 0::integer AS reserved_qty WHERE false";
+    return "SELECT NULL::text AS inventory_item_id, 0::integer AS reserved_qty, NULL::integer AS expected_revision WHERE false";
   }
   const values = records
-    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.inventoryDeltaQty)})`)
+    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.inventoryDeltaQty)}, ${parameters.nullableInteger(record.expectedInventoryRevision)})`)
     .join(",\n");
-  return `SELECT inventory_item_id, SUM(reserved_qty)::integer AS reserved_qty
+  return `SELECT inventory_item_id, SUM(reserved_qty)::integer AS reserved_qty, MAX(expected_revision) AS expected_revision
 FROM (VALUES
 ${values}
-) AS raw(inventory_item_id, reserved_qty)
+) AS raw(inventory_item_id, reserved_qty, expected_revision)
 GROUP BY inventory_item_id
 HAVING SUM(reserved_qty) <> 0`;
 }
@@ -1797,6 +1818,7 @@ function orderLineJsonExpression(alias) {
     'originalQty', ${alias}.original_qty,
     'qtyBasis', ${alias}.qty_basis,
     'incomingRollCount', ${alias}.incoming_roll_count,
+    'splitFromOrderLineId', ${alias}.split_from_order_line_id,
     'latestNeededAt', ${alias}.latest_needed_at,
     'fulfillmentMethod', ${alias}.fulfillment_method,
     'lineStatus', ${alias}.line_status,

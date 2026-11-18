@@ -1,14 +1,18 @@
 import { resolveStoreMode } from "./storeMode.mjs";
-import { buildPostgresIdempotencyRequest } from "./idempotency.mjs";
+import { buildIdempotencyConflictError, buildIdempotencyRequestHash, buildPostgresIdempotencyRequest, normalizeIdempotencyKey, readPostgresIdempotencyReplay, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 import { supplierSettlementState } from "../shared/reviewListSemantics.js";
+import { hasSupplierPaymentReference, supplierAmountCents, sumSupplierAmountCents } from "../shared/supplierSettlementMoney.js";
+import { supplierDayInPeriod, supplierStatementDay, supplierStatementPeriod } from "../shared/supplierStatementPeriod.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { mergeReviewedSupplierReturnsIntoStatement } from "./services/rawMaterialSupplierReturnReconciliationService.mjs";
+import { assertSupplierPaymentReferenceUnclaimed, assertSupplierStatementSourceUnclaimed, buildSupplierSettlementClaimsSql, supplierSettlementClaimError } from "./supplierSettlementClaims.mjs";
 
 export const rawMaterialSupplierStatementReviewStoreKey = "metadata/raw-material-supplier-statement-reviews.json";
+const settlementScope = "raw-material.supplier-review.command";
 
 export function createRawMaterialSupplierStatementReviewRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -41,6 +45,25 @@ export function createRawMaterialSupplierStatementReviewRepository(options = {})
 export function createLocalRawMaterialSupplierStatementReviewRepository(options = {}) {
   const storageRoot = options.storageRoot ?? getLocalStorageRoot();
 
+  function save(input, command, decide) {
+    const key = normalizeIdempotencyKey(input.idempotencyKey);
+    const state = loadPersistentReviewState(storageRoot);
+    const receipts = state.settlementReceipts ?? [];
+    const requestHash = key ? buildIdempotencyRequestHash(settlementRequest(input, command)) : "";
+    const replay = key && receipts.find((receipt) => receipt.key === key);
+    if (replay) {
+      if (replay.requestHash !== requestHash) throw buildIdempotencyConflictError();
+      return settlementReplay(replay.result, command);
+    }
+    const result = decide(input);
+    const reviews = result.reviews ?? [result.review, ...normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews)
+      .filter((review) => review.reviewId !== result.review.reviewId)];
+    if (key) receipts.push({ key, requestHash, result: { review: result.review, operationLogId: result.operationLogId } });
+    persistReviewState(storageRoot, reviews, receipts);
+    input.workspace.rawMaterialSupplierStatementReviews = reviews;
+    return result;
+  }
+
   return {
     kind: "local_json",
 
@@ -55,39 +78,27 @@ export function createLocalRawMaterialSupplierStatementReviewRepository(options 
     },
 
     createReviewDraft(input = {}) {
-      const result = createReviewDraftPayload(input);
-      const reviews = normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews);
-      input.workspace.rawMaterialSupplierStatementReviews = [result.review, ...reviews.filter((item) => item.reviewId !== result.review.reviewId)];
-      persistReviewState(storageRoot, input.workspace.rawMaterialSupplierStatementReviews);
-      return result;
+      return save(input, "create", createReviewDraftPayload);
     },
 
     confirmReview(input = {}) {
-      const result = applyReviewConfirmation(input);
-      input.workspace.rawMaterialSupplierStatementReviews = result.reviews;
-      persistReviewState(storageRoot, result.reviews);
-      return result;
+      return save(input, "review", applyReviewConfirmation);
+    },
+
+    setPeriod(input = {}) {
+      return save(input, "period", applySupplierStatementPeriod);
     },
 
     confirmStatement(input = {}) {
-      const result = applyStatementConfirmation(input);
-      input.workspace.rawMaterialSupplierStatementReviews = result.reviews;
-      persistReviewState(storageRoot, result.reviews);
-      return result;
+      return save(input, "statement", applyStatementConfirmation);
     },
 
     generatePayableDraft(input = {}) {
-      const result = applyPayableDraftGeneration(input);
-      input.workspace.rawMaterialSupplierStatementReviews = result.reviews;
-      persistReviewState(storageRoot, result.reviews);
-      return result;
+      return save(input, "payable", applyPayableDraftGeneration);
     },
 
     confirmPayment(input = {}) {
-      const result = applySupplierPaymentConfirmation(input);
-      input.workspace.rawMaterialSupplierStatementReviews = result.reviews;
-      persistReviewState(storageRoot, result.reviews);
-      return result;
+      return save(input, "payment", applySupplierPaymentConfirmation);
     },
   };
 }
@@ -103,25 +114,46 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
     options.queryJson ??
     ((text, values) => postgresClient.transactionJson(text, values));
 
-  async function guardedTransaction(text, values, resultContext) {
+  async function save(input, command, decide) {
+    const key = normalizeIdempotencyKey(input.idempotencyKey);
+    const payload = settlementRequest(input, command);
+    if (key && typeof postgresClient?.idempotentTransactionJson !== "function") {
+      throw Object.assign(new Error("月结操作需要支持幂等回执的数据库执行器。"), { statusCode: 503, code: "RAW_MATERIAL_SUPPLIER_REVIEW_ATOMIC_EXECUTOR_REQUIRED" });
+    }
+    if (key) {
+      const replay = await readPostgresIdempotencyReplay({ queryJson, scope: settlementScope, idempotencyKey: key, payload });
+      if (replay) return settlementReplay(replay, command);
+    }
+    const resultContext = decide(input);
+    const expectedReview = command === "create" ? undefined : normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews)
+      .find((review) => review.reviewId === resultContext.review.reviewId);
+    const query = buildUpsertReviewPayloadTransactionQuery(resultContext.review, resultContext.operationLog, { expectedReview });
     try {
       const returnIds = collectSupplierReturnIds(resultContext.review);
       const request = buildPostgresIdempotencyRequest({
-        scope: "raw-material.supplier-review.write",
-        idempotencyKey: resultContext.operationLog.id,
-        payload: resultContext.review,
+        scope: settlementScope,
+        idempotencyKey: resolveRepositoryIdempotencyKey(key, resultContext.operationLog.id),
+        payload,
         operatorId: resultContext.operationLog.operatorId,
         targetType: "raw_material_supplier_statement_review",
         targetId: resultContext.review.reviewId,
-        resourceLocks: [`supplier-review:${resultContext.review.reviewId}`, ...returnIds.map((id) => `raw-material:${id}`)],
-        query: { text, values },
+        // Claims across rows must serialize before the transaction statement
+        // reads other reviews (including legacy JSON without claim columns).
+        resourceLocks: ["supplier-settlement-claims", `supplier-review:${resultContext.review.reviewId}`, ...returnIds.map((id) => `raw-material:${id}`)],
+        query,
       });
-      const result = typeof postgresClient?.idempotentTransactionJson === "function"
-        ? await postgresClient.idempotentTransactionJson(request)
-        : await transactionJson(text, values);
-      if (!result?.review) throw supplierReviewConflict();
-      return result;
+      const receipt = typeof postgresClient?.idempotentTransactionJson === "function"
+        ? await postgresClient.idempotentTransactionJson({ ...request, includeReplayMetadata: true })
+        : { value: await transactionJson(query.text, query.values), replayed: false };
+      const saved = normalizeReviewTransactionResult(receipt.value);
+      if (!saved.review) throw supplierReviewConflict();
+      if (receipt.replayed) return settlementReplay(saved, command);
+      input.workspace.rawMaterialSupplierStatementReviews = [saved.review,
+        ...normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).filter((review) => review.reviewId !== saved.review.reviewId)];
+      return { ...resultContext, ...saved };
     } catch (error) {
+      if (/ERP_SUPPLIER_STATEMENT_SOURCE_USED/.test(error?.message ?? "")) throw supplierSettlementClaimError("statement");
+      if (/ERP_SUPPLIER_PAYMENT_REFERENCE_USED/.test(error?.message ?? "")) throw supplierSettlementClaimError("payment");
       if (error?.code === "BUSINESS_WRITE_CONFLICT" || /ERP_SUPPLIER_REVIEW.*CONFLICT/.test(error?.message ?? "")) throw supplierReviewConflict();
       throw error;
     }
@@ -143,91 +175,45 @@ export function createPostgresRawMaterialSupplierStatementReviewRepository(optio
     },
 
     async createReviewDraft(input = {}) {
-      const result = createReviewDraftPayload(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog);
-      const saved = normalizeReviewTransactionResult(
-        await guardedTransaction(builtQuery.text, builtQuery.values, result),
-      );
-      input.workspace.rawMaterialSupplierStatementReviews = [
-        saved.review ?? result.review,
-        ...normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).filter(
-          (item) => item.reviewId !== result.review.reviewId,
-        ),
-      ];
-      return {
-        review: saved.review ?? result.review,
-        operationLogId: saved.operationLogId || result.operationLog.id,
-        operationLog: result.operationLog,
-      };
+      return save(input, "create", createReviewDraftPayload);
     },
 
     async confirmReview(input = {}) {
-      const result = applyReviewConfirmation(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
-      const saved = normalizeReviewTransactionResult(
-        await guardedTransaction(builtQuery.text, builtQuery.values, result),
-      );
-      input.workspace.rawMaterialSupplierStatementReviews = [
-        saved.review ?? result.review,
-        ...result.reviews.filter((item) => item.reviewId !== result.review.reviewId),
-      ];
-      return {
-        ...result,
-        review: saved.review ?? result.review,
-        operationLogId: saved.operationLogId || result.operationLog.id,
-      };
+      return save(input, "review", applyReviewConfirmation);
+    },
+
+    async setPeriod(input = {}) {
+      return save(input, "period", applySupplierStatementPeriod);
     },
 
     async confirmStatement(input = {}) {
-      const result = applyStatementConfirmation(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
-      const saved = normalizeReviewTransactionResult(
-        await guardedTransaction(builtQuery.text, builtQuery.values, result),
-      );
-      input.workspace.rawMaterialSupplierStatementReviews = [
-        saved.review ?? result.review,
-        ...result.reviews.filter((item) => item.reviewId !== result.review.reviewId),
-      ];
-      return {
-        ...result,
-        review: saved.review ?? result.review,
-        operationLogId: saved.operationLogId || result.operationLog.id,
-      };
+      return save(input, "statement", applyStatementConfirmation);
     },
 
     async generatePayableDraft(input = {}) {
-      const result = applyPayableDraftGeneration(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
-      const saved = normalizeReviewTransactionResult(
-        await guardedTransaction(builtQuery.text, builtQuery.values, result),
-      );
-      input.workspace.rawMaterialSupplierStatementReviews = [
-        saved.review ?? result.review,
-        ...result.reviews.filter((item) => item.reviewId !== result.review.reviewId),
-      ];
-      return {
-        ...result,
-        review: saved.review ?? result.review,
-        operationLogId: saved.operationLogId || result.operationLog.id,
-      };
+      return save(input, "payable", applyPayableDraftGeneration);
     },
 
     async confirmPayment(input = {}) {
-      const result = applySupplierPaymentConfirmation(input);
-      const builtQuery = buildUpsertReviewPayloadTransactionQuery(result.review, result.operationLog, { expectedReview: normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews).find((item) => item.reviewId === result.review.reviewId) });
-      const saved = normalizeReviewTransactionResult(
-        await guardedTransaction(builtQuery.text, builtQuery.values, result),
-      );
-      input.workspace.rawMaterialSupplierStatementReviews = [
-        saved.review ?? result.review,
-        ...result.reviews.filter((item) => item.reviewId !== result.review.reviewId),
-      ];
-      return {
-        ...result,
-        review: saved.review ?? result.review,
-        operationLogId: saved.operationLogId || result.operationLog.id,
-      };
+      return save(input, "payment", applySupplierPaymentConfirmation);
     },
+  };
+}
+
+function settlementRequest(input, command) {
+  const {
+    workspace: _workspace, idFactory: _idFactory, idempotencyKey: _idempotencyKey,
+    operatorName: _operatorName, ...values
+  } = input;
+  return { command, ...values };
+}
+
+function settlementReplay(value, command) {
+  const { review, operationLogId } = normalizeReviewTransactionResult(value);
+  return {
+    review, operationLogId, operationLog: null,
+    ...(command === "payment" ? { paymentRecord: review?.supplierPaymentRecord } : {}),
+    ...(command === "payable" ? { payableDraft: review?.supplierPayableDraft } : {}),
   };
 }
 
@@ -271,6 +257,7 @@ export function buildUpsertReviewPayloadTransactionQuery(review, operationLog = 
   const safeOperationLog = normalizeOperationLog(operationLog);
   const parameters = createPostgresParameterBinder();
   const operationLogSql = safeOperationLog ? buildInsertOperationLogSql(safeOperationLog, parameters) : "";
+  const settlementClaimGuard = buildSupplierSettlementClaimsSql(safeReview, safeOperationLog?.action, parameters);
   const expected = expectedReview ? normalizeReview(expectedReview) : null;
   const returnIds = collectSupplierReturnIds(safeReview);
   const hasReturnClaim = returnIds.length && (safeReview.statementConfirmationId || safeReview.supplierPayableId);
@@ -327,6 +314,7 @@ WITH upserted_review AS (
   )) AS candidate
   WHERE ${expected ? `EXISTS (SELECT 1 FROM raw_material_supplier_statement_reviews WHERE id = ${parameters.text(safeReview.reviewId)})` : 'true'}
     AND ${returnClaimGuard}
+    ${settlementClaimGuard}
   ON CONFLICT (id) ${conflictClause}
   RETURNING payload_json AS result
 )
@@ -406,12 +394,15 @@ export function buildReviewListResponse(reviews = [], query = new URLSearchParam
 
 export function createReviewDraftPayload(input = {}) {
   const rawStatementResult = input.statementResult ?? input.result ?? {};
+  const period = confirmableSupplierPeriod(input.periodStart ?? rawStatementResult.periodStart, input.periodEnd ?? rawStatementResult.periodEnd, rawStatementResult.rows);
   const statementResult = mergeReviewedSupplierReturnsIntoStatement(
     rawStatementResult,
     input.workspace?.rawMaterialInbounds,
     {
       supplierName: input.supplierName ?? input.body?.supplierName ?? rawStatementResult.supplierName,
       fileName: input.fileName ?? input.body?.fileName ?? rawStatementResult.fileName,
+      periodStart: period?.from,
+      periodEnd: period?.through,
     },
   );
   const summary = statementResult.summary ?? {};
@@ -427,6 +418,10 @@ export function createReviewDraftPayload(input = {}) {
     reviewId,
     supplierName,
     fileName,
+    sourceFileDigest: cleanText(input.sourceFileDigest ?? input.body?.sourceFileDigest),
+    periodStart: period?.from,
+    periodEnd: period?.through,
+    supplierReturnPeriodRequired: statementResult.supplierReturnPeriodRequired,
     adapter: {
       key: cleanText(statementResult.adapter?.key),
       label: cleanText(statementResult.adapter?.label),
@@ -467,6 +462,81 @@ export function createReviewDraftPayload(input = {}) {
   return { review, operationLog, operationLogId: operationLog.id };
 }
 
+function confirmableSupplierPeriod(start, end, rows = [], required = false) {
+  if (!start && !end && !required) return null;
+  const period = supplierStatementPeriod(start, end);
+  if (!period) throw Object.assign(new Error("请按供应商月结单填写有效账期起止日期。"), {
+    statusCode: 422, code: "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_INVALID",
+  });
+  const outside = (Array.isArray(rows) ? rows : []).filter((row) => supplierStatementDay(row?.documentDate) && !supplierDayInPeriod(row.documentDate, period));
+  if (outside.length) throw Object.assign(new Error(`有明细日期超出所填账期：${outside.slice(0, 4).map((row) => row.documentNo || row.documentDate).join("、")}。请核对原单。`), {
+    statusCode: 422, code: "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_ROW_OUTSIDE",
+  });
+  return period;
+}
+
+function omitReturnTrace(item) {
+  const {
+    sourceReturnInboundId: _returnId, sourceAttachmentId: _attachmentId,
+    sourceFileName: _fileName, sourceMimeType: _mimeType, sourceDocumentNo: _documentNo,
+    sourceDocumentDate: _documentDate, sourceDocumentDirection: _direction,
+    returnDedupeKey: _dedupeKey, returnMatchStatus: _matchStatus, sourceEvidence: _evidence, ...original
+  } = item;
+  return original;
+}
+
+export function applySupplierStatementPeriod(input = {}) {
+  const reviews = normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews);
+  const index = reviews.findIndex((item) => item.reviewId === cleanText(input.reviewId));
+  if (index < 0) throw Object.assign(new Error("未找到月结草稿。"), { statusCode: 404 });
+  const before = reviews[index];
+  if (before.statementConfirmationId || before.supplierPayableId || !["draft", "reviewed"].includes(before.reviewStatus)) {
+    throw Object.assign(new Error("已确认对账的历史记录不能修改账期。"), { statusCode: 409, code: "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_FINALIZED" });
+  }
+  if (Number(input.expectedRevision) !== before.revision) throw supplierReviewConflict();
+  const period = confirmableSupplierPeriod(input.periodStart, input.periodEnd, before.rows, true);
+  const addedByErp = (item) => item.returnMatchStatus === "erp_return_adjustment" || before.addedSupplierReturnIds.includes(item.sourceReturnInboundId);
+  const excludedConfirmed = before.adjustments.find((item) => item.sourceReturnInboundId && item.calculationStatus === "manual_confirmed" &&
+    !supplierDayInPeriod(item.sourceDocumentDate, period));
+  if (excludedConfirmed) throw Object.assign(new Error(`已人工确认的退货扣项 ${excludedConfirmed.sourceDocumentNo || excludedConfirmed.label} 超出新账期。请保留原复核记录并用正确账期重新上传月结。`), {
+    statusCode: 422, code: "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_CONFIRMED_ADJUSTMENT_OUTSIDE",
+  });
+  const now = cleanText(input.now) || new Date().toISOString();
+  const updated = mergeReviewedSupplierReturnsIntoStatement({
+    ...before,
+    rows: before.rows.map(omitReturnTrace),
+    adjustments: before.adjustments.filter((item) => !addedByErp(item)).map(omitReturnTrace),
+    issues: before.issues.filter((issue) => !issue.id.startsWith("issue-return-amount-")),
+  }, input.workspace?.rawMaterialInbounds, { supplierName: before.supplierName, periodStart: period.from, periodEnd: period.through });
+  const preserved = new Map(before.adjustments.filter((item) => item.sourceReturnInboundId && item.calculationStatus === "manual_confirmed")
+    .map((item) => [item.sourceReturnInboundId, item]));
+  const resolvedAdjustments = updated.adjustments.map((item) => preserved.get(item.sourceReturnInboundId) ?? item);
+  if ([...preserved.keys()].some((id) => !resolvedAdjustments.some((item) => item.sourceReturnInboundId === id))) {
+    throw Object.assign(new Error("已人工确认的退货扣项无法与原单重新关联，未保存新账期。请先核对原单。"), {
+      statusCode: 409, code: "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_RETURN_LINK_CHANGED",
+    });
+  }
+  const review = normalizeReview({
+    ...before,
+    ...updated,
+    adjustments: resolvedAdjustments,
+    periodStart: period.from,
+    periodEnd: period.through,
+    revision: before.revision + 1,
+    updatedAt: now,
+    summaryText: buildSummaryText(updated.summary),
+    status: "待人工复核",
+    reviewStatus: "draft",
+    reviewedAt: "", reviewedBy: "", reviewedByUserId: "",
+  });
+  const operationLog = buildOperationLog({ targetId: review.reviewId, action: "set_raw_material_supplier_statement_period",
+    operatorId: input.operatorId, operatorName: input.operatorName, before: summarizeReview(before), after: summarizeReview(review),
+    reason: `核对账期 ${period.from} 至 ${period.through}，重新匹配本期退货并留待人工复核。`, now, idFactory: input.idFactory });
+  const nextReviews = [...reviews];
+  nextReviews[index] = review;
+  return { review, reviews: nextReviews, operationLog, operationLogId: operationLog.id };
+}
+
 export function applyReviewConfirmation(input = {}) {
   const reviews = normalizeReviews(input.workspace?.rawMaterialSupplierStatementReviews);
   const reviewId = cleanText(input.reviewId ?? input.body?.reviewId);
@@ -493,7 +563,10 @@ export function applyReviewConfirmation(input = {}) {
     operatorName,
     now,
   });
-  validateReviewedSupplierReturnFacts(before.rows, reviewedAdjustments);
+  if (decision === "一致") {
+    validateReviewedSupplierReturnFacts(before.rows, reviewedAdjustments);
+    assertSupplierStatementReady({ ...before, adjustments: reviewedAdjustments });
+  }
   const status = decision === "一致" ? "已人工复核/一致" : "已人工复核/有差异";
   const review = normalizeReview({
     ...before,
@@ -544,6 +617,8 @@ function resolveReviewedAdjustments(currentAdjustments = [], submittedAdjustment
     if (!submitted) return adjustment;
     const submittedAmount = nullableNumber(submitted.amount);
     const isSupplierReturn = adjustment.adjustmentType === "return_adjustment" && Boolean(adjustment.sourceReturnInboundId);
+    const explicitlyResolved = (submitted.confirmed === true && supplierAmountCents(submitted.amount) !== null && Boolean(cleanText(submitted.note)))
+      || (isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0);
     const amount = isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0
       ? -Math.abs(submittedAmount)
       : Number.isFinite(submittedAmount)
@@ -552,17 +627,41 @@ function resolveReviewedAdjustments(currentAdjustments = [], submittedAdjustment
     return normalizeAdjustments([{
       ...adjustment,
       amount,
-      calculationStatus: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0
+      calculationStatus: explicitlyResolved
         ? "manual_confirmed"
         : adjustment.calculationStatus,
-      requiresManualReview: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0
+      requiresManualReview: explicitlyResolved
         ? false
         : adjustment.requiresManualReview,
       note: cleanText(submitted.note) || adjustment.note,
-      confirmedAmountBy: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0 ? context.operatorName : "",
-      confirmedAmountByUserId: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0 ? context.operatorId : "",
-      confirmedAmountAt: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0 ? context.now : "",
+      confirmedAmountBy: explicitlyResolved ? context.operatorName : "",
+      confirmedAmountByUserId: explicitlyResolved ? context.operatorId : "",
+      confirmedAmountAt: explicitlyResolved ? context.now : "",
     }])[0];
+  });
+}
+
+function assertSupplierStatementReady(review) {
+  if ((review.supplierReturnPeriodRequired || review.addedSupplierReturnIds?.length) && !supplierStatementPeriod(review.periodStart, review.periodEnd)) {
+    throw Object.assign(new Error("请先确认账期起止日期，核对哪些退货属于本期。"), {
+      statusCode: 422, code: "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_REQUIRED",
+    });
+  }
+  const rows = review.rows ?? [];
+  const unresolvedRows = rows.filter((row) => row.matchingStatus !== "matched" && !row.sourceReturnInboundId);
+  const currentAdjustments = (review.adjustments ?? []).filter((item) => !isReferenceAdjustment(item));
+  const unresolvedAdjustments = currentAdjustments.filter((item) =>
+    supplierAmountCents(item.amount) === null || ["different", "missing_amount"].includes(item.calculationStatus));
+  const hardErrors = (review.issues ?? []).some((issue) => issue.severity === "error");
+  if (review.summary?.status !== "blocked" && !unresolvedRows.length && !unresolvedAdjustments.length && !hardErrors
+    && (rows.length > 0 || currentAdjustments.length > 0)) return;
+  throw Object.assign(new Error("月结仍有未匹配明细、未确认扣项或导入错误。请逐项核对后再标记一致。"), {
+    statusCode: 422,
+    code: "RAW_MATERIAL_SUPPLIER_REVIEW_UNRESOLVED",
+    details: {
+      rowIds: unresolvedRows.map((row) => row.id),
+      adjustmentIds: unresolvedAdjustments.map((item) => item.id),
+    },
   });
 }
 
@@ -611,6 +710,7 @@ export function applyStatementConfirmation(input = {}) {
       statusCode: 409,
     });
   }
+  assertSupplierStatementReady(before);
   const returnIds = collectSupplierReturnIds(before);
   const duplicateReview = reviews.find((item) =>
     item.reviewId !== before.reviewId
@@ -628,6 +728,7 @@ export function applyStatementConfirmation(input = {}) {
       },
     });
   }
+  assertSupplierStatementSourceUnclaimed(before, reviews);
   const now = cleanText(input.now ?? input.body?.now) || new Date().toISOString();
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
@@ -689,6 +790,8 @@ export function applyPayableDraftGeneration(input = {}) {
       statusCode: 409,
     });
   }
+  assertSupplierStatementReady(before);
+  assertSupplierStatementSourceUnclaimed(before, reviews);
   const now = cleanText(input.now ?? input.body?.now) || new Date().toISOString();
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
@@ -761,29 +864,40 @@ export function applySupplierPaymentConfirmation(input = {}) {
   // and most settlements round off (抹零) the last few yuan. Installments add up;
   // 抹零 is recorded in its own column, only on the payment that clears the
   // balance, and never rewrites the payable amount.
-  const payableAmount = round2(before.supplierPayableDraft?.payableAmount) ?? 0;
+  const payableCents = supplierAmountCents(before.supplierPayableDraft?.payableAmount);
   const priorRecords = listSupplierPaymentRecords(before);
-  const priorPaid = round2(priorRecords.reduce((sum, record) => sum + (Number(record.paidAmount) || 0), 0)) ?? 0;
-  const priorRounding = round2(priorRecords.reduce((sum, record) => sum + (Number(record.roundingAmount) || 0), 0)) ?? 0;
-  const remaining = round2(payableAmount - priorPaid - priorRounding) ?? 0;
-  const roundingAmount = round2(nullableNumber(input.roundingAmount ?? input.body?.roundingAmount) ?? 0) ?? 0;
-  const requestedPaid = nullableNumber(input.paidAmount ?? input.amount ?? input.body?.paidAmount ?? input.body?.amount);
-  const paidAmount = round2(requestedPaid ?? remaining - roundingAmount) ?? 0;
-  if (!Number.isFinite(paidAmount) || paidAmount < 0 || !Number.isFinite(roundingAmount) || roundingAmount < 0 || paidAmount + roundingAmount <= 0) {
-    throw Object.assign(new Error("Raw material supplier payment amount must be greater than zero"), { statusCode: 422 });
+  const priorPaidCents = sumSupplierAmountCents(priorRecords, "paidAmount");
+  const priorRoundingCents = sumSupplierAmountCents(priorRecords, "roundingAmount");
+  if (payableCents === null || priorPaidCents === null || priorRoundingCents === null || payableCents < 0
+    || priorPaidCents > payableCents || priorRoundingCents > payableCents - priorPaidCents) {
+    throw Object.assign(new Error("历史应付或付款金额待核对，暂不能登记新付款。"), { statusCode: 409, code: "RAW_MATERIAL_SUPPLIER_PAYMENT_BALANCE_INVALID" });
   }
-  if (paidAmount + roundingAmount - remaining > 0.01) {
+  const remainingCents = payableCents - priorPaidCents - priorRoundingCents;
+  const roundingCents = supplierAmountCents(input.roundingAmount ?? input.body?.roundingAmount ?? 0);
+  const requestedPaid = input.paidAmount ?? input.amount ?? input.body?.paidAmount ?? input.body?.amount;
+  const paidCents = requestedPaid === undefined && roundingCents !== null
+    ? remainingCents - roundingCents : supplierAmountCents(requestedPaid);
+  if (paidCents === null || paidCents < 0 || roundingCents === null || roundingCents < 0 || paidCents + roundingCents <= 0) {
+    throw Object.assign(new Error("请明确填写本次实付和抹零金额，最多两位小数且合计大于零。"), { statusCode: 422, code: "RAW_MATERIAL_SUPPLIER_PAYMENT_AMOUNT_INVALID" });
+  }
+  if (paidCents > remainingCents || roundingCents > remainingCents - paidCents) {
     throw Object.assign(new Error(`Raw material supplier payment exceeds the remaining payable: ${reviewId}`), {
       statusCode: 409,
-      details: { payableAmount, paidBefore: priorPaid, roundingBefore: priorRounding, remaining },
+      details: { payableAmount: payableCents / 100, paidBefore: priorPaidCents / 100, roundingBefore: priorRoundingCents / 100, remaining: remainingCents / 100 },
     });
   }
-  const clearsBalance = Math.abs(paidAmount + roundingAmount - remaining) <= 0.01;
-  if (roundingAmount > 0 && !clearsBalance) {
+  const nextRemainingCents = remainingCents - paidCents - roundingCents;
+  const clearsBalance = nextRemainingCents === 0;
+  if (roundingCents > 0 && !clearsBalance) {
     throw Object.assign(new Error(`Raw material supplier rounding (抹零) is only allowed on the payment that clears the balance: ${reviewId}`), {
       statusCode: 409,
-      details: { remaining },
+      details: { remaining: remainingCents / 100 },
     });
+  }
+  const paymentReferenceNo = input.paymentReferenceNo ?? input.body?.paymentReferenceNo;
+  const paymentVoucherNo = input.paymentVoucherNo ?? input.body?.paymentVoucherNo;
+  if (paidCents > 0 && !hasSupplierPaymentReference(paymentReferenceNo, paymentVoucherNo)) {
+    throw Object.assign(new Error("请填写付款流水号或财务凭证号。"), { statusCode: 422, code: "RAW_MATERIAL_SUPPLIER_PAYMENT_REFERENCE_REQUIRED" });
   }
   const now = cleanText(input.now ?? input.body?.now) || new Date().toISOString();
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
@@ -795,23 +909,24 @@ export function applySupplierPaymentConfirmation(input = {}) {
     sourceReviewId: before.reviewId,
     supplierPayableId: before.supplierPayableId,
     supplierName: before.supplierName,
-    paidAmount,
-    roundingAmount,
+    paidAmount: paidCents / 100,
+    roundingAmount: roundingCents / 100,
     installmentNo: priorRecords.length + 1,
     currency: before.supplierPayableDraft?.currency || "CNY",
     paymentMethod: input.paymentMethod ?? input.body?.paymentMethod,
     paymentAccount: input.paymentAccount ?? input.body?.paymentAccount,
-    paymentReferenceNo: input.paymentReferenceNo ?? input.body?.paymentReferenceNo,
-    paymentVoucherNo: input.paymentVoucherNo ?? input.body?.paymentVoucherNo,
+    paymentReferenceNo,
+    paymentVoucherNo,
     paidAt: input.paidAt ?? input.body?.paidAt ?? now,
     confirmedBy: operatorName,
     confirmedByUserId: operatorId,
     confirmedAt: now,
     note: input.note ?? input.body?.note,
   });
+  assertSupplierPaymentReferenceUnclaimed(before, paymentRecord, reviews);
   const paymentRecords = [...priorRecords, paymentRecord];
-  const paidTotal = round2(priorPaid + paidAmount) ?? 0;
-  const roundingTotal = round2(priorRounding + roundingAmount) ?? 0;
+  const paidTotal = (priorPaidCents + paidCents) / 100;
+  const roundingTotal = (priorRoundingCents + roundingCents) / 100;
   const review = normalizeReview({
     ...before,
     revision: before.revision + 1,
@@ -823,7 +938,7 @@ export function applySupplierPaymentConfirmation(input = {}) {
     supplierPaymentRecords: paymentRecords,
     supplierPaidTotal: paidTotal,
     supplierRoundingTotal: roundingTotal,
-    supplierPayableRemaining: clearsBalance ? 0 : round2(payableAmount - paidTotal - roundingTotal),
+    supplierPayableRemaining: nextRemainingCents / 100,
     supplierPaymentConfirmedBy: operatorName,
     supplierPaymentConfirmedByUserId: operatorId,
     supplierPaymentConfirmedAt: now,
@@ -842,8 +957,8 @@ export function applySupplierPaymentConfirmation(input = {}) {
     before: summarizeReview(before),
     after: summarizeReview(review),
     reason: clearsBalance
-      ? `财务确认供应商应付已付清（第 ${paymentRecord.installmentNo} 笔${roundingAmount > 0 ? `，抹零 ${roundingAmount}` : ""}）；记录付款确认号、金额和凭证，不写库存。`
-      : `财务登记供应商第 ${paymentRecord.installmentNo} 笔付款 ${paidAmount}，尚余 ${review.supplierPayableRemaining}；不写库存。`,
+      ? `财务确认供应商应付已付清（第 ${paymentRecord.installmentNo} 笔${roundingCents > 0 ? `，抹零 ${paymentRecord.roundingAmount}` : ""}）；记录付款确认号、金额和凭证，不写库存。`
+      : `财务登记供应商第 ${paymentRecord.installmentNo} 笔付款 ${paymentRecord.paidAmount}，尚余 ${review.supplierPayableRemaining}；不写库存。`,
     now,
     idFactory: input.idFactory,
   });
@@ -874,6 +989,10 @@ function normalizeReview(input = {}) {
     revision: Math.max(1, Math.trunc(Number(input.revision) || 1)),
     supplierName: cleanText(input.supplierName),
     fileName: cleanText(input.fileName),
+    sourceFileDigest: /^[a-f0-9]{64}$/u.test(cleanText(input.sourceFileDigest)) ? cleanText(input.sourceFileDigest) : "",
+    periodStart: supplierStatementDay(input.periodStart),
+    periodEnd: supplierStatementDay(input.periodEnd),
+    supplierReturnPeriodRequired: input.supplierReturnPeriodRequired === true,
     adapter: {
       key: cleanText(input.adapter?.key),
       label: cleanText(input.adapter?.label),
@@ -1163,6 +1282,9 @@ function summarizeReview(review = {}) {
     reviewId: review.reviewId,
     supplierName: review.supplierName,
     fileName: review.fileName,
+    periodStart: review.periodStart,
+    periodEnd: review.periodEnd,
+    addedSupplierReturnIds: review.addedSupplierReturnIds,
     status: review.status,
     reviewStatus: review.reviewStatus,
     summary: review.summary,
@@ -1339,13 +1461,14 @@ function loadPersistentReviewState(storageRoot) {
       rawMaterialSupplierStatementReviews: normalizeReviews(
         parsed.rawMaterialSupplierStatementReviews ?? parsed.items ?? [],
       ),
+      settlementReceipts: Array.isArray(parsed.settlementReceipts) ? parsed.settlementReceipts : [],
     };
   } catch {
     return { rawMaterialSupplierStatementReviews: [] };
   }
 }
 
-function persistReviewState(storageRoot, reviews = []) {
+function persistReviewState(storageRoot, reviews = [], settlementReceipts = []) {
   const filePath = getReviewFilePath(storageRoot);
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(
@@ -1354,6 +1477,7 @@ function persistReviewState(storageRoot, reviews = []) {
       {
         updatedAt: new Date().toISOString(),
         rawMaterialSupplierStatementReviews: normalizeReviews(reviews),
+        settlementReceipts,
       },
       null,
       2,

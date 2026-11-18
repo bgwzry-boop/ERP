@@ -110,7 +110,8 @@ function buildQueueItem(workspace, item) {
 
   const orderLine = item?.orderLine ?? findOrderLine(workspace, item?.orderLineId ?? productionTask.orderLineId) ?? {};
   const orderLineId = cleanText(item?.orderLineId ?? productionTask.orderLineId ?? orderLine.orderLineId ?? orderLine.id);
-  const machineId = cleanText(productionTask.machineId) || inferMachineId(productionTask.taskType);
+  const assignedMachineId = cleanText(productionTask.machineId);
+  const machineId = assignedMachineId || inferMachineId(productionTask.taskType);
   const plannedQty = toNonNegativeInteger(productionTask.plannedQty ?? orderLine.originalQty ?? orderLine.qty);
   const remainingQty = dailyProgress ? toNonNegativeInteger(dailyProgress.remainingQty) : plannedQty;
   const createdAt = cleanText(productionTask.createdAt);
@@ -126,6 +127,7 @@ function buildQueueItem(workspace, item) {
     queueSeq: 0,
     manualQueueSeq: toNonNegativeInteger(scheduleRecord?.queueSeq),
     machineId,
+    assignedMachineId,
     machineLabel: machineId,
     publishedScheduleId,
     productionTaskId,

@@ -60,7 +60,6 @@ export function createFulfillmentPrintCommandService({
       return businessError(422, "FULFILLMENT_DOCUMENT_TYPE_INVALID", "The requested print document type is not valid for this fulfillment method.");
     }
     if(packageAnchorId(before)&&documentType==="express_ltl_label")return businessError(409,"PACKING_GROUP_PACKAGE_LABEL_REQUIRED","本包组请使用实物包裹挂牌入口，按当前逐包明细打印独立包码。");
-    if(!packageAnchorId(before)&&documentType==="package_label")return businessError(409,"PACKING_GROUP_REGISTRATION_REQUIRED","请先按实物登记包组和逐包明细，再打印内部挂牌。");
     const printableBody = {
       ...normalizedPrintBody,
       documentType,
@@ -83,7 +82,7 @@ export function createFulfillmentPrintCommandService({
       return businessError(
         409,
         "FULFILLMENT_PACKAGES_REQUIRED_FOR_LABEL_PRINT",
-        "Current fulfillment packages are required before an express/LTL label can be printed.",
+        "请先按实物登记本批逐包明细，再打印挂牌。",
       );
     }
 

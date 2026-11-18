@@ -7,12 +7,13 @@
 // 丝印 task flow on to bag-making for the same order line without a second scan.
 
 import { calculateRawMaterialOrderRequirement } from "../../shared/rawMaterialInventorySupport.js";
+import { resolveRawMaterialWholeRollMachine } from "./rawMaterialWholeRollPolicy.js";
+import { isPublishedRawMaterialIssueTask } from "../../shared/rawMaterialProductionTask.js";
 import { normalizeFactoryStandardColor } from "../../shared/factoryStandardColors.js";
 
 export const PRINT_WORKSHOP = "丝印车间";
 export const RAW_MATERIAL_PICK_WORKSHOPS = Object.freeze(["1号车间", "2号车间", "3号车间", PRINT_WORKSHOP]);
 
-const closedStatuses = new Set(["已完成", "已取消", "已作废", "completed", "cancelled", "voided"]);
 const clean = (value) => String(value ?? "").trim();
 const colorKey = (value) => normalizeFactoryStandardColor(value) || clean(value).normalize("NFKC").replace(/\s+/gu, "");
 
@@ -25,11 +26,11 @@ export function resolvePickWorkshop(task = {}) {
 }
 
 export function resolvePickTarget(task = {}) {
-  if (resolvePickWorkshop(task) === PRINT_WORKSHOP) return PRINT_WORKSHOP;
-  const machine = clean(task.machineId).toUpperCase();
-  const bag = machine.match(/^BAG-0?([1-9])$/);
-  if (bag) return `${bag[1]}号机`;
-  return clean(task.machineLabel || task.machineId);
+  // The queue can infer a machine for display. Only the assigned machine
+  // identifies where this particular roll must be sent.
+  const assignedMachine = clean(task.assignedMachineId ?? task.machineId);
+  if (assignedMachine) return resolveRawMaterialWholeRollMachine(assignedMachine);
+  return resolvePickWorkshop(task) === PRINT_WORKSHOP ? PRINT_WORKSHOP : "";
 }
 
 // What has already been picked for each task: rolls and weight. A task needs
@@ -58,7 +59,7 @@ export function buildRawMaterialPickList({ queueItems = [], inbounds = [], works
     .map((item) => clean(item.orderLineId))
     .filter(Boolean));
   return items
-    .filter((item) => !closedStatuses.has(clean(item.status || item.taskStatus)))
+    .filter((item) => isPublishedRawMaterialIssueTask(item) && resolvePickTarget(item))
     // Printed material moves on to bag-making for the same order line; no second scan.
     .filter((item) => !(resolvePickWorkshop(item) !== PRINT_WORKSHOP && printedLines.has(clean(item.orderLineId))))
     .filter((item) => !workshop || resolvePickWorkshop(item) === workshop)

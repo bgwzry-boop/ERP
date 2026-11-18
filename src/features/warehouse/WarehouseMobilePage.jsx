@@ -97,6 +97,9 @@ export function WarehouseMobilePage({
                   ? "核对版本、规格和数量一致后提交。"
                   : "可先登记备货；纸单到达并核对后再登记实物出库。"}</p>
               </section>
+              {paperReady && selected.outboundPackageReadiness?.ready === false ? (
+                <p className="warehouse-mobile-alert" role="status">{selected.outboundPackageReadiness.reason}</p>
+              ) : null}
               {paperReady ? (
                 <button className="warehouse-mobile-primary" onClick={() => onAction?.("回录库房结果", selected.id)} type="button">
                   <FileTextOutlined /> 核对纸单并回录结果

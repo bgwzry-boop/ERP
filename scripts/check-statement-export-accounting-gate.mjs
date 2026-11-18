@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createStatementCommunicationCommandService } from '../server/services/statementCommunicationCommandService.mjs';
 import { createStatementPreviewProjectionService } from '../server/services/statementPreviewProjectionService.mjs';
+import { buildVerifiedStatementImage } from '../server/services/statementDetailProjectionService.mjs';
 const projection = createStatementPreviewProjectionService();
 let stored = 0, written = 0;
 const service = createStatementCommunicationCommandService({
@@ -34,6 +35,9 @@ assert.equal(valid.response.lines[0].finalAmount, 99);
 assert.equal(valid.response.lines[0].deliveredQty, 205);
 assert.equal(stored, 1);
 assert.equal(written, 1);
+const verified = buildVerifiedStatementImage(fixture(), fixture().statements[0], '1');
+assert.equal(verified.response.statementLines[0].deliveredQty, valid.response.lines[0].deliveredQty);
+assert.equal(verified.response.statementLines[0].finalAmount, valid.response.lines[0].finalAmount);
 const cases = [
   ['missing persisted lines', w => { w.statementLines = []; }],
   ['other statement only', w => { w.statementLines[0].statementId = 'S2'; }],
@@ -53,6 +57,7 @@ for (const [label, mutate] of cases) {
   const before = JSON.stringify(workspace);
   const response = await run(workspace);
   assert.equal(response.code, 'STATEMENT_EXPORT_ACCOUNTING_INCOMPLETE', label);
+  assert.deepEqual(buildVerifiedStatementImage(workspace, workspace.statements[0], '1'), response, `${label}: image and official export use the same accounting gate`);
   assert.equal(stored, 1, `${label}: no object storage write`);
   assert.equal(written, 1, `${label}: no repository write`);
   assert.equal(JSON.stringify(workspace), before, `${label}: preserve accounting`);

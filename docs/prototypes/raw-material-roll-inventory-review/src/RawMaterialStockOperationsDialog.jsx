@@ -135,6 +135,8 @@ export function RawMaterialStockOperationsDialog({ formal, rollId, inboundId, on
           {noPermission ? <p role="status">当前账号没有领料或消耗权限。</p> : null}
           {canOperate ? <fieldset disabled={busy || measurementOpen}>
             <RawMaterialInboundReceivingSections
+              allInbounds={inbounds}
+              authState={formal.authState}
               actionError=""
               actionStates={{ attach: state.attachState, consumption: disabledWhileBusy(state.consumptionState), exception: state.exceptionState, issue: disabledWhileBusy(state.issueState), print: state.printState, review: state.reviewState, voidDraft: state.voidDraftState }}
               canViewCost={false}

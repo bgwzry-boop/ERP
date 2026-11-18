@@ -80,7 +80,8 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     };
     const nextStatements = result.statements.map((item) => item.id === statementId ? nextStatement : item);
     const identity = body.idempotencyKey ? createHash("sha256").update(JSON.stringify([statementId, operatorId, body.idempotencyKey])).digest("hex").slice(0, 32) : randomUUID();
-    const recordedAt = body.paidAt ?? now();
+    const registeredAt = now();
+    const recordedAt = body.paidAt ?? registeredAt;
     const underpaymentReason = String(body.remark ?? "").trim();
     let readNotices = null;
     let varianceRecord = null;
@@ -123,7 +124,8 @@ export function createStatementFinancialCommandService(dependencies = {}) {
       statementId,
       customerId: statement.customerId,
       amount: Number(body.amount ?? 0),
-      paidAt: body.paidAt ?? now(),
+      paidAt: recordedAt,
+      createdAt: registeredAt,
       method: body.method ?? "other",
       status: "recorded",
       attachmentIds: attachmentValidation.attachmentIds,

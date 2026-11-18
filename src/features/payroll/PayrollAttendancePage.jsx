@@ -204,6 +204,10 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
     || rows[0]
     || null;
   const latestRun = workbench?.payrollRuns?.[0] || null;
+  const paidRuns = (workbench?.payrollRuns ?? []).filter((run) => run.status === "paid");
+  const paidRun = paidRuns[0] ?? null;
+  const correctionDraft = paidRun && latestRun?.status !== "paid";
+  const exportRun = paidRun ?? latestRun;
   const latestPayrollLine = runDetail?.payrollRun?.id === latestRun?.id ? runDetail?.payrollLines?.find((line) => line.employeeId === selectedEmployeeId) || null : null;
 
   useEffect(() => {
@@ -278,13 +282,10 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   async function handleSync() {
     if (loading || actionLoading) return;
     const isCurrent = captureTarget();
-    const rangeStart = `${month}-01T00:00:00+08:00`;
-    const nextMonth = monthAfter(month);
-    const rangeEnd = `${nextMonth}-01T00:00:00+08:00`;
     setActionLoading("sync-precheck");
     setError("");
     setNotice("");
-    const precheck = await precheckOfficeAttendanceSync({ authState, operatorId, rangeStart, rangeEnd });
+    const precheck = await precheckOfficeAttendanceSync({ authState, operatorId, month });
     if (!isCurrent()) { setActionLoading(""); return; }
     if (precheck.blocked) {
       setActionLoading("");
@@ -302,7 +303,13 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
     }
     if (!precheck.data?.importRecommended) {
       setActionLoading("");
-      setNotice("考勤只读预检通过，本时间范围没有新增打卡，无需重复导入。");
+      setNotice("考勤预检通过，此时段已核实，没有新增打卡。");
+      return;
+    }
+    const { rangeStart, rangeEnd } = precheck.data;
+    if (!rangeStart || !rangeEnd) {
+      setActionLoading("");
+      setError("未收到服务器确认的考勤时间范围，请重新同步。");
       return;
     }
     setActionLoading("sync");
@@ -313,10 +320,14 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
       setError(syncResult.error?.message || "考勤同步失败。");
       return;
     }
-    const importedCount = Number(syncResult.data?.batch?.importedCount ?? syncResult.data?.importedCount ?? 0);
-    setNotice(`考勤预检通过并完成导入：实际新增 ${importedCount} 条。`);
+    const importedCount = syncResult.data?.batch?.importedCount;
+    if (!Number.isSafeInteger(importedCount) || importedCount < 0) {
+      setError("未收到考勤同步结果，请刷新核对后重试。");
+      return;
+    }
+    setNotice(importedCount === 0 ? "考勤覆盖时段已核对，没有新增打卡。" : `考勤同步完成，新增 ${importedCount} 条打卡。`);
     await refresh();
-    setDetailRevision((revision) => revision + 1);
+    if (isCurrent()) setDetailRevision((revision) => revision + 1);
   }
 
   async function handlePolicyPublish(event) {
@@ -370,7 +381,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
 
   async function handleAttendanceReview(event) {
     event.preventDefault();
-    if (!selected || detailLoading || loading || !employeeAttendance?.days?.some((day) => day.workDate === reviewForm.workDate && day.status === "pending_review")) return;
+    if (!selected || detailLoading || loading || !selectedReviewDay) return;
     const success = await perform("attendance-review", () => reviewOfficeAttendanceDay({
       authState,
       operatorId,
@@ -384,7 +395,7 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   }
 
   async function handleRunTransition(action) {
-    if (!latestRun || loading || actionLoading) return;
+    if (!latestRun || paidRun || loading || actionLoading) return;
     const confirmation = payrollTransitionConfirmation({ action, payrollRun: latestRun, paymentReference });
     if (!(await confirmInApp({ title: "确认工资批次操作", message: confirmation }))) return;
     const label = action === "review" ? "工资草稿已由会计复核。" : action === "lock" ? "工资批次已锁定。" : "发薪已确认并记录付款凭证。";
@@ -441,11 +452,11 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
   }
 
   async function handleExport() {
-    if (!latestRun || loading || actionLoading) return;
+    if (!exportRun || loading || actionLoading) return;
     const isCurrent = captureTarget();
     setActionLoading("export");
     setError("");
-    const result = await createOfficePayrollExport({ authState, operatorId, payrollRunId: latestRun.id });
+    const result = await createOfficePayrollExport({ authState, operatorId, payrollRunId: exportRun.id });
     setActionLoading("");
     if (!isCurrent()) return;
     if (result.blocked) {
@@ -465,8 +476,8 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
           {canSync ? <button disabled={loading || Boolean(actionLoading) || actionLoading === "sync" || actionLoading === "sync-precheck" || !workbench?.sourceStatus?.configured} onClick={handleSync} title={workbench?.sourceStatus?.configured ? "先只读预检，再同步真实打卡机数据" : "真实考勤来源尚未配置"} type="button"><ReloadOutlined />同步考勤</button> : null}
           {canManagePolicy ? <button onClick={() => setPolicyOpen(true)} type="button"><SettingOutlined />计薪规则</button> : null}
           {canPreviewPayroll ? <button onClick={() => setYearEndOpen(true)} type="button">年底结算</button> : null}
-          {latestRun && latestRun.status !== "draft" && canExportPayroll ? <button disabled={loading || Boolean(actionLoading)} onClick={handleExport} type="button"><DownloadOutlined />导出工资表</button> : null}
-          {canReviewPayroll ? <button className="primary" disabled={loading || Boolean(actionLoading) || actionLoading === "draft" || workbench?.summary?.draftReady !== true} onClick={() => perform("draft", () => generateOfficePayrollDraft({ authState, operatorId, month }), "工资草稿已生成。") } title={payrollDraftActionTitle(workbench)} type="button">生成工资草稿</button> : null}
+          {exportRun && exportRun.status !== "draft" && canExportPayroll ? <button disabled={loading || Boolean(actionLoading)} onClick={handleExport} type="button"><DownloadOutlined />{correctionDraft ? "导出已发工资表" : "导出工资表"}</button> : null}
+          {canReviewPayroll ? <button className="primary" disabled={loading || Boolean(actionLoading) || workbench?.summary?.draftReady !== true} onClick={() => perform("draft", () => generateOfficePayrollDraft({ authState, operatorId, month }), paidRun ? "更正草稿已生成，仅用于核对差额。" : "工资草稿已生成。")} title={payrollDraftActionTitle(workbench)} type="button">{paidRun ? "生成更正草稿" : "生成工资草稿"}</button> : null}
         </div> : <div className="payroll-position-summary"><strong>{workbookPositionRates.length} 个岗位</strong><span>原表岗位目录 · 非当前员工人数</span></div>}
       </header>
       <nav aria-label="工资核算工作台" className="payroll-workbench-tabs"><button aria-pressed={view === "employees"} className={view === "employees" ? "active" : ""} onClick={() => setView("employees")} type="button">员工工资核算</button><button aria-pressed={view === "positions"} className={view === "positions" ? "active" : ""} onClick={() => setView("positions")} type="button">岗位工资标准</button></nav>
@@ -544,10 +555,20 @@ function PayrollMonthWorkbench({ authState, currentUser, permissionContext, mont
             <textarea aria-label="考勤复核说明" onChange={(event) => setReviewForm((current) => ({ ...current, explanation: event.target.value }))} placeholder="填写漏卡、临时离厂或调整依据" required value={reviewForm.explanation} />
             <button className="primary" disabled={loading || detailLoading || Boolean(actionLoading)} type="submit">保存复核</button>
           </form> : null}
-          <section className="payroll-detail-section"><header><h3>工资批次</h3><span>{latestRun ? `第 ${latestRun.revision} 版` : "尚未生成"}</span></header>{latestRun ? <dl><div><dt>批次状态</dt><dd>{runStatusLabels[latestRun.status] || latestRun.status}</dd></div><div><dt>计薪版本</dt><dd>{workbench?.policyVersion?.versionLabel || latestRun.policyVersionId}</dd></div><div><dt>生成时间</dt><dd>{formatDateTime(latestRun.generatedAt)}</dd></div><div><dt>付款凭证</dt><dd>{latestRun.paymentReference || "—"}</dd></div></dl> : <p className="payroll-detail-empty">员工资料、考勤复核和计薪规则全部就绪后才能生成。</p>}</section>
+          <section className="payroll-detail-section">
+            <header><h3>工资批次</h3><span>{latestRun ? `第 ${latestRun.revision} 版` : "尚未生成"}</span></header>
+            {latestRun ? <dl>
+              <div><dt>批次状态</dt><dd>{correctionDraft ? "更正核对" : runStatusLabels[latestRun.status] || latestRun.status}</dd></div>
+              <div><dt>计薪版本</dt><dd>{workbench?.policyVersion?.versionLabel || latestRun.policyVersionId}</dd></div>
+              <div><dt>生成时间</dt><dd>{formatDateTime(latestRun.generatedAt)}</dd></div>
+              <div><dt>{correctionDraft ? "原发薪凭证" : "付款凭证"}</dt><dd>{(paidRun ?? latestRun).paymentReference || "—"}</dd></div>
+            </dl> : <p className="payroll-detail-empty">员工资料、考勤复核和计薪规则全部就绪后才能生成。</p>}
+            {paidRuns.length > 1 ? <p className="payroll-minute-note" role="status">该月保留了多份历史发薪记录，请财务逐笔对照原付款凭证。</p> : null}
+            {correctionDraft ? <p className="payroll-minute-note">该月第 {paidRun.revision} 版已发薪。当前版本用于核对更正，差额或补发须关联原批次另行办理。</p> : null}
+          </section>
           <section className="payroll-detail-section"><header><h3>历史工资</h3><span>{payrollHistory?.total || 0} 条</span></header>{payrollHistory?.items?.length ? <div className="payroll-history-list">{payrollHistory.items.map(({ payrollRun, payrollLine }) => <div key={payrollLine.id}><span>{formatMonth(payrollRun.payrollMonth)} · 第{payrollRun.revision}版</span><strong>{formatMoney(payrollLine.netWage)}</strong><small>{runStatusLabels[payrollRun.status] || payrollRun.status}</small></div>)}</div> : <p className="payroll-detail-empty">尚无历史工资记录。</p>}</section>
         </div>
-        {latestRun ? <footer>
+        {latestRun && !paidRun ? <footer>
           {latestRun.status === "draft" && canReviewPayroll ? <button className="primary" disabled={loading || Boolean(actionLoading)} onClick={() => handleRunTransition("review")} type="button">会计复核通过</button> : null}
           {latestRun.status === "reviewed" && canLockPayroll ? <button className="primary" disabled={loading || Boolean(actionLoading)} onClick={() => handleRunTransition("lock")} type="button">锁定工资批次</button> : null}
           {latestRun.status === "locked" && canConfirmPayment ? <><input aria-label="付款凭证编号" onChange={(event) => setPaymentReference(event.target.value)} placeholder="输入付款凭证编号" value={paymentReference} /><button className="primary" disabled={loading || !paymentReference.trim() || Boolean(actionLoading)} onClick={() => handleRunTransition("payment")} type="button">确认发薪</button></> : null}
@@ -613,7 +634,6 @@ function formatHours(minutes) { return `${(Number(minutes || 0) / 60).toFixed(2)
 function formatDateTime(value) { return value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—"; }
 function currentMonth() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit" }).format(new Date()); }
 function formatMonth(month) { const [year, value] = month.split("-"); return `${year}年${Number(value)}月`; }
-function monthAfter(month) { const [year, value] = month.split("-").map(Number); const date = new Date(Date.UTC(year, value, 1)); return date.toISOString().slice(0, 7); }
 function parseSeniorityAwards(value) {
   return String(value || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const [minYears, monthlyAmount] = line.split(":").map((item) => Number(item.trim()));

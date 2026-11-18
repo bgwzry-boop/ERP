@@ -119,6 +119,76 @@ try {
   assert.deepEqual(await stock(), { on_hand_qty: 700, reserved_qty: 200 }, "已出库的单据更正重打仍只扣一次");
   assert.equal(Number((await pool.query("SELECT count(*) FROM inventory_ledger_entries WHERE source_id='F-NP-1'")).rows[0].count), 1);
 
+  // Regular delivery with no packages cannot deduct via the print switch or
+  // through warehouse execution. Single-line package labels use the same
+  // trusted printer receipt as mixed packages.
+  await pool.query(`
+    INSERT INTO inventory_items (id, inventory_key, size, standard_color_id, handle_type, style, zone, inventory_state, on_hand_qty, reserved_qty)
+    VALUES ('INV-NP-DISPATCH', 'np-delivery', '40*30*10', 'SC-RED', '普通提', '空白袋', '隔离验收送货区', '仓库已清点', 180, 180);
+    INSERT INTO order_lines (id, biz_no, order_id, customer_id, product_name, order_type, size, bag_color, handle_type, style, original_qty, fulfillment_method, line_status, created_by)
+    VALUES ('ORD-NP-D1', 'ORD-NP-D1', 'ORD-0629-001', 'C001', '空白袋', '现货有货', '40*30*10', '红色', '普通提', '空白袋', 100, '送货', '待出库', 'U-OFFICE-A'),
+           ('ORD-NP-D2', 'ORD-NP-D2', 'ORD-0629-001', 'C001', '空白袋', '现货有货', '40*30*10', '红色', '普通提', '空白袋', 80, '送货', '待出库', 'U-OFFICE-A');
+    INSERT INTO fulfillment_records (id, biz_no, order_line_id, customer_id, customer_snapshot, method, expected_qty, actual_qty, status, created_by)
+    VALUES ('F-NP-D1', 'F-NP-D1', 'ORD-NP-D1', 'C001', '{"name":"合成送货客户"}'::jsonb, '送货', 100, 100, '待出库', 'U-OFFICE-A'),
+           ('F-NP-D2', 'F-NP-D2', 'ORD-NP-D2', 'C001', '{"name":"合成送货客户"}'::jsonb, '送货', 80, 80, '待出库', 'U-OFFICE-A');
+    INSERT INTO inventory_reservations (id, order_line_id, inventory_item_id, reserved_qty, status, created_by)
+    VALUES ('RSV-NP-D1', 'ORD-NP-D1', 'INV-NP-DISPATCH', 100, '生效', 'U-OFFICE-A'), ('RSV-NP-D2', 'ORD-NP-D2', 'INV-NP-DISPATCH', 80, '生效', 'U-OFFICE-A');
+    INSERT INTO price_snapshots (id, order_line_id, snapshot_type, version_no, bag_price, chargeable_qty, final_amount, created_by)
+    VALUES ('PRICE-NP-D1', 'ORD-NP-D1', 'confirmation', 1, 0.43, 100, 43, 'U-OFFICE-A'), ('PRICE-NP-D2', 'ORD-NP-D2', 'confirmation', 1, 0.43, 80, 34.4, 'U-OFFICE-A');
+    INSERT INTO printer_devices(id,biz_no,name,device_type,connection_type,supported_document_types,default_document_types,settings_json,created_by)
+    VALUES('PRN-NP-LABEL','PRN-NP-LABEL','合成包裹标签机','label','system_printer',ARRAY['package_label'],ARRAY['package_label'],'{"driverMode":"system_printer"}','U-OFFICE-A');
+  `);
+  const deliveryStock = async () => (await pool.query("SELECT on_hand_qty,reserved_qty FROM inventory_items WHERE id='INV-NP-DISPATCH'")).rows[0];
+  const warehouse = services.fulfillmentActionCommandService;
+  const deliveryPaper = await print("F-NP-D1", "np-delivery-no-pack", { documentType: "delivery_note" });
+  assert.ok(deliveryPaper.printJob, JSON.stringify(deliveryPaper));
+  assert.equal((await confirm(deliveryPaper.printJob.printJobId, "np-delivery-no-pack-print")).printJob.jobStatus, "printed");
+  assert.equal((await fulfillment("F-NP-D1")).stock_deducted_at, null);
+  assert.match((await fulfillment("F-NP-D1")).stock_deduction_note, /没扣库存.*实际包裹/);
+  assert.deepEqual(await deliveryStock(), { on_hand_qty: 180, reserved_qty: 180 });
+  const packageProof = async (id, lineId, qty) => {
+    await pool.query("INSERT INTO packages(id,biz_no,order_line_id,fulfillment_id,packed_qty) VALUES($1,$1,$2,$3,$4)", ["PKG-"+id, lineId, id, qty]);
+    const queued = await print(id, "np-delivery-label-"+id, { documentType: "package_label", printDeviceId: "PRN-NP-LABEL" });
+    assert.ok(queued.printJob, JSON.stringify(queued));
+    let workspace = await prepare();
+    const job = workspace.printJobs.find(row => row.printJobId === queued.printJob.printJobId);
+    const now = new Date().toISOString();
+    const result = await services.printJobBusinessProjectionService.persistFulfillmentPrintJobProjection({
+      workspace, printJob: { ...job, jobStatus: "printed", finishedAt: now }, operatorId: "U-OFFICE-A",
+      idempotencyKey: "np-delivery-label-confirm-"+id,
+      printJobOperationLog: { id: "LOG-LABEL-"+id, targetType: "print_job", targetId: job.printJobId,
+        action: "record_print_job_driver_status", operatorId: "U-OFFICE-A", occurredAt: now, createdAt: now },
+    });
+    assert.equal(result.physicalPrintConfirmed, true, JSON.stringify(result));
+  };
+  const instruction = async () => {
+    const workspace = await prepare();
+    const f = workspace.fulfillments.find(row => row.id === "F-NP-D1");
+    const paper = workspace.paperOutboundDocuments.find(row => row.fulfillmentId === f.id);
+    return { workspace, fulfillmentId: f.id, operatorId: "U-OFFICE-A",
+      body: { expectedRevision: f.revision, paperOutboundDocumentId: paper.id ?? paper.paperOutboundDocumentId,
+        paperDocumentRevision: paper.revision, paperDocumentVersion: paper.documentVersion } };
+  };
+  let handoff = await instruction();
+  assert.ok((await warehouse.handoffPaperOutboundDocument({ ...handoff, body: { ...handoff.body, idempotencyKey: "np-delivery-handoff" } })).response);
+  const execute = (input, key) => {
+    return warehouse.recordWarehouseOutboundExecution({ ...input, body: { ...input.body, result: "实物已出库", actualQty: 100,
+      physicalExecutorEmployeeId: "EMP-LIVE-MANAGER-001", feedbackChannel: "当面", idempotencyKey: key } });
+  };
+  assert.equal((await execute(await instruction(), "np-delivery-cannot-deduct")).code, "WAREHOUSE_REAL_PACKAGES_REQUIRED");
+  assert.deepEqual(await deliveryStock(), { on_hand_qty: 180, reserved_qty: 180 });
+  await packageProof("F-NP-D1", "ORD-NP-D1", 100);
+  const readyExecution = await instruction();
+  assert.equal((await execute(readyExecution, "np-delivery-confirmed")).response.status, "待司机装车");
+  assert.equal((await execute(readyExecution, "np-delivery-confirmed")).response.replayed, true);
+  assert.deepEqual(await deliveryStock(), { on_hand_qty: 80, reserved_qty: 80 });
+  await packageProof("F-NP-D2", "ORD-NP-D2", 80);
+  const packedPaper = await print("F-NP-D2", "np-delivery-packed", { documentType: "delivery_note" });
+  assert.ok(packedPaper.printJob, JSON.stringify(packedPaper));
+  assert.equal((await confirm(packedPaper.printJob.printJobId, "np-delivery-packed-print")).printJob.jobStatus, "printed");
+  assert.ok((await fulfillment("F-NP-D2")).stock_deducted_at);
+  assert.deepEqual(await deliveryStock(), { on_hand_qty: 0, reserved_qty: 0 });
+
   // 3) 线上库存对不上（F001 同款有两处库存）：不确认不让打；出库工确认后能打，打出来不扣、留提醒
   const short = await print("F001", "np-short-1");
   assert.equal(short.code, "FULFILLMENT_NOTE_STOCK_SHORT");

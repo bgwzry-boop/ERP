@@ -84,6 +84,8 @@ async function checkRepository() {
   const listed = repository.listReviews({ workspace, query: { keyword: "白侯" } });
   assert.equal(listed.total, 1, "repository should list saved review drafts");
   assert.equal(listed.metrics.draftCount, 1, "repository metrics should count draft reviews");
+  assert.throws(() => repository.confirmReview({ workspace, reviewId: created.review.reviewId, decision: "一致" }),
+    (error) => error.code === "RAW_MATERIAL_SUPPLIER_REVIEW_UNRESOLVED" && error.details.rowIds.includes("BH-ROW-2"));
 
   const confirmed = repository.confirmReview({
     workspace,
@@ -113,7 +115,7 @@ async function checkRepository() {
 
   const consistentDraft = repository.createReviewDraft({
     workspace,
-    statementResult: buildStatementResult({ fileName: "baihou-consistent-2026-07.xlsx" }),
+    statementResult: matchingStatementResult("baihou-consistent-2026-07.xlsx"),
     supplierName: "白侯无纺布",
     fileName: "baihou-consistent-2026-07.xlsx",
     operatorId: "U-OFFICE-A",
@@ -249,7 +251,8 @@ async function checkSupplierReturnReconciliation() {
 
   const added = repository.createReviewDraft({
     workspace,
-    statementResult: buildStatementResult({ fileName: "baihou-2026-07.xlsx" }),
+    statementResult: matchingStatementResult("baihou-2026-07.xlsx"),
+    periodStart: "2026-07-01", periodEnd: "2026-07-31",
     supplierName: "白侯无纺布",
     fileName: "baihou-2026-07.xlsx",
     operatorId: "U-OFFICE-A",
@@ -294,7 +297,8 @@ async function checkSupplierReturnReconciliation() {
 
   const duplicateReview = repository.createReviewDraft({
     workspace,
-    statementResult: buildStatementResult({ fileName: "baihou-duplicate-2026-07.xlsx" }),
+    statementResult: matchingStatementResult("baihou-duplicate-2026-07.xlsx"),
+    periodStart: "2026-07-01", periodEnd: "2026-07-31",
     supplierName: "白侯无纺布",
     fileName: "baihou-duplicate-2026-07.xlsx",
     operatorId: "U-OFFICE-A",
@@ -377,11 +381,12 @@ async function checkSupplierReturnReconciliation() {
   })];
   const referencePriceReturn = repository.createReviewDraft({
     workspace,
+    periodStart: "2026-07-01", periodEnd: "2026-07-31",
     statementResult: {
       ...buildStatementResult({ fileName: "renyi-2026-07.xlsx" }),
       supplierName: "振恒",
       fileName: "renyi-2026-07.xlsx",
-      rows: buildStatementResult().rows.map((row) => ({ ...row, supplierName: "振恒", documentDate: "2026-07-04" })),
+      rows: matchingStatementResult("renyi-2026-07.xlsx").rows.map((row) => ({ ...row, supplierName: "振恒", documentDate: "2026-07-04" })),
       adjustments: [],
     },
     supplierName: "振恒",
@@ -432,6 +437,7 @@ async function checkPostgresRepositoryBoundary() {
         return {
         review: {
           ...buildSavedReview(),
+          rows: matchingStatementResult("pg.xlsx").rows,
           reviewId: "RMSR-PG-001",
           status: valuesText.includes("supplier_payment_confirmed")
             ? "已确认付款/已完成"
@@ -484,7 +490,7 @@ async function checkPostgresRepositoryBoundary() {
   const workspace = { rawMaterialSupplierStatementReviews: [] };
   const created = await repository.createReviewDraft({
     workspace,
-    statementResult: buildStatementResult({ fileName: "pg.xlsx" }),
+    statementResult: matchingStatementResult("pg.xlsx"),
     supplierName: "白侯无纺布",
     fileName: "pg.xlsx",
     operatorId: "U-OFFICE-A",
@@ -546,6 +552,7 @@ async function checkPostgresRepositoryBoundary() {
     reviewId: created.review.reviewId,
     paidAmount: 1816.14,
     paymentMethod: "银行转账",
+    paymentReferenceNo: "BANK-PG-1",
     note: "财务确认供应商付款",
     operatorId: "U-FINANCE-A",
     operatorName: "财务A",
@@ -593,13 +600,23 @@ async function checkApi() {
       body: {
         supplierName: "白侯无纺布",
         fileName: "api-baihou.xlsx",
-        statementResult: buildStatementResult({ fileName: "api-baihou.xlsx" }),
+        statementResult: matchingStatementResult("api-baihou.xlsx"),
       },
     });
     assert.equal(created.status, 200, "office user should save supplier statement review draft");
     assert.equal(created.json.review.reviewStatus, "draft");
     assert.equal(created.json.review.payableEffect, "none");
     const reviewId = created.json.review.reviewId;
+
+    const setPeriodPath = `/api/raw-material-supplier-statement-reviews/${reviewId}/set-period`;
+    const periodBody = { periodStart: "2026-07-01", periodEnd: "2026-07-15", expectedRevision: created.json.review.revision };
+    const warehousePeriod = await postApiJson(baseUrl, setPeriodPath, { userId: "U-WAREHOUSE-A", body: periodBody });
+    assert.equal(warehousePeriod.status, 403);
+    const setPeriod = await postApiJson(baseUrl, setPeriodPath, { userId: "U-OFFICE-A", body: periodBody });
+    assert.equal(setPeriod.status, 200);
+    assert.equal(setPeriod.json.review.periodStart, periodBody.periodStart);
+    assert.equal(setPeriod.json.review.periodEnd, periodBody.periodEnd);
+    assert.equal(setPeriod.json.review.revision, periodBody.expectedRevision + 1);
 
     const confirmed = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-review`, {
       userId: "U-OFFICE-A",
@@ -619,6 +636,12 @@ async function checkApi() {
     assert.equal(statementConfirmed.json.review.status, "已确认对账/待付款");
     assert.equal(statementConfirmed.json.review.paymentStatus, "待财务付款确认");
     assert.equal(statementConfirmed.json.review.paymentEffect, "none", "statement confirmation should not confirm payment");
+    const finalizedPeriod = await postApiJson(baseUrl, setPeriodPath, {
+      userId: "U-OFFICE-A",
+      body: { ...periodBody, expectedRevision: statementConfirmed.json.review.revision },
+    });
+    assert.equal(finalizedPeriod.status, 409);
+    assert.equal(finalizedPeriod.json.code, "RAW_MATERIAL_SUPPLIER_STATEMENT_PERIOD_FINALIZED");
 
     const duplicateStatementConfirmation = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-statement`, {
       userId: "U-OFFICE-A",
@@ -663,12 +686,19 @@ async function checkApi() {
     });
     assert.equal(wrongPaymentAmount.status, 409, "supplier payment must not exceed the remaining payable");
 
+    const paymentWithoutEvidence = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
+      userId: "U-FINANCE-A",
+      body: { paidAmount: 1816.14, paymentMethod: "银行转账", paymentReferenceNo: "   " },
+    });
+    assert.equal(paymentWithoutEvidence.status, 422);
+    assert.equal(paymentWithoutEvidence.json.code, "RAW_MATERIAL_SUPPLIER_PAYMENT_REFERENCE_REQUIRED");
+
     const paymentConfirmed = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
       userId: "U-FINANCE-A",
       body: {
         paidAmount: 1816.14,
-        paymentMethod: "银行转账",
-        paymentReferenceNo: "BANK-API-20260704-001",
+        paymentMethod: "现金",
+        paymentVoucherNo: "CASH-API-20260704-001",
         note: "财务确认供应商应付草稿已实际付款",
       },
     });
@@ -678,6 +708,7 @@ async function checkApi() {
     assert.equal(paymentConfirmed.json.review.paymentStatus, "已确认付款");
     assert.equal(paymentConfirmed.json.review.payableStatus, "已付款");
     assert.equal(paymentConfirmed.json.paymentRecord.paidAmount, 1816.14);
+    assert.equal(paymentConfirmed.json.paymentRecord.paymentVoucherNo, "CASH-API-20260704-001");
     assert.equal(paymentConfirmed.json.review.inventoryEffect, "none");
     assert.equal(paymentConfirmed.json.review.paymentEffect, "supplier_payment_confirmed");
 
@@ -708,6 +739,15 @@ async function checkApi() {
   } finally {
     await closeTestServer(server);
   }
+}
+
+function matchingStatementResult(fileName) {
+  const result = buildStatementResult({ fileName });
+  return {
+    ...result,
+    summary: { ...result.summary, matchedRowCount: result.rows.length, candidateRowCount: 0 },
+    rows: result.rows.map((row) => ({ ...row, matchingStatus: "matched" })),
+  };
 }
 
 function buildStatementResult(overrides = {}) {

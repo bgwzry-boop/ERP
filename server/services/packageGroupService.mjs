@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { isStockOrderType } from "../../shared/orderRouting.js";
+import { NET_DEDUCTION_SOURCE_TYPES } from "../fulfillmentNoteCorrectionTransaction.mjs";
+import { isStockOrderType, stockSupplyRoute } from "../../shared/orderRouting.js";
 import { fulfillmentIdOf, packageIdOf, packageContents, isActivePackage, packageAnchorId } from "../../shared/packageContents.js";
 
 const text = value => String(value ?? "").trim();
@@ -18,7 +19,13 @@ function lineFor(workspace, fulfillment) { return workspace.orderLines.find(row 
 function taskFor(workspace, fulfillment) { return (workspace.packingTasks ?? []).find(row => lineId(row) === lineId(fulfillment)); }
 function taskReady(workspace, fulfillment) {
   const line = lineFor(workspace, fulfillment), task = taskFor(workspace, fulfillment);
-  return Boolean(line && !["已作废","已取消","已交付","已完成","closed","voided","canceled"].includes(line.status??line.lineStatus) && (task && !["已取消", "已作废"].includes(task.status) || isStockOrderType(line.orderType) && !["待排产", "待生产", "待确认", "已作废"].includes(line.status ?? line.lineStatus)));
+  if (!line) return false;
+  const status = line.status ?? line.lineStatus;
+  if (["已作废", "已取消", "已交付", "已完成", "closed", "voided", "canceled"].includes(status)) return false;
+  if (["待排产", "待生产", "待确认"].includes(status)) return false;
+  if (stockSupplyRoute(line) === "production" && ["待生产", "待排产"].includes(fulfillment.status)
+    && !["待打包", "待出库", "待打印标签"].includes(status)) return false;
+  return task ? !["已取消", "已作废"].includes(task.status) : isStockOrderType(line.orderType);
 }
 export function packageGroupSnapshot(workspace, members, packages) {
   return {
@@ -61,6 +68,19 @@ export function getPackageGroupContext(workspace, { fulfillmentId, orderLineId }
   };
 }
 export function publicPackageGroupContext(context) { const { _members, _snapshot, ...safe } = context; return safe; }
+
+export function assertPackageGroupStockQuantity(workspace, members, totals) {
+  for (const member of members) {
+    const id = fulfillmentIdOf(member);
+    if (totals[id] === Number(member.actualQty ?? member.expectedQty ?? member.qty)) continue;
+    const netDeducted = -(workspace.inventoryLedgers ?? []).filter(entry =>
+      entry.sourceId === id && NET_DEDUCTION_SOURCE_TYPES.includes(entry.sourceType)
+    ).reduce((sum, entry) => sum + Number(entry.qtyChange), 0);
+    if (netDeducted > 0) {
+      fail("PACKING_GROUP_STOCK_ADJUSTMENT_REQUIRED", "本批已按纸单扣过库存，暂不能在包裹中直接改总数。请办公室核对原出库纸单和扣库流水；总数不变可继续重建挂牌。");
+    }
+  }
+}
 
 export async function replacePackageGroup({ workspace, fulfillmentId, body, operatorId }) {
   const repository = workspace.productionPackingTransactionRepository;
@@ -106,6 +126,7 @@ export async function replacePackageGroup({ workspace, fulfillmentId, body, oper
       packageSeq: index+1, packageCount: body.packages.length, packedQty, contents, packingRevision, revision: 1, status: "待打印标签", labelPrintRecordId: "", createdBy: operatorId, createdAt: now };
   });
   if ([...totals.values()].some(qty=>!Number.isSafeInteger(qty)||qty<=0||qty>2147483647)) fail("PACKING_GROUP_LINE_MISSING", "每个选定明细都必须有实际装包数量；没有实物请取消该明细或交办公室核对。", 422);
+  assertPackageGroupStockQuantity(workspace, members, Object.fromEntries(totals));
   const oldPackages = context.packages.filter(row => packageContents(row).some(item => selectedIds.includes(item.fulfillmentId)));
   const snapshot = packageGroupSnapshot(workspace, members, oldPackages);
   const input = { workspace, payload, idempotencyKey: body.idempotencyKey, action: "replace", anchorId: context.anchorFulfillmentId, orderId: context.orderId,

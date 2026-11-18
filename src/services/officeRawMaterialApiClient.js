@@ -17,6 +17,7 @@ export {
   createOfficeRawMaterialSupplierStatementReviewDraft,
   generateOfficeRawMaterialSupplierPayableDraft,
   listOfficeRawMaterialSupplierStatementReviews,
+  setOfficeRawMaterialSupplierStatementPeriod,
 } from "./officeRawMaterialSupplierStatementApiClient.js";
 
 export async function listOfficeRawMaterialPurchaseRequests(input = {}, options = {}) {

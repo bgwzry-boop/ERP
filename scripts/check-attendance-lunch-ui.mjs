@@ -11,7 +11,7 @@ const apiNames = ["generateOfficePayrollDraft", "getOfficeEmployeeAttendance", "
 const fixture = {
   employees: [{ employeeId: "EMP-LUNCH-UI", name: "合成普通员工", roleName: "普工", totalWorkMinutes: 540, pendingExceptionCount: 0, readyForDraft: false, blockers: ["正式工资条件未验收"] },
     { employeeId: "EMP-SILK-UI", name: "合成丝印员工", roleName: "丝印", totalWorkMinutes: 600, pendingExceptionCount: 0, readyForDraft: false, blockers: ["正式工资条件未验收"] }],
-  payrollRuns: [], summary: { draftReady: false }, sourceStatus: { configured: false, label: "合成界面验收，无真实接入" },
+  payrollRuns: [], summary: { draftReady: false }, sourceStatus: { configured: true, label: "合成界面验收，无真实接入" },
 };
 const attendance = { days: [{ workDate: "2026-09-15", punchTimes: ["08:00", "12:30", "13:30", "18:00"], expectedPunchCount: 4, actualPunchCount: 4, rawWorkMinutes: 540, workMinutes: 540, status: "reviewed", statusLabel: "已复核",
   minuteCalculation: { breakRule: "fixed_lunch", legacyReviewedMinutesPreserved: true, rawWorkMinutes: 540, unpaidBreakMinutes: 30, calculatedWorkMinutes: 510 } }] };
@@ -23,14 +23,27 @@ const bundle = await build({ stdin: { contents: `
   import './src/styles/tokens.css';
   import './docs/prototypes/raw-material-roll-inventory-review/src/styles.css';
   import './src/styles/features/payroll-attendance.css';
-  window.reviewWrites=[]; window.fixture=${JSON.stringify(fixture)}; window.attendance=${JSON.stringify(attendance)}; window.silkAttendance=${JSON.stringify(silkAttendance)};
+  window.reviewWrites=[]; window.syncRequests=[]; window.syncScenario="coverage"; window.fixture=${JSON.stringify(fixture)}; window.attendance=${JSON.stringify(attendance)}; window.silkAttendance=${JSON.stringify(silkAttendance)};
   window.readApi=(name,input)=>{
     if(name==='getOfficePayrollWorkbench')return Promise.resolve({data:window.fixture});
     if(name==='getOfficeEmployeeAttendance')return Promise.resolve({data:input.employeeId==='EMP-SILK-UI'?window.silkAttendance:window.attendance});
     if(name==='getOfficePayrollHistory')return Promise.resolve({data:{items:[],total:0}});
+    if(name==='getOfficePayrollRun')return Promise.resolve({data:{payrollRun:window.fixture.payrollRuns.find(run=>run.id===input.payrollRunId),payrollLines:[]}});
+    if(name==='precheckOfficeAttendanceSync') {
+      window.syncRequests.push({name,month:input.month});
+      return Promise.resolve({data:{
+        ready:true, importRecommended:window.syncScenario!=="covered", coverageConfirmationNeeded:window.syncScenario==="coverage",
+        rangeStart:'2026-08-31T16:00:00.000Z', rangeEnd:'2026-09-30T16:00:00.000Z',
+        summary:{newRecordCount:window.syncScenario==="new"?7:0},
+      }});
+    }
+    if(name==='syncOfficeAttendance') {
+      window.syncRequests.push({name,rangeStart:input.rangeStart,rangeEnd:input.rangeEnd});
+      return Promise.resolve({data:{batch:{importedCount:window.syncScenario==="new"?2:0,duplicateCount:4}}});
+    }
     window.reviewWrites.push({name,input});return Promise.resolve({blocked:true,error:{message:'合成验收不执行写入'}});
   };
-  createRoot(document.getElementById('root')).render(<PayrollAttendancePage authState={{session:{accessToken:'synthetic'}}} currentUser={{userId:'SYNTHETIC'}} permissionContext={{actionPermissions:['attendance.review']}} />);
+  createRoot(document.getElementById('root')).render(<PayrollAttendancePage authState={{session:{accessToken:'synthetic'}}} currentUser={{userId:'SYNTHETIC'}} permissionContext={{actionPermissions:['attendance.review','attendance.sync','payroll.review','payroll.lock','payroll.payment.confirm','payroll.export']}} />);
 `, resolveDir: process.cwd(), loader: "jsx" }, bundle: true, write: false, outfile: "view.js", jsx: "automatic",
   loader: { ".svg": "dataurl", ".png": "dataurl", ".woff2": "dataurl" },
   plugins: [{ name: "synthetic-attendance-only", setup(builder) {
@@ -54,6 +67,25 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.getByLabel("工资月份").fill("2026-09");
+  const syncButton = page.getByRole("button", { name: /同步考勤/ });
+  await syncButton.click();
+  await page.getByText("考勤覆盖时段已核对，没有新增打卡。", { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.syncRequests), [
+    { name: "precheckOfficeAttendanceSync", month: "2026-09" },
+    { name: "syncOfficeAttendance", rangeStart: "2026-08-31T16:00:00.000Z", rangeEnd: "2026-09-30T16:00:00.000Z" },
+  ], "A zero-new-punch coverage confirmation must still use the server's reviewed dates.");
+
+  await page.evaluate(() => { window.syncScenario = "new"; window.syncRequests = []; });
+  await syncButton.click();
+  await page.getByText("考勤同步完成，新增 2 条打卡。", { exact: true }).waitFor();
+  assert.equal(await page.getByText(/新增 7 条打卡/u).count(), 0, "The page shows actual inserted count rather than the precheck estimate.");
+  assert.equal(await page.evaluate(() => window.syncRequests.filter(request => request.name === "syncOfficeAttendance").length), 1);
+
+  await page.evaluate(() => { window.syncScenario = "covered"; window.syncRequests = []; });
+  await syncButton.click();
+  await page.getByText("考勤预检通过，此时段已核实，没有新增打卡。", { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.syncRequests), [{ name: "precheckOfficeAttendanceSync", month: "2026-09" }]);
+
   await page.getByLabel("复核日期").selectOption("2026-09-15");
   const facts = page.getByRole("definition");
   assert.equal(await facts.count(), 3);
@@ -82,8 +114,29 @@ try {
   await form.screenshot({ path: resolve(output, "silk-manual-rest-1440.png") });
   assert.equal(await form.evaluate((node) => node.scrollWidth <= node.clientWidth), true);
   assert.equal(await page.evaluate(() => window.reviewWrites.length), 0);
+  await page.getByLabel("考勤复核说明").fill("已核对当日实际休息25分钟");
+  await page.getByRole("button", { name: "保存复核", exact: true }).click();
+  assert.deepEqual(await page.evaluate(() => window.reviewWrites.map(({ name, input }) => ({
+    name, employeeId: input.employeeId, workDate: input.workDate, status: input.status,
+    adjustedWorkMinutes: input.adjustedWorkMinutes, explanation: input.explanation,
+  }))), [{
+    name: "reviewOfficeAttendanceDay", employeeId: "EMP-SILK-UI", workDate: "2026-09-15",
+    status: "adjusted", adjustedWorkMinutes: 575, explanation: "已核对当日实际休息25分钟",
+  }], "an eligible normal two-punch day must submit its reviewed actual rest");
+  await page.evaluate(() => {
+    window.fixture.payrollRuns = [
+      { id: "CORRECTION", revision: 2, status: "locked" },
+      { id: "PAID", revision: 1, status: "paid", paymentReference: "SYNTHETIC-ORIGINAL-RECEIPT" },
+    ];
+  });
+  await page.getByLabel("工资月份").fill("2026-10");
+  await page.getByText("更正核对", { exact: true }).waitFor();
+  assert.equal(await page.getByText("SYNTHETIC-ORIGINAL-RECEIPT", { exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "生成更正草稿" }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "导出已发工资表" }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "确认发薪" }).count(), 0);
   assert.deepEqual(errors, []);
-  console.log(`Attendance lunch UI passed: ordinary 9h raw / 0.5h lunch / 8.5h proposed, normal silk-screen optional actual-rest review / no fixed deduction, legacy minutes untouched and no business writes. Screenshots: ${output}`);
+  console.log(`Attendance/payroll UI passed: actual new count, zero-new coverage, covered period skips import, normal silk-screen actual-rest submit with 575 minutes, legacy display, original paid receipt visible and later correction cannot pay again. Synthetic callback only. Screenshots: ${output}`);
 } finally {
   await browser.close();
   await new Promise((done) => server.close(done));
