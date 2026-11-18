@@ -1,0 +1,238 @@
+{
+  "baseline": "Picomatch 4.0.4; regular supported build patterns only",
+  "patterns": [
+    "**/*.jsx",
+    "**/*.{js,jsx,ts,tsx}",
+    "**/node_modules/**",
+    "**/.env*",
+    "**/.git/**",
+    "*.js",
+    "src/**",
+    "src/[ab]?.js",
+    "src/\\[draft\\].jsx",
+    "!**/*.test.js",
+    "src/@(App|main).jsx",
+    "src/+(a|b).js",
+    "**/*.?(c|m)js"
+  ],
+  "paths": [
+    "src/App.jsx",
+    "src/main.jsx",
+    "src/[draft].jsx",
+    "src/a1.js",
+    "src/b2.js",
+    "src/.env",
+    ".env.local",
+    ".git/config",
+    "node_modules/x/index.js",
+    "src/a.test.js",
+    "src/aba.js",
+    "src/test.cjs",
+    "src/test.mjs",
+    "foo.js",
+    "src/"
+  ],
+  "options": [
+    {},
+    {
+      "dot": true
+    },
+    {
+      "nocase": true
+    },
+    {
+      "dot": true,
+      "ignore": [
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "noextglob": true
+    }
+  ],
+  "expected": "111000000000000111110001110010000000001000000000001100000000000000010000000000000000000010111110000111101000110000000000001000000000000111111111011111110000000000000000000000010000000110001111110111000000000000111110001110010000000001000000000001100000000000000010000000000000000000010111111000111101000110000000000001000000000000111111111011111110000000000000000000000010000000110001111110111000000000000111110001110010000000001000000000001100000000000000010000000000000000000010111110000111101000110000000000001000000000000111111111011111110000000000000000000000010000000110001111110111000000000000111110000110010000000000000000000001100000000000000010000000000000000000010111111000111101000110000000000001000000000000111111110011111110000000000000000000000010000000110000111110111000000000000111110001110010000000001000000000001100000000000000010000000000000000000010111110000111101000110000000000001000000000000111111111011111000000000000000000000000000000000000000000000",
+  "scans": [
+    {
+      "pattern": "src/**/App.{jsx,js}",
+      "options": {
+        "parts": true,
+        "unescape": true
+      },
+      "expected": {
+        "prefix": "",
+        "input": "src/**/App.{jsx,js}",
+        "start": 0,
+        "base": "src",
+        "glob": "**/App.{jsx,js}",
+        "isBrace": true,
+        "isBracket": false,
+        "isGlob": true,
+        "isExtglob": false,
+        "isGlobstar": true,
+        "negated": false,
+        "negatedExtglob": false,
+        "slashes": [
+          3,
+          6
+        ],
+        "parts": [
+          "src",
+          "**",
+          "App.{jsx,js}"
+        ]
+      }
+    },
+    {
+      "pattern": "!./src/*.js",
+      "options": {
+        "parts": true,
+        "unescape": true
+      },
+      "expected": {
+        "prefix": "!./",
+        "input": "!./src/*.js",
+        "start": 3,
+        "base": "src",
+        "glob": "*.js",
+        "isBrace": false,
+        "isBracket": false,
+        "isGlob": true,
+        "isExtglob": false,
+        "isGlobstar": false,
+        "negated": true,
+        "negatedExtglob": false,
+        "slashes": [
+          2,
+          6
+        ],
+        "parts": [
+          "src",
+          "*.js"
+        ]
+      }
+    },
+    {
+      "pattern": "/tmp/ERP/a\\[b\\]/*.jsx",
+      "options": {
+        "parts": true,
+        "unescape": true
+      },
+      "expected": {
+        "prefix": "",
+        "input": "/tmp/ERP/a\\[b\\]/*.jsx",
+        "start": 0,
+        "base": "/tmp/ERP/a[b]",
+        "glob": "*.jsx",
+        "isBrace": false,
+        "isBracket": false,
+        "isGlob": true,
+        "isExtglob": false,
+        "isGlobstar": false,
+        "negated": false,
+        "negatedExtglob": false,
+        "slashes": [
+          0,
+          4,
+          8,
+          15
+        ],
+        "parts": [
+          "/tmp",
+          "ERP",
+          "a\\[b\\]",
+          "*.jsx"
+        ]
+      }
+    },
+    {
+      "pattern": "C:/ERP/src/**/App.jsx",
+      "options": {
+        "parts": true,
+        "unescape": true
+      },
+      "expected": {
+        "prefix": "",
+        "input": "C:/ERP/src/**/App.jsx",
+        "start": 0,
+        "base": "C:/ERP/src",
+        "glob": "**/App.jsx",
+        "isBrace": false,
+        "isBracket": false,
+        "isGlob": true,
+        "isExtglob": false,
+        "isGlobstar": true,
+        "negated": false,
+        "negatedExtglob": false,
+        "slashes": [
+          2,
+          6,
+          10,
+          13
+        ],
+        "parts": [
+          "C:",
+          "ERP",
+          "src",
+          "**",
+          "App.jsx"
+        ]
+      }
+    },
+    {
+      "pattern": "src/!(*.test).js",
+      "options": {
+        "parts": true,
+        "unescape": true
+      },
+      "expected": {
+        "prefix": "",
+        "input": "src/!(*.test).js",
+        "start": 0,
+        "base": "src",
+        "glob": "!(*.test).js",
+        "isBrace": false,
+        "isBracket": false,
+        "isGlob": true,
+        "isExtglob": true,
+        "isGlobstar": false,
+        "negated": false,
+        "negatedExtglob": false,
+        "slashes": [
+          3
+        ],
+        "parts": [
+          "src",
+          "!(*.test).js"
+        ]
+      }
+    },
+    {
+      "pattern": "src/\\[draft\\].jsx",
+      "options": {
+        "parts": true,
+        "unescape": true
+      },
+      "expected": {
+        "prefix": "",
+        "input": "src/\\[draft\\].jsx",
+        "start": 0,
+        "base": "src/[draft].jsx",
+        "glob": "",
+        "isBrace": false,
+        "isBracket": false,
+        "isGlob": false,
+        "isExtglob": false,
+        "isGlobstar": false,
+        "negated": false,
+        "negatedExtglob": false,
+        "slashes": [
+          3
+        ],
+        "parts": [
+          "src",
+          "\\[draft\\].jsx"
+        ]
+      }
+    }
+  ]
+}

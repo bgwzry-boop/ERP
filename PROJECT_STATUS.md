@@ -1,12 +1,6 @@
 # Project Status
 
-## November 18 PR #118 Release Block (Not Deployed)
-
-The isolated integration candidate preserves all original business assertions. Its existing complete tests, review checks and disposable PostgreSQL scenarios passed, including migration 0070/0071, payment-month guards and inventory conservation. Building the review package before its artifact tests resolves the local missing-output error (82/82 tests).
-
-Compatible tooling fixes update ESLint to the 10.15 series and Vite to 6.4.6 in the root and four prototypes; no business code, assertion, migration or CI security threshold is changed. Security audit remains blocked by GHSA-fc5q-39xc-vjpf: the currently published picomatch versions have no announced fixed release. The suggested older Vite still bundles affected glob libraries, so a dependency-list-only downgrade is not accepted as remediation. No server transfer, migration, cutover, canonical promotion or production change has occurred. The dated live baseline remains verified by the current release check, not by the local candidate build. A future fixed candidate requires fresh exact-commit CI and a new matching controlled release lock.
-
-Updated: 2026-10-24. Staging, the repository default entry and the owner's main checkout must be proven consistent by the executable gate. V8.306 remains a historical product label, not a deployed release identity.
+Updated: 2026-11-18. Staging, canonical and the clean main checkout must be verified live; V8.306 is historical. The owner-approved build-only dependency replacement clears all five audits while preserving business assertions and security gates. PR #118 net-stock correction, combined CI/screenshots and an exact controlled lock remain required; PR #119 is separate. No deployment or production change. See the [toolchain review](docs/development/build-toolchain-replacement-20261118.zh-CN.md).
 
 ## Current Verified Release
 

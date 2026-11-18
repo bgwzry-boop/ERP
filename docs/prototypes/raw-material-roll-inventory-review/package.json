@@ -19,7 +19,8 @@
     "react-dom": "19.2.0"
   },
   "devDependencies": {
-    "vite": "6.4.6",
-    "@vitejs/plugin-react": "5.0.4"
-  }
+    "vite": "8.3.8",
+    "@vitejs/plugin-react": "6.3.0"
+  },
+  "overrides": { "picomatch": "file:../../../build-tools/safe-glob" }
 }

@@ -1,0 +1,12 @@
+{
+  "name": "@bagwin/build-glob",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Non-backtracking glob adapter for the reviewed ERP build-tool contract",
+  "type": "commonjs",
+  "main": "index.cjs",
+  "exports": { ".": "./index.cjs", "./package.json": "./package.json" },
+  "dependencies": { "minimatch": "11.0.9" },
+  "engines": { "node": ">=24 <25" },
+  "license": "MIT"
+}

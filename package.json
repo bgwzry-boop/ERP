@@ -8,6 +8,7 @@
     "npm": ">=10"
   },
   "scripts": {
+    "build-toolchain:check": "node scripts/check-safe-build-glob.mjs",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "review:dev": "node scripts/run-complete-review-dev.mjs",
     "review:check": "node scripts/check-complete-review-preview.mjs && node scripts/check-review-viewport-reversal.mjs && node scripts/check-review-viewport-live-readonly.mjs && node scripts/check-canonical-colour-conflict.mjs && node scripts/check-receipt-direction-color-ui.mjs && node scripts/check-raw-material-color-swatches-ui.mjs && node scripts/check-raw-stock-matrix.mjs && node scripts/check-sales-price-ui.mjs && node scripts/check-raw-material-receive-dialog-ui.mjs && node scripts/check-receiving-workspace-simplification-ui.mjs && node scripts/check-raw-material-stock-operations-dialog.mjs && node scripts/check-raw-material-cost-workspace.mjs && node scripts/check-receiving-review-guard-mounted.cjs . && node scripts/check-order-entry-dirty-leave-ui.mjs && node scripts/check-deep-link-auth-ui.mjs && node scripts/check-route-guard-composition-ui.mjs && node scripts/check-business-table-overflow-ui.mjs && node scripts/check-mobile-draft-exit-dialog-ui.mjs && node scripts/check-mobile-receiving-safety-ui.cjs && node scripts/check-desktop-hit-targets-ui.mjs && node scripts/check-page-headings-ui.mjs && node scripts/check-customer-records-ui.mjs && node scripts/check-fulfillment-note-readiness-ui.mjs",
@@ -355,13 +356,16 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.1",
-    "@vitejs/plugin-react": "5.0.4",
+    "@vitejs/plugin-react": "6.3.0",
     "eslint": "^10.15.0",
+    "esbuild": "0.28.2",
     "globals": "^17.7.0",
     "react-test-renderer": "19.2.0",
-    "vite": "6.4.6"
+    "minimatch": "11.0.9",
+    "vite": "8.3.8"
   },
   "overrides": {
+    "picomatch": "file:build-tools/safe-glob",
     "brace-expansion": "5.0.12",
     "nanoid": "3.3.18",
     "postcss": "8.5.26"
