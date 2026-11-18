@@ -54,6 +54,22 @@ try{
  await assert.rejects(repo.recordFulfillmentAction(skippedHistoricalHold),error=>error.statusCode===409,
   'an existing inventory-backed customer print order cannot skip its historical hold');
  await assertNoWrite(historicalPrint);
+ const alreadyDeducted = await fixture({ actual: 9, reservation: false, deduct: 0 });
+ await pool.query("UPDATE fulfillment_records SET stock_deducted_at=$1 WHERE id='F002'", [now]);
+ await pool.query("UPDATE inventory_items SET on_hand_qty=90 WHERE id=$1", [alreadyDeducted.itemId]);
+ await pool.query(`INSERT INTO inventory_ledger_entries(id,inventory_item_id,change_type,qty_before,qty_change,qty_after,source_type,source_id)
+   VALUES('LEDGER-EARLY-PAPER', $1,'打单扣减',100,-10,90,'fulfillment_note_print','F002')`, [alreadyDeducted.itemId]);
+ await assert.rejects(repo.recordFulfillmentAction(alreadyDeducted.input), error => error.statusCode === 409,
+   'current reviewed quantity and physical labels do not override incompatible prior deductions');
+ await assertNoWrite(alreadyDeducted);
+ await pool.query("UPDATE inventory_items SET on_hand_qty=91 WHERE id=$1", [alreadyDeducted.itemId]);
+ await pool.query(`INSERT INTO inventory_ledger_entries(id,inventory_item_id,change_type,qty_before,qty_change,qty_after,source_type,source_id)
+   VALUES('LEDGER-EARLY-RETURN', $1,'改单退回库存',90,1,91,'fulfillment_note_correction_return','F002')`, [alreadyDeducted.itemId]);
+ const reconciled = await repo.recordFulfillmentAction(alreadyDeducted.input);
+ assert.equal(reconciled.fulfillment.status, '已交付');
+ assert.equal(reconciled.inventoryItems.length, 0, 'an exact net deduction does not double-debit at fulfillment');
+ assert.equal((await pool.query('SELECT on_hand_qty FROM inventory_items WHERE id=$1', [alreadyDeducted.itemId])).rows[0].on_hand_qty, 91);
+ await pool.query("UPDATE fulfillment_records SET stock_deducted_at=NULL WHERE id='F002'");
  for(const config of [{},{actual:6,reserved:10,deduct:6},{reservation:false,deduct:10}]){
   const valid=await fixture(config);await repo.recordFulfillmentAction(valid.input);const item=(await pool.query('SELECT on_hand_qty,reserved_qty FROM inventory_items WHERE id=$1',[valid.itemId])).rows[0];assert.deepEqual(item,{on_hand_qty:100-(config.deduct??10),reserved_qty:0});
  }

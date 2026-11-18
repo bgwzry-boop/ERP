@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { NET_DEDUCTION_SOURCE_TYPES } from "../fulfillmentNoteCorrectionTransaction.mjs";
+import { netDeductedFulfillmentQuantity } from "../fulfillmentNoteCorrectionTransaction.mjs";
 import { isStockOrderType, stockSupplyRoute } from "../../shared/orderRouting.js";
 import { fulfillmentIdOf, packageIdOf, packageContents, isActivePackage, packageAnchorId } from "../../shared/packageContents.js";
 
@@ -72,12 +72,9 @@ export function publicPackageGroupContext(context) { const { _members, _snapshot
 export function assertPackageGroupStockQuantity(workspace, members, totals) {
   for (const member of members) {
     const id = fulfillmentIdOf(member);
-    if (totals[id] === Number(member.actualQty ?? member.expectedQty ?? member.qty)) continue;
-    const netDeducted = -(workspace.inventoryLedgers ?? []).filter(entry =>
-      entry.sourceId === id && NET_DEDUCTION_SOURCE_TYPES.includes(entry.sourceType)
-    ).reduce((sum, entry) => sum + Number(entry.qtyChange), 0);
-    if (netDeducted > 0) {
-      fail("PACKING_GROUP_STOCK_ADJUSTMENT_REQUIRED", "本批已按纸单扣过库存，暂不能在包裹中直接改总数。请办公室核对原出库纸单和扣库流水；总数不变可继续重建挂牌。");
+    const netDeducted = netDeductedFulfillmentQuantity(workspace, id);
+    if (netDeducted > 0 && totals[id] !== netDeducted) {
+      fail("PACKING_GROUP_STOCK_ADJUSTMENT_REQUIRED", `本批库存已净扣 ${netDeducted} 个，与本次装包 ${totals[id]} 个不符。请办公室核对原纸单和扣库流水。`);
     }
   }
 }

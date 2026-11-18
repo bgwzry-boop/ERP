@@ -3,6 +3,9 @@ import pg from "pg";
 import { startLivePostgres, stopLivePostgres } from "./postgres-live/runtime.mjs";
 import { createPostgresPoolClient } from "../server/postgresPoolClient.mjs";
 import { createPostgresProductionPackingTransactionRepository } from "../server/productionPackingTransactionRepository.mjs";
+import { createPostgresCoreWorkspaceReadRepository } from "../server/coreWorkspaceReadRepository.mjs";
+import { createPostgresFulfillmentActionTransactionRepository } from "../server/fulfillmentActionTransactionRepository.mjs";
+import { createApiSharedServiceRegistry } from "../server/apiSharedServiceRegistry.mjs";
 import { getPackageGroupContext, replacePackageGroup } from "../server/services/packageGroupService.mjs";
 
 const runtime = await startLivePostgres();
@@ -12,6 +15,9 @@ try {
   const query = async (sql, values = []) => (await pool.query(sql, values)).rows;
   const postgres = createPostgresPoolClient({ pool });
   const repo = createPostgresProductionPackingTransactionRepository({ postgresClient: postgres });
+  const reader = createPostgresCoreWorkspaceReadRepository({ postgresClient: postgres });
+  const actions = createPostgresFulfillmentActionTransactionRepository({ postgresClient: postgres });
+  const { fulfillmentActionCommandService: warehouse } = createApiSharedServiceRegistry();
   const inventoryId = "25*32*10-白色-加长提-空白袋-B区-服装";
   async function seed(id, type) {
     await query(`INSERT INTO order_lines(id,biz_no,order_id,customer_id,product_name,order_type,size,bag_color,handle_type,style,original_qty,fulfillment_method,line_status)
@@ -49,6 +55,20 @@ try {
   await seed("STOCK", "现货通货");
   await deduct("STOCK");
   await assert.rejects(request("STOCK", 90, "repack-stock-unsafe"), { code: "PACKING_GROUP_STOCK_ADJUSTMENT_REQUIRED" });
+  await query(`INSERT INTO print_records(id,biz_no,target_type,target_id,print_action,status,document_type,printed_at)
+    VALUES('PR-STOCK-MISMATCH','PR-STOCK-MISMATCH','fulfillment','F-COR-STOCK','first_print','printed','delivery_note',now());
+    INSERT INTO paper_outbound_documents(id,fulfillment_id,print_record_id,document_type,document_version,status,instruction_qty,handed_to_warehouse_at)
+    VALUES('POD-STOCK-MISMATCH','F-COR-STOCK','PR-STOCK-MISMATCH','delivery_note',1,'已交库房',100,now());`);
+  const workspace = { ...await reader.loadState(), fulfillmentActionTransactionRepository: actions };
+  const reported = await warehouse.recordWarehouseOutboundExecution({
+    workspace, fulfillmentId: "F-COR-STOCK", operatorId: "U-OFFICE-A",
+    body: { expectedRevision: 1, paperOutboundDocumentId: "POD-STOCK-MISMATCH", paperDocumentVersion: 1,
+      paperDocumentRevision: 1, result: "数量不符", actualQty: 90, physicalExecutorEmployeeId: "EMP-LIVE-MANAGER-001",
+      feedbackChannel: "当面", note: "合成差异，库房只数到90个", idempotencyKey: "report-stock-mismatch" },
+  });
+  assert.equal(reported.response?.warehouseOutboundExecution?.actualQty, 90, JSON.stringify(reported));
+  assert.equal((await query("SELECT actual_qty FROM fulfillment_records WHERE id='F-COR-STOCK'"))[0].actual_qty, 90);
+  await assert.rejects(request("STOCK", 90, "repack-after-stock-mismatch"), { code: "PACKING_GROUP_STOCK_ADJUSTMENT_REQUIRED" });
   assert.deepEqual(await query("SELECT status,revision FROM packages WHERE id='P-COR-STOCK'"), [{ status: "待打印标签",revision:1 }]);
   const same = await request("STOCK", 100, "repack-stock-same");
   assert.equal(same.packages[0].packedQty, 100);

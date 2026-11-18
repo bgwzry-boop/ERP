@@ -64,6 +64,17 @@ export function createLocalNoteCorrectionMethods() {
 export const NET_DEDUCTION_SOURCE_TYPES = ["fulfillment_note_print", "warehouse_physical_outbound", "warehouse_physical_outbound_legacy", "fulfillment_complete",
   "fulfillment_complete_legacy", "fulfillment_pickup", "fulfillment_pickup_legacy", "fulfillment_note_correction", "fulfillment_note_correction_return"];
 
+export function netDeductedFulfillmentQuantity(workspace, fulfillmentId) {
+  return -(workspace.inventoryLedgers ?? []).filter(entry =>
+    entry.sourceId === fulfillmentId && NET_DEDUCTION_SOURCE_TYPES.includes(entry.sourceType)
+  ).reduce((sum, entry) => sum + Number(entry.qtyChange), 0);
+}
+
+export function netDeductedFulfillmentQuantitySql(fulfillmentIdSql, parameters) {
+  return `(SELECT COALESCE(-SUM(ledger.qty_change),0) FROM inventory_ledger_entries AS ledger
+    WHERE ledger.source_id=${fulfillmentIdSql} AND ledger.source_type=ANY(${parameters.textArray(NET_DEDUCTION_SOURCE_TYPES)}))`;
+}
+
 export function buildNoteCorrectionQuery(plan) {
   const p = createPostgresParameterBinder();
   const now = p.timestamp(plan.now);

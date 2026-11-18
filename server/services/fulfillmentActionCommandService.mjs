@@ -1,6 +1,7 @@
 import { resolveWarehouseInstructionQuantity } from "./warehouseInstructionQuantityService.mjs";
 import { packageAnchorId } from "../../shared/packageContents.js";
 import { outboundPackageEvidence } from "./outboundPackageEvidence.mjs";
+import { netDeductedFulfillmentQuantity } from "../fulfillmentNoteCorrectionTransaction.mjs";
 import { confirmPackageGroupLoaded } from "./packageGroupLoadService.mjs";
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
 import { isDirectProductionOrderType } from "../../shared/orderRouting.js";
@@ -1599,7 +1600,14 @@ function cleanText(value) {
 
   function buildInventoryMovements(workspace, fulfillment, input = {}) {
     // 负责人 2026-11-08：打送货单 / 自提单时已经扣过库存，之后库房出库、送达、拉走都不再扣。
-    if (cleanText(fulfillment.stockDeductedAt) && input.notePrint !== true) return emptyInventoryMovements("deducted_at_note_print");
+    if (cleanText(fulfillment.stockDeductedAt) && input.notePrint !== true) {
+      const netDeducted = netDeductedFulfillmentQuantity(workspace, fulfillment.fulfillmentId ?? fulfillment.id);
+      const actualQty = Number(input.actualQty ?? fulfillment.actualQty ?? fulfillment.qty);
+      if (netDeducted > 0 && actualQty !== netDeducted) {
+        return inventoryMovementError("WAREHOUSE_STOCK_DEDUCTION_QTY_MISMATCH", `本批库存已净扣 ${netDeducted} 个，与实出 ${actualQty} 个不符。请办公室核对原纸单和扣库流水。`);
+      }
+      return emptyInventoryMovements("deducted_at_note_print");
+    }
     const physicalOutbound = input.physicalOutbound === true || input.notePrint === true;
     if (fulfillment.status !== "已交付" && !physicalOutbound) return emptyInventoryMovements("not_delivered");
     const orderLineId = fulfillment.orderLineId ?? fulfillment.lineId ?? "";

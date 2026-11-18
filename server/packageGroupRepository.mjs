@@ -4,7 +4,7 @@ import { packageGroupLoadSnapshot } from "./services/packageGroupLoadService.mjs
 import { createPostgresCoreWorkspaceReadRepository } from "./coreWorkspaceReadRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { buildPostgresIdempotencyRequest, buildIdempotencyRequestHash, buildIdempotencyConflictError, normalizeIdempotencyKey } from "./idempotency.mjs";
-import { NET_DEDUCTION_SOURCE_TYPES } from "./fulfillmentNoteCorrectionTransaction.mjs";
+import { netDeductedFulfillmentQuantitySql } from "./fulfillmentNoteCorrectionTransaction.mjs";
 import { assertPackageGroupStockQuantity, packageGroupSnapshot, hasPackageDownstream } from "./services/packageGroupService.mjs";
 import { fulfillmentIdOf, packageIdOf, packageContents, isActivePackage } from "../shared/packageContents.js";
 
@@ -131,9 +131,8 @@ guard AS MATERIALIZED (SELECT erp_require(
     'packingGroupAnchorId',packing_group_anchor_id,'packingGroupRevision',packing_group_revision) ORDER BY id COLLATE "C"),'[]'::jsonb) FROM locked_f)=${p.json(snapshot.fulfillments)}
   AND NOT EXISTS(SELECT 1 FROM locked_f WHERE physical_outbound_at IS NOT NULL OR loaded_at IS NOT NULL OR final_delivery_at IS NOT NULL OR delivered_at IS NOT NULL OR status IN('已交付','已完成','已出库','已拉走','已取消','已作废','配送中'))
   AND NOT EXISTS (
-    SELECT 1 FROM locked_f f WHERE (${totals}->>f.id)::int IS DISTINCT FROM COALESCE(f.actual_qty, f.expected_qty)
-      AND (SELECT COALESCE(-SUM(ledger.qty_change),0) FROM inventory_ledger_entries ledger
-        WHERE ledger.source_id=f.id AND ledger.source_type=ANY(${p.textArray(NET_DEDUCTION_SOURCE_TYPES)})) > 0
+    SELECT 1 FROM locked_f f CROSS JOIN LATERAL (SELECT ${netDeductedFulfillmentQuantitySql("f.id", p)} AS qty) AS deducted
+    WHERE deducted.qty > 0 AND (${totals}->>f.id)::int IS DISTINCT FROM deducted.qty
   )
   AND (SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id,'revision',revision,'orderId',order_id,'status',line_status,'qty',original_qty) ORDER BY id COLLATE "C"),'[]'::jsonb) FROM locked_l)=${p.json(snapshot.lines)}
   AND NOT EXISTS(SELECT 1 FROM locked_l WHERE line_status IN ('已作废','已取消','已交付','已完成','closed','voided','canceled'))
