@@ -720,15 +720,16 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   }, operatorId);
   await apiPost(request, `/production-tasks/${encodeURIComponent(bagTask.productionTaskId)}/report-complete`, {
     productionTaskId: bagTask.productionTaskId, orderLineId: createdLine.id, processType: "制袋", machineId: "BAG-01", qualifiedQty: 12, exceptionQty: 0,
-    inventoryItemId: inventoryBeforeReport.id, idempotencyKey: `e2e-bag-complete-${bagTask.productionTaskId}`,
+    idempotencyKey: `e2e-bag-complete-${bagTask.productionTaskId}`,
   }, "U-WORKSHOP-A");
   const bagDetail = await waitForApiDetail(request, `/production-tasks/${encodeURIComponent(bagTask.productionTaskId)}`, detail => detail.productionTask?.status === "已完成");
   const packingTaskId = bagDetail.packingTask?.packingTaskId;
   expect(packingTaskId).toBeTruthy();
 
   const inventoryAfterReport = await findInventoryItem(request, createdLine);
-  expect(Number(inventoryAfterReport.inStock)).toBe(inStockBeforeReport + 12);
-  expect(Number(inventoryAfterReport.reserved ?? inventoryAfterReport.reservedQty ?? 0)).toBe(reservedBeforeReport + 12);
+  expect(Number(inventoryAfterReport.inStock)).toBe(inStockBeforeReport);
+  expect(Number(inventoryAfterReport.reserved ?? inventoryAfterReport.reservedQty ?? 0)).toBe(reservedBeforeReport);
+  expect(bagDetail.inventoryLedgerEntries).toHaveLength(0);
 
   const packingReportDenied = await apiPost(
     request,
@@ -770,7 +771,8 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   );
   expect(fulfillment.printed).not.toBe(true);
   const inventoryAfterPacking = await findInventoryItem(request, createdLine);
-  expect(Number(inventoryAfterPacking.inStock)).toBe(inStockBeforeReport + 12);
+  expect(Number(inventoryAfterPacking.inStock)).toBe(inStockBeforeReport);
+  expect(Number(inventoryAfterPacking.reserved ?? inventoryAfterPacking.reservedQty ?? 0)).toBe(reservedBeforeReport);
 
   await switchAccount(page, officeOperatorId);
   await configureSystemPrinter(request, "PRN-LABEL-A", officeOperatorId);
