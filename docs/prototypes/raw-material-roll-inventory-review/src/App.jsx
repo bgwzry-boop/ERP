@@ -216,7 +216,7 @@ function DistributionRail({ selectedRoll, onOpenSource, onOpenOperations, formal
         <div className="trace-wide"><dt>卷码</dt><dd>{selectedRoll.id}</dd></div>
         <div className="trace-wide"><dt>入库日期</dt><dd>{selectedRoll.date}</dd></div>
         <div><dt>颜色</dt><dd className="trace-color"><ColorChip color={selectedRoll.swatchColor || selectedRoll.color} />{selectedRoll.colorLabel ?? selectedRoll.color}</dd></div>
-        <div><dt>规格</dt><dd title={selectedRoll.spec}>{selectedRoll.spec}</dd></div>
+        <div><dt>规格</dt><dd title={selectedRoll.spec}>{[selectedRoll.width, selectedRoll.gramWeight].filter(Boolean).join(" · ") || selectedRoll.spec}{selectedRoll.widthCm > 0 ? "" : `（宽幅待核实；单据规格 ${selectedRoll.spec}）`}</dd></div>
         <div><dt>原料用途</dt><dd>{selectedRoll.materialUsage}</dd></div>
         <div className="trace-wide"><dt>来源票据</dt><dd>{selectedRoll.source}</dd></div>
         <div className="trace-wide"><dt>供应商</dt><dd title={selectedRoll.supplier}>{selectedRoll.supplier}</dd></div>

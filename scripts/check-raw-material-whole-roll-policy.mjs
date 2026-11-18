@@ -56,6 +56,7 @@ const pendingInbound = {
 };
 
 const blocked = evaluateRawMaterialOneClickInbound({
+  widthCm: 80,
   rolls: [roll("RM-A"), roll("RM-B", { labelStatus: "待打印标签", inventoryStatus: "不可用" })],
 });
 assert.equal(blocked.allowed, false);
@@ -64,11 +65,23 @@ assert.equal(blocked.rollCount, 2);
 assert.match(blocked.blocker, /不能一键入库/);
 
 const exceptionGate = evaluateRawMaterialOneClickInbound({
+  widthCm: 80,
   rolls: [
     roll("RM-OK"),
     roll("RM-BAD", { labelStatus: "标签或实物不符/待确认", inventoryStatus: "待确认" }),
   ],
 });
+// 2026-11-18：宽幅未知不能一键入库
+const widthMissingGate = evaluateRawMaterialOneClickInbound({
+  rolls: [roll("RM-NO-WIDTH-01"), roll("RM-NO-WIDTH-02")],
+});
+assert.equal(widthMissingGate.allowed, false);
+assert.equal(widthMissingGate.missingWidthCount, 2);
+assert.match(widthMissingGate.blocker, /宽幅还没看清/);
+const widthRecoveredGate = evaluateRawMaterialOneClickInbound({
+  rolls: [roll("RM-WIDTH-OK", { widthCm: 80 })],
+});
+assert.equal(widthRecoveredGate.allowed, true);
 assert.equal(exceptionGate.allowed, false);
 assert.equal(exceptionGate.exceptionCount, 1);
 

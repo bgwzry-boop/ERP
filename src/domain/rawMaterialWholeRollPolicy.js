@@ -1,3 +1,5 @@
+import { parseRawMaterialSpec } from "../../shared/rawMaterialSpec.js";
+
 export const RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS = Object.freeze(
   ["1号机", "2号机", "3号机", "4号机", "5号机", "6号机", "7号机", "8号机", "9号机"],
 );
@@ -61,10 +63,15 @@ export function evaluateRawMaterialOneClickInbound(inbound = {}) {
   const printedLabelCount = rolls.filter(isPrintedRawMaterialLabel).length;
   const pendingStickConfirmCount = rolls.filter(isPendingStickConfirmRoll).length;
   const exceptionCount = rolls.filter(isRawMaterialExceptionRoll).length;
+  // 2026-11-18：宽幅未知的卷不能进可用库存。宽幅是领料和成本口径的必需字段，
+  // 宽幅待确认却放行会造成"可用但无法按宽幅领料/核算"。
+  const inboundWidthCm = positiveWidth(inbound.widthCm) || positiveWidth(parseRawMaterialSpec(inbound.spec)?.widthCm);
+  const missingWidthCount = rolls.filter((roll) => !(positiveWidth(roll.widthCm) || inboundWidthCm || positiveWidth(parseRawMaterialSpec(roll.spec)?.widthCm))).length;
   const allowed = rollCount > 0
     && printedLabelCount === rollCount
     && pendingStickConfirmCount === rollCount
-    && exceptionCount === 0;
+    && exceptionCount === 0
+    && missingWidthCount === 0;
   return {
     allowed,
     blocker: allowed ? "" : describeRawMaterialOneClickInboundBlocker({
@@ -72,12 +79,19 @@ export function evaluateRawMaterialOneClickInbound(inbound = {}) {
       printedLabelCount,
       pendingStickConfirmCount,
       exceptionCount,
+      missingWidthCount,
     }),
     rollCount,
     printedLabelCount,
     pendingStickConfirmCount,
     exceptionCount,
+    missingWidthCount,
   };
+}
+
+function positiveWidth(value) {
+  const width = Number(value);
+  return Number.isFinite(width) && width > 0 ? width : 0;
 }
 
 export function assertWholeRollIssue({ machineId, requestedWeightKg, fullWeightKg }) {
@@ -116,8 +130,12 @@ function describeRawMaterialOneClickInboundBlocker({
   printedLabelCount,
   pendingStickConfirmCount,
   exceptionCount,
+  missingWidthCount = 0,
 }) {
   if (!rollCount) return "本单还没有卷料，不能一键入库。";
+  if (missingWidthCount > 0) {
+    return `有 ${missingWidthCount} 卷宽幅还没看清，先补齐宽幅再一键入库。`;
+  }
   if (exceptionCount > 0) {
     return `有 ${exceptionCount} 卷异常未处理。异常卷不入库；打印标签数、卷数和待贴标卷数一致后才能一键入库。`;
   }
