@@ -1,4 +1,4 @@
-import { createLocalNoteCorrectionMethods, createPostgresNoteCorrectionMethods } from "./fulfillmentNoteCorrectionTransaction.mjs";
+import { createLocalNoteCorrectionMethods, createPostgresNoteCorrectionMethods, netDeductedFulfillmentQuantity, netDeductedFulfillmentQuantitySql } from "./fulfillmentNoteCorrectionTransaction.mjs";
 import { directProductionOrderTypeAliases, isDirectProductionOrderType } from "../shared/orderRouting.js";
 import { AUTO_QUANTITY_TOLERANCE_RATE } from "../shared/quantityTolerance.js";
 // P2-05: produced orders whose outbound may differ from the plan by up to 1% without an office decision.
@@ -2899,12 +2899,17 @@ function assertLocalOutboundInventoryConservation(input) {
   const ledgers = input.inventoryLedgerEntries ?? [];
   const noMovements = !adjustments.length && !reservations.length && !ledgers.length;
   const current = workspace.fulfillments.find(row => (row.fulfillmentId ?? row.id) === fulfillmentId);
-  if ((input.operationLog.action === "driver_complete_delivery" && current?.physicalOutboundAt) || current?.stockDeductedAt) {
+  if (input.operationLog.action === "driver_complete_delivery" && current?.physicalOutboundAt) {
     if (!noMovements) fail();
     return;
   }
   const actual = integer(fulfillment.actualQty);
   if (actual <= 0) fail();
+  if (current?.stockDeductedAt) {
+    const netDeducted = netDeductedFulfillmentQuantity(workspace, fulfillmentId);
+    if (!noMovements || (netDeducted > 0 && netDeducted !== actual)) fail();
+    return;
+  }
   if (noMovements) {
     const line = (workspace.orderLines ?? []).find(row => (row.orderLineId ?? row.id) === lineId);
     if (!isDirectProductionOrderType(line?.orderType) || (workspace.inventoryReservations ?? []).some(row =>
@@ -2981,10 +2986,12 @@ function buildOutboundInventoryConservationSql(input, fulfillment, parameters) {
   if (!checksOutboundInventory(input)) return "TRUE";
   const noMovements = "NOT EXISTS (SELECT 1 FROM inventory_deltas) AND NOT EXISTS (SELECT 1 FROM reservation_updates) AND NOT EXISTS (SELECT 1 FROM inventory_ledger_deltas)";
   const required = parameters.integer(fulfillment.actualQty);
+  const netDeducted = netDeductedFulfillmentQuantitySql("(SELECT id FROM locked_fulfillment)", parameters);
   // 负责人 2026-11-08：打送货单 / 自提单时已经扣过库存的，出库、送达时不能再扣。
   return `CASE WHEN ${input.operationLog?.action === "driver_complete_delivery" ? "EXISTS (SELECT 1 FROM locked_fulfillment WHERE physical_outbound_at IS NOT NULL)" : "FALSE"}
-      OR EXISTS (SELECT 1 FROM locked_fulfillment WHERE stock_deducted_at IS NOT NULL)
     THEN (${noMovements})
+    WHEN EXISTS (SELECT 1 FROM locked_fulfillment WHERE stock_deducted_at IS NOT NULL)
+    THEN (${noMovements}) AND ${required} > 0 AND GREATEST(${netDeducted}, 0) IN (0, ${required})
     ELSE EXISTS (SELECT 1 FROM locked_inventory_order_line)
       AND (${required} > 0)
       AND (((${noMovements}) AND NOT EXISTS (
