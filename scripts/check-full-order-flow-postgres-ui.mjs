@@ -184,7 +184,7 @@ try {
     await expect(operations).toBeVisible();
     if (scenario === "stock") {
       await expect(operations.getByRole("button", { name: "创建打印任务", exact: true })).toHaveCount(0);
-      await operations.getByLabel("实际备货人", { exact: true }).selectOption("E2E-UI-WAREHOUSE");
+      await operations.getByRole("combobox", { name: /实际备货人/u }).selectOption("E2E-UI-WAREHOUSE");
       await operations.getByLabel("实点数量（个）", { exact: true }).fill("500");
       await operations.getByRole("button", { name: "核对备货数量", exact: true }).click();
       await page.getByRole("group", { name: "提交前核对", exact: true }).getByRole("button", { name: "确认提交", exact: true }).click();
