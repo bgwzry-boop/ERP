@@ -285,6 +285,7 @@ function projectPaperOutboundDocument(workspace, document) {
     printRecordId: cleanText(document.printRecordId ?? document.print_record_id),
     documentType: cleanText(document.documentType ?? document.document_type),
     documentVersion: nonNegativeInteger(document.documentVersion ?? document.document_version, 1) || 1,
+    instructionQty: document.instructionQty ?? document.instruction_qty ?? null,
     status: resolvePaperOutboundStatus(workspace, {}, document),
     storedStatus: cleanText(document.status),
     revision: nonNegativeInteger(document.revision, 1) || 1,
