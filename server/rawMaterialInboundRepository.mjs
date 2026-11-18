@@ -1,5 +1,7 @@
 import {assertConsumptionProductionCurrent,readConsumptionProductionConstraints} from "./rawMaterialConsumptionProductionGuard.mjs";
 import { buildRawMaterialRollListResponse } from "./services/rawMaterialRollReadProjectionService.mjs";
+import { buildSupplierReturnStockResponse, readSupplierReturnRollCode } from "./services/rawMaterialSupplierReturnReadService.mjs";
+import { supplierReturnStaged } from "../shared/rawMaterialSupplierReturnStock.js";
 import { mergeRawMaterialCurrentInbound } from "../shared/rawMaterialCurrentInbound.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -87,6 +89,9 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
     listRawMaterialRolls({ workspace, query } = {}) {
       return buildRawMaterialRollListResponse(workspace?.rawMaterialInbounds, query);
     },
+    listSupplierReturnStock({ workspace, query, access } = {}) {
+      return buildSupplierReturnStockResponse(workspace?.rawMaterialInbounds, query, access);
+    },
     listRawMaterialInbounds({ workspace, query } = {}) {
       return buildRawMaterialInboundListResponse(workspace?.rawMaterialInbounds, query);
     },
@@ -164,6 +169,23 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
     async listRawMaterialRolls({ query } = {}) {
       const builtQuery = buildListRawMaterialInboundPayloadsQuery({});
       return buildRawMaterialRollListResponse(await queryJson(builtQuery.text, builtQuery.values), query);
+    },
+    async listSupplierReturnStock({ query, access = {} } = {}) {
+      const rollCode = readSupplierReturnRollCode(query);
+      const inbounds = await queryJson(`
+        SELECT COALESCE(json_agg(payload_json || jsonb_build_object('revision', revision)), '[]'::json) AS result
+        FROM raw_material_inbounds
+        WHERE status <> '已作废' AND (
+          ($1::boolean AND $2 <> '' AND status = '退货单已复核') OR
+          EXISTS (
+            SELECT 1 FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(payload_json->'rolls') = 'array' THEN payload_json->'rolls' ELSE '[]'::jsonb END
+            ) AS roll
+            WHERE roll->>'inventoryStatus' = $3 OR ($2 <> '' AND upper(btrim(roll->>'id')) = $2)
+          )
+        )
+      `, [Boolean(access.canStage), rollCode, supplierReturnStaged]);
+      return buildSupplierReturnStockResponse(inbounds, query, access);
     },
     async listRawMaterialInbounds({ query } = {}) {
       const builtQuery = buildListRawMaterialInboundPayloadsQuery({ query });

@@ -9,6 +9,7 @@ import {
 import { useMemo, useState } from "react";
 import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 import { isWarehouseTaskVisible } from "../../../shared/warehousePaperTrust.js";
+import { RawMaterialSupplierReturnEntry } from "../raw-materials/RawMaterialSupplierReturnEntry.jsx";
 
 const MOBILE_VIEWS = [
   ["current", "当前任务", InboxOutlined],
@@ -17,6 +18,7 @@ const MOBILE_VIEWS = [
 ];
 
 export function WarehouseMobilePage({
+  authState,
   fulfillments = [],
   orderLines = [],
   selectedId,
@@ -134,12 +136,13 @@ export function WarehouseMobilePage({
 
       {view === "all" ? (
         <section className="warehouse-mobile-functions" aria-label="库房全部功能">
-          <header><h2>出库分类</h2></header>
+          <header><h2>全部功能</h2></header>
           <div>
             <FunctionButton label="待备货" count={visibleTasks.filter((item) => item.paperOutboundStatus === "已打印待交库房").length} onClick={() => openFirstTask((item) => item.paperOutboundStatus === "已打印待交库房")} />
             <FunctionButton label="待纸单核对" count={visibleTasks.filter((item) => item.paperOutboundStatus === "已交库房" && !item.physicalOutboundAt).length} onClick={() => openFirstTask((item) => item.paperOutboundStatus === "已交库房" && !item.physicalOutboundAt)} />
             <FunctionButton label="异常任务" count={visibleTasks.filter((item) => item.status?.includes("数量") || item.status?.includes("无法")).length} onClick={() => openFirstTask((item) => item.status?.includes("数量") || item.status?.includes("无法"))} />
             <FunctionButton label="已实物出库" count={visibleTasks.filter((item) => item.physicalOutboundAt).length} onClick={() => openFirstTask((item) => Boolean(item.physicalOutboundAt))} />
+            <RawMaterialSupplierReturnEntry authState={authState} />
           </div>
         </section>
       ) : null}

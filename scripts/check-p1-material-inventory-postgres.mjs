@@ -99,6 +99,47 @@ try {
     assert.equal((await pool.query("SELECT count(*)::int count FROM operation_logs WHERE target_id=ANY($1) AND action='stage_supplier_return'", [[`STOCK-${scenario}-A`, `STOCK-${scenario}-B`]])).rows[0].count, 1);
   }
 
+  const sourceFacts = { revision: 1, supplierName: "客户核对专用无纺布", documentDirection: "supplier_return", status: "退货单已复核", rollCount: -1, totalWeightKg: -100, rolls: [] };
+  const verifiedNote = { ...sourceFacts, id: "WEB-RETURN-REVIEWED", deliveryNoteNo: "RETURN-PAPER-1", sourceAttachmentId: "PRIVATE-SOURCE", amount: -200 };
+  const pendingNote = { ...sourceFacts, id: "WEB-RETURN-DRAFT", status: "已识别待复核" };
+  const otherNote = { ...sourceFacts, id: "WEB-RETURN-OTHER", supplierName: "另一个供应商" };
+  const actualRoll = { ...stock("WEB-STOCK"), supplierName: sourceFacts.supplierName };
+  const returnWorkspace = { rawMaterialInbounds: [actualRoll, verifiedNote, pendingNote, otherNote], operationLogs: [] };
+  await seed(returnWorkspace.rawMaterialInbounds);
+  const query = new URLSearchParams({ rollCode: "RAW-MATERIAL:web-stock-01" });
+  const access = { canStage: true, canShip: true };
+  const discovered = await freshRepo.listSupplierReturnStock({ query, access });
+  assert.equal(discovered.matchedRoll.id, "WEB-STOCK-01");
+  assert.deepEqual(discovered.returnNotes.map((note) => note.id), [verifiedNote.id]);
+  assert.equal(discovered.returnNotes[0].sourceAttachmentId, undefined);
+  assert.equal(discovered.returnNotes[0].amount, undefined);
+  assert.equal((await freshRepo.listSupplierReturnStock({ query, access: { canShip: true } })).returnNotes.length, 0);
+  assert.equal((await freshRepo.listSupplierReturnStock({ query: new URLSearchParams({ rollCode: "WEB-STOCK" }), access })).matchedRoll, null);
+  const stage = await command(freshRepo).recordInboundAction(input(returnWorkspace, actualRoll.id, "stage-supplier-return", {
+    rollId: "WEB-STOCK-01", sourceReturnInboundId: verifiedNote.id,
+  }, "web-return-stage"));
+  assert.equal(stage.inbound.rolls[0].inventoryStatus, "供应商退货暂存");
+  const waiting = await freshRepo.listSupplierReturnStock({ query, access });
+  assert.equal(waiting.matchedRoll.returnRecord.documentNo, "RETURN-PAPER-1");
+  assert.equal(waiting.items.some(({ id }) => id === "WEB-STOCK-01"), true);
+  assert.equal(waiting.returnNotes.length, 0);
+  assert.equal((await freshRepo.listRawMaterialRolls({ query: new URLSearchParams({ keyword: "WEB-STOCK-01" }) })).total, 0);
+  const shipRequest = input(returnWorkspace, actualRoll.id, "confirm-supplier-return-shipment", {
+    expectedRevision: waiting.matchedRoll.revision, rollId: "WEB-STOCK-01", physicalReturnConfirmed: true,
+  }, "web-return-confirm");
+  const shipped = await command(freshRepo).recordInboundAction(shipRequest);
+  assert.equal(shipped.inbound.rolls[0].inventoryStatus, "已退厂");
+  assert.equal((await command(freshRepo).recordInboundAction(shipRequest)).operationLogId, shipped.operationLogId);
+  const physicalRepeat = await command(freshRepo).recordInboundAction({
+    ...shipRequest, body: { ...shipRequest.body, expectedRevision: shipped.inbound.revision, idempotencyKey: "web-return-second-confirm" },
+  });
+  assert.equal(physicalRepeat.statusCode, 409);
+  const finished = await freshRepo.listSupplierReturnStock({ query, access });
+  assert.equal(finished.matchedRoll.status, "已退厂");
+  assert.equal(finished.items.some(({ id }) => id === "WEB-STOCK-01"), false);
+  assert.equal((await pool.query("SELECT count(*)::int count FROM operation_logs WHERE target_id=$1 AND action='confirm_supplier_return_shipment'", [actualRoll.id])).rows[0].count, 1);
+  assert.equal((await freshRepo.getRawMaterialInbound({ inboundId: verifiedNote.id })).revision, 1, "phases cannot rewrite the supplier document");
+
   const service = createInventoryReservationReleaseCommandService({
     findInventoryItem: (ws, id) => ws.inventories.find((row) => row.id === id),
     findInventoryReservation: (ws, id) => ws.inventoryReservations.find((row) => row.id === id),

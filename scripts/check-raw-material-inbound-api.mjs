@@ -3,6 +3,8 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { initialOrderLines, initialRawMaterialInbounds } from "../src/data/fixtures.js";
 import { createApiServer as createApiServerBase } from "../server/apiServer.mjs";
+import { createRuntimeSession } from "../server/authSeed.mjs";
+import { createLocalRuntimeIdentityRepository } from "../server/runtimeIdentityRepository.mjs";
 import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 import {
   createLocalRawMaterialInboundRepository,
@@ -45,8 +47,71 @@ checkPerRollLabelGate();
 checkSupplierReturnPhysicalFlow();
 await checkPostgresRepositoryBoundary();
 await checkApi();
+await checkSignedSupplierReturnHttp();
 
 console.log("raw-material inbound API check passed");
+
+async function checkSignedSupplierReturnHttp() {
+  const storageRoot = join(checkStorageRoot, "supplier-return-http");
+  const authSecret = "isolated-supplier-return-http-test";
+  const users = ["warehouse", "packing", "workshop", "driver"].map((role) => ({
+    userId: `RETURN-${role}`, loginName: `return.${role}`, displayName: role, roles: [role], defaultRole: role,
+    enabled: true, loginEnabled: true, passwordHash: "fixture", passwordStatus: "active", sessionVersion: 1,
+  }));
+  const runtimeIdentityRepository = createLocalRuntimeIdentityRepository({ storageRoot });
+  runtimeIdentityRepository.saveState({ workspace: { users, revokedSeedSessions: [] } });
+  const stock = { id: "RETURN-HTTP-STOCK", supplierName: "HTTP测试无纺布", status: "已贴标/可用库存", revision: 1,
+    rolls: [{ id: "RM-HTTP-01", supplierRollNo: "VENDOR-01", weightKg: 20, inventoryStatus: "可用", labelStatus: "已贴标", unit: "kg" }] };
+  const note = { id: "RETURN-HTTP-NOTE", supplierName: stock.supplierName, documentDirection: "supplier_return", status: "退货单已复核", revision: 1,
+    deliveryNoteNo: "HTTP-PAPER", sourceAttachmentId: "PRIVATE-PHOTO", rollCount: -1, totalWeightKg: -20, amount: -200, rolls: [] };
+  createLocalRawMaterialInboundRepository({ storageRoot }).loadState({ seedInbounds: [stock, note] });
+  const server = createApiServer({
+    runtimeMode: "test", strictAuth: true, authSecret, runtimeIdentityRepository, runtimeStorageRoot: storageRoot,
+    rawMaterialInboundRepositoryOptions: { storageRoot },
+  });
+  await listenTestServer(server);
+  try {
+    const base = getTestServerBaseUrl(server);
+    const readPath = "/api/raw-material-rolls/supplier-returns";
+    const lookup = `${readPath}?rollCode=RAW-MATERIAL:rm-http-01`;
+    const credentials = (role) => ({ authorization: `Bearer ${createRuntimeSession(`RETURN-${role}`, { authSecret, sessionVersion: 1 }).accessToken}` });
+    await requestJson(base, lookup, { expectedStatus: 401 });
+    for (const role of ["driver", "workshop"]) {
+      await requestJson(base, lookup, { expectedStatus: 403, headers: credentials(role) });
+    }
+    for (const role of ["warehouse", "packing"]) {
+      const view = await requestJson(base, lookup, { expectedStatus: 200, headers: credentials(role) });
+      assert.equal(view.body.matchedRoll.id, "RM-HTTP-01");
+      assert.deepEqual(view.body.returnNotes.map((row) => row.id), [note.id]);
+      assert.equal(view.body.returnNotes[0].sourceAttachmentId, undefined);
+      assert.equal(view.body.returnNotes[0].amount, undefined);
+    }
+    const stagePath = `/api/raw-material-inbounds/${stock.id}/stage-supplier-return`;
+    const commandBody = { expectedRevision: 1, rollId: "RM-HTTP-01", sourceReturnInboundId: note.id };
+    const post = (role, path, body, key, status) => requestJson(base, path, {
+      method: "POST", expectedStatus: status, body: JSON.stringify(body),
+      headers: { ...credentials(role), "content-type": "application/json", "idempotency-key": key },
+    });
+    await post("workshop", stagePath, commandBody, "web-http-stage-denied", 403);
+    const staged = await post("warehouse", stagePath, commandBody, "web-http-stage-success", 200);
+    assert.equal(staged.body.inbound.rolls[0].inventoryStatus, "供应商退货暂存");
+    const waiting = await requestJson(base, readPath, { expectedStatus: 200, headers: credentials("warehouse") });
+    assert.equal(waiting.body.items[0].returnRecord.documentNo, "HTTP-PAPER");
+    assert.equal(waiting.body.matchedRoll, null, "queue read is not a physical scan");
+    const shipPath = `/api/raw-material-inbounds/${stock.id}/confirm-supplier-return-shipment`;
+    const physical = { expectedRevision: 2, rollId: "RM-HTTP-01", physicalReturnConfirmed: true };
+    await post("warehouse", shipPath, { ...physical, physicalReturnConfirmed: false }, "web-http-no-proof", 422);
+    const sent = await post("warehouse", shipPath, physical, "web-http-ship", 200);
+    const reply = await post("warehouse", shipPath, physical, "web-http-ship", 200);
+    assert.equal(reply.body.operationLogId, sent.body.operationLogId);
+    const finished = await requestJson(base, lookup, { expectedStatus: 200, headers: credentials("warehouse") });
+    assert.equal(finished.body.matchedRoll.status, "已退厂");
+    assert.equal(finished.body.total, 0);
+  } finally {
+    await closeTestServer(server);
+  }
+  console.log("PASS signed HTTP supplier return: authorized warehouse/packing, denied read-only workshop and driver, exact stock selection, minimal evidence, physical handoff, and exact replay.");
+}
 
 async function checkRepository() {
   const repository = createLocalRawMaterialInboundRepository({ storageRoot: repositoryStorageRoot });

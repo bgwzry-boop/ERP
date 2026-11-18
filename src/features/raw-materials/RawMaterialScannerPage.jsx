@@ -24,6 +24,7 @@ import { getDriverPackageCameraScannerSupport, startDriverPackageCameraScanner }
 import { listOfficeProductionMachineQueue } from "../../services/officeProductionPackingLazyApi.js";
 import { getAuthApiBaseUrl } from "../../services/officeAuthService.js";
 import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
+import { RawMaterialSupplierReturnEntry } from "./RawMaterialSupplierReturnEntry.jsx";
 
 const MOBILE_VIEWS = [
   ["current", "当前任务", InboxOutlined],
@@ -49,7 +50,7 @@ function storeWorkshop(value) {
   }
 }
 
-export function RawMaterialScannerPage({ authState, inbounds = [], onAction, helpers = {} }) {
+export function RawMaterialScannerPage({ authState, inbounds = [], onAction, onStockChanged, helpers = {} }) {
   const { getUiActionState = () => ({ disabled: false, title: "" }) } = helpers;
   const issueState = getUiActionState("rawMaterial", "扫码出库");
   const scanInputRef = useRef(null);
@@ -369,6 +370,7 @@ export function RawMaterialScannerPage({ authState, inbounds = [], onAction, hel
             <button onClick={() => { leaveScan(); setMobileView("current"); }} type="button"><BarcodeOutlined /><strong>按任务领料</strong><span>{pickList.length} 个任务</span></button>
             <button disabled={!availableRolls.length} onClick={() => setMobileView("pending")} type="button"><InboxOutlined /><strong>可用卷料</strong><span>{availableRolls.length} 卷</span></button>
             <button disabled type="button"><UnorderedListOutlined /><strong>领料记录</strong><span>后端记录</span></button>
+            <RawMaterialSupplierReturnEntry authState={authState} onChanged={() => void onStockChanged?.()} />
           </div>
         </section>
       ) : null}

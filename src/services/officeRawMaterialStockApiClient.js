@@ -1,4 +1,20 @@
 import { requestOfficeApi, readOfficeApiJson } from "./officeApiClientCore.js";
+import { toRawMaterialApiError } from "./officeRawMaterialApiSupport.js";
+
+export async function listOfficeSupplierReturnStock({ authState, operatorId, page = 1, rollCode = "" } = {}, options = {}) {
+  const query = new URLSearchParams({ page, rollCode });
+  try {
+    const response = await requestOfficeApi(`/raw-material-rolls/supplier-returns?${query}`, { ...options, authState, operatorId });
+    const body = await readOfficeApiJson(response);
+    if (!response.ok) return { source: "api_error", error: toRawMaterialApiError(body, response.status, "原料退厂记录读取失败。") };
+    if (!Array.isArray(body?.items) || !Array.isArray(body?.returnNotes) || !Number.isSafeInteger(body.total)) {
+      return { source: "api_error", error: { message: "原料退厂记录不完整，请重新读取。" } };
+    }
+    return { ...body, source: "api" };
+  } catch {
+    return { source: "api_error", error: { message: "原料退厂记录暂时无法读取，请重试。" } };
+  }
+}
 
 // The scanner still consumes inbound-grouped records for optimistic revisions;
 // its source is now the stock-only API, never receipt images/prices/OCR payloads.

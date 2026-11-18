@@ -283,6 +283,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime, signedPreviewMode 
               helpers: pageHelpers,
             },
             warehouseMobile: {
+              authState,
               fulfillments: fulfillments,
               orderLines: orderLines,
               selectedId: selectedFulfillmentId,
@@ -402,7 +403,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime, signedPreviewMode 
           {renderedPage === "rawMaterialScanner" && (
             <PageLoader component={RawMaterialRoute} fallback="原材料扫码加载中" view="scanner"
               state={{ authState, helpers: pageHelpers, inbounds: rawMaterialInbounds, productionState: productionPacking }}
-              actions={{ onAction: updateRawMaterialInbound }}
+              actions={{ onAction: updateRawMaterialInbound, onStockChanged: runtime.refreshRawMaterialInbounds }}
             />
           )}
           {renderedPage === "masterData" && (

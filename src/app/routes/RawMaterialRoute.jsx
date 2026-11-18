@@ -19,6 +19,7 @@ export function RawMaterialRoute({ view = "inbound", state = {}, actions = {}, f
         helpers={state.helpers}
         inbounds={state.inbounds}
         onAction={actions.onAction}
+        onStockChanged={actions.onStockChanged}
         productionState={state.productionState}
       />
     );

@@ -1,15 +1,9 @@
 import { RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS } from "./rawMaterialWholeRollPolicy.js";
+import { normalizeRawMaterialScanCode } from "../../shared/rawMaterialRollScanCode.js";
 
 export const RAW_MATERIAL_MACHINE_OPTIONS = RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS;
 
-export function normalizeRawMaterialScanCode(value) {
-  return String(value ?? "")
-    .trim()
-    .replace(/^\*|\*$/g, "")
-    .replace(/^RAW-MATERIAL:/i, "")
-    .trim()
-    .toUpperCase();
-}
+export { normalizeRawMaterialScanCode };
 
 export function findRawMaterialRollByScan(inbounds = [], scanCode = "") {
   return resolveRawMaterialRollScan(inbounds, scanCode).match;

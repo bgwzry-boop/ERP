@@ -10,6 +10,9 @@ const workspace = {
     async getRawMaterialInbound({ inboundId }) {
       return inboundId === "RMI-1" ? { inboundId } : null;
     },
+    async listSupplierReturnStock({ query, access }) {
+      return { rollCode: query.get("rollCode"), access };
+    },
   },
   rawMaterialSupplierStatementReviewRepository: {
     async listReviews({ query }) {
@@ -32,12 +35,16 @@ await expectJson("/api/raw-material-inbounds?page=2", { items: [{ inboundId: "RM
 await expectJson("/api/raw-material-supplier-statement-reviews?status=open", { items: [{ reviewId: "RMS-1" }], status: "open" });
 await expectJson("/api/raw-material-inbounds/RMI-1", { inbound: { inboundId: "RMI-1" } });
 await expectNotFound("/api/raw-material-inbounds/MISSING", "RAW_MATERIAL_INBOUND_NOT_FOUND");
+await expectJson("/api/raw-material-rolls/supplier-returns?rollCode=RM-01", { rollCode: "RM-01", access: { canStage: true, canShip: false } },
+  ["raw_material.stock.read", "raw_material.leftover.return"]);
+await handleRawMaterialReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/raw-material-rolls/supplier-returns"), permissionContext: { actionPermissions: ["raw_material.stock.read"] } });
+assert.equal(calls.pop().status, 403, "general stock read cannot expose supplier-return notes or queue");
 assert.equal(await handleRawMaterialReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/raw-material-inbounds/RMI-1/labels") }), false);
 
 console.log("raw-material read routes checks passed");
 
-async function expectJson(pathname, body) {
-  assert.equal(await handleRawMaterialReadRoutes({ ...dependencies, url: new URL(`http://erp.test${pathname}`) }), true);
+async function expectJson(pathname, body, actionPermissions = []) {
+  assert.equal(await handleRawMaterialReadRoutes({ ...dependencies, permissionContext: { actionPermissions }, url: new URL(`http://erp.test${pathname}`) }), true);
   assert.deepEqual(calls.pop(), { kind: "json", response: dependencies.response, status: 200, body });
 }
 

@@ -1,0 +1,56 @@
+.supplier-return-dialog {
+  box-sizing: border-box;
+  width: min(620px, calc(100% - 24px));
+  max-height: min(760px, calc(100dvh - 24px));
+  padding: 0;
+  border: 1px solid #d6dce4;
+  border-radius: 12px;
+  color: #192532;
+  background: #fff;
+}
+.supplier-return-dialog::backdrop { background: rgb(16 26 37 / 48%); }
+.supplier-return-dialog > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #d6dce4;
+  background: #fff;
+}
+.supplier-return-dialog h2, .supplier-return-dialog h3, .supplier-return-dialog p { margin: 0; }
+.supplier-return-dialog h2 { font-size: 20px; }
+.supplier-return-dialog h3 { font-size: 16px; overflow-wrap: anywhere; }
+.supplier-return-body, .supplier-return-body section, .supplier-return-body form, .supplier-return-body label {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.supplier-return-body { gap: 16px; padding: 16px; overflow-wrap: anywhere; }
+.supplier-return-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.supplier-return-actions input { flex: 1 1 180px; }
+.supplier-return-dialog input:not([type="checkbox"]), .supplier-return-dialog select, .supplier-return-dialog button {
+  box-sizing: border-box;
+  min-height: 44px;
+  max-width: 100%;
+  border: 1px solid #bac6d4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+.supplier-return-dialog button { cursor: pointer; }
+.supplier-return-dialog button:disabled { cursor: default; opacity: .55; }
+.supplier-return-dialog :focus-visible { outline: 2px solid #a13310; outline-offset: 2px; }
+.supplier-return-body video { width: 100%; max-height: 180px; background: #192532; }
+.supplier-return-current { border-top: 1px solid #d6dce4; padding-top: 12px; }
+.supplier-return-current .supplier-return-check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.supplier-return-check input { flex-shrink: 0; width: 20px; height: 20px; }
+.supplier-return-dialog .supplier-return-primary { justify-self: start; border-color: #ab350b; background: #ab350b; color: #fff; }
+.supplier-return-error { color: #a42c12; }
+.supplier-return-queue { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }
+.supplier-return-queue li { display: grid; gap: 3px; padding: 8px 0; border-bottom: 1px solid #e0e6ed; }

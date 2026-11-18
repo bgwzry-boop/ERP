@@ -2254,6 +2254,38 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /raw-material-rolls/supplier-returns:
+    get:
+      tags: [RawMaterials]
+      summary: 查询原料退厂暂存及实物卷证据
+      description: 需要卷料库存读取及暂存或确认退厂权限。按完整 ERP 卷码精确定位，暂存岗可见同厂已复核退货单的摘要。
+      operationId: listRawMaterialSupplierReturnStock
+      parameters:
+        - name: rollCode
+          in: query
+          schema: { type: string, maxLength: 272 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+      responses:
+        "200":
+          description: 暂存队列分页、命中的单个实物卷（如有）和可选退货单
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, page, pageSize, matchedRoll, returnNotes, ambiguous]
+                properties:
+                  items: { type: array, items: { type: object } }
+                  total: { type: integer }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  matchedRoll: { type: [object, "null"] }
+                  returnNotes: { type: array, items: { type: object } }
+                  ambiguous: { type: boolean }
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+
   /raw-material-inbounds:
     get:
       tags: [RawMaterials]

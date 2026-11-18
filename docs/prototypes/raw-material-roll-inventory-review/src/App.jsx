@@ -32,6 +32,7 @@ import { BusinessWorkspace } from "./BusinessWorkspaces.jsx";
 import { RawMaterialCostWorkspace } from "./RawMaterialCostWorkspace.jsx";
 import { MoldChangeWorkspace } from "./MoldChangeWorkspace.jsx";
 import { RawMaterialStockOperationsDialog } from "./RawMaterialStockOperationsDialog.jsx";
+import { RawMaterialSupplierReturnEntry } from "../../../../src/features/raw-materials/RawMaterialSupplierReturnEntry.jsx";
 import { RawMaterialPurchasePanel } from "../../../../src/features/raw-materials/RawMaterialPurchasePanel.jsx";
 import { getUiActionState } from "../../../../src/auth/seedPermissions.js";
 import { RawMaterialReceiveDialog } from "../../../../src/features/raw-materials/RawMaterialReceiveDialog.jsx";
@@ -564,6 +565,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
       {isRawMaterialView && activeView !== "收货录入" ? <header className="workbench-dock">
         <div className="dock-primary">{visibleRawMaterialViews.includes("卷料库存") ? <InventoryStatusCards summary={currentInventorySummary} /> : null}</div>
         <div className="dock-actions">
+          {activeNavId === "roll-inventory" ? <RawMaterialSupplierReturnEntry authState={formal.authState} className="factory-color-entry" onChanged={() => void formal.actions.refreshAll()} /> : null}
           {canManageSupplierColors ? <button className="factory-color-entry" onClick={() => setColorMappingOpen(true)} type="button">厂家颜色资料</button> : null}
           <button className="page-refresh" onClick={() => void formal.actions.refreshAll()} type="button"><ReloadOutlined />刷新</button>
           {isRawMaterialView && activeView !== "收货录入" && visibleRawMaterialViews.includes("收货录入") ? <button className="receive-entry" onClick={openReceive} type="button"><PlusOutlined />收货录入</button> : null}

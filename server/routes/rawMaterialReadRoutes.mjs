@@ -1,5 +1,16 @@
 import { projectRawMaterialRollReadAccess } from "../services/rawMaterialStockAccessProjectionService.mjs";
+import { getSupplierReturnAccess } from "../../shared/rawMaterialSupplierReturnStock.js";
 export async function handleRawMaterialReadRoutes({ url, response, workspace, permissionContext, sendJson, sendNotFound }) {
+  if (url.pathname === "/api/raw-material-rolls/supplier-returns") {
+    const access = getSupplierReturnAccess(permissionContext);
+    if (!access.canStage && !access.canShip) {
+      sendJson(response, 403, { code: "RAW_MATERIAL_SUPPLIER_RETURN_ACCESS_DENIED", message: "当前账号没有供应商退厂操作权限。" });
+      return true;
+    }
+    const result = await workspace.rawMaterialInboundRepository.listSupplierReturnStock({ workspace, query: url.searchParams, access });
+    sendJson(response, 200, result);
+    return true;
+  }
   if (url.pathname === "/api/raw-material-rolls") {
     const result = await workspace.rawMaterialInboundRepository.listRawMaterialRolls({ workspace, query: url.searchParams });
     sendJson(response, 200, projectRawMaterialRollReadAccess(result, permissionContext));
