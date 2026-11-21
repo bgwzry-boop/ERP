@@ -141,6 +141,7 @@ export function OfficeInboundFlow({
         {step === "complete" ? (
           <>
             <p className="office-inbound-note">不用填已贴张数。这一下表示整单标签都已贴上，不是按识别出来的行数入库。</p>
+            {!completion.allowed && completion.reason ? <p className="office-inbound-note" role="status">{completion.reason}</p> : null}
             <button
               className="primary-action"
               disabled={Boolean(attachState?.disabled) || !completion.allowed || completing}
